@@ -44,6 +44,9 @@ DELAY_MAX = 60
 HEARTBEAT_INTERVAL = 10  # check every 10 seconds
 HEARTBEAT_TIMEOUT = 80   # kill program after 80 seconds of no response
 
+# Retry: when Scholar blocks a citation fetch, retry with fresh session
+MAX_RETRIES = 3
+
 
 def rand_delay():
     """Return a random delay between DELAY_MIN and DELAY_MAX seconds."""
@@ -980,33 +983,53 @@ class PaperCitationFetcher:
             print(f"[{idx}/{len(publications)}] {title[:55]}...")
             print(f"  {action}")
 
-            try:
-                self._refresh_scholarly_session()
-                citations = self._fetch_citations_with_progress(
-                    citedby_url, cache_path, title, num_citations,
-                    pub_url, pub.get('year', 'N/A'), resume_from
-                )
-                print(f"  Done: {len(citations)} citations cached")
-            except TimeoutError:
-                print(f"\nScholar unresponsive, stopping. Progress saved for resume.")
-                if os.path.exists(cache_path):
-                    with open(cache_path, 'r', encoding='utf-8') as f:
-                        latest = json.load(f)
-                    citations = latest.get('citations', [])
-                else:
-                    citations = []
-                results.append({'pub': pub, 'citations': citations})
-                break
-            except Exception as e:
-                print(f"  Error: {e}")
-                traceback.print_exc()
-                if os.path.exists(cache_path):
-                    with open(cache_path, 'r', encoding='utf-8') as f:
-                        latest = json.load(f)
-                    citations = latest.get('citations', [])
-                    print(f"  Using saved progress ({len(citations)} citations)")
-                else:
-                    citations = []
+            citations = None
+            for attempt in range(1, MAX_RETRIES + 1):
+                try:
+                    self._refresh_scholarly_session()
+                    if attempt > 1:
+                        # Reload cache in case previous attempt saved partial progress
+                        latest_cache = self._load_citation_cache(title)
+                        if latest_cache and latest_cache.get('num_citations_cached') == num_citations:
+                            resume_from = latest_cache.get('citations', [])
+                            print(f"  Retrying with {len(resume_from)} cached citations from previous attempt")
+                        d = rand_delay()
+                        print(f"  Waiting {d:.0f}s before retry...", flush=True)
+                        time.sleep(d)
+                    citations = self._fetch_citations_with_progress(
+                        citedby_url, cache_path, title, num_citations,
+                        pub_url, pub.get('year', 'N/A'), resume_from
+                    )
+                    print(f"  Done: {len(citations)} citations cached")
+                    break
+                except TimeoutError:
+                    print(f"\n  Scholar unresponsive (attempt {attempt}/{MAX_RETRIES})")
+                    if attempt >= MAX_RETRIES:
+                        print("  Max retries reached, stopping.")
+                        if os.path.exists(cache_path):
+                            with open(cache_path, 'r', encoding='utf-8') as f:
+                                latest = json.load(f)
+                            citations = latest.get('citations', [])
+                        else:
+                            citations = []
+                        results.append({'pub': pub, 'citations': citations})
+                        # Save partial output before exiting
+                        self._save_output(results)
+                        sys.exit(1)
+                    print(f"  Will retry with fresh session...")
+                except Exception as e:
+                    print(f"  Error (attempt {attempt}/{MAX_RETRIES}): {e}")
+                    if attempt >= MAX_RETRIES:
+                        traceback.print_exc()
+                        if os.path.exists(cache_path):
+                            with open(cache_path, 'r', encoding='utf-8') as f:
+                                latest = json.load(f)
+                            citations = latest.get('citations', [])
+                            print(f"  Using saved progress ({len(citations)} citations)")
+                        else:
+                            citations = []
+                        break
+                    print(f"  Will retry with fresh session...")
 
             results.append({'pub': pub, 'citations': citations})
 
@@ -1016,6 +1039,12 @@ class PaperCitationFetcher:
                 time.sleep(d)
 
         # Save output
+        self._save_output(results)
+
+        return True
+
+    def _save_output(self, results):
+        """Save citation results to JSON and Excel."""
         print("\n" + "=" * 70)
         total_cites = sum(len(r['citations']) for r in results)
         with open(self.out_json, 'w', encoding='utf-8') as f:
