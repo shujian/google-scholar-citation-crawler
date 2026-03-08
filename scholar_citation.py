@@ -23,8 +23,6 @@ import sys
 import argparse
 import hashlib
 import random
-import threading
-import _thread
 import traceback
 from datetime import datetime
 from scholarly import scholarly, ProxyGenerator
@@ -40,10 +38,6 @@ from openpyxl.styles import Font, PatternFill, Alignment
 # Unified delay: all deliberate waits use a random value in this range
 DELAY_MIN = 30
 DELAY_MAX = 60
-
-# Heartbeat: monitor for stalled Scholar requests
-HEARTBEAT_INTERVAL = 10  # check every 10 seconds
-HEARTBEAT_TIMEOUT = 80   # kill program after 80 seconds of no response
 
 # Retry: when Scholar blocks a citation fetch, retry with fresh session
 MAX_RETRIES = 3
@@ -600,11 +594,6 @@ class PaperCitationFetcher:
         self.skip = skip
         self.save_every = save_every
 
-        # Flag: during deliberate waits (pagination/year switching), heartbeat should not warn
-        self._deliberately_waiting = False
-        # Timestamp of last Scholar activity, shared with heartbeat thread
-        self._last_activity = time.time()
-
         # Paths
         self.cache_dir = os.path.join(output_dir, "scholar_cache", f"author_{author_id}", "citations")
         self.pubs_cache = os.path.join(output_dir, "scholar_cache", f"author_{author_id}", "publications.json")
@@ -613,18 +602,37 @@ class PaperCitationFetcher:
         self.out_xlsx = os.path.join(output_dir, f"author_{author_id}_paper_citations.xlsx")
         os.makedirs(self.cache_dir, exist_ok=True)
 
-    def _patch_scholarly_page_delay(self):
+    def _patch_scholarly(self):
         """
         Monkey-patch scholarly internals for rate-limit safety:
-        1. Add random delays between pagination requests
-        2. Add random delays between year segments in _citedby_long
-        3. Override scholarly's internal 403/DOS retry waits to use our
-           delay range (30-60s) and mark them as deliberate waits so the
-           heartbeat thread won't mistake them for stalls
+        1. Patch _get_page to wait 30-60s before EVERY HTTP request
+           (replaces scholarly's default 1-2s pre-request delay and
+           60-120s retry delay with our unified range)
+        2. Track pagination page numbers for logging
+        3. Log year-segment switches in _citedby_long
         """
-        fetcher = self
+        # --- Patch 1: _get_page pre-request delay ---
+        # scholarly's _get_page has random.uniform(1,2) before each request
+        # and random.uniform(60,120) for 403/DOS retries. We replace ALL
+        # time.sleep calls inside _get_page with our 30-60s delay.
+        nav = scholarly._Scholarly__nav
+        original_get_page = nav._get_page
 
-        # --- Patch 1: pagination delay ---
+        def patched_get_page(pagerequest, premium=False):
+            original_sleep = time.sleep
+            def unified_sleep(seconds):
+                d = rand_delay()
+                print(f"      Waiting {d:.0f}s before request...", flush=True)
+                original_sleep(d)
+            time.sleep = unified_sleep
+            try:
+                return original_get_page(pagerequest, premium)
+            finally:
+                time.sleep = original_sleep
+
+        nav._get_page = patched_get_page
+
+        # --- Patch 2: pagination page tracking ---
         original_load_url = _SearchScholarIterator._load_url
         original_init = _SearchScholarIterator.__init__
 
@@ -635,63 +643,24 @@ class PaperCitationFetcher:
         def patched_load_url(self, url):
             self._page_num = getattr(self, '_page_num', 0) + 1
             if self._page_num > 1:
-                d = rand_delay()
-                print(f"      Pagination (page {self._page_num}), waiting {d:.0f}s...", flush=True)
-                fetcher._deliberately_waiting = True
-                time.sleep(d)
-                fetcher._deliberately_waiting = False
-                fetcher._last_activity = time.time()
+                print(f"      Pagination (page {self._page_num})", flush=True)
             return original_load_url(self, url)
 
         _SearchScholarIterator.__init__ = patched_init
         _SearchScholarIterator._load_url = patched_load_url
 
-        # --- Patch 2: year-segment delay in _citedby_long ---
+        # --- Patch 3: year-segment logging in _citedby_long ---
         original_citedby_long = scholarly._citedby_long
 
         def patched_citedby_long(obj, years):
             first = True
             for y_hi, y_lo in years:
                 if not first:
-                    d = rand_delay()
-                    print(f"      Switching year range {y_lo}-{y_hi}, waiting {d:.0f}s...", flush=True)
-                    fetcher._deliberately_waiting = True
-                    time.sleep(d)
-                    fetcher._deliberately_waiting = False
-                    fetcher._last_activity = time.time()
+                    print(f"      Switching year range {y_lo}-{y_hi}", flush=True)
                 first = False
                 yield from original_citedby_long(obj, [(y_hi, y_lo)])
 
         scholarly._citedby_long = patched_citedby_long
-
-        # --- Patch 3: scholarly navigator 403/DOS retry waits ---
-        # scholarly's _get_page uses random.uniform(60, 120) for 403 and DOS
-        # retries. This conflicts with our heartbeat timeout (80s) and is
-        # inconsistent with our 30-60s delay policy. Patch time.sleep inside
-        # _get_page to use our delay range and mark as deliberate wait.
-        nav = scholarly._Scholarly__nav
-        original_get_page = nav._get_page
-
-        def patched_get_page(pagerequest, premium=False):
-            original_sleep = time.sleep
-            def deliberate_sleep(seconds):
-                if seconds > 5:
-                    # This is a 403/DOS retry wait — use our delay range
-                    d = rand_delay()
-                    print(f"      Scholar retry wait, waiting {d:.0f}s...", flush=True)
-                    fetcher._deliberately_waiting = True
-                    original_sleep(d)
-                    fetcher._deliberately_waiting = False
-                    fetcher._last_activity = time.time()
-                else:
-                    original_sleep(seconds)
-            time.sleep = deliberate_sleep
-            try:
-                return original_get_page(pagerequest, premium)
-            finally:
-                time.sleep = original_sleep
-
-        nav._get_page = patched_get_page
 
     @staticmethod
     def _refresh_scholarly_session():
@@ -750,52 +719,17 @@ class PaperCitationFetcher:
             },
         }
 
-        # Resume optimization: for papers with <=1000 citations, use &start=N
-        if skip_count > 0 and num_citations <= 1000:
-            start_offset = (skip_count // 10) * 10
-            if start_offset > 0:
-                pub_obj['citedby_url'] = citedby_url + '&start={}'.format(start_offset)
-                skip_count = skip_count - start_offset
-                print(f"  Resuming from item {start_offset + 1} (skipping {start_offset // 10} pages)", flush=True)
+        if skip_count > 0:
+            print(f"  Skipping {skip_count} already cached citations...", flush=True)
 
         skipped = 0
 
-        # Heartbeat thread: monitor for stalled Scholar requests
-        self._last_activity = time.time()
-        heartbeat_stop = threading.Event()
-        timeout_triggered = threading.Event()
-
-        def heartbeat():
-            while not heartbeat_stop.is_set():
-                time.sleep(HEARTBEAT_INTERVAL)
-                if heartbeat_stop.is_set():
-                    break
-                if self._deliberately_waiting:
-                    continue
-                elapsed = time.time() - self._last_activity
-                if elapsed >= HEARTBEAT_TIMEOUT:
-                    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    print(f"\n  Scholar unresponsive for {HEARTBEAT_TIMEOUT}s", flush=True)
-                    print(f"    Time: {now}", flush=True)
-                    print(f"    Collected {len(citations)} citations, progress saved", flush=True)
-                    save_progress(complete=False)
-                    timeout_triggered.set()
-                    # Interrupt main thread's blocking call to allow retry
-                    _thread.interrupt_main()
-                    break
-                elif elapsed >= HEARTBEAT_INTERVAL:
-                    print(f"  Waiting for Scholar response... ({int(elapsed)}s elapsed, possible rate limit)", flush=True)
-
-        t = threading.Thread(target=heartbeat, daemon=True)
-        t.start()
-
         try:
             for citing in scholarly.citedby(pub_obj):
-                if timeout_triggered.is_set():
-                    break
-                self._last_activity = time.time()
                 if skipped < skip_count:
                     skipped += 1
+                    if skipped % 10 == 0:
+                        print(f"  Skipped {skipped}/{skip_count}...", flush=True)
                     continue
 
                 info = self._extract_citation_info(citing)
@@ -808,15 +742,8 @@ class PaperCitationFetcher:
                     save_progress(complete=False)
                     print(f"  Progress saved ({count} citations)", flush=True)
         except KeyboardInterrupt:
-            if timeout_triggered.is_set():
-                pass  # Will raise TimeoutError below
-            else:
-                raise  # Real user interrupt, propagate
-        finally:
-            heartbeat_stop.set()
-
-        if timeout_triggered.is_set():
-            raise TimeoutError(f"Scholar unresponsive for {HEARTBEAT_TIMEOUT}s")
+            save_progress(complete=False)
+            raise
 
         save_progress(complete=True)
         return citations
@@ -925,7 +852,7 @@ class PaperCitationFetcher:
         print(f"  Author ID: {self.author_id}{limit_str}{skip_str}")
         print("=" * 70 + "\n")
 
-        self._patch_scholarly_page_delay()
+        self._patch_scholarly()
 
         # Load profile
         if not os.path.exists(self.profile_json):
@@ -1043,21 +970,6 @@ class PaperCitationFetcher:
                     )
                     print(f"  Done: {len(citations)} citations cached")
                     break
-                except TimeoutError:
-                    print(f"\n  Scholar unresponsive (attempt {attempt}/{MAX_RETRIES})")
-                    if attempt >= MAX_RETRIES:
-                        print("  Max retries reached, stopping.")
-                        if os.path.exists(cache_path):
-                            with open(cache_path, 'r', encoding='utf-8') as f:
-                                latest = json.load(f)
-                            citations = latest.get('citations', [])
-                        else:
-                            citations = []
-                        results.append({'pub': pub, 'citations': citations})
-                        # Save partial output before exiting
-                        self._save_output(results)
-                        sys.exit(1)
-                    print(f"  Will retry with fresh session...")
                 except Exception as e:
                     print(f"  Error (attempt {attempt}/{MAX_RETRIES}): {e}")
                     if attempt >= MAX_RETRIES:
