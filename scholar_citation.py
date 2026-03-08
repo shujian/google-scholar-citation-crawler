@@ -706,7 +706,8 @@ class PaperCitationFetcher:
                     'title': title,
                     'pub_url': pub_url,
                     'citedby_url': citedby_url,
-                    'num_citations_cached': num_citations,
+                    'num_citations_on_scholar': num_citations,
+                    'num_citations_cached': len(citations),
                     'complete': complete,
                     'fetched_at': datetime.now().isoformat(),
                     'citations': citations,
@@ -831,7 +832,7 @@ class PaperCitationFetcher:
         cached = self._load_citation_cache(pub['title'])
         if not cached:
             return 'missing'
-        if cached.get('complete') and cached.get('num_citations_cached') == pub['num_citations']:
+        if cached.get('complete') and cached.get('num_citations_on_scholar', cached.get('num_citations_cached')) == pub['num_citations']:
             return 'complete'
         return 'partial'
 
@@ -945,12 +946,12 @@ class PaperCitationFetcher:
                 results.append({'pub': pub, 'citations': cached['citations'] if cached else []})
                 continue
 
-            if st == 'partial' and cached.get('num_citations_cached') == num_citations:
+            if st == 'partial' and cached.get('num_citations_on_scholar', cached.get('num_citations_cached')) == num_citations:
                 resume_from = cached.get('citations', [])
                 action = f"resume ({len(resume_from)} cached, fetching remaining)"
             else:
                 resume_from = []
-                old = cached.get('num_citations_cached', 0) if cached else 0
+                old = cached.get('num_citations_on_scholar', cached.get('num_citations_cached', 0)) if cached else 0
                 action = f"re-fetch (citations {old} -> {num_citations})" if cached else "first fetch"
 
             print(f"[{idx}/{len(publications)}] {title[:55]}...")
@@ -963,7 +964,7 @@ class PaperCitationFetcher:
                     if attempt > 1:
                         # Reload cache in case previous attempt saved partial progress
                         latest_cache = self._load_citation_cache(title)
-                        if latest_cache and latest_cache.get('num_citations_cached') == num_citations:
+                        if latest_cache and latest_cache.get('num_citations_on_scholar', latest_cache.get('num_citations_cached')) == num_citations:
                             resume_from = latest_cache.get('citations', [])
                             print(f"  Retrying with {len(resume_from)} cached citations from previous attempt")
                         d = rand_delay()
