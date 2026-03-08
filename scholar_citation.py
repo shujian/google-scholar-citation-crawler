@@ -613,6 +613,7 @@ class PaperCitationFetcher:
         3. Log year-segment switches in _citedby_long
         """
         nav = scholarly._Scholarly__nav
+        nav._set_retries(2)
         original_get_page = nav._get_page
 
         # --- Patch 1: _get_page pre-request delay ---
@@ -633,22 +634,24 @@ class PaperCitationFetcher:
         # --- Patch 2: pagination tracking + session refresh ---
         original_load_url = _SearchScholarIterator._load_url
         original_init = _SearchScholarIterator.__init__
-        page_counter = [0]  # global page counter across all iterators
+        self._total_page_count = 0
 
         def patched_init(self, nav, url):
             self._page_num = 0
             return original_init(self, nav, url)
 
+        fetcher_self = self  # capture for closure
+
         def patched_load_url(self_iter, url):
             self_iter._page_num = getattr(self_iter, '_page_num', 0) + 1
-            page_counter[0] += 1
+            fetcher_self._total_page_count += 1
             if self_iter._page_num > 1:
                 print(f"      Pagination (page {self_iter._page_num})", flush=True)
             # Proactively refresh session every N pages to avoid
             # Scholar's session-based bot detection
-            if page_counter[0] > 1 and page_counter[0] % SESSION_REFRESH_INTERVAL == 0:
-                print(f"      Refreshing session (after {page_counter[0]} pages)...", flush=True)
-                self._refresh_scholarly_session()
+            if fetcher_self._total_page_count > 1 and fetcher_self._total_page_count % SESSION_REFRESH_INTERVAL == 0:
+                print(f"      Refreshing session (after {fetcher_self._total_page_count} pages)...", flush=True)
+                fetcher_self._refresh_scholarly_session()
             return original_load_url(self_iter, url)
 
         _SearchScholarIterator.__init__ = patched_init
@@ -967,9 +970,6 @@ class PaperCitationFetcher:
                         if latest_cache and latest_cache.get('num_citations_on_scholar', latest_cache.get('num_citations_cached')) == num_citations:
                             resume_from = latest_cache.get('citations', [])
                             print(f"  Retrying with {len(resume_from)} cached citations from previous attempt")
-                        d = rand_delay()
-                        print(f"  Waiting {d:.0f}s before retry...", flush=True)
-                        time.sleep(d)
                     citations = self._fetch_citations_with_progress(
                         citedby_url, cache_path, title, num_citations,
                         pub_url, pub.get('year', 'N/A'), resume_from
@@ -977,18 +977,30 @@ class PaperCitationFetcher:
                     print(f"  Done: {len(citations)} citations cached")
                     break
                 except Exception as e:
-                    print(f"  Error (attempt {attempt}/{MAX_RETRIES}): {e}")
+                    print(f"  Error (attempt {attempt}/{MAX_RETRIES}, total pages fetched: {self._total_page_count}): {e}")
                     if attempt >= MAX_RETRIES:
+                        # Final attempt failed — print time and terminate
                         traceback.print_exc()
+                        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        print(f"\n  All retry attempts exhausted at {now}. Terminating.", flush=True)
+                        # Save whatever we have before exiting
+                        self._save_output(results)
+                        sys.exit(1)
+                    elif attempt == MAX_RETRIES - 1:
+                        # Second failure — save progress, then wait 6 hours
                         if os.path.exists(cache_path):
                             with open(cache_path, 'r', encoding='utf-8') as f:
                                 latest = json.load(f)
-                            citations = latest.get('citations', [])
-                            print(f"  Using saved progress ({len(citations)} citations)")
-                        else:
-                            citations = []
-                        break
-                    print(f"  Will retry with fresh session...")
+                            saved_count = len(latest.get('citations', []))
+                            print(f"  Saved progress ({saved_count} citations)")
+                        wait_hours = 6
+                        print(f"  Will retry with fresh session after {wait_hours} hours...", flush=True)
+                        time.sleep(wait_hours * 3600)
+                    else:
+                        # First failure — wait 3 hours
+                        wait_hours = 3
+                        print(f"  Will retry with fresh session after {wait_hours} hours...", flush=True)
+                        time.sleep(wait_hours * 3600)
 
             results.append({'pub': pub, 'citations': citations})
 

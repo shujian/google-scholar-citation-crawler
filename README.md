@@ -71,8 +71,10 @@ After running, you'll find these files in the output directory:
 Google Scholar aggressively rate-limits automated requests. This tool uses several strategies:
 
 - **Randomized delays**: All waits between requests are randomized (30-60s) to appear human-like
-- **Session refresh**: Clears cookies between papers to avoid tracking
-- **Heartbeat**: Monitors response time every 10s; if Scholar is unresponsive for 80s, saves progress and terminates the program
+- **Session refresh**: Proactively refreshes session every 5 pages to avoid session-based bot detection
+- **Reduced internal retries**: Scholar library retries limited to 2 per page to fail fast
+- **Graduated retry**: On failure, waits 3 hours then retries; if still failing, saves progress, waits 6 hours, retries once more; terminates if all attempts fail
+- **Page counter**: Tracks total pages fetched for diagnostics
 
 **Proxy support**: Set `http_proxy` / `https_proxy` environment variables. The tool will auto-detect and configure them.
 
