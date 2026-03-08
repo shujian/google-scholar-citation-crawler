@@ -141,11 +141,12 @@ class AuthorProfileFetcher:
         """
         Phase 1: Fetch author basic info + citation stats.
         force_refresh=True ignores cache and re-fetches.
+        Returns (basics_dict, fetched_from_network).
         """
         if not force_refresh:
             cached = self.load_basics_cache()
             if cached:
-                return cached
+                return cached, False
 
         print("\nPhase 1: Fetching author basic info...")
         print(f"  Author ID: {self.author_id}")
@@ -189,12 +190,12 @@ class AuthorProfileFetcher:
             self.save_basics_cache(basics)
             print("Basic info cached")
 
-            return basics
+            return basics, True
 
         except Exception as e:
             print(f"Failed to fetch basic info: {e}")
             traceback.print_exc()
-            return None
+            return None, False
 
     def fetch_publications(self, force_refresh=False):
         """
@@ -538,14 +539,16 @@ class AuthorProfileFetcher:
             print("No previous profile found, this is the first fetch")
 
         # Phase 1: Basic info
-        basics = self.fetch_basics(force_refresh=force_refresh_basics)
+        basics, basics_fetched = self.fetch_basics(force_refresh=force_refresh_basics)
         if not basics:
             print("Failed to fetch basic info, exiting")
             return False
 
-        d = rand_delay()
-        print(f"\nWaiting {d:.0f} seconds before continuing...")
-        time.sleep(d)
+        # Only wait between phases if we actually made network requests
+        if basics_fetched:
+            d = rand_delay()
+            print(f"\nWaiting {d:.0f} seconds before continuing...")
+            time.sleep(d)
 
         # Phase 2: Publications
         publications = self.fetch_publications(force_refresh=force_refresh_pubs)
