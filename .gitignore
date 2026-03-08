@@ -1,0 +1,23 @@
+# Output files
+output/
+
+# Scholar cache
+scholar_cache/
+
+# Personal example script
+examples/run_my_author.sh
+
+# Work notes (personal, not synced)
+WORK_NOTES.md
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
