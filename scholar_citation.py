@@ -24,6 +24,7 @@ import argparse
 import hashlib
 import random
 import threading
+import _thread
 import traceback
 from datetime import datetime
 from scholarly import scholarly, ProxyGenerator
@@ -614,12 +615,16 @@ class PaperCitationFetcher:
 
     def _patch_scholarly_page_delay(self):
         """
-        Monkey-patch scholarly's pagination to add random delays.
-        Without this, scholarly fires consecutive requests that trigger Scholar rate limiting.
-        Also patches _citedby_long to add delays between year segments.
+        Monkey-patch scholarly internals for rate-limit safety:
+        1. Add random delays between pagination requests
+        2. Add random delays between year segments in _citedby_long
+        3. Override scholarly's internal 403/DOS retry waits to use our
+           delay range (30-60s) and mark them as deliberate waits so the
+           heartbeat thread won't mistake them for stalls
         """
         fetcher = self
 
+        # --- Patch 1: pagination delay ---
         original_load_url = _SearchScholarIterator._load_url
         original_init = _SearchScholarIterator.__init__
 
@@ -641,6 +646,7 @@ class PaperCitationFetcher:
         _SearchScholarIterator.__init__ = patched_init
         _SearchScholarIterator._load_url = patched_load_url
 
+        # --- Patch 2: year-segment delay in _citedby_long ---
         original_citedby_long = scholarly._citedby_long
 
         def patched_citedby_long(obj, years):
@@ -657,6 +663,35 @@ class PaperCitationFetcher:
                 yield from original_citedby_long(obj, [(y_hi, y_lo)])
 
         scholarly._citedby_long = patched_citedby_long
+
+        # --- Patch 3: scholarly navigator 403/DOS retry waits ---
+        # scholarly's _get_page uses random.uniform(60, 120) for 403 and DOS
+        # retries. This conflicts with our heartbeat timeout (80s) and is
+        # inconsistent with our 30-60s delay policy. Patch time.sleep inside
+        # _get_page to use our delay range and mark as deliberate wait.
+        nav = scholarly._Scholarly__nav
+        original_get_page = nav._get_page
+
+        def patched_get_page(pagerequest, premium=False):
+            original_sleep = time.sleep
+            def deliberate_sleep(seconds):
+                if seconds > 5:
+                    # This is a 403/DOS retry wait — use our delay range
+                    d = rand_delay()
+                    print(f"      Scholar retry wait, waiting {d:.0f}s...", flush=True)
+                    fetcher._deliberately_waiting = True
+                    original_sleep(d)
+                    fetcher._deliberately_waiting = False
+                    fetcher._last_activity = time.time()
+                else:
+                    original_sleep(seconds)
+            time.sleep = deliberate_sleep
+            try:
+                return original_get_page(pagerequest, premium)
+            finally:
+                time.sleep = original_sleep
+
+        nav._get_page = patched_get_page
 
     @staticmethod
     def _refresh_scholarly_session():
@@ -740,13 +775,14 @@ class PaperCitationFetcher:
                 elapsed = time.time() - self._last_activity
                 if elapsed >= HEARTBEAT_TIMEOUT:
                     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    print(f"\n  Scholar unresponsive for {HEARTBEAT_TIMEOUT}s, terminating program", flush=True)
+                    print(f"\n  Scholar unresponsive for {HEARTBEAT_TIMEOUT}s", flush=True)
                     print(f"    Time: {now}", flush=True)
                     print(f"    Collected {len(citations)} citations, progress saved", flush=True)
                     save_progress(complete=False)
                     timeout_triggered.set()
-                    # Force exit the entire process
-                    os._exit(1)
+                    # Interrupt main thread's blocking call to allow retry
+                    _thread.interrupt_main()
+                    break
                 elif elapsed >= HEARTBEAT_INTERVAL:
                     print(f"  Waiting for Scholar response... ({int(elapsed)}s elapsed, possible rate limit)", flush=True)
 
@@ -771,6 +807,11 @@ class PaperCitationFetcher:
                 if count % self.save_every == 0:
                     save_progress(complete=False)
                     print(f"  Progress saved ({count} citations)", flush=True)
+        except KeyboardInterrupt:
+            if timeout_triggered.is_set():
+                pass  # Will raise TimeoutError below
+            else:
+                raise  # Real user interrupt, propagate
         finally:
             heartbeat_stop.set()
 
