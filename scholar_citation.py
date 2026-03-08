@@ -26,6 +26,7 @@ import random
 import traceback
 from datetime import datetime
 from scholarly import scholarly, ProxyGenerator
+from scholarly._proxy_generator import MaxTriesExceededException
 from scholarly.publication_parser import _SearchScholarIterator
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -613,13 +614,21 @@ class PaperCitationFetcher:
         3. Log year-segment switches in _citedby_long
         """
         nav = scholarly._Scholarly__nav
-        nav._set_retries(2)
+        nav._set_retries(1)
         original_get_page = nav._get_page
 
-        # --- Patch 1: _get_page pre-request delay ---
+        # --- Patch 1: _get_page pre-request delay + retry limit ---
+        MAX_SLEEPS_PER_PAGE = 3  # max retries within a single _get_page call
+
         def patched_get_page(pagerequest, premium=False):
+            sleep_count = [0]
             original_sleep = time.sleep
             def unified_sleep(seconds):
+                sleep_count[0] += 1
+                if sleep_count[0] > MAX_SLEEPS_PER_PAGE:
+                    time.sleep = original_sleep
+                    raise MaxTriesExceededException(
+                        f"Too many retries ({sleep_count[0]}) for single page request")
                 d = rand_delay()
                 print(f"      Waiting {d:.0f}s before request...", flush=True)
                 original_sleep(d)
@@ -657,16 +666,23 @@ class PaperCitationFetcher:
         _SearchScholarIterator.__init__ = patched_init
         _SearchScholarIterator._load_url = patched_load_url
 
-        # --- Patch 3: year-segment logging in _citedby_long ---
+        # --- Patch 3: year-segment tracking in _citedby_long ---
         original_citedby_long = scholarly._citedby_long
+        self._current_year_segment = None       # year being processed
+        self._completed_year_segments = set()   # years fully fetched
 
         def patched_citedby_long(obj, years):
             first = True
             for y_hi, y_lo in years:
+                if y_lo in fetcher_self._completed_year_segments:
+                    print(f"      Skipping completed year {y_lo}", flush=True)
+                    continue
                 if not first:
                     print(f"      Switching year range {y_lo}-{y_hi}", flush=True)
                 first = False
+                fetcher_self._current_year_segment = y_lo
                 yield from original_citedby_long(obj, [(y_hi, y_lo)])
+                fetcher_self._completed_year_segments.add(y_lo)
 
         scholarly._citedby_long = patched_citedby_long
 
@@ -695,13 +711,18 @@ class PaperCitationFetcher:
         }
 
     def _fetch_citations_with_progress(self, citedby_url, cache_path, title,
-                                        num_citations, pub_url, pub_year, resume_from):
+                                        num_citations, pub_url, pub_year, resume_from,
+                                        completed_years=None):
         """
         Stream-fetch citations with periodic progress saves.
         resume_from: previously saved citation list (for resume after interruption).
+        completed_years: list of years already fully fetched (for resume).
         """
         citations = list(resume_from)
-        skip_count = len(resume_from)
+
+        # Load completed years into patch state for _citedby_long to skip
+        self._completed_year_segments = set(completed_years or [])
+        self._current_year_segment = None
 
         def save_progress(complete):
             with open(cache_path, 'w', encoding='utf-8') as f:
@@ -712,10 +733,19 @@ class PaperCitationFetcher:
                     'num_citations_on_scholar': num_citations,
                     'num_citations_cached': len(citations),
                     'complete': complete,
+                    'completed_years': sorted(self._completed_year_segments),
                     'fetched_at': datetime.now().isoformat(),
                     'citations': citations,
                 }, f, ensure_ascii=False, indent=2)
 
+        # Resume path: query by year, skip completed years, use start_index
+        if len(citations) > 0:
+            return self._resume_by_year(
+                citedby_url, citations, save_progress,
+                num_citations, pub_year
+            )
+
+        # Fresh fetch: use scholarly.citedby() normally
         pub_obj = {
             'citedby_url': citedby_url,
             'container_type': 'Publication',
@@ -728,19 +758,8 @@ class PaperCitationFetcher:
             },
         }
 
-        if skip_count > 0:
-            print(f"  Skipping {skip_count} already cached citations...", flush=True)
-
-        skipped = 0
-
         try:
             for citing in scholarly.citedby(pub_obj):
-                if skipped < skip_count:
-                    skipped += 1
-                    if skipped % 10 == 0:
-                        print(f"  Skipped {skipped}/{skip_count}...", flush=True)
-                    continue
-
                 info = self._extract_citation_info(citing)
                 citations.append(info)
                 count = len(citations)
@@ -750,6 +769,89 @@ class PaperCitationFetcher:
                 if count % self.save_every == 0:
                     save_progress(complete=False)
                     print(f"  Progress saved ({count} citations)", flush=True)
+        except KeyboardInterrupt:
+            save_progress(complete=False)
+            raise
+
+        save_progress(complete=True)
+        return citations
+
+    def _resume_by_year(self, citedby_url, citations, save_progress,
+                        num_citations, pub_year):
+        """
+        Resume fetching by querying year-by-year, skipping completed years
+        and using start_index within partially completed years.
+        """
+        import re as _re
+        m = _re.search(r"cites=([\d,]+)", citedby_url)
+        if not m:
+            raise ValueError(f"Cannot extract publication ID from citedby_url: {citedby_url}")
+        pub_id = m.group(1)
+
+        # Build year -> cached count from existing citations
+        year_counts = {}
+        for c in citations:
+            y = c.get('year', 'N/A')
+            if y and y != 'N/A' and y != 'NA':
+                try:
+                    year_counts[int(y)] = year_counts.get(int(y), 0) + 1
+                except ValueError:
+                    pass
+
+        current_year = datetime.now().year
+        try:
+            start_year = int(pub_year) if pub_year and pub_year not in ('N/A', '?') else None
+        except (ValueError, TypeError):
+            start_year = None
+        if start_year is None:
+            # Fallback: earliest year in cached citations, minus 1
+            if year_counts:
+                start_year = min(year_counts.keys()) - 1
+            else:
+                start_year = current_year - 30
+
+        total_years = current_year - start_year + 1
+        skipped_years = 0
+
+        print(f"  Year-based resume: {start_year}-{current_year} "
+              f"({len(self._completed_year_segments)} years already done)", flush=True)
+
+        try:
+            for year in range(current_year, start_year - 1, -1):
+                if year in self._completed_year_segments:
+                    skipped_years += 1
+                    continue
+
+                cached_for_year = year_counts.get(year, 0)
+                start_index = cached_for_year
+
+                if start_index > 0:
+                    print(f"      Year {year}: resuming from position {start_index}", flush=True)
+                else:
+                    print(f"      Year {year}: fetching", flush=True)
+
+                year_new_count = 0
+                for citing in scholarly.search_citedby(pub_id,
+                                                       year_low=year, year_high=year,
+                                                       start_index=start_index):
+                    info = self._extract_citation_info(citing)
+                    citations.append(info)
+                    year_new_count += 1
+                    count = len(citations)
+
+                    print(f"  [{count}] {info['title'][:55]}...", flush=True)
+
+                    if count % self.save_every == 0:
+                        save_progress(complete=False)
+                        print(f"  Progress saved ({count} citations)", flush=True)
+
+                self._completed_year_segments.add(year)
+                if year_new_count > 0 or cached_for_year > 0:
+                    print(f"      Year {year} done: {cached_for_year + year_new_count} citations "
+                          f"({year_new_count} new)", flush=True)
+                # Save after each completed year
+                save_progress(complete=False)
+
         except KeyboardInterrupt:
             save_progress(complete=False)
             raise
@@ -951,9 +1053,11 @@ class PaperCitationFetcher:
 
             if st == 'partial' and cached.get('num_citations_on_scholar', cached.get('num_citations_cached')) == num_citations:
                 resume_from = cached.get('citations', [])
+                completed_years = cached.get('completed_years', [])
                 action = f"resume ({len(resume_from)} cached, fetching remaining)"
             else:
                 resume_from = []
+                completed_years = []
                 old = cached.get('num_citations_on_scholar', cached.get('num_citations_cached', 0)) if cached else 0
                 action = f"re-fetch (citations {old} -> {num_citations})" if cached else "first fetch"
 
@@ -969,10 +1073,12 @@ class PaperCitationFetcher:
                         latest_cache = self._load_citation_cache(title)
                         if latest_cache and latest_cache.get('num_citations_on_scholar', latest_cache.get('num_citations_cached')) == num_citations:
                             resume_from = latest_cache.get('citations', [])
+                            completed_years = latest_cache.get('completed_years', [])
                             print(f"  Retrying with {len(resume_from)} cached citations from previous attempt")
                     citations = self._fetch_citations_with_progress(
                         citedby_url, cache_path, title, num_citations,
-                        pub_url, pub.get('year', 'N/A'), resume_from
+                        pub_url, pub.get('year', 'N/A'), resume_from,
+                        completed_years=completed_years
                     )
                     print(f"  Done: {len(citations)} citations cached")
                     break
