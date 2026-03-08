@@ -39,6 +39,9 @@ from openpyxl.styles import Font, PatternFill, Alignment
 DELAY_MIN = 30
 DELAY_MAX = 60
 
+# Proactively refresh session every N pages to avoid session-based blocking
+SESSION_REFRESH_INTERVAL = 5
+
 # Retry: when Scholar blocks a citation fetch, retry with fresh session
 MAX_RETRIES = 3
 
@@ -606,18 +609,13 @@ class PaperCitationFetcher:
         """
         Monkey-patch scholarly internals for rate-limit safety:
         1. Patch _get_page to wait 30-60s before EVERY HTTP request
-           (replaces scholarly's default 1-2s pre-request delay and
-           60-120s retry delay with our unified range)
-        2. Track pagination page numbers for logging
+        2. Track pagination and proactively refresh session every N pages
         3. Log year-segment switches in _citedby_long
         """
-        # --- Patch 1: _get_page pre-request delay ---
-        # scholarly's _get_page has random.uniform(1,2) before each request
-        # and random.uniform(60,120) for 403/DOS retries. We replace ALL
-        # time.sleep calls inside _get_page with our 30-60s delay.
         nav = scholarly._Scholarly__nav
         original_get_page = nav._get_page
 
+        # --- Patch 1: _get_page pre-request delay ---
         def patched_get_page(pagerequest, premium=False):
             original_sleep = time.sleep
             def unified_sleep(seconds):
@@ -632,19 +630,26 @@ class PaperCitationFetcher:
 
         nav._get_page = patched_get_page
 
-        # --- Patch 2: pagination page tracking ---
+        # --- Patch 2: pagination tracking + session refresh ---
         original_load_url = _SearchScholarIterator._load_url
         original_init = _SearchScholarIterator.__init__
+        page_counter = [0]  # global page counter across all iterators
 
         def patched_init(self, nav, url):
             self._page_num = 0
             return original_init(self, nav, url)
 
-        def patched_load_url(self, url):
-            self._page_num = getattr(self, '_page_num', 0) + 1
-            if self._page_num > 1:
-                print(f"      Pagination (page {self._page_num})", flush=True)
-            return original_load_url(self, url)
+        def patched_load_url(self_iter, url):
+            self_iter._page_num = getattr(self_iter, '_page_num', 0) + 1
+            page_counter[0] += 1
+            if self_iter._page_num > 1:
+                print(f"      Pagination (page {self_iter._page_num})", flush=True)
+            # Proactively refresh session every N pages to avoid
+            # Scholar's session-based bot detection
+            if page_counter[0] > 1 and page_counter[0] % SESSION_REFRESH_INTERVAL == 0:
+                print(f"      Refreshing session (after {page_counter[0]} pages)...", flush=True)
+                self._refresh_scholarly_session()
+            return original_load_url(self_iter, url)
 
         _SearchScholarIterator.__init__ = patched_init
         _SearchScholarIterator._load_url = patched_load_url
