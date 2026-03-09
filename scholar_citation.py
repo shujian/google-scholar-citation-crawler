@@ -768,13 +768,14 @@ class PaperCitationFetcher:
             for citing in scholarly.citedby(pub_obj):
                 info = self._extract_citation_info(citing)
                 citations.append(info)
+                self._new_citations_count += 1
                 count = len(citations)
 
                 print(f"  [{count}] {info['title'][:55]}...", flush=True)
 
                 if count % self.save_every == 0:
                     save_progress(complete=False)
-                    print(f"  Progress saved ({count} citations)", flush=True)
+                    print(f"  Progress saved ({count} citations, {self._new_citations_count} new in this run)", flush=True)
         except KeyboardInterrupt:
             save_progress(complete=False)
             raise
@@ -847,13 +848,14 @@ class PaperCitationFetcher:
                     info = self._extract_citation_info(citing)
                     citations.append(info)
                     year_new_count += 1
+                    self._new_citations_count += 1
                     count = len(citations)
 
                     print(f"  [{count}] {info['title'][:55]}...", flush=True)
 
                     if count % self.save_every == 0:
                         save_progress(complete=False)
-                        print(f"  Progress saved ({count} citations)", flush=True)
+                        print(f"  Progress saved ({count} citations, {self._new_citations_count} new in this run)", flush=True)
 
                 self._completed_year_segments.add(year)
                 if year_new_count > 0 or cached_for_year > 0:
@@ -974,6 +976,7 @@ class PaperCitationFetcher:
         print("=" * 70 + "\n")
 
         self._patch_scholarly()
+        self._new_citations_count = 0  # citations fetched in this run
 
         # Load profile
         if not os.path.exists(self.profile_json):
@@ -1094,12 +1097,14 @@ class PaperCitationFetcher:
                     print(f"  Done: {len(citations)} citations cached")
                     break
                 except Exception as e:
-                    print(f"  Error (attempt {attempt}/{MAX_RETRIES}, total pages fetched: {self._total_page_count}): {e}")
+                    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    print(f"  [{now}] Error (attempt {attempt}/{MAX_RETRIES}, "
+                          f"total pages: {self._total_page_count}, "
+                          f"new citations: {self._new_citations_count}): {e}")
                     if attempt >= MAX_RETRIES:
                         # Final attempt failed — print time and terminate
                         traceback.print_exc()
-                        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        print(f"\n  All retry attempts exhausted at {now}. Terminating.", flush=True)
+                        print(f"\n  [{now}] All retry attempts exhausted. Terminating.", flush=True)
                         # Save whatever we have before exiting
                         self._save_output(results)
                         sys.exit(1)
@@ -1109,14 +1114,14 @@ class PaperCitationFetcher:
                             with open(cache_path, 'r', encoding='utf-8') as f:
                                 latest = json.load(f)
                             saved_count = len(latest.get('citations', []))
-                            print(f"  Saved progress ({saved_count} citations)")
+                            print(f"  [{now}] Saved progress ({saved_count} citations)")
                         wait_hours = 6
-                        print(f"  Will retry with fresh session after {wait_hours} hours...", flush=True)
+                        print(f"  [{now}] Will retry with fresh session after {wait_hours} hours...", flush=True)
                         time.sleep(wait_hours * 3600)
                     else:
                         # First failure — wait 3 hours
                         wait_hours = 3
-                        print(f"  Will retry with fresh session after {wait_hours} hours...", flush=True)
+                        print(f"  [{now}] Will retry with fresh session after {wait_hours} hours...", flush=True)
                         time.sleep(wait_hours * 3600)
 
             results.append({'pub': pub, 'citations': citations})
@@ -1147,7 +1152,8 @@ class PaperCitationFetcher:
 
         self._save_xlsx(results)
         print(f"Saved Excel: {self.out_xlsx}")
-        print(f"\nDone! {len(results)} papers, {total_cites} total citation records\n")
+        print(f"\nDone! {len(results)} papers, {total_cites} total citation records "
+              f"({self._new_citations_count} new in this run)\n")
 
         return True
 
