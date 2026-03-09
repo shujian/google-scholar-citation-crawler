@@ -41,7 +41,11 @@ DELAY_MIN = 30
 DELAY_MAX = 60
 
 # Proactively refresh session every N pages to avoid session-based blocking
-SESSION_REFRESH_INTERVAL = 5
+SESSION_REFRESH_MIN = 10   # refresh session after random 10-20 pages
+SESSION_REFRESH_MAX = 20
+
+# Papers with >= this many citations use year-based fetching for better resume
+YEAR_BASED_THRESHOLD = 50
 
 # Retry: when Scholar blocks a citation fetch, retry with fresh session
 MAX_RETRIES = 3
@@ -644,6 +648,7 @@ class PaperCitationFetcher:
         original_load_url = _SearchScholarIterator._load_url
         original_init = _SearchScholarIterator.__init__
         self._total_page_count = 0
+        self._next_refresh_at = random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
 
         def patched_init(self, nav, url):
             self._page_num = 0
@@ -656,11 +661,11 @@ class PaperCitationFetcher:
             fetcher_self._total_page_count += 1
             if self_iter._page_num > 1:
                 print(f"      Pagination (page {self_iter._page_num})", flush=True)
-            # Proactively refresh session every N pages to avoid
-            # Scholar's session-based bot detection
-            if fetcher_self._total_page_count > 1 and fetcher_self._total_page_count % SESSION_REFRESH_INTERVAL == 0:
+            # Refresh session at randomized intervals (10-20 pages)
+            if fetcher_self._total_page_count >= fetcher_self._next_refresh_at:
                 print(f"      Refreshing session (after {fetcher_self._total_page_count} pages)...", flush=True)
                 fetcher_self._refresh_scholarly_session()
+                fetcher_self._next_refresh_at = fetcher_self._total_page_count + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
             return original_load_url(self_iter, url)
 
         _SearchScholarIterator.__init__ = patched_init
@@ -738,14 +743,15 @@ class PaperCitationFetcher:
                     'citations': citations,
                 }, f, ensure_ascii=False, indent=2)
 
-        # Resume path: query by year, skip completed years, use start_index
-        if len(citations) > 0:
-            return self._resume_by_year(
+        # Year-based fetch: for papers with many citations, fetch by year
+        # so that completed years are tracked and resume is efficient
+        if num_citations >= YEAR_BASED_THRESHOLD:
+            return self._fetch_by_year(
                 citedby_url, citations, save_progress,
                 num_citations, pub_year
             )
 
-        # Fresh fetch: use scholarly.citedby() normally
+        # Simple fetch for small citation counts
         pub_obj = {
             'citedby_url': citedby_url,
             'container_type': 'Publication',
@@ -776,11 +782,11 @@ class PaperCitationFetcher:
         save_progress(complete=True)
         return citations
 
-    def _resume_by_year(self, citedby_url, citations, save_progress,
+    def _fetch_by_year(self, citedby_url, citations, save_progress,
                         num_citations, pub_year):
         """
-        Resume fetching by querying year-by-year, skipping completed years
-        and using start_index within partially completed years.
+        Fetch citations year-by-year. Skips completed years and uses
+        start_index within partially completed years for efficient resume.
         """
         import re as _re
         m = _re.search(r"cites=([\d,]+)", citedby_url)
@@ -824,6 +830,10 @@ class PaperCitationFetcher:
 
                 cached_for_year = year_counts.get(year, 0)
                 start_index = cached_for_year
+
+                # Refresh session on each year switch
+                self._refresh_scholarly_session()
+                self._next_refresh_at = self._total_page_count + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
 
                 if start_index > 0:
                     print(f"      Year {year}: resuming from position {start_index}", flush=True)
@@ -1068,6 +1078,7 @@ class PaperCitationFetcher:
             for attempt in range(1, MAX_RETRIES + 1):
                 try:
                     self._refresh_scholarly_session()
+                    self._next_refresh_at = self._total_page_count + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
                     if attempt > 1:
                         # Reload cache in case previous attempt saved partial progress
                         latest_cache = self._load_citation_cache(title)
