@@ -620,6 +620,7 @@ class PaperCitationFetcher:
         nav = scholarly._Scholarly__nav
         nav._set_retries(1)
         original_get_page = nav._get_page
+        fetcher_self = self  # capture for all closures below
 
         # --- Patch 1: _get_page pre-request delay + retry limit ---
         MAX_SLEEPS_PER_PAGE = 3  # max retries within a single _get_page call
@@ -634,7 +635,9 @@ class PaperCitationFetcher:
                     raise MaxTriesExceededException(
                         f"Too many retries ({sleep_count[0]}) for single page request")
                 d = rand_delay()
-                print(f"      Waiting {d:.0f}s before request...", flush=True)
+                retry_note = f" (retry {sleep_count[0]})" if sleep_count[0] > 1 else ""
+                print(f"      Waiting {d:.0f}s before request{retry_note}... "
+                      f"[{fetcher_self._wait_status()}]", flush=True)
                 original_sleep(d)
             time.sleep = unified_sleep
             try:
@@ -653,8 +656,6 @@ class PaperCitationFetcher:
         def patched_init(self, nav, url):
             self._page_num = 0
             return original_init(self, nav, url)
-
-        fetcher_self = self  # capture for closure
 
         def patched_load_url(self_iter, url):
             self_iter._page_num = getattr(self_iter, '_page_num', 0) + 1
@@ -698,6 +699,22 @@ class PaperCitationFetcher:
         nav._new_session(premium=True)
         nav._new_session(premium=False)
         nav.got_403 = False
+
+    def _elapsed_str(self):
+        """Return human-readable elapsed time since run started."""
+        elapsed = int(time.time() - self._run_start_time)
+        h, m, s = elapsed // 3600, (elapsed % 3600) // 60, elapsed % 60
+        if h > 0:
+            return f"{h}h{m:02d}m{s:02d}s"
+        elif m > 0:
+            return f"{m}m{s:02d}s"
+        return f"{s}s"
+
+    def _wait_status(self):
+        """Return a status string for wait messages."""
+        return (f"elapsed {self._elapsed_str()}, "
+                f"{self._new_citations_count} new citations, "
+                f"{self._total_page_count} pages")
 
     def _citation_cache_path(self, title):
         key = hashlib.md5(title.encode('utf-8')).hexdigest()[:16]
@@ -977,6 +994,7 @@ class PaperCitationFetcher:
 
         self._patch_scholarly()
         self._new_citations_count = 0  # citations fetched in this run
+        self._run_start_time = time.time()  # track elapsed time
 
         # Load profile
         if not os.path.exists(self.profile_json):
@@ -1019,6 +1037,17 @@ class PaperCitationFetcher:
         results   = []
         fetch_idx = 0
 
+        try:
+            self._run_main_loop(publications, cache_status, url_map, results, fetch_idx)
+        except KeyboardInterrupt:
+            print(f"\n  Interrupted by user. Saving results...", flush=True)
+
+        # Always save output (normal completion, interruption, or partial results)
+        self._save_output(results)
+        return True
+
+    def _run_main_loop(self, publications, cache_status, url_map, results, fetch_idx):
+        """Inner loop extracted so KeyboardInterrupt saves output."""
         for idx, pub in enumerate(publications, 1):
             title        = pub['title']
             num_citations = pub['num_citations']
@@ -1128,13 +1157,8 @@ class PaperCitationFetcher:
 
             if fetch_idx < (self.limit or len(need_fetch)):
                 d = rand_delay()
-                print(f"  Waiting {d:.0f}s...", flush=True)
+                print(f"  Waiting {d:.0f}s before next paper... [{self._wait_status()}]", flush=True)
                 time.sleep(d)
-
-        # Save output
-        self._save_output(results)
-
-        return True
 
     def _save_output(self, results):
         """Save citation results to JSON and Excel."""
