@@ -970,12 +970,11 @@ class PaperCitationFetcher:
             return 'missing'
         if not cached.get('complete'):
             return 'partial'
-        # Complete: check if actual cached count is close to current Scholar count
-        # Scholar counts fluctuate slightly between queries, allow small tolerance
+        # Complete: if cached count >= current Scholar count, no need to update
+        # If cached < current, there are new citations to fetch
         actual_cached = cached.get('num_citations_cached', len(cached.get('citations', [])))
         current = pub['num_citations']
-        tolerance = max(5, int(current * 0.01))
-        if abs(actual_cached - current) <= tolerance:
+        if actual_cached >= current:
             return 'complete'
         return 'partial'
 
