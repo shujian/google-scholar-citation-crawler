@@ -960,13 +960,23 @@ class PaperCitationFetcher:
         return None
 
     def _citation_status(self, pub):
-        """Return cache status for a publication: 'skip_zero' | 'complete' | 'partial' | 'missing'."""
+        """Return (cache status, cached_data) for a publication.
+        Status: 'skip_zero' | 'complete' | 'partial' | 'missing'.
+        """
         if pub['num_citations'] == 0:
             return 'skip_zero'
         cached = self._load_citation_cache(pub['title'])
         if not cached:
             return 'missing'
-        if cached.get('complete') and cached.get('num_citations_on_scholar', cached.get('num_citations_cached')) == pub['num_citations']:
+        if not cached.get('complete'):
+            return 'partial'
+        # Complete: check if actual cached count is close to current Scholar count
+        # Scholar counts fluctuate slightly between queries, so allow small difference
+        actual_cached = cached.get('num_citations_cached', len(cached.get('citations', [])))
+        current = pub['num_citations']
+        # If cached count is within 5% or 10 of current, consider it complete
+        tolerance = max(10, int(current * 0.05))
+        if abs(actual_cached - current) <= tolerance:
             return 'complete'
         return 'partial'
 
