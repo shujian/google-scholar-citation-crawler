@@ -780,9 +780,16 @@ class PaperCitationFetcher:
             },
         }
 
+        # Build dedup set from existing citations
+        seen_titles = {c.get('title', '').strip().lower() for c in citations}
+
         try:
             for citing in scholarly.citedby(pub_obj):
                 info = self._extract_citation_info(citing)
+                dedup_key = info['title'].strip().lower()
+                if dedup_key in seen_titles:
+                    continue
+                seen_titles.add(dedup_key)
                 citations.append(info)
                 self._new_citations_count += 1
                 count = len(citations)
@@ -839,6 +846,9 @@ class PaperCitationFetcher:
         print(f"  Year-based resume: {start_year}-{current_year} "
               f"({len(self._completed_year_segments)} years already done)", flush=True)
 
+        # Build dedup set from existing citations
+        seen_titles = {c.get('title', '').strip().lower() for c in citations}
+
         try:
             for year in range(current_year, start_year - 1, -1):
                 if year in self._completed_year_segments:
@@ -862,6 +872,10 @@ class PaperCitationFetcher:
                                                        year_low=year, year_high=year,
                                                        start_index=start_index):
                     info = self._extract_citation_info(citing)
+                    dedup_key = info['title'].strip().lower()
+                    if dedup_key in seen_titles:
+                        continue
+                    seen_titles.add(dedup_key)
                     citations.append(info)
                     year_new_count += 1
                     self._new_citations_count += 1
