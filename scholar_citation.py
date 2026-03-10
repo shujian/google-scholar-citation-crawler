@@ -748,6 +748,8 @@ class PaperCitationFetcher:
         # If cached count is less than target, clear completed_years
         # so years are re-checked (e.g., after dedup reduced cached count)
         if len(citations) < num_citations and self._completed_year_segments:
+            print(f"  Cached ({len(citations)}) < expected ({num_citations}), "
+                  f"clearing {len(self._completed_year_segments)} completed years to re-check", flush=True)
             self._completed_year_segments.clear()
 
         def save_progress(complete):
