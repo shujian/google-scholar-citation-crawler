@@ -1046,7 +1046,7 @@ class PaperCitationFetcher:
         fetch_idx = 0
 
         try:
-            self._run_main_loop(publications, cache_status, url_map, results, fetch_idx)
+            self._run_main_loop(publications, cache_status, url_map, need_fetch, results, fetch_idx)
         except KeyboardInterrupt:
             print(f"\n  Interrupted by user. Saving results...", flush=True)
 
@@ -1054,7 +1054,7 @@ class PaperCitationFetcher:
         self._save_output(results)
         return True
 
-    def _run_main_loop(self, publications, cache_status, url_map, results, fetch_idx):
+    def _run_main_loop(self, publications, cache_status, url_map, need_fetch, results, fetch_idx):
         """Inner loop extracted so KeyboardInterrupt saves output."""
         for idx, pub in enumerate(publications, 1):
             title        = pub['title']
