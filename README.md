@@ -56,9 +56,8 @@ After running, you'll find these files in the output directory:
 
 | File | Description |
 |------|-------------|
-| `author_<ID>_profile.json` | Author info + full publication list |
+| `author_<ID>_profile.json` | Author info, publication list, and change history |
 | `author_<ID>_profile.xlsx` | Excel with Author Overview, Publications, and Change History sheets |
-| `author_<ID>_history.json` | Historical tracking of citation changes |
 | `author_<ID>_paper_citations.json` | Per-paper citation lists |
 | `author_<ID>_paper_citations.xlsx` | Excel with Summary and All Citations sheets |
 | `scholar_cache/` | Incremental cache (auto-managed) |

@@ -107,11 +107,9 @@ class AuthorProfileFetcher:
         # Output files
         self.profile_json = os.path.join(output_dir, f"author_{author_id}_profile.json")
         self.profile_xlsx = os.path.join(output_dir, f"author_{author_id}_profile.xlsx")
-        self.history_json = os.path.join(output_dir, f"author_{author_id}_history.json")
 
         print(f"Cache dir: {self.cache_dir}")
         print(f"Output files: author_{author_id}_profile.json / .xlsx")
-        print(f"History file: author_{author_id}_history.json")
 
     def load_basics_cache(self):
         """Load cached basic info."""
@@ -257,16 +255,9 @@ class AuthorProfileFetcher:
             traceback.print_exc()
             return []
 
-    def load_history(self):
-        """Load change history."""
-        if os.path.exists(self.history_json):
-            with open(self.history_json, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        return []
-
     def append_history(self, basics, publications, prev_profile=None):
-        """Append a history record with change tracking."""
-        history = self.load_history()
+        """Append a history record with change tracking. History is stored in profile.json."""
+        history = prev_profile.get('change_history', []) if prev_profile else []
 
         new_papers = []
         changed_citations = []
@@ -304,9 +295,6 @@ class AuthorProfileFetcher:
 
         history.append(record)
 
-        with open(self.history_json, 'w', encoding='utf-8') as f:
-            json.dump(history, f, ensure_ascii=False, indent=2)
-
         if new_papers:
             print(f"\nNew papers ({len(new_papers)}):")
             for t in new_papers[:5]:
@@ -322,16 +310,24 @@ class AuthorProfileFetcher:
         if not new_papers and not changed_citations and prev_profile:
             print("  (No changes in this run)")
 
-        return record
+        return history
 
     def load_prev_profile(self):
         """Load previous profile for incremental comparison."""
         if os.path.exists(self.profile_json):
             with open(self.profile_json, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                profile = json.load(f)
+            # Migrate: if old history.json exists and profile has no change_history, import it
+            if 'change_history' not in profile:
+                history_json = os.path.join(self.output_dir, f"author_{self.author_id}_history.json")
+                if os.path.exists(history_json):
+                    with open(history_json, 'r', encoding='utf-8') as f:
+                        profile['change_history'] = json.load(f)
+                    print(f"Migrated history from {history_json} into profile")
+            return profile
         return None
 
-    def save_profile_json(self, basics, publications):
+    def save_profile_json(self, basics, publications, change_history=None):
         """Save complete profile as JSON."""
         profile = {
             'author_info': basics,
@@ -339,13 +335,14 @@ class AuthorProfileFetcher:
             'fetch_time': datetime.now().isoformat(),
             'total_publications': len(publications),
             'total_citations': basics.get('citedby', 0),
+            'change_history': change_history or [],
         }
         with open(self.profile_json, 'w', encoding='utf-8') as f:
             json.dump(profile, f, ensure_ascii=False, indent=2)
         print(f"Saved JSON: {self.profile_json}")
         return profile
 
-    def save_profile_xlsx(self, basics, publications):
+    def save_profile_xlsx(self, basics, publications, change_history=None):
         """
         Save Excel file with 3 sheets:
           Sheet1: Author Overview
@@ -505,7 +502,7 @@ class AuthorProfileFetcher:
             c.alignment = center
         ws3.row_dimensions[1].height = 28
 
-        history = self.load_history()
+        history = change_history or []
         for i, rec in enumerate(history, 2):
             new_titles = '; '.join(rec.get('new_papers', [])[:3])
             if len(rec.get('new_papers', [])) > 3:
@@ -569,14 +566,14 @@ class AuthorProfileFetcher:
         print("\n" + "=" * 70)
         print("  Incremental Update Analysis")
         print("=" * 70)
-        self.append_history(basics, publications, prev_profile)
+        change_history = self.append_history(basics, publications, prev_profile)
 
         # Save output files
         print("\n" + "=" * 70)
         print("  Saving Output Files")
         print("=" * 70)
-        self.save_profile_json(basics, publications)
-        self.save_profile_xlsx(basics, publications)
+        self.save_profile_json(basics, publications, change_history)
+        self.save_profile_xlsx(basics, publications, change_history)
 
         print("\n" + "=" * 70)
         print(f"  Done!")
@@ -587,7 +584,6 @@ class AuthorProfileFetcher:
         print(f"\nOutput files:")
         print(f"  JSON   : {self.profile_json}")
         print(f"  Excel  : {self.profile_xlsx}")
-        print(f"  History: {self.history_json}")
         print()
 
         return True
