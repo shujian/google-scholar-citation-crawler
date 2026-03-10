@@ -745,12 +745,9 @@ class PaperCitationFetcher:
         self._completed_year_segments = set(completed_years or [])
         self._current_year_segment = None
 
-        # If cached count is less than target, clear completed_years
-        # so years are re-checked (e.g., after dedup reduced cached count)
-        if len(citations) < num_citations and self._completed_year_segments:
-            print(f"  Cached ({len(citations)}) < expected ({num_citations}), "
-                  f"clearing {len(self._completed_year_segments)} completed years to re-check", flush=True)
-            self._completed_year_segments.clear()
+        # Note: completed_years are preserved. When Scholar count increases,
+        # new citations are typically in recent years, so we only need to
+        # re-check years not marked as completed.
 
         def save_progress(complete):
             with open(cache_path, 'w', encoding='utf-8') as f:
@@ -996,11 +993,13 @@ class PaperCitationFetcher:
             return 'missing'
         if not cached.get('complete'):
             return 'partial'
-        # Complete: if cached count >= current Scholar count, no need to update
-        # If cached < current, there are new citations to fetch
-        actual_cached = cached.get('num_citations_cached', len(cached.get('citations', [])))
+        # Complete flag is set: we did a full scan last time.
+        # Compare Scholar count at last completion vs current Scholar count.
+        # If Scholar count hasn't changed, any diff (cached < Scholar) is from dedup.
+        # Only re-fetch if Scholar has reported MORE citations since our last full scan.
+        scholar_at_completion = cached.get('num_citations_on_scholar', 0)
         current = pub['num_citations']
-        if actual_cached >= current:
+        if current <= scholar_at_completion:
             return 'complete'
         return 'partial'
 

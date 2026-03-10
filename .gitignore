@@ -5,7 +5,7 @@ output/
 scholar_cache/
 
 # Personal example script
-examples/run_my_author.sh
+my_citation.sh
 
 # Work notes (personal, not synced)
 WORK_NOTES.md
