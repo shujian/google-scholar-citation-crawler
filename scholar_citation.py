@@ -881,6 +881,12 @@ class PaperCitationFetcher:
                 # Save after each completed year
                 save_progress(complete=False)
 
+                # Early stop: if we already have enough citations, skip older years
+                if len(citations) >= num_citations:
+                    print(f"  Reached target ({len(citations)} >= {num_citations}), "
+                          f"skipping older years", flush=True)
+                    break
+
         except KeyboardInterrupt:
             save_progress(complete=False)
             raise
