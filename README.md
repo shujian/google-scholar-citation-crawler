@@ -40,7 +40,6 @@ python scholar_citation.py --author YOUR_AUTHOR_ID --limit 2
 ```
 usage: scholar_citation.py [-h] --author AUTHOR [--output-dir DIR]
                            [--limit N] [--skip N]
-                           [--force-refresh-basics] [--force-refresh-pubs]
 
 required:
   --author AUTHOR         Google Scholar author ID or full profile URL
@@ -49,8 +48,6 @@ optional:
   --output-dir DIR        Output directory (default: ./output)
   --limit N               Only process first N papers needing fetch
   --skip N                Skip first N papers in fetch list
-  --force-refresh-basics  Re-fetch author basics ignoring cache
-  --force-refresh-pubs    Re-fetch publications ignoring cache
 ```
 
 ## Output Files

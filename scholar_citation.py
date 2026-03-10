@@ -143,11 +143,10 @@ class AuthorProfileFetcher:
         with open(self.pubs_cache, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-    def fetch_basics(self, force_refresh=False):
+    def fetch_basics(self):
         """
         Phase 1: Fetch author basic info + citation stats.
         Always fetches from network (only 1 request) to detect citation changes.
-        force_refresh is kept for API compatibility but has no effect.
         Returns (basics_dict, fetched_from_network).
         """
         print("\nPhase 1: Fetching author basic info...")
@@ -525,7 +524,7 @@ class AuthorProfileFetcher:
         wb.save(self.profile_xlsx)
         print(f"Saved Excel: {self.profile_xlsx}")
 
-    def run(self, force_refresh_basics=False, force_refresh_pubs=False):
+    def run(self):
         """Main workflow."""
         print("\n" + "=" * 70)
         print("  Google Scholar Author Profile Fetcher")
@@ -541,7 +540,7 @@ class AuthorProfileFetcher:
             print("No previous profile found, this is the first fetch")
 
         # Phase 1: Basic info
-        basics, basics_fetched = self.fetch_basics(force_refresh=force_refresh_basics)
+        basics, basics_fetched = self.fetch_basics()
         if not basics:
             print("Failed to fetch basic info, exiting")
             return False
@@ -553,8 +552,9 @@ class AuthorProfileFetcher:
             time.sleep(d)
 
         # Phase 2: Publications
-        # Auto-refresh publications if total citations changed (means some paper citations updated)
-        if not force_refresh_pubs and prev_profile:
+        # Auto-refresh publications if total citations changed
+        force_refresh_pubs = False
+        if prev_profile:
             old_citedby = prev_profile.get('total_citations', 0)
             new_citedby = basics.get('citedby', 0)
             if new_citedby != old_citedby:
@@ -1202,10 +1202,6 @@ def parse_args():
                         help='Only process first N papers needing fetch')
     parser.add_argument('--skip', type=int, default=0,
                         help='Skip first N papers in fetch list')
-    parser.add_argument('--force-refresh-basics', action='store_true',
-                        help='Re-fetch author basics ignoring cache')
-    parser.add_argument('--force-refresh-pubs', action='store_true',
-                        help='Re-fetch publications ignoring cache')
     return parser.parse_args()
 
 
@@ -1221,10 +1217,7 @@ def main():
     # Always run profile first
     fetcher = AuthorProfileFetcher(author_id, args.output_dir)
     prev_profile = fetcher.load_prev_profile()
-    success = fetcher.run(
-        force_refresh_basics=args.force_refresh_basics,
-        force_refresh_pubs=args.force_refresh_pubs,
-    )
+    success = fetcher.run()
     if not success:
         sys.exit(1)
 
