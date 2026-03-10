@@ -146,14 +146,10 @@ class AuthorProfileFetcher:
     def fetch_basics(self, force_refresh=False):
         """
         Phase 1: Fetch author basic info + citation stats.
-        force_refresh=True ignores cache and re-fetches.
+        Always fetches from network (only 1 request) to detect citation changes.
+        force_refresh is kept for API compatibility but has no effect.
         Returns (basics_dict, fetched_from_network).
         """
-        if not force_refresh:
-            cached = self.load_basics_cache()
-            if cached:
-                return cached, False
-
         print("\nPhase 1: Fetching author basic info...")
         print(f"  Author ID: {self.author_id}")
         print("Connecting to Google Scholar...")
@@ -557,6 +553,14 @@ class AuthorProfileFetcher:
             time.sleep(d)
 
         # Phase 2: Publications
+        # Auto-refresh publications if total citations changed (means some paper citations updated)
+        if not force_refresh_pubs and prev_profile:
+            old_citedby = prev_profile.get('total_citations', 0)
+            new_citedby = basics.get('citedby', 0)
+            if new_citedby != old_citedby:
+                print(f"\nTotal citations changed ({old_citedby} -> {new_citedby}), refreshing publications...")
+                force_refresh_pubs = True
+
         publications = self.fetch_publications(force_refresh=force_refresh_pubs)
 
         print(f"\nFetch complete: {len(publications)} publications")
