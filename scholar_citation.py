@@ -745,6 +745,11 @@ class PaperCitationFetcher:
         self._completed_year_segments = set(completed_years or [])
         self._current_year_segment = None
 
+        # If cached count is less than target, clear completed_years
+        # so years are re-checked (e.g., after dedup reduced cached count)
+        if len(citations) < num_citations and self._completed_year_segments:
+            self._completed_year_segments.clear()
+
         def save_progress(complete):
             with open(cache_path, 'w', encoding='utf-8') as f:
                 json.dump({
