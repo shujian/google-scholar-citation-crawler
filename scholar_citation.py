@@ -521,7 +521,7 @@ class AuthorProfileFetcher:
         wb.save(self.profile_xlsx)
         print(f"Saved Excel: {self.profile_xlsx}")
 
-    def run(self):
+    def run(self, force_refresh_pubs=False):
         """Main workflow."""
         print("\n" + "=" * 70)
         print("  Google Scholar Author Profile Fetcher")
@@ -549,9 +549,8 @@ class AuthorProfileFetcher:
             time.sleep(d)
 
         # Phase 2: Publications
-        # Auto-refresh publications if total citations changed
-        force_refresh_pubs = False
-        if prev_profile:
+        # Auto-refresh if total citations changed, or if forced via CLI
+        if not force_refresh_pubs and prev_profile:
             old_citedby = prev_profile.get('total_citations', 0)
             new_citedby = basics.get('citedby', 0)
             if new_citedby != old_citedby:
@@ -1212,6 +1211,8 @@ def parse_args():
                         help='Only process first N papers needing fetch')
     parser.add_argument('--skip', type=int, default=0,
                         help='Skip first N papers in fetch list')
+    parser.add_argument('--force-refresh-pubs', action='store_true',
+                        help='Force re-fetch publications list from Scholar')
     return parser.parse_args()
 
 
@@ -1227,7 +1228,7 @@ def main():
     # Always run profile first
     fetcher = AuthorProfileFetcher(author_id, args.output_dir)
     prev_profile = fetcher.load_prev_profile()
-    success = fetcher.run()
+    success = fetcher.run(force_refresh_pubs=args.force_refresh_pubs)
     if not success:
         sys.exit(1)
 
