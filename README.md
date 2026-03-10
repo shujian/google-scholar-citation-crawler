@@ -75,7 +75,7 @@ Google Scholar aggressively rate-limits automated requests. This tool uses sever
 **Proxy support**: Set `http_proxy` / `https_proxy` environment variables. The tool will auto-detect and configure them.
 
 ```bash
-export https_proxy=http://127.0.0.1:7890
+export https_proxy=http://your-proxy-host:port
 python scholar_citation.py --author YOUR_AUTHOR_ID
 ```
 
