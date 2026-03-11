@@ -733,11 +733,12 @@ class PaperCitationFetcher:
 
     def _fetch_citations_with_progress(self, citedby_url, cache_path, title,
                                         num_citations, pub_url, pub_year, resume_from,
-                                        completed_years=None):
+                                        completed_years=None, prev_scholar_count=0):
         """
         Stream-fetch citations with periodic progress saves.
         resume_from: previously saved citation list (for resume after interruption).
         completed_years: list of years already fully fetched (for resume).
+        prev_scholar_count: Scholar citation count from last completed scan (for early stop).
         """
         citations = list(resume_from)
 
@@ -768,7 +769,7 @@ class PaperCitationFetcher:
         if num_citations >= YEAR_BASED_THRESHOLD:
             return self._fetch_by_year(
                 citedby_url, citations, save_progress,
-                num_citations, pub_year
+                num_citations, pub_year, prev_scholar_count
             )
 
         # Simple fetch for small citation counts
@@ -811,10 +812,11 @@ class PaperCitationFetcher:
         return citations
 
     def _fetch_by_year(self, citedby_url, citations, save_progress,
-                        num_citations, pub_year):
+                        num_citations, pub_year, prev_scholar_count=0):
         """
         Fetch citations year-by-year. Skips completed years and uses
         start_index within partially completed years for efficient resume.
+        prev_scholar_count: Scholar count from last completed scan, used for early stop.
         """
         import re as _re
         m = _re.search(r"cites=([\d,]+)", citedby_url)
@@ -852,6 +854,7 @@ class PaperCitationFetcher:
 
         # Build dedup set from existing citations
         seen_titles = {c.get('title', '').strip().lower() for c in citations}
+        paper_new_count = 0  # new citations found for THIS paper in this fetch
 
         try:
             for year in range(current_year, start_year - 1, -1):
@@ -882,6 +885,7 @@ class PaperCitationFetcher:
                     seen_titles.add(dedup_key)
                     citations.append(info)
                     year_new_count += 1
+                    paper_new_count += 1
                     self._new_citations_count += 1
                     count = len(citations)
 
@@ -898,9 +902,17 @@ class PaperCitationFetcher:
                 # Save after each completed year
                 save_progress(complete=False)
 
-                # Early stop: if we already have enough citations, skip older years
+                # Early stop: skip older years when we have enough
                 if len(citations) >= num_citations:
                     print(f"  Reached target ({len(citations)} >= {num_citations}), "
+                          f"skipping older years", flush=True)
+                    break
+                # When updating (Scholar count increased), new citations are typically
+                # in recent years. Once we've found enough to cover the increase,
+                # trust cached data for older years and stop.
+                scholar_increase = num_citations - prev_scholar_count if prev_scholar_count > 0 else 0
+                if scholar_increase > 0 and paper_new_count >= scholar_increase:
+                    print(f"  Found {paper_new_count} new (Scholar increase: {scholar_increase}), "
                           f"skipping older years", flush=True)
                     break
 
@@ -1126,9 +1138,11 @@ class PaperCitationFetcher:
                 results.append({'pub': pub, 'citations': cached['citations'] if cached else []})
                 continue
 
+            prev_scholar_count = 0
             if st == 'partial' and cached:
                 resume_from = cached.get('citations', [])
                 old_scholar = cached.get('num_citations_on_scholar', cached.get('num_citations_cached', 0))
+                prev_scholar_count = old_scholar
                 if old_scholar == num_citations:
                     # Scholar count unchanged, resume from where we left off
                     completed_years = cached.get('completed_years', [])
@@ -1161,7 +1175,8 @@ class PaperCitationFetcher:
                     citations = self._fetch_citations_with_progress(
                         citedby_url, cache_path, title, num_citations,
                         pub_url, pub.get('year', 'N/A'), resume_from,
-                        completed_years=completed_years
+                        completed_years=completed_years,
+                        prev_scholar_count=prev_scholar_count
                     )
                     print(f"  Done: {len(citations)} citations cached")
                     break
