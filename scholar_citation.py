@@ -594,12 +594,14 @@ class AuthorProfileFetcher:
 
 class PaperCitationFetcher:
     def __init__(self, author_id, output_dir=".",
-                 limit=None, skip=0, save_every=10):
+                 limit=None, skip=0, save_every=10,
+                 force_refresh_citations=False):
         self.author_id = author_id
         self.output_dir = output_dir
         self.limit = limit
         self.skip = skip
         self.save_every = save_every
+        self.force_refresh_citations = force_refresh_citations
 
         # Paths
         self.cache_dir = os.path.join(output_dir, "scholar_cache", f"author_{author_id}", "citations")
@@ -1005,12 +1007,19 @@ class PaperCitationFetcher:
             return 'missing'
         if not cached.get('complete'):
             return 'partial'
-        # Complete flag is set: we did a full scan last time.
-        # Compare Scholar count at last completion vs current Scholar count.
-        # If Scholar count hasn't changed, any diff (cached < Scholar) is from dedup.
-        # Only re-fetch if Scholar has reported MORE citations since our last full scan.
-        scholar_at_completion = cached.get('num_citations_on_scholar', 0)
+
+        actual_cached = cached.get('num_citations_cached', len(cached.get('citations', [])))
         current = pub['num_citations']
+
+        if self.force_refresh_citations:
+            # Force mode: purely compare cached count vs current Scholar count
+            if actual_cached >= current:
+                return 'complete'
+            return 'partial'
+
+        # Normal mode: compare Scholar count at last completion vs current.
+        # If Scholar count hasn't changed, any diff (cached < Scholar) is from dedup.
+        scholar_at_completion = cached.get('num_citations_on_scholar', 0)
         if current <= scholar_at_completion:
             return 'complete'
         return 'partial'
@@ -1255,6 +1264,8 @@ def parse_args():
                         help='Skip first N papers in fetch list')
     parser.add_argument('--force-refresh-pubs', action='store_true',
                         help='Force re-fetch publications list from Scholar')
+    parser.add_argument('--force-refresh-citations', action='store_true',
+                        help='Re-check papers where cached count < Scholar count')
     return parser.parse_args()
 
 
@@ -1289,6 +1300,7 @@ def main():
                 output_dir=args.output_dir,
                 limit=args.limit,
                 skip=args.skip,
+                force_refresh_citations=args.force_refresh_citations,
             )
             if not citation_fetcher.has_pending_work():
                 print("\n" + "=" * 70)
@@ -1305,6 +1317,7 @@ def main():
         output_dir=args.output_dir,
         limit=args.limit,
         skip=args.skip,
+        force_refresh_citations=args.force_refresh_citations,
     )
     success = citation_fetcher.run()
     if not success:
