@@ -1126,15 +1126,22 @@ class PaperCitationFetcher:
                 results.append({'pub': pub, 'citations': cached['citations'] if cached else []})
                 continue
 
-            if st == 'partial' and cached.get('num_citations_on_scholar', cached.get('num_citations_cached')) == num_citations:
+            if st == 'partial' and cached:
                 resume_from = cached.get('citations', [])
-                completed_years = cached.get('completed_years', [])
-                action = f"resume ({len(resume_from)} cached, fetching remaining)"
+                old_scholar = cached.get('num_citations_on_scholar', cached.get('num_citations_cached', 0))
+                if old_scholar == num_citations:
+                    # Scholar count unchanged, resume from where we left off
+                    completed_years = cached.get('completed_years', [])
+                    action = f"resume ({len(resume_from)} cached, fetching remaining)"
+                else:
+                    # Scholar count changed: keep cached citations but clear completed_years
+                    # so all years are re-checked for new citations
+                    completed_years = []
+                    action = f"update ({len(resume_from)} cached, citations {old_scholar} -> {num_citations})"
             else:
                 resume_from = []
                 completed_years = []
-                old = cached.get('num_citations_on_scholar', cached.get('num_citations_cached', 0)) if cached else 0
-                action = f"re-fetch (citations {old} -> {num_citations})" if cached else "first fetch"
+                action = "first fetch"
 
             print(f"[{idx}/{len(publications)}] {title[:55]}...")
             print(f"  {action}")
@@ -1147,7 +1154,7 @@ class PaperCitationFetcher:
                     if attempt > 1:
                         # Reload cache in case previous attempt saved partial progress
                         latest_cache = self._load_citation_cache(title)
-                        if latest_cache and latest_cache.get('num_citations_on_scholar', latest_cache.get('num_citations_cached')) == num_citations:
+                        if latest_cache:
                             resume_from = latest_cache.get('citations', [])
                             completed_years = latest_cache.get('completed_years', [])
                             print(f"  Retrying with {len(resume_from)} cached citations from previous attempt")
