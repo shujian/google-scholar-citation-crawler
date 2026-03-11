@@ -6,7 +6,8 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 
 - **Unified Workflow**: Automatically fetches author profile, then crawls per-paper citations in one command
 - **Smart Skip**: If total citations and publication count haven't changed since the last run, citation crawling is skipped entirely
-- **Incremental Caching**: Only re-fetches citation lists when citation counts change
+- **Incremental Caching**: Only re-fetches citation lists when Scholar reports more citations
+- **Dedup Handling**: Automatically deduplicates citations; tolerates count differences caused by Scholar duplicates
 - **Resume Support**: Interrupted fetches resume from the last checkpoint
 - **Rate Limiting**: Randomized 30-60s delays between all requests to avoid Scholar blocks
 - **Heartbeat Monitoring**: Detects stalled requests (80s timeout), saves progress and terminates
@@ -40,14 +41,17 @@ python scholar_citation.py --author YOUR_AUTHOR_ID --limit 2
 ```
 usage: scholar_citation.py [-h] --author AUTHOR [--output-dir DIR]
                            [--limit N] [--skip N]
+                           [--force-refresh-pubs] [--force-refresh-citations]
 
 required:
   --author AUTHOR         Google Scholar author ID or full profile URL
 
 optional:
-  --output-dir DIR        Output directory (default: ./output)
-  --limit N               Only process first N papers needing fetch
-  --skip N                Skip first N papers in fetch list
+  --output-dir DIR              Output directory (default: ./output)
+  --limit N                     Only process first N papers needing fetch
+  --skip N                      Skip first N papers in fetch list
+  --force-refresh-pubs          Force re-fetch publications list from Scholar
+  --force-refresh-citations     Re-check papers where cached count < Scholar count
 ```
 
 ## Output Files
@@ -67,7 +71,7 @@ After running, you'll find these files in the output directory:
 Google Scholar aggressively rate-limits automated requests. This tool uses several strategies:
 
 - **Randomized delays**: All waits between requests are randomized (30-60s) to appear human-like
-- **Session refresh**: Proactively refreshes session every 5 pages to avoid session-based bot detection
+- **Session refresh**: Proactively refreshes session every 10-20 pages to avoid session-based bot detection
 - **Reduced internal retries**: Scholar library retries limited to 2 per page to fail fast
 - **Graduated retry**: On failure, waits 3 hours then retries; if still failing, saves progress, waits 6 hours, retries once more; terminates if all attempts fail
 - **Page counter**: Tracks total pages fetched for diagnostics
