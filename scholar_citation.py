@@ -883,7 +883,8 @@ class PaperCitationFetcher:
                 year_new_count = 0
                 for citing in scholarly.search_citedby(pub_id,
                                                        year_low=year, year_high=year,
-                                                       start_index=start_index):
+                                                       start_index=start_index,
+                                                       patents=False):
                     info = self._extract_citation_info(citing)
                     dedup_key = info['title'].strip().lower()
                     if dedup_key in seen_titles:
