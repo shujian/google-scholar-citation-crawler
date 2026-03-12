@@ -1293,7 +1293,7 @@ def main():
         prev_pubs = prev_profile.get('total_publications', -1)
         curr_pubs = curr_profile.get('total_publications', -2)
 
-        if prev_citations == curr_citations and prev_pubs == curr_pubs:
+        if prev_citations == curr_citations and prev_pubs == curr_pubs and not args.force_refresh_citations:
             # Even if totals haven't changed, check if all citations are fully cached
             citation_fetcher = PaperCitationFetcher(
                 author_id=author_id,
