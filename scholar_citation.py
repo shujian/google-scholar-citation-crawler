@@ -1152,7 +1152,11 @@ class PaperCitationFetcher:
                 resume_from = cached.get('citations', [])
                 old_scholar = cached.get('num_citations_on_scholar', cached.get('num_citations_cached', 0))
                 prev_scholar_count = old_scholar
-                if old_scholar == num_citations:
+                if self.force_refresh_citations:
+                    # Force mode: clear completed_years to re-check all years
+                    completed_years = []
+                    action = f"force re-check ({len(resume_from)} cached, scholar={num_citations})"
+                elif old_scholar == num_citations:
                     # Scholar count unchanged, resume from where we left off
                     completed_years = cached.get('completed_years', [])
                     action = f"resume ({len(resume_from)} cached, fetching remaining)"
