@@ -868,17 +868,17 @@ class PaperCitationFetcher:
                     skipped_years += 1
                     continue
 
-                cached_for_year = year_counts.get(year, 0)
-                start_index = cached_for_year
+                # Always fetch from start_index=0 and rely on dedup to skip
+                # already-cached citations. Using year_counts as start_index is
+                # unreliable because some citations have N/A year fields, causing
+                # year_counts to undercount and real citations to be missed.
+                start_index = 0
 
                 # Refresh session on each year switch
                 self._refresh_scholarly_session()
                 self._next_refresh_at = self._total_page_count + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
 
-                if start_index > 0:
-                    print(f"      Year {year}: resuming from position {start_index}", flush=True)
-                else:
-                    print(f"      Year {year}: fetching", flush=True)
+                print(f"      Year {year}: fetching", flush=True)
 
                 year_new_count = 0
                 for citing in scholarly.search_citedby(pub_id,
@@ -904,9 +904,10 @@ class PaperCitationFetcher:
                         print(f"  Progress saved ({count} citations, {self._new_citations_count} new in this run)", flush=True)
 
                 self._completed_year_segments.add(year)
-                if year_new_count > 0 or cached_for_year > 0:
-                    print(f"      Year {year} done: {cached_for_year + year_new_count} citations "
-                          f"({year_new_count} new)", flush=True)
+                if year_new_count > 0:
+                    print(f"      Year {year} done: {year_new_count} new citations", flush=True)
+                else:
+                    print(f"      Year {year} done: no new citations", flush=True)
                 # Save after each completed year
                 save_progress(complete=False)
 
