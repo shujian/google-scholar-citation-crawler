@@ -1220,18 +1220,18 @@ class PaperCitationFetcher:
                         self._save_output(results)
                         sys.exit(1)
                     elif attempt == MAX_RETRIES - 1:
-                        # Second failure — save progress, then wait 6 hours
+                        # Second failure — save progress, then wait 12 hours
                         if os.path.exists(cache_path):
                             with open(cache_path, 'r', encoding='utf-8') as f:
                                 latest = json.load(f)
                             saved_count = len(latest.get('citations', []))
                             print(f"  [{now}] Saved progress ({saved_count} citations)")
-                        wait_hours = 6
+                        wait_hours = 12
                         print(f"  [{now}] Will retry with fresh session after {wait_hours} hours...", flush=True)
                         time.sleep(wait_hours * 3600)
                     else:
-                        # First failure — wait 3 hours
-                        wait_hours = 3
+                        # First failure — wait 6 hours
+                        wait_hours = 6
                         print(f"  [{now}] Will retry with fresh session after {wait_hours} hours...", flush=True)
                         time.sleep(wait_hours * 3600)
 
