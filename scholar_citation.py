@@ -880,11 +880,17 @@ class PaperCitationFetcher:
 
                 print(f"      Year {year}: fetching", flush=True)
 
+                # Build URL directly to avoid scholarly adding &as_sdt=N,33
+                # which causes Scholar to filter out some results.
+                # Verified: _SearchScholarIterator without as_sdt returns all results.
+                year_url = (f'/scholar?hl=en&cites={pub_id}'
+                            f'&as_ylo={year}&as_yhi={year}')
+                if start_index > 0:
+                    year_url += f'&start={start_index}'
+                nav = scholarly._Scholarly__nav
+
                 year_new_count = 0
-                for citing in scholarly.search_citedby(pub_id,
-                                                       year_low=year, year_high=year,
-                                                       start_index=start_index,
-                                                       patents=False):
+                for citing in _SearchScholarIterator(nav, year_url):
                     info = self._extract_citation_info(citing)
                     dedup_key = info['title'].strip().lower()
                     if dedup_key in seen_titles:
