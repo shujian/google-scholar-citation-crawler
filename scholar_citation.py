@@ -1068,7 +1068,8 @@ class PaperCitationFetcher:
         print("=" * 70 + "\n")
 
         self._patch_scholarly()
-        self._new_citations_count = 0  # citations fetched in this run
+        self._new_citations_count = 0  # genuinely new citations (not in cache before)
+        self._papers_fetched_count = 0  # papers that went through full fetch this run
         self._run_start_time = time.time()  # track elapsed time
 
         # Load profile
@@ -1219,6 +1220,7 @@ class PaperCitationFetcher:
                         prev_scholar_count=prev_scholar_count
                     )
                     print(f"  Done: {len(citations)} citations cached")
+                    self._papers_fetched_count += 1
                     break
                 except Exception as e:
                     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -1273,8 +1275,12 @@ class PaperCitationFetcher:
 
         self._save_xlsx(valid_results)
         print(f"Saved Excel: {self.out_xlsx}")
-        print(f"\nDone! {len(valid_results)} papers, {total_cites} total citation records "
-              f"({self._new_citations_count} new in this run)\n")
+
+        total_papers = len(results)  # includes None slots (total publications)
+        fetched_str = f", {self._papers_fetched_count} fetched" if self._papers_fetched_count else ""
+        new_str = f", {self._new_citations_count} new" if self._new_citations_count else ""
+        print(f"\nDone! {len(valid_results)}/{total_papers} papers{fetched_str}, "
+              f"{total_cites} total citation records{new_str}\n")
 
         return True
 
