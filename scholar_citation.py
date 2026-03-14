@@ -697,8 +697,13 @@ class PaperCitationFetcher:
     def _refresh_scholarly_session():
         """Refresh scholarly internal session to clear flagged cookies."""
         nav = scholarly._Scholarly__nav
-        nav._new_session(premium=True)
-        nav._new_session(premium=False)
+        try:
+            nav._new_session(premium=True)
+            nav._new_session(premium=False)
+        except TypeError:
+            # httpx incompatibility: scholarly proxy API doesn't support current
+            # httpx version. Session refresh skipped, using existing session.
+            pass
         nav.got_403 = False
 
     def _elapsed_str(self):
