@@ -885,11 +885,12 @@ class PaperCitationFetcher:
 
                 print(f"      Year {year}: fetching", flush=True)
 
-                # Build URL directly to avoid scholarly adding &as_sdt=N,33
-                # which causes Scholar to filter out some results.
-                # Verified: _SearchScholarIterator without as_sdt returns all results.
+                # Build URL with browser-like parameters (as_sdt=5,33&sciodt=0,33)
+                # matching what Scholar's own citation links contain.
+                # Avoids as_sdt=0,33 (scholarly default) which filters some results.
                 year_url = (f'/scholar?hl=en&cites={pub_id}'
-                            f'&as_ylo={year}&as_yhi={year}')
+                            f'&as_ylo={year}&as_yhi={year}'
+                            f'&as_sdt=5,33&sciodt=0,33')
                 if start_index > 0:
                     year_url += f'&start={start_index}'
                 nav = scholarly._Scholarly__nav
@@ -1097,6 +1098,10 @@ class PaperCitationFetcher:
         need_fetch = [(pub, st, cached) for pub, (st, cached) in zip(publications, statuses)
                       if st in ('missing', 'partial')]
 
+        # Randomize fetch order to avoid always hitting the same paper first,
+        # reducing Scholar ban risk. Output results are re-sorted to original order.
+        random.shuffle(need_fetch)
+
         print(f"Total papers: {len(publications)}")
         print(f"  Zero citations (skip):     {sum(1 for s, _ in statuses if s == 'skip_zero')}")
         print(f"  Cache complete (skip):     {sum(1 for s, _ in statuses if s == 'complete')}")
@@ -1121,34 +1126,36 @@ class PaperCitationFetcher:
 
     def _run_main_loop(self, publications, cache_status, url_map, need_fetch, results, fetch_idx):
         """Inner loop extracted so KeyboardInterrupt saves output."""
+        # Build index map for results ordering (original publication order)
+        pub_index = {pub['title']: i for i, pub in enumerate(publications)}
+        results[:] = [None] * len(publications)
+
+        # First pass: fill in skip_zero and complete papers (original order)
         for idx, pub in enumerate(publications, 1):
-            title        = pub['title']
-            num_citations = pub['num_citations']
-            st, cached   = cache_status(pub)
-
+            st, cached = cache_status(pub)
             if st == 'skip_zero':
-                print(f"[{idx}/{len(publications)}] {title[:55]}... -> skip (0 citations)")
-                results.append({'pub': pub, 'citations': []})
-                continue
+                print(f"[{idx}/{len(publications)}] {pub['title'][:55]}... -> skip (0 citations)")
+                results[idx - 1] = {'pub': pub, 'citations': []}
+            elif st == 'complete':
+                print(f"[{idx}/{len(publications)}] {pub['title'][:55]}... -> cached ({len(cached['citations'])} citations)")
+                results[idx - 1] = {'pub': pub, 'citations': cached['citations']}
 
-            if st == 'complete':
-                print(f"[{idx}/{len(publications)}] {title[:55]}... -> cached ({len(cached['citations'])} citations)")
-                results.append({'pub': pub, 'citations': cached['citations']})
-                continue
+        # Second pass: fetch in randomized order
+        need_fetch_titles = {pub['title'] for pub, _, _ in need_fetch}
+        for fetch_seq, (pub, st, cached) in enumerate(need_fetch):
+            title = pub['title']
+            num_citations = pub['num_citations']
+            orig_idx = pub_index[title] + 1
 
-            need_fetch_idx = next(
-                (i for i, (p, _, _) in enumerate(need_fetch) if p['title'] == title), -1
-            )
-
-            if need_fetch_idx < self.skip:
+            if fetch_seq < self.skip:
                 citations = cached['citations'] if cached else []
-                print(f"[{idx}/{len(publications)}] {title[:55]}... -> skip (--skip {need_fetch_idx+1}/{self.skip})")
-                results.append({'pub': pub, 'citations': citations})
+                print(f"[{orig_idx}/{len(publications)}] {title[:55]}... -> skip (--skip {fetch_seq+1}/{self.skip})")
+                results[orig_idx - 1] = {'pub': pub, 'citations': citations}
                 continue
 
             if self.limit and fetch_idx >= self.limit:
                 citations = cached['citations'] if cached else []
-                results.append({'pub': pub, 'citations': citations})
+                results[orig_idx - 1] = {'pub': pub, 'citations': citations}
                 continue
 
             fetch_idx += 1
@@ -1189,7 +1196,7 @@ class PaperCitationFetcher:
                 completed_years = []
                 action = "first fetch"
 
-            print(f"[{idx}/{len(publications)}] {title[:55]}...")
+            print(f"[{orig_idx}/{len(publications)}] {title[:55]}...")
             print(f"  {action}")
 
             citations = None
@@ -1240,7 +1247,7 @@ class PaperCitationFetcher:
                         print(f"  [{now}] Will retry with fresh session after {wait_hours} hours...", flush=True)
                         time.sleep(wait_hours * 3600)
 
-            results.append({'pub': pub, 'citations': citations})
+            results[orig_idx - 1] = {'pub': pub, 'citations': citations or []}
 
             if fetch_idx < (self.limit or len(need_fetch)):
                 d = rand_delay()
@@ -1250,20 +1257,22 @@ class PaperCitationFetcher:
     def _save_output(self, results):
         """Save citation results to JSON and Excel."""
         print("\n" + "=" * 70)
-        total_cites = sum(len(r['citations']) for r in results)
+        # Filter out None entries (papers not yet processed, e.g. after interruption)
+        valid_results = [r for r in results if r is not None]
+        total_cites = sum(len(r['citations']) for r in valid_results)
         with open(self.out_json, 'w', encoding='utf-8') as f:
             json.dump({
                 'author_id': self.author_id,
                 'fetch_time': datetime.now().isoformat(),
-                'total_papers': len(results),
+                'total_papers': len(valid_results),
                 'total_citations_collected': total_cites,
-                'papers': results,
+                'papers': valid_results,
             }, f, ensure_ascii=False, indent=2)
         print(f"Saved JSON : {self.out_json}")
 
-        self._save_xlsx(results)
+        self._save_xlsx(valid_results)
         print(f"Saved Excel: {self.out_xlsx}")
-        print(f"\nDone! {len(results)} papers, {total_cites} total citation records "
+        print(f"\nDone! {len(valid_results)} papers, {total_cites} total citation records "
               f"({self._new_citations_count} new in this run)\n")
 
         return True
