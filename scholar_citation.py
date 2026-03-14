@@ -893,6 +893,7 @@ class PaperCitationFetcher:
                             f'&as_sdt=0,5')
                 if start_index > 0:
                     year_url += f'&start={start_index}'
+                print(f"      URL: https://scholar.google.com{year_url}", flush=True)
                 nav = scholarly._Scholarly__nav
 
                 year_new_count = 0
