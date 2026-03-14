@@ -1260,26 +1260,38 @@ class PaperCitationFetcher:
     def _save_output(self, results):
         """Save citation results to JSON and Excel."""
         print("\n" + "=" * 70)
-        # Filter out None entries (papers not yet processed, e.g. after interruption)
-        valid_results = [r for r in results if r is not None]
-        total_cites = sum(len(r['citations']) for r in valid_results)
+        # For None entries (not processed this run), fall back to cached data
+        # so the total always reflects all known citations, not just this run's.
+        with open(self.profile_json, 'r', encoding='utf-8') as f:
+            publications = json.load(f).get('publications', [])
+        final_results = []
+        for i, r in enumerate(results):
+            if r is not None:
+                final_results.append(r)
+            else:
+                # Load from cache if available, otherwise empty
+                pub = publications[i] if i < len(publications) else {}
+                cached = self._load_citation_cache(pub.get('title', '')) if pub else None
+                citations = cached.get('citations', []) if cached else []
+                final_results.append({'pub': pub, 'citations': citations})
+        total_cites = sum(len(r['citations']) for r in final_results)
         with open(self.out_json, 'w', encoding='utf-8') as f:
             json.dump({
                 'author_id': self.author_id,
                 'fetch_time': datetime.now().isoformat(),
-                'total_papers': len(valid_results),
+                'total_papers': len(final_results),
                 'total_citations_collected': total_cites,
-                'papers': valid_results,
+                'papers': final_results,
             }, f, ensure_ascii=False, indent=2)
         print(f"Saved JSON : {self.out_json}")
 
-        self._save_xlsx(valid_results)
+        self._save_xlsx(final_results)
         print(f"Saved Excel: {self.out_xlsx}")
 
         total_papers = len(results)  # includes None slots (total publications)
         fetched_str = f", {self._papers_fetched_count} fetched" if self._papers_fetched_count else ""
         new_str = f", {self._new_citations_count} new" if self._new_citations_count else ""
-        print(f"\nDone! {len(valid_results)}/{total_papers} papers{fetched_str}, "
+        print(f"\nDone! {len(final_results)}/{total_papers} papers{fetched_str}, "
               f"{total_cites} total citation records{new_str}\n")
 
         return True
