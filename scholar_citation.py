@@ -885,11 +885,12 @@ class PaperCitationFetcher:
 
                 print(f"      Year {year}: fetching", flush=True)
 
-                # Build URL without as_sdt to avoid Scholar filtering results.
-                # Verified: as_sdt=N,33 (any variant) causes Scholar to drop
-                # some results (19->18 confirmed). No as_sdt returns full results.
+                # Use as_sdt=0,5: exclude patents (0), global scope (5).
+                # Avoids as_sdt=N,33 (scholarly default) which uses region code 33
+                # and filters some results. Region code 5 is the global default.
                 year_url = (f'/scholar?hl=en&cites={pub_id}'
-                            f'&as_ylo={year}&as_yhi={year}')
+                            f'&as_ylo={year}&as_yhi={year}'
+                            f'&as_sdt=0,5')
                 if start_index > 0:
                     year_url += f'&start={start_index}'
                 nav = scholarly._Scholarly__nav
