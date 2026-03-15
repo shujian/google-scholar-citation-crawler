@@ -795,17 +795,21 @@ class PaperCitationFetcher:
         }
 
         # Build dedup map from existing citations: key -> brief info for logging
-        seen_titles = {c.get('title', '').strip().lower(): f"{c.get('title', '')[:50]} ({c.get('year', '?')})"
-                       for c in citations}
+        cached_titles = {c.get('title', '').strip().lower() for c in citations}
+        seen_titles = {k: f"{k[:50]} (cached)" for k in cached_titles}
+        # new_seen_titles: keys seen for the first time in THIS fetch (not from cache)
+        # _dedup_count only counts duplicates within Scholar's own results, not cache hits
 
         try:
             for citing in scholarly.citedby(pub_obj):
                 info = self._extract_citation_info(citing)
                 dedup_key = info['title'].strip().lower()
                 if dedup_key in seen_titles:
+                    if dedup_key not in cached_titles:
+                        # Duplicate within Scholar's own results (not a cache hit)
+                        self._dedup_count += 1
                     print(f"  [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('year', '?')})"
                           f"\n          Existing: {seen_titles[dedup_key]}", flush=True)
-                    self._dedup_count += 1
                     continue
                 seen_titles[dedup_key] = f"{info['title'][:50]} ({info.get('year', '?')})"
                 citations.append(info)
@@ -866,8 +870,8 @@ class PaperCitationFetcher:
               f"({len(self._completed_year_segments)} years already done)", flush=True)
 
         # Build dedup map from existing citations: key -> brief info for logging
-        seen_titles = {c.get('title', '').strip().lower(): f"{c.get('title', '')[:50]} ({c.get('year', '?')})"
-                       for c in citations}
+        cached_titles = {c.get('title', '').strip().lower() for c in citations}
+        seen_titles = {k: f"{k[:50]} (cached)" for k in cached_titles}
         paper_new_count = 0  # new citations found for THIS paper in this fetch
 
         try:
@@ -904,6 +908,9 @@ class PaperCitationFetcher:
                     info = self._extract_citation_info(citing)
                     dedup_key = info['title'].strip().lower()
                     if dedup_key in seen_titles:
+                        if dedup_key not in cached_titles:
+                            # Duplicate within Scholar's own results (not a cache hit)
+                            self._dedup_count += 1
                         print(f"  [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('year', '?')})"
                               f"\n          Existing: {seen_titles[dedup_key]}", flush=True)
                         continue
