@@ -748,6 +748,7 @@ class PaperCitationFetcher:
         prev_scholar_count: Scholar citation count from last completed scan (for early stop).
         """
         citations = list(resume_from)
+        self._dedup_count = 0  # duplicates encountered during this paper's fetch
 
         # Load completed years into patch state for _citedby_long to skip
         self._completed_year_segments = set(completed_years or [])
@@ -765,6 +766,7 @@ class PaperCitationFetcher:
                     'citedby_url': citedby_url,
                     'num_citations_on_scholar': num_citations,
                     'num_citations_cached': len(citations),
+                    'num_citations_seen': len(citations) + self._dedup_count,
                     'complete': complete,
                     'completed_years': sorted(self._completed_year_segments),
                     'fetched_at': datetime.now().isoformat(),
@@ -803,6 +805,7 @@ class PaperCitationFetcher:
                 if dedup_key in seen_titles:
                     print(f"  [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('year', '?')})"
                           f"\n          Existing: {seen_titles[dedup_key]}", flush=True)
+                    self._dedup_count += 1
                     continue
                 seen_titles[dedup_key] = f"{info['title'][:50]} ({info.get('year', '?')})"
                 citations.append(info)
@@ -1029,17 +1032,26 @@ class PaperCitationFetcher:
         if not cached.get('complete'):
             return 'partial'
 
-        actual_cached = cached.get('num_citations_cached', len(cached.get('citations', [])))
         current = pub['num_citations']
 
+        # Primary check: num_citations_seen = cached + deduped.
+        # If we've seen >= Scholar count, we have everything (dedup accounts for the gap).
+        # This works for both normal and force mode without ambiguity.
+        num_seen = cached.get('num_citations_seen')
+        if num_seen is not None:
+            if num_seen >= current:
+                return 'complete'
+            return 'partial'
+
+        # Fallback for caches without num_citations_seen (fetched before this change):
+        # Normal mode: compare Scholar count at last completion vs current.
+        # Force mode: compare actual cached count vs current.
+        actual_cached = cached.get('num_citations_cached', len(cached.get('citations', [])))
         if self.force_refresh_citations:
-            # Force mode: purely compare cached count vs current Scholar count
             if actual_cached >= current:
                 return 'complete'
             return 'partial'
 
-        # Normal mode: compare Scholar count at last completion vs current.
-        # If Scholar count hasn't changed, any diff (cached < Scholar) is from dedup.
         scholar_at_completion = cached.get('num_citations_on_scholar', 0)
         if current <= scholar_at_completion:
             return 'complete'
@@ -1219,7 +1231,9 @@ class PaperCitationFetcher:
                         completed_years=completed_years,
                         prev_scholar_count=prev_scholar_count
                     )
-                    print(f"  Done: {len(citations)} citations cached")
+                    seen_total = len(citations) + self._dedup_count
+                    dedup_str = f", {self._dedup_count} dupes" if self._dedup_count else ""
+                    print(f"  Done: {len(citations)} cached, {seen_total} seen{dedup_str} (Scholar: {num_citations})")
                     self._papers_fetched_count += 1
                     break
                 except Exception as e:
