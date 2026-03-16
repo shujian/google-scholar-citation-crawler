@@ -153,6 +153,8 @@ class AuthorProfileFetcher:
 
         try:
             author = scholarly.search_author_id(self.author_id)
+            if author is None:
+                raise ValueError("search_author_id returned None — Scholar may be rate-limiting")
             print("Author found, filling basic info...")
 
             d = rand_delay()
@@ -160,6 +162,8 @@ class AuthorProfileFetcher:
             time.sleep(d)
 
             author_filled = scholarly.fill(author, sections=['basics', 'indices', 'counts'])
+            if author_filled is None:
+                raise ValueError("fill() returned None — Scholar may be rate-limiting")
 
             current_year = datetime.now().year
             cites_per_year = author_filled.get('cites_per_year', {})
