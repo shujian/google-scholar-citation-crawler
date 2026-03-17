@@ -1123,9 +1123,11 @@ class PaperCitationFetcher:
         need_fetch = [(pub, st, cached) for pub, (st, cached) in zip(publications, statuses)
                       if st in ('missing', 'partial')]
 
-        # Randomize fetch order to avoid always hitting the same paper first,
-        # reducing Scholar ban risk. Output results are re-sorted to original order.
-        random.shuffle(need_fetch)
+        # Randomize fetch order only when skip/limit are not specified.
+        # With --skip or --limit, original order must be preserved so users
+        # can reliably target specific papers by position.
+        if not self.skip and not self.limit:
+            random.shuffle(need_fetch)
 
         print(f"Total papers: {len(publications)}")
         print(f"  Zero citations (skip):     {sum(1 for s, _ in statuses if s == 'skip_zero')}")
