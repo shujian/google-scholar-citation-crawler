@@ -1153,36 +1153,39 @@ class PaperCitationFetcher:
 
     def _run_main_loop(self, publications, cache_status, url_map, need_fetch, results, fetch_idx):
         """Inner loop extracted so KeyboardInterrupt saves output."""
-        # Build index map for results ordering (original publication order)
-        pub_index = {pub['title']: i for i, pub in enumerate(publications)}
         results[:] = [None] * len(publications)
 
-        # First pass: fill in skip_zero and complete papers (original order)
+        # need_fetch is either shuffled (no skip/limit) or in original order (with skip/limit).
+        # Build a set of titles that need fetching for quick lookup.
+        need_fetch_set = {pub['title'] for pub, _, _ in need_fetch}
+
+        papers_processed = 0  # counts every paper touched (for --limit)
+
         for idx, pub in enumerate(publications, 1):
-            st, cached = cache_status(pub)
-            if st == 'skip_zero':
-                print(f"[{idx}/{len(publications)}] {pub['title'][:55]}... -> skip (0 citations)")
-                results[idx - 1] = {'pub': pub, 'citations': []}
-            elif st == 'complete':
-                print(f"[{idx}/{len(publications)}] {pub['title'][:55]}... -> cached ({len(cached['citations'])} citations)")
-                results[idx - 1] = {'pub': pub, 'citations': cached['citations']}
-
-        # Second pass: fetch in randomized order
-        need_fetch_titles = {pub['title'] for pub, _, _ in need_fetch}
-        for fetch_seq, (pub, st, cached) in enumerate(need_fetch):
-            title = pub['title']
+            title         = pub['title']
             num_citations = pub['num_citations']
-            orig_idx = pub_index[title] + 1
+            st, cached    = cache_status(pub)
 
-            if fetch_seq < self.skip:
+            # --limit: stop after processing N papers (skip counts too)
+            if self.limit and papers_processed >= self.limit:
+                break
+            papers_processed += 1
+
+            # Papers before --skip position: store cached data, don't fetch
+            if idx <= self.skip:
                 citations = cached['citations'] if cached else []
-                print(f"[{orig_idx}/{len(publications)}] {title[:55]}... -> skip (--skip {fetch_seq+1}/{self.skip})")
-                results[orig_idx - 1] = {'pub': pub, 'citations': citations}
+                print(f"[{idx}/{len(publications)}] {title[:55]}... -> skip (--skip {idx}/{self.skip})")
+                results[idx - 1] = {'pub': pub, 'citations': citations}
                 continue
 
-            if self.limit and fetch_idx >= self.limit:
-                citations = cached['citations'] if cached else []
-                results[orig_idx - 1] = {'pub': pub, 'citations': citations}
+            if st == 'skip_zero':
+                print(f"[{idx}/{len(publications)}] {title[:55]}... -> skip (0 citations)")
+                results[idx - 1] = {'pub': pub, 'citations': []}
+                continue
+
+            if st == 'complete':
+                print(f"[{idx}/{len(publications)}] {title[:55]}... -> cached ({len(cached['citations'])} citations)")
+                results[idx - 1] = {'pub': pub, 'citations': cached['citations']}
                 continue
 
             fetch_idx += 1
@@ -1197,7 +1200,7 @@ class PaperCitationFetcher:
 
             if not citedby_url:
                 print(f"[{idx}/{len(publications)}] {title[:55]}... -> Warning: no citedby_url, skip")
-                results.append({'pub': pub, 'citations': cached['citations'] if cached else []})
+                results[idx - 1] = {'pub': pub, 'citations': cached['citations'] if cached else []}
                 continue
 
             prev_scholar_count = 0
@@ -1223,7 +1226,7 @@ class PaperCitationFetcher:
                 completed_years = []
                 action = "first fetch"
 
-            print(f"[{orig_idx}/{len(publications)}] {title[:55]}...")
+            print(f"[{idx}/{len(publications)}] {title[:55]}...")
             print(f"  {action}")
 
             citations = None
@@ -1277,7 +1280,7 @@ class PaperCitationFetcher:
                         print(f"  [{now}] Will retry with fresh session after {wait_hours} hours...", flush=True)
                         time.sleep(wait_hours * 3600)
 
-            results[orig_idx - 1] = {'pub': pub, 'citations': citations or []}
+            results[idx - 1] = {'pub': pub, 'citations': citations or []}
 
             if fetch_idx < (self.limit or len(need_fetch)):
                 d = rand_delay()
