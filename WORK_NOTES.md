@@ -208,6 +208,16 @@ pub_obj = {
 - **2026-03-12** — 去重时输出重复条目：遇到重复引用时打印 `[dedup]` 日志，显示新条目和已有条目的标题+年份，方便人工核查
 - **2026-03-12** — 修复 scholarly `search_citedby` 漏抓 bug：该方法始终在 URL 中加入 `&as_sdt=N,33`（地区过滤参数），导致 Scholar 过滤部分结果（实测 19→18）；改为直接构造不含 `as_sdt` 的 URL，使用 `_SearchScholarIterator` 迭代，与 `PublicationParser.citedby()` 内部做法一致
 - **2026-03-13** — 延长重试等待时间：第一次失败 3h→6h，第二次失败 6h→12h
+- **2026-03-14** — 修复 `_refresh_scholarly_session` 因 httpx 不兼容崩溃：捕获 `TypeError`，session 刷新失败时静默跳过
+- **2026-03-14** — 添加浏览器特征参数 `as_sdt=0,5`：citation URL 改用全局地区码（5），避免 scholarly 默认的 `,33`（纽约地区）过滤结果；彻底研究确认 `as_sdt` 含义：第一段=搜索类型，第二段=地区码，`as_sdt=2005` 是 Scholar 内部 "Cited by" 专用复合标志
+- **2026-03-14** — 随机化抓取顺序：无 `--skip`/`--limit` 时 shuffle `need_fetch`，避免每次从最高引用论文开始触发 ban；有 `--skip`/`--limit` 时保持原始顺序以保证定位准确
+- **2026-03-14** — 优化运行摘要输出：显示 `X/231 papers, N fetched, M new`；`_papers_fetched_count` 记录本次实际抓取数；中断/limit 导致的未处理论文从缓存补数据，保证总引用数准确
+- **2026-03-15** — 记录 `num_citations_seen`（缓存数+去重数）：新增 `_dedup_count` 只统计 Scholar 自身列表的重复（不含 cache hit），保存到缓存；`_citation_status` 优先用 `num_citations_seen >= current` 判断完整性，无此字段时回退旧逻辑
+- **2026-03-16** — 修复 `search_author_id` 返回 `None` 导致崩溃：Scholar 限流时返回 None，加入显式检查并打印清晰错误信息
+- **2026-03-17** — 修复 `--skip`/`--limit` 语义：改为基于所有论文列表的绝对位置；`--skip M` 跳过前 M 篇，`--limit N` 在 skip 之后处理 N 篇（M+1 到 M+N），skip 不计入 limit
+- **2026-03-17** — 记录 citation URL：每次按年份请求时打印完整 URL 方便对比验证
+- **2026-03-17** — 修复中断后年份丢失：`_fetch_by_year` 的 `except` 由仅捕获 `KeyboardInterrupt` 扩展为同时捕获 `Exception`，任何异常都调用 `save_progress(complete=False)` 保存已完成年份
+- **2026-03-17** — 年份扫描方向自适应：普通更新模式（Scholar 引用增长）从新→老，早停更快；Force/首次抓取模式从老→新，老年份数据稳定，中断续传更高效
 
 ---
 
