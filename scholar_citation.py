@@ -1159,24 +1159,24 @@ class PaperCitationFetcher:
         # Build a set of titles that need fetching for quick lookup.
         need_fetch_set = {pub['title'] for pub, _, _ in need_fetch}
 
-        papers_processed = 0  # counts every paper touched (for --limit)
+        papers_processed = 0  # counts papers after --skip (for --limit)
 
         for idx, pub in enumerate(publications, 1):
             title         = pub['title']
             num_citations = pub['num_citations']
             st, cached    = cache_status(pub)
 
-            # --limit: stop after processing N papers (skip counts too)
-            if self.limit and papers_processed >= self.limit:
-                break
-            papers_processed += 1
-
-            # Papers before --skip position: store cached data, don't fetch
+            # Papers before --skip position: store cached data, don't fetch, don't count
             if idx <= self.skip:
                 citations = cached['citations'] if cached else []
                 print(f"[{idx}/{len(publications)}] {title[:55]}... -> skip (--skip {idx}/{self.skip})")
                 results[idx - 1] = {'pub': pub, 'citations': citations}
                 continue
+
+            # --limit: stop after processing N papers past the skip point
+            if self.limit and papers_processed >= self.limit:
+                break
+            papers_processed += 1
 
             if st == 'skip_zero':
                 print(f"[{idx}/{len(publications)}] {title[:55]}... -> skip (0 citations)")

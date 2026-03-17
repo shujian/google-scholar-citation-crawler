@@ -46,8 +46,8 @@ python scholar_citation.py --author YOUR_AUTHOR_ID --limit 1 --skip 1
 |------|------|
 | `--author` (必填) | Scholar author ID 或完整 URL |
 | `--output-dir` | 输出目录，默认 `./output` |
-| `--limit N` | 只处理前 N 篇论文（从所有论文列表计数，skip 也算） |
-| `--skip N` | 跳过所有论文列表中的前 N 篇（按引用数降序）|
+| `--skip M` | 跳过所有论文列表中的前 M 篇（按引用数降序），不计入 limit |
+| `--limit N` | 在 skip 之后处理 N 篇（第 M+1 到 M+N 篇），不管状态是否需要抓取 |
 | `--force-refresh-pubs` | 忽略缓存重新抓取论文列表 |
 | `--force-refresh-citations` | 按缓存条数 vs Scholar 数重新检查，不匹配的重新抓取 |
 
