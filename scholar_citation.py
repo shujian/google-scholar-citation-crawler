@@ -873,13 +873,26 @@ class PaperCitationFetcher:
         print(f"  Year-based resume: {start_year}-{current_year} "
               f"({len(self._completed_year_segments)} years already done)", flush=True)
 
+        # Fetch direction depends on mode:
+        # - Force/full rescan: old→new (stable old years first, new years last)
+        # - Normal update (Scholar count increased): new→old (new citations in recent years,
+        #   early stop kicks in quickly)
+        if prev_scholar_count > 0 and prev_scholar_count < num_citations:
+            # Normal update mode: new→old for efficient early stop
+            year_range = range(current_year, start_year - 1, -1)
+            print(f"  Direction: newest→oldest (update mode, early stop enabled)", flush=True)
+        else:
+            # Force/full rescan mode: old→new for stable progress saving
+            year_range = range(start_year, current_year + 1)
+            print(f"  Direction: oldest→newest (full scan mode)", flush=True)
+
         # Build dedup map from existing citations: key -> brief info for logging
         cached_titles = {c.get('title', '').strip().lower() for c in citations}
         seen_titles = {k: f"{k[:50]} (cached)" for k in cached_titles}
         paper_new_count = 0  # new citations found for THIS paper in this fetch
 
         try:
-            for year in range(current_year, start_year - 1, -1):
+            for year in year_range:
                 if year in self._completed_year_segments:
                     skipped_years += 1
                     continue
@@ -954,6 +967,11 @@ class PaperCitationFetcher:
                     break
 
         except KeyboardInterrupt:
+            save_progress(complete=False)
+            raise
+        except Exception:
+            # Save completed_years progress on any network/other error
+            # so the next retry/run doesn't re-fetch already-completed years
             save_progress(complete=False)
             raise
 
