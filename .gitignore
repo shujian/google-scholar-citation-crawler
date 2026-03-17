@@ -7,9 +7,6 @@ scholar_cache/
 # Personal example script
 my_citation.sh
 
-# Work notes (personal, not synced)
-WORK_NOTES.md
-
 # Python
 __pycache__/
 *.pyc

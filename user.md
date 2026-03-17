@@ -622,3 +622,150 @@ resume (1302 cached, fetching remaining)
 能不能帮我查一下这个参数到底是什么意思？&as_sdt=N,33
 
 ---
+
+## Message 91 [2026-03-13]
+
+三小时和六小时的等待时间要拉长至少一倍
+
+---
+
+## Message 92 [2026-03-13]
+
+请把近期更新的内容整理记录到worknotes里
+
+---
+
+## Message 93 [2026-03-14]
+
+这是又引入了什么bug？在抓取citation的时候，第一篇论文的访问里就出现了：Error (attempt 1/3, total pages: 0, new citations: 0): Client.__init__() got an unexpected keyword argument 'proxies'
+
+---
+
+## Message 94 [2026-03-14]
+
+最近两次访问在fetch citation第一篇论文的时候都失败了。但是获取profile信息都还正常，请检查一下是不是什么地方弄错了？
+
+---
+
+## Message 95 [2026-03-14]
+
+（运行输出）
+Year-based resume: 2017-2026 (0 years already done)
+      Year 2026: fetching
+      Waiting 41s before request... [elapsed 0s, 0 new citations, 1 pages]
+      Waiting 53s before request (retry 2)... [elapsed 47s, 0 new citations, 1 pages]
+      Waiting 47s before request (retry 3)... [elapsed 4m11s, 0 new citations, 1 pages]
+  [2026-03-14 09:49:31] Error (attempt 1/3, total pages: 1, ...
+
+---
+
+## Message 96 [2026-03-14]
+
+我就想确认一下为什么这种url访问会被ban，有没有绕过的办法？
+
+---
+
+## Message 97 [2026-03-14]
+
+可以随机化论文顺序，也可以加回浏览器特征参数，但是不应该影响取回的结果。之前去掉特征参数是为了得到跟浏览器浏览一致的结果。
+
+---
+
+## Message 98 [2026-03-14]
+
+会不会还有其他的取值能正常访问？或者能不能模拟浏览器生成的访问url形式？或者改变地区代码变成别的？
+
+---
+
+## Message 99 [2026-03-14]
+
+我这里有个浏览器的url记录，你看一看 https://scholar.google.com.hk/scholar?start=20&hl=en&as_sdt=2005&sciodt=0,5&as_ylo=2026&cites=5507039711609773325,3066613168129831521&scipsc=
+
+---
+
+## Message 100 [2026-03-14]
+
+我不建议靠猜测，还是应该查一下as_sdt参数的含义，是不是worknotes里有记录？你也可以再查一查确认一下。
+
+---
+
+## Message 101 [2026-03-14]
+
+我建议把as_sdt改成0,5 sciodt是个用于控制session的参数，现在不知道该怎么设置，那就暂时保持不变吧。你觉得呢？
+
+---
+
+## Message 102 [2026-03-14]
+
+在申请访问url的时候，把url也打印出来，以便观察和比较
+
+---
+
+## Message 103 [2026-03-14]
+
+当更新了部分引用内容的时候，这个输出是不对的，请更正一下:Done! 198 papers, 2464 total citation records (0 new in this run)
+
+---
+
+## Message 104 [2026-03-14]
+
+我感觉即使是forced refresh了，新check过的citation和以前保存的citation也应该合并起来算总和才对。
+
+---
+
+## Message 105 [2026-03-14]
+
+最近是不是没有更新user.md，请更新一下
+
+---
+
+## Message 106 [2026-03-15]
+
+在对每一篇论文抓取引用的时候，能不能考虑把重复的引用数量记录一下，这样知道该篇论文的总引用数是多少，因为重复去掉的论文数量是多少。后面再次抓取的时候，不管是否force，如果单篇论文的总引用数（包含cached和去重的）跟scholar页面上的一致，就不需要再重新抓取了。
+
+---
+
+## Message 107 [2026-03-15]
+
+注意我们记录的seen或者重复，是scholar的列表中本身包含重复。如果是新抓取的引用跟以前缓存的引用重复，可不能计数。否则force的时候就会有大量重复进入计数。
+
+---
+
+## Message 108 [2026-03-16]
+
+为什么突然报了这个错误？Failed to fetch basic info: 'NoneType' object has no attribute 'get'
+Traceback (most recent call last):
+  File "scholar_citation.py", line 155, in fetch_basics
+    author = scholarly.search_author_id(self.author_id)
+
+---
+
+## Message 109 [2026-03-17]
+
+我给了参数是--skip 151 --limit 1，为什么没有进行抓取程序就结束了？
+
+---
+
+## Message 110 [2026-03-17]
+
+另外，如果有skip参数的话，论文的抓取排序不能随便修改，否则就没办法定位到某个具体的论文了。
+
+---
+
+## Message 111 [2026-03-17]
+
+--skip不是在需要抓取的论文里排序，应该是在所有论文列表里排序才对吧
+
+---
+
+## Message 112 [2026-03-17]
+
+稍等，--limit的语义应该是只处理1篇论文，不要管他是否被skip。即使判断他应该被skip也算处理过了。
+
+---
+
+## Message 113 [2026-03-17]
+
+文字上有些问题，--limit N是指在--skip M的数量基础上，处理N篇。实际处理的是M+1到M+N篇。我的意思是，不管这N篇在后续的状态是因为已经获取了足够的引用而被跳过，还是需要重新进行抓取，都确定是这N篇。
+
+---
