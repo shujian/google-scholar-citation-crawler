@@ -195,6 +195,11 @@ class AuthorProfileFetcher:
 
             return basics, True
 
+        except (AttributeError, TypeError) as e:
+            print(f"Failed to fetch basic info: network issue or Scholar rate-limiting "
+                  f"(got unexpected None in response: {e})")
+            print("Please check your network connection or proxy and try again.")
+            return None, False
         except Exception as e:
             print(f"Failed to fetch basic info: {e}")
             traceback.print_exc()

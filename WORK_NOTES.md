@@ -218,6 +218,7 @@ pub_obj = {
 - **2026-03-17** — 记录 citation URL：每次按年份请求时打印完整 URL 方便对比验证
 - **2026-03-17** — 修复中断后年份丢失：`_fetch_by_year` 的 `except` 由仅捕获 `KeyboardInterrupt` 扩展为同时捕获 `Exception`，任何异常都调用 `save_progress(complete=False)` 保存已完成年份
 - **2026-03-17** — 年份扫描方向自适应：普通更新模式（Scholar 引用增长）从新→老，早停更快；Force/首次抓取模式从老→新，老年份数据稳定，中断续传更高效
+- **2026-03-18** — 改善 `fetch_basics` 异常提示：`AttributeError`/`TypeError`（Scholar 返回 None 导致）单独捕获，输出明确的网络问题提示，不打印堆栈；其他异常仍打印完整堆栈
 
 ---
 

@@ -793,3 +793,10 @@ git提交，更新work notes
 user.md也要更新。请保证这样的工作流程：分析处理问题、修改代码并做可能的测试验证、更新worknotes和usermd，然后提交git项目。
 
 ---
+
+## Message 118 [2026-03-18]
+
+捕获一下这里的异常，输出一个网络有问题的提示。AttributeError: 'NoneType' object has no attribute 'get'
+Failed to fetch basic info, exiting
+
+---
