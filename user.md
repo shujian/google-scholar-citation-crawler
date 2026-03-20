@@ -887,3 +887,21 @@ since 2022: https://scholar.google.com.hk/scholar?as_ylo=2022&hl=en&as_sdt=2005&
 继续处理，刚刚是我误操作。
 
 ---
+
+## Message 133 [2026-03-20]
+
+以这个url为例，为什么我web可以访问，但是在程序中就变成不行了？（URL: https://scholar.google.com/scholar?as_ylo=2021&as_yhi=2021&hl=en&as_sdt=2005&sciodt=0,5&cites=...）
+
+---
+
+## Message 134 [2026-03-20]
+
+(Session reset: got_403 cleared, cookies preserved) 这个输出表示什么意思来着？
+
+---
+
+## Message 135 [2026-03-20]
+
+如果程序提示了输入验证码，我能通过控制台做点什么，帮助程序通过验证码？
+
+---

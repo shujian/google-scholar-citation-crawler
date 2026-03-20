@@ -1353,7 +1353,18 @@ class PaperCitationFetcher:
                         # Save whatever we have before exiting
                         self._save_output(results)
                         sys.exit(1)
-                    elif attempt == MAX_RETRIES - 1:
+                    # Offer interactive captcha solve when running in a terminal.
+                    # If the user pastes a fresh cURL from the browser, cookies are
+                    # injected and we retry immediately without the long wait.
+                    if sys.stdin.isatty():
+                        solved = self._try_interactive_captcha(
+                            getattr(self, '_last_scholar_url',
+                                    'https://scholar.google.com/scholar'))
+                        if solved:
+                            print(f"  Retrying with injected cookies (attempt {attempt + 1}/{MAX_RETRIES})...",
+                                  flush=True)
+                            continue  # skip wait, go to next attempt
+                    if attempt == MAX_RETRIES - 1:
                         # Second failure — save progress, then wait 12 hours
                         if os.path.exists(cache_path):
                             with open(cache_path, 'r', encoding='utf-8') as f:
@@ -1375,6 +1386,58 @@ class PaperCitationFetcher:
                 d = rand_delay()
                 print(f"  Waiting {d:.0f}s before next paper... [{self._wait_status()}]", flush=True)
                 time.sleep(d)
+
+    def _inject_cookies_from_curl(self, curl_str):
+        """Parse cookies from a pasted cURL command and inject into scholarly sessions.
+        Returns the number of cookies injected, or 0 on failure.
+        """
+        m = (re.search(r"-b '([^']+)'", curl_str) or
+             re.search(r'-b "([^"]+)"', curl_str))
+        if not m:
+            print("  (Could not find -b '...' cookie string in input)", flush=True)
+            return 0
+        nav = scholarly._Scholarly__nav
+        count = 0
+        for pair in m.group(1).split(';'):
+            pair = pair.strip()
+            if '=' in pair:
+                k, v = pair.split('=', 1)
+                for session in (nav._session1, nav._session2):
+                    session.cookies.set(k.strip(), v.strip(),
+                                        domain='scholar.google.com')
+                count += 1
+        if count:
+            nav.got_403 = False
+            print(f"  Injected {count} cookies from browser session.", flush=True)
+        else:
+            print("  (No valid cookies found in pasted input)", flush=True)
+        return count
+
+    def _try_interactive_captcha(self, url):
+        """Prompt user to solve captcha manually and inject resulting cookies.
+        Only called when stdin is an interactive terminal.
+        Returns True if cookies were successfully injected.
+        """
+        sep = "  " + "=" * 62
+        print(f"\n{sep}", flush=True)
+        print(f"  Captcha / block detected. Resolve it manually:", flush=True)
+        print(f"  1. Open this URL in your browser:", flush=True)
+        print(f"       {url}", flush=True)
+        print(f"  2. Solve the captcha if shown, then let the page load fully", flush=True)
+        print(f"  3. F12 → Network → find the Scholar request", flush=True)
+        print(f"     → right-click → Copy as cURL (bash)", flush=True)
+        print(f"  4. Paste the cURL here and press Enter", flush=True)
+        print(f"     (Press Enter with no input to skip and use the automatic wait)", flush=True)
+        print(f"{sep}", flush=True)
+        try:
+            curl_input = input("  > ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print(flush=True)
+            return False
+        if not curl_input:
+            print("  (Skipped — using automatic wait)", flush=True)
+            return False
+        return self._inject_cookies_from_curl(curl_input) > 0
 
     def _save_output(self, results):
         """Save citation results to JSON and Excel."""
