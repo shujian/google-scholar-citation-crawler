@@ -917,3 +917,9 @@ since 2022: https://scholar.google.com.hk/scholar?as_ylo=2022&hl=en&as_sdt=2005&
 程序有bug，首先让用户尝试的页面是profile页面，并不是引发验证码的scholar页面，此外，copy的curl是一个多行字符串，paste之后并未正常执行，而是选择等待6小时。
 
 ---
+
+## Message 138 [2026-03-20]
+
+上次那个等待用户粘贴curl的窗口最后失去响应了，请检查一下确认input没有问题。
+
+---

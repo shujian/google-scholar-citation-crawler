@@ -1434,26 +1434,19 @@ class PaperCitationFetcher:
         print(f"  2. Solve the captcha if shown, then let the page load fully", flush=True)
         print(f"  3. F12 → Network → find the Scholar request", flush=True)
         print(f"     → right-click → Copy as cURL (bash)", flush=True)
-        print(f"  4. Paste the cURL below; when done press Enter on a blank line", flush=True)
-        print(f"     (Blank line immediately = skip, use automatic wait)", flush=True)
+        print(f"  4. Paste the cURL below, then press Ctrl+D to confirm", flush=True)
+        print(f"     (Ctrl+D immediately without pasting = skip, use automatic wait)", flush=True)
         print(f"{sep}", flush=True)
-        lines = []
-        prompt = "  > "
+        print("  > ", end='', flush=True)
         try:
-            while True:
-                line = input(prompt)
-                prompt = "    "          # continuation indent after first line
-                if not line.strip():
-                    break                # blank line signals end of paste
-                lines.append(line)
-        except (EOFError, KeyboardInterrupt):
+            content = sys.stdin.read()
+        except KeyboardInterrupt:
             print(flush=True)
             return False
-        if not lines:
+        if not content.strip():
             print("  (Skipped — using automatic wait)", flush=True)
             return False
-        curl_str = ' '.join(lines)
-        return self._inject_cookies_from_curl(curl_str) > 0
+        return self._inject_cookies_from_curl(content) > 0
 
     def _save_output(self, results):
         """Save citation results to JSON and Excel."""
