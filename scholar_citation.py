@@ -37,12 +37,18 @@ from openpyxl.styles import Font, PatternFill, Alignment
 # ============================================================
 
 # Unified delay: all deliberate waits use a random value in this range
-DELAY_MIN = 30
-DELAY_MAX = 60
+DELAY_MIN = 45
+DELAY_MAX = 90
 
 # Proactively refresh session every N pages to avoid session-based blocking
 SESSION_REFRESH_MIN = 10   # refresh session after random 10-20 pages
 SESSION_REFRESH_MAX = 20
+
+# Mandatory long break every 8-12 pages to let Scholar's rate-limit window reset
+MANDATORY_BREAK_EVERY_MIN = 8
+MANDATORY_BREAK_EVERY_MAX = 12
+MANDATORY_BREAK_MIN = 180  # 3 minutes
+MANDATORY_BREAK_MAX = 360  # 6 minutes
 
 # Papers with >= this many citations use year-based fetching for better resume
 YEAR_BASED_THRESHOLD = 50
@@ -657,11 +663,12 @@ class PaperCitationFetcher:
 
         nav._get_page = patched_get_page
 
-        # --- Patch 2: pagination tracking + session refresh ---
+        # --- Patch 2: pagination tracking + mandatory break + session refresh ---
         original_load_url = _SearchScholarIterator._load_url
         original_init = _SearchScholarIterator.__init__
         self._total_page_count = 0
-        self._next_refresh_at = random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
+        self._next_break_at = random.randint(MANDATORY_BREAK_EVERY_MIN, MANDATORY_BREAK_EVERY_MAX)
+        self._next_refresh_at = self._next_break_at + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
 
         def patched_init(self, nav, url):
             self._page_num = 0
@@ -672,11 +679,26 @@ class PaperCitationFetcher:
             fetcher_self._total_page_count += 1
             if self_iter._page_num > 1:
                 print(f"      Pagination (page {self_iter._page_num})", flush=True)
-            # Refresh session at randomized intervals (10-20 pages)
-            if fetcher_self._total_page_count >= fetcher_self._next_refresh_at:
+            # Mandatory long break (higher priority than session refresh)
+            # Resets Scholar's sliding-window rate limit
+            if fetcher_self._total_page_count >= fetcher_self._next_break_at:
+                d = random.uniform(MANDATORY_BREAK_MIN, MANDATORY_BREAK_MAX)
+                print(f"      Mandatory break after {fetcher_self._total_page_count} pages "
+                      f"({d/60:.1f} min)... [{fetcher_self._wait_status()}]", flush=True)
+                time.sleep(d)
+                fetcher_self._next_break_at = (fetcher_self._total_page_count
+                                               + random.randint(MANDATORY_BREAK_EVERY_MIN, MANDATORY_BREAK_EVERY_MAX))
+                # Also refresh session after the long break
+                print(f"      Refreshing session after break...", flush=True)
+                fetcher_self._refresh_scholarly_session()
+                fetcher_self._next_refresh_at = (fetcher_self._total_page_count
+                                                 + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX))
+            # Regular session refresh between breaks
+            elif fetcher_self._total_page_count >= fetcher_self._next_refresh_at:
                 print(f"      Refreshing session (after {fetcher_self._total_page_count} pages)...", flush=True)
                 fetcher_self._refresh_scholarly_session()
-                fetcher_self._next_refresh_at = fetcher_self._total_page_count + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
+                fetcher_self._next_refresh_at = (fetcher_self._total_page_count
+                                                 + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX))
             return original_load_url(self_iter, url)
 
         _SearchScholarIterator.__init__ = patched_init
@@ -709,10 +731,10 @@ class PaperCitationFetcher:
         try:
             nav._new_session(premium=True)
             nav._new_session(premium=False)
+            print("      (Session refreshed: new httpx client created)", flush=True)
         except TypeError:
-            # httpx incompatibility: scholarly proxy API doesn't support current
-            # httpx version. Session refresh skipped, using existing session.
-            pass
+            print("      (Session reset: got_403 cleared, httpx client unchanged "
+                  "— httpx version incompatible with scholarly proxy API)", flush=True)
         nav.got_403 = False
 
     def _elapsed_str(self):
