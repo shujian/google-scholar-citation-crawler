@@ -223,6 +223,7 @@ pub_obj = {
 - **2026-03-20** — 增加请求延迟：`DELAY_MIN 30→45`，`DELAY_MAX 60→90`，降低 Scholar IP 级速率限制触发概率
 - **2026-03-20** — 新增强制长休息机制：每 8-12 页（随机）触发一次 3-6 分钟休息，让 Scholar 的滑动窗口速率限制有时间重置；休息后顺带刷新 session 并重置 `_next_refresh_at`；与常规 session 刷新（10-20 页一次）独立运行，长休息优先级更高；`_next_break_at` 和 `_next_refresh_at` 错开初始化，避免两者同时触发
 - **2026-03-20** — 修复 httpx 0.27.2 下 proxy 失效问题：`scholarly.use_proxy(pg)` 在 0.28.1 时因 TypeError 被 catch 而不生效，proxy 由 httpx 自动读取环境变量；降至 0.27.2 后该调用开始生效，但 scholarly 的 `{'http': url}` 格式与 httpx 0.27.x 要求的 `{'http://': url}` 格式不符，导致 proxy 静默失效、直连 Scholar 被封；修复方案：`setup_proxy()` 不再调用 scholarly proxy API，完全依赖 httpx `trust_env=True` 自动读取 `HTTPS_PROXY` 环境变量
+- **2026-03-20** — 浏览器请求还原（通过抓取真实 cURL 分析）：①年份查询 URL 从 `as_sdt=0,5` 改为 `as_sdt=2005`（Scholar citation-search 专用内部标志），并补充 `sciodt=0,5` 和 `scipsc=`，与浏览器点击年份过滤产生的 URL 完全一致；②在 scholarly 的 httpx session 上添加完整浏览器 headers：`sec-fetch-dest/mode/site/user`、`sec-ch-ua`、`upgrade-insecure-requests`、完整 `accept`；③动态 Referer：每次翻页前将 `_last_scholar_url`（上一页 URL）设为 Referer，初始值为 author profile URL（模拟用户从作者主页点击"Cited by"的导航链；④patch `_new_session`：scholarly 在真正 403 后重建 httpx client 时自动重新应用 browser headers；⑤session 策略改变：`_refresh_scholarly_session` 改为 soft reset（只重置 `got_403`，不销毁 httpx client），保留 Scholar 在请求过程中积累的 cookies，使后续请求看起来是"老用户回访"而非每次都是新匿名访客
 
 ---
 

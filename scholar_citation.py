@@ -625,15 +625,53 @@ class PaperCitationFetcher:
 
     def _patch_scholarly(self):
         """
-        Monkey-patch scholarly internals for rate-limit safety:
-        1. Patch _get_page to wait 30-60s before EVERY HTTP request
-        2. Track pagination and proactively refresh session every N pages
-        3. Log year-segment switches in _citedby_long
+        Monkey-patch scholarly internals for browser simulation + rate-limit safety:
+        1. Apply browser-like headers (sec-fetch-*, sec-ch-ua, referer) to httpx sessions
+        2. Patch _new_session to re-apply browser headers after session recreation (e.g. on 403)
+        3. Patch _get_page to wait 45-90s before every HTTP request
+        4. Track pagination, update Referer dynamically, take mandatory long breaks
+        5. Log year-segment switches in _citedby_long
         """
         nav = scholarly._Scholarly__nav
         nav._set_retries(1)
         original_get_page = nav._get_page
         fetcher_self = self  # capture for all closures below
+
+        # --- Browser headers: match what Chrome sends when navigating within Scholar ---
+        _BROWSER_HEADERS = {
+            'accept': ('text/html,application/xhtml+xml,application/xml;q=0.9,'
+                       'image/avif,image/webp,image/apng,*/*;q=0.8,'
+                       'application/signed-exchange;v=b3;q=0.7'),
+            'accept-language': 'en-US,en;q=0.9',
+            'sec-ch-ua': '"Chromium";v="134", "Not-A.Brand";v="24", "Google Chrome";v="134"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"macOS"',
+            'sec-fetch-dest': 'document',
+            'sec-fetch-mode': 'navigate',
+            'sec-fetch-site': 'same-origin',
+            'sec-fetch-user': '?1',
+            'upgrade-insecure-requests': '1',
+        }
+        _PROFILE_URL = f'https://scholar.google.com/citations?user={self.author_id}&hl=en'
+        self._last_scholar_url = _PROFILE_URL  # tracks current page for Referer
+
+        def _apply_browser_headers(session):
+            session.headers.update(_BROWSER_HEADERS)
+            session.headers['referer'] = fetcher_self._last_scholar_url
+
+        for session in (nav._session1, nav._session2):
+            _apply_browser_headers(session)
+        print(f"  Browser headers applied (sec-fetch-*, sec-ch-ua, referer)", flush=True)
+
+        # Patch _new_session: re-apply browser headers after scholarly recreates the
+        # httpx client (happens on 403).  Cookies are lost on recreation but headers
+        # are always restored, so requests never look like a plain script.
+        original_new_session = nav._new_session
+        def patched_new_session(premium=True, **kwargs):
+            original_new_session(premium=premium, **kwargs)
+            for session in (nav._session1, nav._session2):
+                _apply_browser_headers(session)
+        nav._new_session = patched_new_session
 
         # --- Patch 1: _get_page pre-request delay + retry limit ---
         MAX_SLEEPS_PER_PAGE = 3  # max retries within a single _get_page call
@@ -660,7 +698,7 @@ class PaperCitationFetcher:
 
         nav._get_page = patched_get_page
 
-        # --- Patch 2: pagination tracking + mandatory break + session refresh ---
+        # --- Patch 2: pagination tracking + dynamic Referer + mandatory break ---
         original_load_url = _SearchScholarIterator._load_url
         original_init = _SearchScholarIterator.__init__
         self._total_page_count = 0
@@ -676,7 +714,12 @@ class PaperCitationFetcher:
             fetcher_self._total_page_count += 1
             if self_iter._page_num > 1:
                 print(f"      Pagination (page {self_iter._page_num})", flush=True)
-            # Mandatory long break (higher priority than session refresh)
+
+            # Set Referer = previous Scholar page (mimics browser navigation chain)
+            for session in (nav._session1, nav._session2):
+                session.headers['referer'] = fetcher_self._last_scholar_url
+
+            # Mandatory long break (higher priority than soft refresh)
             # Resets Scholar's sliding-window rate limit
             if fetcher_self._total_page_count >= fetcher_self._next_break_at:
                 d = random.uniform(MANDATORY_BREAK_MIN, MANDATORY_BREAK_MAX)
@@ -685,18 +728,24 @@ class PaperCitationFetcher:
                 time.sleep(d)
                 fetcher_self._next_break_at = (fetcher_self._total_page_count
                                                + random.randint(MANDATORY_BREAK_EVERY_MIN, MANDATORY_BREAK_EVERY_MAX))
-                # Also refresh session after the long break
                 print(f"      Refreshing session after break...", flush=True)
                 fetcher_self._refresh_scholarly_session()
                 fetcher_self._next_refresh_at = (fetcher_self._total_page_count
                                                  + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX))
-            # Regular session refresh between breaks
+            # Soft session refresh between breaks
             elif fetcher_self._total_page_count >= fetcher_self._next_refresh_at:
                 print(f"      Refreshing session (after {fetcher_self._total_page_count} pages)...", flush=True)
                 fetcher_self._refresh_scholarly_session()
                 fetcher_self._next_refresh_at = (fetcher_self._total_page_count
                                                  + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX))
-            return original_load_url(self_iter, url)
+
+            result = original_load_url(self_iter, url)
+
+            # Update _last_scholar_url so next request sends correct Referer
+            fetcher_self._last_scholar_url = (
+                f'https://scholar.google.com{url}' if url.startswith('/') else url)
+
+            return result
 
         _SearchScholarIterator.__init__ = patched_init
         _SearchScholarIterator._load_url = patched_load_url
@@ -723,16 +772,15 @@ class PaperCitationFetcher:
 
     @staticmethod
     def _refresh_scholarly_session():
-        """Refresh scholarly internal session to clear flagged cookies."""
+        """Soft session reset: only clear the 403 flag, preserve the httpx session
+        and its accumulated cookies.  Creating a new httpx client would discard
+        cookies that Scholar uses to recognise returning (legitimate) users.
+        Browser headers are maintained via the patched _new_session; if scholarly
+        internally creates a new session on a real 403, headers are re-applied there.
+        """
         nav = scholarly._Scholarly__nav
-        try:
-            nav._new_session(premium=True)
-            nav._new_session(premium=False)
-            print("      (Session refreshed: new httpx client created)", flush=True)
-        except TypeError:
-            print("      (Session reset: got_403 cleared, httpx client unchanged "
-                  "— httpx version incompatible with scholarly proxy API)", flush=True)
         nav.got_403 = False
+        print("      (Session reset: got_403 cleared, cookies preserved)", flush=True)
 
     def _elapsed_str(self):
         """Return human-readable elapsed time since run started."""
@@ -933,12 +981,11 @@ class PaperCitationFetcher:
 
                 print(f"      Year {year}: fetching", flush=True)
 
-                # Use as_sdt=0,5: exclude patents (0), global scope (5).
-                # Avoids as_sdt=N,33 (scholarly default) which uses region code 33
-                # and filters some results. Region code 5 is the global default.
-                year_url = (f'/scholar?hl=en&cites={pub_id}'
-                            f'&as_ylo={year}&as_yhi={year}'
-                            f'&as_sdt=0,5')
+                # URL matches browser navigation: as_sdt=2005 is Scholar's internal
+                # citation-search flag (identical to what Scholar's own year-filter
+                # links use); sciodt=0,5 and scipsc= are also present in browser URLs.
+                year_url = (f'/scholar?as_ylo={year}&as_yhi={year}&hl=en'
+                            f'&as_sdt=2005&sciodt=0,5&cites={pub_id}&scipsc=')
                 if start_index > 0:
                     year_url += f'&start={start_index}'
                 print(f"      URL: https://scholar.google.com{year_url}", flush=True)

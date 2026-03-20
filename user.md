@@ -848,3 +848,42 @@ Failed to fetch basic info, exiting
 是不是现在在使用httpx的proxy了？会不会跟这个有关？
 
 ---
+
+## Message 127 [2026-03-20]
+
+scholarly这个package已经好几年没有更新了，请通过提取网页链接确认一下各个关键部分它生成的url是否正确，是否需要进行更新。如果有需要的话，可以考虑在本地建立一个scholarly的新版本。
+
+---
+
+## Message 128 [2026-03-20]
+
+我切换了ip，请把刚刚的测试再进行一下。
+
+---
+
+## Message 129 [2026-03-20]
+
+我们能不能从web访问开始，重新确定一个更接近当前真实访问的url请求形式？（提供了作者主页URL：https://scholar.google.com.hk/citations?user=HF3-E9kAAAAJ&hl=en）
+
+---
+
+## Message 130 [2026-03-20]
+
+（提供了 cURL 导出及 citation/year/pagination 的真实 URL 样本）
+
+since 2022: https://scholar.google.com.hk/scholar?as_ylo=2022&hl=en&as_sdt=2005&sciodt=0,5&cites=...&scipsc=
+翻页: https://scholar.google.com.hk/scholar?start=10&hl=en&as_sdt=2005&sciodt=0,5&as_ylo=2022&cites=...&scipsc=
+
+---
+
+## Message 131 [2026-03-20]
+
+好的，全部修正他们
+
+---
+
+## Message 132 [2026-03-20]
+
+继续处理，刚刚是我误操作。
+
+---
