@@ -905,3 +905,9 @@ since 2022: https://scholar.google.com.hk/scholar?as_ylo=2022&hl=en&as_sdt=2005&
 如果程序提示了输入验证码，我能通过控制台做点什么，帮助程序通过验证码？
 
 ---
+
+## Message 136 [2026-03-20]
+
+用一个参数控制这个行为，比如叫--interactive-captcha
+
+---

@@ -607,13 +607,15 @@ class AuthorProfileFetcher:
 class PaperCitationFetcher:
     def __init__(self, author_id, output_dir=".",
                  limit=None, skip=0, save_every=10,
-                 force_refresh_citations=False):
+                 force_refresh_citations=False,
+                 interactive_captcha=False):
         self.author_id = author_id
         self.output_dir = output_dir
         self.limit = limit
         self.skip = skip
         self.save_every = save_every
         self.force_refresh_citations = force_refresh_citations
+        self.interactive_captcha = interactive_captcha
 
         # Paths
         self.cache_dir = os.path.join(output_dir, "scholar_cache", f"author_{author_id}", "citations")
@@ -1353,10 +1355,10 @@ class PaperCitationFetcher:
                         # Save whatever we have before exiting
                         self._save_output(results)
                         sys.exit(1)
-                    # Offer interactive captcha solve when running in a terminal.
+                    # Offer interactive captcha solve when --interactive-captcha is set.
                     # If the user pastes a fresh cURL from the browser, cookies are
                     # injected and we retry immediately without the long wait.
-                    if sys.stdin.isatty():
+                    if self.interactive_captcha:
                         solved = self._try_interactive_captcha(
                             getattr(self, '_last_scholar_url',
                                     'https://scholar.google.com/scholar'))
@@ -1499,6 +1501,8 @@ def parse_args():
                         help='Force re-fetch publications list from Scholar')
     parser.add_argument('--force-refresh-citations', action='store_true',
                         help='Re-check papers where cached count < Scholar count')
+    parser.add_argument('--interactive-captcha', action='store_true',
+                        help='When blocked, pause and prompt for browser cookie injection to bypass captcha')
     return parser.parse_args()
 
 
@@ -1551,6 +1555,7 @@ def main():
         limit=args.limit,
         skip=args.skip,
         force_refresh_citations=args.force_refresh_citations,
+        interactive_captcha=args.interactive_captcha,
     )
     success = citation_fetcher.run()
     if not success:
