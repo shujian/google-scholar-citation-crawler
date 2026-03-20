@@ -639,15 +639,27 @@ class PaperCitationFetcher:
         original_get_page = nav._get_page
         fetcher_self = self  # capture for all closures below
 
-        # --- Browser headers: match what Chrome sends when navigating within Scholar ---
+        # --- Browser headers + HTTP/2: match curl.txt reference request exactly ---
         _BROWSER_HEADERS = {
+            'user-agent': ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                           'AppleWebKit/537.36 (KHTML, like Gecko) '
+                           'Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0'),
             'accept': ('text/html,application/xhtml+xml,application/xml;q=0.9,'
                        'image/avif,image/webp,image/apng,*/*;q=0.8,'
                        'application/signed-exchange;v=b3;q=0.7'),
-            'accept-language': 'en-US,en;q=0.9',
-            'sec-ch-ua': '"Chromium";v="134", "Not-A.Brand";v="24", "Google Chrome";v="134"',
+            'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6',
+            'priority': 'u=0, i',
+            'sec-ch-ua': '"Not:A-Brand";v="99", "Microsoft Edge";v="145", "Chromium";v="145"',
+            'sec-ch-ua-arch': '"arm"',
+            'sec-ch-ua-bitness': '"64"',
+            'sec-ch-ua-full-version-list': ('"Not:A-Brand";v="99.0.0.0", '
+                                            '"Microsoft Edge";v="145.0.3800.97", '
+                                            '"Chromium";v="145.0.7632.160"'),
             'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-model': '""',
             'sec-ch-ua-platform': '"macOS"',
+            'sec-ch-ua-platform-version': '"15.7.4"',
+            'sec-ch-ua-wow64': '?0',
             'sec-fetch-dest': 'document',
             'sec-fetch-mode': 'navigate',
             'sec-fetch-site': 'same-origin',
@@ -657,25 +669,58 @@ class PaperCitationFetcher:
         _PROFILE_URL = f'https://scholar.google.com/citations?user={self.author_id}&hl=en'
         self._last_scholar_url = _PROFILE_URL  # tracks current page for Referer
 
+        def _make_http2_session():
+            """Create an httpx.Client with HTTP/2 enabled.
+            trust_env=True (httpx default) picks up HTTPS_PROXY automatically.
+            """
+            return __import__('httpx').Client(http2=True)
+
         def _apply_browser_headers(session):
             session.headers.update(_BROWSER_HEADERS)
             session.headers['referer'] = fetcher_self._last_scholar_url
 
+        def _full_session_setup(session):
+            """Apply browser headers + injected cookies to a session."""
+            _apply_browser_headers(session)
+            for k, v in fetcher_self._injected_cookies.items():
+                session.cookies.set(k, v)   # no domain = sent to all requests
+
+        # Replace scholarly's default HTTP/1.1 sessions with HTTP/2 ones
+        nav._session1 = _make_http2_session()
+        nav._session2 = _make_http2_session()
         for session in (nav._session1, nav._session2):
             _apply_browser_headers(session)
-        print(f"  Browser headers applied (sec-fetch-*, sec-ch-ua, referer)", flush=True)
+        print(f"  Browser headers applied (HTTP/2, Edge/145, sec-ch-ua-*, referer)", flush=True)
 
-        # Patch _new_session: re-apply browser headers AND any previously injected
-        # browser cookies after scholarly recreates the httpx client (on 403).
+        # Patch _new_session: on 403 scholarly recreates the httpx client;
+        # replace it with an HTTP/2 session and re-apply full browser identity.
         original_new_session = nav._new_session
         fetcher_self._injected_cookies = {}   # populated by _inject_cookies_from_curl
         def patched_new_session(premium=True, **kwargs):
-            original_new_session(premium=premium, **kwargs)
+            original_new_session(premium=premium, **kwargs)   # lets scholarly reset got_403
+            if premium:
+                nav._session1 = _make_http2_session()
+            else:
+                nav._session2 = _make_http2_session()
             for session in (nav._session1, nav._session2):
-                _apply_browser_headers(session)
-                for k, v in fetcher_self._injected_cookies.items():
-                    session.cookies.set(k, v)   # no domain = sent to all requests
+                _full_session_setup(session)
         nav._new_session = patched_new_session
+
+        # Patch pm._handle_captcha2: scholarly calls this when it detects a captcha
+        # page in the response (200 OK but HTML contains captcha).  The returned
+        # session is used for the immediate retry *within the same _get_page call*,
+        # bypassing nav._session1/2.  Without this patch the retry uses a plain
+        # HTTP/1.1 session with no browser headers or injected cookies, making
+        # cookie injection completely ineffective against captcha blocks.
+        def patched_handle_captcha2(pagerequest):
+            new_session = _make_http2_session()
+            _full_session_setup(new_session)
+            # Also update nav sessions so subsequent _get_page calls use the same
+            nav._session1 = new_session
+            nav._session2 = new_session
+            return new_session
+        nav.pm1._handle_captcha2 = patched_handle_captcha2
+        nav.pm2._handle_captcha2 = patched_handle_captcha2
 
         # --- Patch 1: _get_page pre-request delay + retry limit ---
         MAX_SLEEPS_PER_PAGE = 3  # max retries within a single _get_page call

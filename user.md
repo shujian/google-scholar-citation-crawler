@@ -929,3 +929,15 @@ since 2022: https://scholar.google.com.hk/scholar?as_ylo=2022&hl=en&as_sdt=2005&
 还是有bug，我按照提示进行了操作。程序提示导入了5个cookie，但是仍然又让我继续尝试验证码，但我打开对应的url，并不需要输入验证码。
 
 ---
+
+## Message 140 [2026-03-20]
+
+我在当前目录下的curl.txt里放了一个正常访问的请求，请参考比较一下。
+
+---
+
+## Message 141 [2026-03-20]
+
+我觉得跟domain没什么关系，我获得cookie都是使用程序给定的url，那些都是.com domain的。
+
+---
