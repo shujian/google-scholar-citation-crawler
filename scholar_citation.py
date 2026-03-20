@@ -63,22 +63,19 @@ def rand_delay():
 
 
 def setup_proxy():
-    """Configure proxy from environment variables."""
+    """Configure proxy from environment variables.
+
+    scholarly's proxy API (ProxyGenerator/use_proxy) is NOT used: it passes
+    proxies in {'http': url} format which httpx 0.27.x doesn't recognise,
+    causing requests to go out without a proxy.  Instead we rely on httpx
+    picking up HTTPS_PROXY / HTTP_PROXY automatically (trust_env=True default).
+    """
     proxy_url = os.environ.get('https_proxy') or os.environ.get('http_proxy')
     if not proxy_url:
         print("Warning: No proxy detected, connecting directly")
         return
     clean = proxy_url.replace('http://', '').replace('https://', '')
-    print(f"Proxy detected: {clean}")
-    try:
-        pg = ProxyGenerator()
-        pg.SingleProxy(http=proxy_url, https=proxy_url)
-        scholarly.use_proxy(pg)
-        print("Proxy configured successfully")
-    except TypeError:
-        print("Warning: scholarly proxy API incompatible with current httpx version, using system env proxy")
-    except Exception as e:
-        print(f"Warning: Proxy config failed ({e}), connecting directly")
+    print(f"Proxy detected: {clean} (using system env proxy)")
 
 
 def extract_author_id(author_input):

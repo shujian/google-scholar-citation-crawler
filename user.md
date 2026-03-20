@@ -836,3 +836,15 @@ Failed to fetch basic info, exiting
 重申一下我们的执行步骤：1. 讨论方案 2. 改代码 3. 验证代码正确 4. 记录worknotes 5. 记录用户的输入到user.md 6. git提交。
 
 ---
+
+## Message 125 [2026-03-20]
+
+更新之后出了问题：Failed to fetch basic info: Cannot Fetch from Google Scholar.
+
+---
+
+## Message 126 [2026-03-20]
+
+是不是现在在使用httpx的proxy了？会不会跟这个有关？
+
+---

@@ -222,7 +222,7 @@ pub_obj = {
 - **2026-03-20** — 降级 httpx 至 0.27.2 修复 session 刷新：scholarly 1.7.11 使用已在 httpx 0.28 移除的 `proxies=` 参数，导致 `_new_session()` 始终抛 `TypeError` 被静默吞掉，session 从未真正刷新；降至 0.27.2 后 `_new_session()` 正常工作；requirements.txt 固定 `httpx==0.27.2`
 - **2026-03-20** — 增加请求延迟：`DELAY_MIN 30→45`，`DELAY_MAX 60→90`，降低 Scholar IP 级速率限制触发概率
 - **2026-03-20** — 新增强制长休息机制：每 8-12 页（随机）触发一次 3-6 分钟休息，让 Scholar 的滑动窗口速率限制有时间重置；休息后顺带刷新 session 并重置 `_next_refresh_at`；与常规 session 刷新（10-20 页一次）独立运行，长休息优先级更高；`_next_break_at` 和 `_next_refresh_at` 错开初始化，避免两者同时触发
-- **2026-03-20** — session 刷新加日志：现在明确打印"新 httpx client 已创建"或"仅重置 got_403（httpx 不兼容）"，运行时可直接确认刷新是否生效
+- **2026-03-20** — 修复 httpx 0.27.2 下 proxy 失效问题：`scholarly.use_proxy(pg)` 在 0.28.1 时因 TypeError 被 catch 而不生效，proxy 由 httpx 自动读取环境变量；降至 0.27.2 后该调用开始生效，但 scholarly 的 `{'http': url}` 格式与 httpx 0.27.x 要求的 `{'http://': url}` 格式不符，导致 proxy 静默失效、直连 Scholar 被封；修复方案：`setup_proxy()` 不再调用 scholarly proxy API，完全依赖 httpx `trust_env=True` 自动读取 `HTTPS_PROXY` 环境变量
 
 ---
 
