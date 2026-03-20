@@ -665,14 +665,16 @@ class PaperCitationFetcher:
             _apply_browser_headers(session)
         print(f"  Browser headers applied (sec-fetch-*, sec-ch-ua, referer)", flush=True)
 
-        # Patch _new_session: re-apply browser headers after scholarly recreates the
-        # httpx client (happens on 403).  Cookies are lost on recreation but headers
-        # are always restored, so requests never look like a plain script.
+        # Patch _new_session: re-apply browser headers AND any previously injected
+        # browser cookies after scholarly recreates the httpx client (on 403).
         original_new_session = nav._new_session
+        fetcher_self._injected_cookies = {}   # populated by _inject_cookies_from_curl
         def patched_new_session(premium=True, **kwargs):
             original_new_session(premium=premium, **kwargs)
             for session in (nav._session1, nav._session2):
                 _apply_browser_headers(session)
+                for k, v in fetcher_self._injected_cookies.items():
+                    session.cookies.set(k, v)   # no domain = sent to all requests
         nav._new_session = patched_new_session
 
         # --- Patch 1: _get_page pre-request delay + retry limit ---
@@ -1397,6 +1399,10 @@ class PaperCitationFetcher:
 
     def _inject_cookies_from_curl(self, curl_str):
         """Parse cookies from a pasted cURL command and inject into scholarly sessions.
+        Cookies are set without domain restriction so they are sent regardless of
+        which regional Scholar domain (e.g. .com.hk vs .com) is used.
+        Also stores them in _injected_cookies so patched_new_session can re-apply
+        them if scholarly recreates the httpx client on a 403.
         Returns the number of cookies injected, or 0 on failure.
         """
         m = (re.search(r"-b '([^']+)'", curl_str) or
@@ -1405,21 +1411,25 @@ class PaperCitationFetcher:
             print("  (Could not find -b '...' cookie string in input)", flush=True)
             return 0
         nav = scholarly._Scholarly__nav
-        count = 0
+        cookies = {}
         for pair in m.group(1).split(';'):
             pair = pair.strip()
             if '=' in pair:
                 k, v = pair.split('=', 1)
-                for session in (nav._session1, nav._session2):
-                    session.cookies.set(k.strip(), v.strip(),
-                                        domain='scholar.google.com')
-                count += 1
-        if count:
-            nav.got_403 = False
-            print(f"  Injected {count} cookies from browser session.", flush=True)
-        else:
+                cookies[k.strip()] = v.strip()
+        if not cookies:
             print("  (No valid cookies found in pasted input)", flush=True)
-        return count
+            return 0
+        # Inject without domain so cookies apply to scholar.google.com AND any
+        # regional variant (e.g. scholar.google.com.hk) after 302 redirects.
+        for session in (nav._session1, nav._session2):
+            for k, v in cookies.items():
+                session.cookies.set(k, v)
+        # Persist for re-application after scholarly recreates sessions on 403
+        self._injected_cookies = cookies
+        nav.got_403 = False
+        print(f"  Injected {len(cookies)} cookies (no domain restriction).", flush=True)
+        return len(cookies)
 
     def _try_interactive_captcha(self, url):
         """Prompt user to solve captcha manually and inject resulting cookies.

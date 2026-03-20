@@ -923,3 +923,9 @@ since 2022: https://scholar.google.com.hk/scholar?as_ylo=2022&hl=en&as_sdt=2005&
 上次那个等待用户粘贴curl的窗口最后失去响应了，请检查一下确认input没有问题。
 
 ---
+
+## Message 139 [2026-03-20]
+
+还是有bug，我按照提示进行了操作。程序提示导入了5个cookie，但是仍然又让我继续尝试验证码，但我打开对应的url，并不需要输入验证码。
+
+---
