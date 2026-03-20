@@ -1422,21 +1422,13 @@ class PaperCitationFetcher:
                             print(f"  Retrying with injected cookies (attempt {attempt + 1}/{MAX_RETRIES})...",
                                   flush=True)
                             continue  # skip wait, go to next attempt
-                    if attempt == MAX_RETRIES - 1:
-                        # Second failure — save progress, then wait 12 hours
-                        if os.path.exists(cache_path):
-                            with open(cache_path, 'r', encoding='utf-8') as f:
-                                latest = json.load(f)
-                            saved_count = len(latest.get('citations', []))
-                            print(f"  [{now}] Saved progress ({saved_count} citations)")
-                        wait_hours = 12
-                        print(f"  [{now}] Will retry with fresh session after {wait_hours} hours...", flush=True)
-                        time.sleep(wait_hours * 3600)
-                    else:
-                        # First failure — wait 6 hours
-                        wait_hours = 6
-                        print(f"  [{now}] Will retry with fresh session after {wait_hours} hours...", flush=True)
-                        time.sleep(wait_hours * 3600)
+                    # Save partial progress before the long wait
+                    if os.path.exists(cache_path):
+                        with open(cache_path, 'r', encoding='utf-8') as f:
+                            latest = json.load(f)
+                        saved_count = len(latest.get('citations', []))
+                        print(f"  [{now}] Saved progress ({saved_count} citations)")
+                    self._wait_proxy_switch(max_hours=24)
 
             results[idx - 1] = {'pub': pub, 'citations': citations or []}
 
@@ -1506,7 +1498,52 @@ class PaperCitationFetcher:
             return False
         return self._inject_cookies_from_curl(content) > 0
 
-    def _save_output(self, results):
+    def _wait_proxy_switch(self, max_hours=24):
+        """Wait up to max_hours for the user to switch proxy/IP.
+        Prints a prompt and checks stdin every minute for 'ok'.
+        Prints an hourly reminder with time remaining.
+        Returns True if user confirmed, False if timed out.
+        """
+        import select as _select
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        print(f"\n  [{now}] Scholar is blocking this IP.", flush=True)
+        print(f"  Please switch your proxy/IP, then type  ok  and press Enter.", flush=True)
+        print(f"  (Program will retry automatically after {max_hours}h if no input.)",
+              flush=True)
+
+        deadline      = time.time() + max_hours * 3600
+        last_reminder = time.time()
+        CHECK_SEC     = 60    # poll stdin every minute
+        REMIND_SEC    = 3600  # hourly reminder
+
+        while time.time() < deadline:
+            # Hourly reminder
+            if time.time() - last_reminder >= REMIND_SEC:
+                remaining = (deadline - time.time()) / 3600
+                ts = datetime.now().strftime('%H:%M:%S')
+                print(f"  [{ts}] Still waiting — {remaining:.0f}h remaining. "
+                      f"Type  ok  to resume now.", flush=True)
+                last_reminder = time.time()
+
+            wait = min(CHECK_SEC, max(0, deadline - time.time()))
+            try:
+                ready = _select.select([sys.stdin], [], [], wait)[0]
+                if ready:
+                    line = sys.stdin.readline().strip().lower()
+                    if line == 'ok':
+                        ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        print(f"  [{ts}] Proxy switch confirmed. Resuming...",
+                              flush=True)
+                        return True
+            except Exception:
+                # select unavailable (Windows, piped stdin, etc.) — plain sleep
+                time.sleep(wait)
+
+        ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        print(f"  [{ts}] {max_hours}h elapsed. Resuming...", flush=True)
+        return False
+
+
         """Save citation results to JSON and Excel."""
         print("\n" + "=" * 70)
         # For None entries (not processed this run), fall back to cached data

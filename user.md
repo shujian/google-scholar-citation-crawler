@@ -947,3 +947,9 @@ since 2022: https://scholar.google.com.hk/scholar?as_ylo=2022&hl=en&as_sdt=2005&
 retry 2 和 retry 3 似乎没有必要（同一 IP 在几秒内重试 Scholar 不会放行）。
 
 ---
+
+## Message 143 [2026-03-21]
+
+如果不是interactive模式，那么直接进入24小时等待，在等待期间，提示用户切换代理，并每小时检查一下用户输入。如果用户输入了ok，表示已经切换好了，那就继续进行尝试。
+
+---
