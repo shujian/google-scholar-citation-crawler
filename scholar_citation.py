@@ -723,7 +723,10 @@ class PaperCitationFetcher:
         nav.pm2._handle_captcha2 = patched_handle_captcha2
 
         # --- Patch 1: _get_page pre-request delay + retry limit ---
-        MAX_SLEEPS_PER_PAGE = 3  # max retries within a single _get_page call
+        # Allow exactly 1 sleep (the intentional 45-90s wait before the request).
+        # Any further sleep from scholarly's internal retry logic raises immediately
+        # so we fail fast and let the paper-level retry handle recovery.
+        MAX_SLEEPS_PER_PAGE = 1
 
         def patched_get_page(pagerequest, premium=False):
             sleep_count = [0]

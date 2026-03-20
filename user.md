@@ -941,3 +941,9 @@ since 2022: https://scholar.google.com.hk/scholar?as_ylo=2022&hl=en&as_sdt=2005&
 我觉得跟domain没什么关系，我获得cookie都是使用程序给定的url，那些都是.com domain的。
 
 ---
+
+## Message 142 [2026-03-20]
+
+retry 2 和 retry 3 似乎没有必要（同一 IP 在几秒内重试 Scholar 不会放行）。
+
+---
