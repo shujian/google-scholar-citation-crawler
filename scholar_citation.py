@@ -741,11 +741,16 @@ class PaperCitationFetcher:
                 fetcher_self._next_refresh_at = (fetcher_self._total_page_count
                                                  + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX))
 
+            # Record the URL we are about to load so _try_interactive_captcha
+            # can show it even if this request fails before _last_scholar_url
+            # is updated (e.g. captcha on the very first citation page).
+            fetcher_self._current_attempt_url = (
+                f'https://scholar.google.com{url}' if url.startswith('/') else url)
+
             result = original_load_url(self_iter, url)
 
-            # Update _last_scholar_url so next request sends correct Referer
-            fetcher_self._last_scholar_url = (
-                f'https://scholar.google.com{url}' if url.startswith('/') else url)
+            # Only update _last_scholar_url (used as Referer) on success
+            fetcher_self._last_scholar_url = fetcher_self._current_attempt_url
 
             return result
 
@@ -1360,8 +1365,9 @@ class PaperCitationFetcher:
                     # injected and we retry immediately without the long wait.
                     if self.interactive_captcha:
                         solved = self._try_interactive_captcha(
-                            getattr(self, '_last_scholar_url',
-                                    'https://scholar.google.com/scholar'))
+                            getattr(self, '_current_attempt_url',
+                                    getattr(self, '_last_scholar_url',
+                                            'https://scholar.google.com/scholar')))
                         if solved:
                             print(f"  Retrying with injected cookies (attempt {attempt + 1}/{MAX_RETRIES})...",
                                   flush=True)
@@ -1417,7 +1423,7 @@ class PaperCitationFetcher:
 
     def _try_interactive_captcha(self, url):
         """Prompt user to solve captcha manually and inject resulting cookies.
-        Only called when stdin is an interactive terminal.
+        Only called when --interactive-captcha is set.
         Returns True if cookies were successfully injected.
         """
         sep = "  " + "=" * 62
@@ -1428,18 +1434,26 @@ class PaperCitationFetcher:
         print(f"  2. Solve the captcha if shown, then let the page load fully", flush=True)
         print(f"  3. F12 → Network → find the Scholar request", flush=True)
         print(f"     → right-click → Copy as cURL (bash)", flush=True)
-        print(f"  4. Paste the cURL here and press Enter", flush=True)
-        print(f"     (Press Enter with no input to skip and use the automatic wait)", flush=True)
+        print(f"  4. Paste the cURL below; when done press Enter on a blank line", flush=True)
+        print(f"     (Blank line immediately = skip, use automatic wait)", flush=True)
         print(f"{sep}", flush=True)
+        lines = []
+        prompt = "  > "
         try:
-            curl_input = input("  > ").strip()
+            while True:
+                line = input(prompt)
+                prompt = "    "          # continuation indent after first line
+                if not line.strip():
+                    break                # blank line signals end of paste
+                lines.append(line)
         except (EOFError, KeyboardInterrupt):
             print(flush=True)
             return False
-        if not curl_input:
+        if not lines:
             print("  (Skipped — using automatic wait)", flush=True)
             return False
-        return self._inject_cookies_from_curl(curl_input) > 0
+        curl_str = ' '.join(lines)
+        return self._inject_cookies_from_curl(curl_str) > 0
 
     def _save_output(self, results):
         """Save citation results to JSON and Excel."""
