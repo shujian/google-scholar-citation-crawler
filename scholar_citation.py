@@ -1475,6 +1475,11 @@ class PaperCitationFetcher:
         """Prompt user to solve captcha manually and inject resulting cookies.
         Only called when --interactive-captcha is set.
         Returns True if cookies were successfully injected.
+
+        Input strategy: read line by line via input(), stop automatically when
+        the last cURL line is detected (no trailing backslash).  This is
+        reliable across SSH, tmux, and local terminals — unlike sys.stdin.read()
+        which requires Ctrl+D to send EOF (unreliable in SSH/tmux).
         """
         sep = "  " + "=" * 62
         print(f"\n{sep}", flush=True)
@@ -1484,19 +1489,29 @@ class PaperCitationFetcher:
         print(f"  2. Solve the captcha if shown, then let the page load fully", flush=True)
         print(f"  3. F12 → Network → find the Scholar request", flush=True)
         print(f"     → right-click → Copy as cURL (bash)", flush=True)
-        print(f"  4. Paste the cURL below, then press Ctrl+D to confirm", flush=True)
-        print(f"     (Ctrl+D immediately without pasting = skip, use automatic wait)", flush=True)
+        print(f"  4. Paste the cURL — end is detected automatically", flush=True)
+        print(f"     (Press Enter on empty line to skip)", flush=True)
         print(f"{sep}", flush=True)
+        lines = []
         print("  > ", end='', flush=True)
         try:
-            content = sys.stdin.read()
-        except KeyboardInterrupt:
+            while True:
+                line = input()
+                if not line.strip():
+                    # Empty line: skip if nothing pasted yet, else treat as confirm
+                    break
+                lines.append(line)
+                # Chrome DevTools cURL: every line except the last ends with '\'
+                # Detect end of paste automatically — no Ctrl+D needed
+                if not line.rstrip().endswith('\\'):
+                    break
+        except (EOFError, KeyboardInterrupt):
             print(flush=True)
             return False
-        if not content.strip():
+        if not lines:
             print("  (Skipped — using automatic wait)", flush=True)
             return False
-        return self._inject_cookies_from_curl(content) > 0
+        return self._inject_cookies_from_curl(' '.join(lines)) > 0
 
     def _wait_proxy_switch(self, max_hours=24):
         """Wait up to max_hours for the user to switch proxy/IP.
@@ -1543,7 +1558,7 @@ class PaperCitationFetcher:
         print(f"  [{ts}] {max_hours}h elapsed. Resuming...", flush=True)
         return False
 
-
+    def _save_output(self, results):
         """Save citation results to JSON and Excel."""
         print("\n" + "=" * 70)
         # For None entries (not processed this run), fall back to cached data
@@ -1578,7 +1593,10 @@ class PaperCitationFetcher:
         fetched_str = f", {self._papers_fetched_count} fetched" if self._papers_fetched_count else ""
         new_str = f", {self._new_citations_count} new" if self._new_citations_count else ""
         print(f"\nDone! {len(final_results)}/{total_papers} papers{fetched_str}, "
-              f"{total_cites} total citation records{new_str}\n")
+              f"{total_cites} total citation records{new_str}")
+        print(f"Run summary: elapsed {self._elapsed_str()}"
+              f" | {self._total_page_count} pages accessed"
+              f" | {self._new_citations_count} new citations\n")
 
         return True
 
