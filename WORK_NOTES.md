@@ -226,6 +226,8 @@ pub_obj = {
 - **2026-03-20** — 浏览器请求还原（通过抓取真实 cURL 分析）：①年份查询 URL 从 `as_sdt=0,5` 改为 `as_sdt=2005`（Scholar citation-search 专用内部标志），并补充 `sciodt=0,5` 和 `scipsc=`，与浏览器点击年份过滤产生的 URL 完全一致；②在 scholarly 的 httpx session 上添加完整浏览器 headers：`sec-fetch-dest/mode/site/user`、`sec-ch-ua`、`upgrade-insecure-requests`、完整 `accept`；③动态 Referer：每次翻页前将 `_last_scholar_url`（上一页 URL）设为 Referer，初始值为 author profile URL（模拟用户从作者主页点击"Cited by"的导航链）；④patch `_new_session`：scholarly 在真正 403 后重建 httpx client 时自动重新应用 browser headers；⑤session 策略改变：`_refresh_scholarly_session` 改为 soft reset（只重置 `got_403`，不销毁 httpx client），保留 Scholar 在请求过程中积累的 cookies
 - **2026-03-21** — 交互式 captcha 输入改为逐行读取（`input()` loop + 末行无 `\` 自动结束），替换原来的 `sys.stdin.read()`；`sys.stdin.read()` 在 SSH+tmux 下会卡死（Ctrl+D 被 tmux/SSH 拦截无法触发 EOF）；新方案基于 Chrome DevTools cURL 格式特征（最后一行无 `\`）自动检测粘贴完成，无需任何结束符
 - **2026-03-21** — 程序结束时输出 Run summary：`elapsed X | N pages accessed | M new citations`，与运行中的 `_wait_status()` 格式保持一致；修复了同次提交中 `_save_output` 方法定义被意外删除的 bug（`def _save_output` 行在插入 `_wait_proxy_switch` 时被覆盖）
+- **2026-03-21** — 更新 README：补充所有主要功能（year-based fetching、mandatory breaks、HTTP/2、interactive captcha bypass、proxy-switch wait、run summary、`--skip`/`--limit` 语义、`--force-refresh-citations` 说明）；添加 `user.md` 和 `WORK_NOTES.md` 说明（已提交到 git，无个人信息，记录 AI 辅助开发过程，用户零代码）；注明项目完全由 Claude Code CLI 开发
+- **2026-03-21** — Interactive 模式跳过 session 重置：`--interactive-captcha` 模式下用户已注入真实 cookies，重置 session 会丢弃它们；在 4 处 `_refresh_scholarly_session()` 调用（mandatory break 后、常规 soft refresh、年份切换、retry 开头）均加 `not self.interactive_captcha` 守卫
 
 ---
 

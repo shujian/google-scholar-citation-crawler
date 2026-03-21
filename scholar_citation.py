@@ -773,6 +773,8 @@ class PaperCitationFetcher:
 
             # Mandatory long break (higher priority than soft refresh)
             # Resets Scholar's sliding-window rate limit
+            # In interactive mode, skip session resets — the user has already
+            # injected fresh cookies; resetting would discard them.
             if fetcher_self._total_page_count >= fetcher_self._next_break_at:
                 d = random.uniform(MANDATORY_BREAK_MIN, MANDATORY_BREAK_MAX)
                 print(f"      Mandatory break after {fetcher_self._total_page_count} pages "
@@ -780,14 +782,16 @@ class PaperCitationFetcher:
                 time.sleep(d)
                 fetcher_self._next_break_at = (fetcher_self._total_page_count
                                                + random.randint(MANDATORY_BREAK_EVERY_MIN, MANDATORY_BREAK_EVERY_MAX))
-                print(f"      Refreshing session after break...", flush=True)
-                fetcher_self._refresh_scholarly_session()
+                if not fetcher_self.interactive_captcha:
+                    print(f"      Refreshing session after break...", flush=True)
+                    fetcher_self._refresh_scholarly_session()
                 fetcher_self._next_refresh_at = (fetcher_self._total_page_count
                                                  + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX))
             # Soft session refresh between breaks
             elif fetcher_self._total_page_count >= fetcher_self._next_refresh_at:
-                print(f"      Refreshing session (after {fetcher_self._total_page_count} pages)...", flush=True)
-                fetcher_self._refresh_scholarly_session()
+                if not fetcher_self.interactive_captcha:
+                    print(f"      Refreshing session (after {fetcher_self._total_page_count} pages)...", flush=True)
+                    fetcher_self._refresh_scholarly_session()
                 fetcher_self._next_refresh_at = (fetcher_self._total_page_count
                                                  + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX))
 
@@ -1032,8 +1036,9 @@ class PaperCitationFetcher:
                 # year_counts to undercount and real citations to be missed.
                 start_index = 0
 
-                # Refresh session on each year switch
-                self._refresh_scholarly_session()
+                # Refresh session on each year switch (skip in interactive mode)
+                if not self.interactive_captcha:
+                    self._refresh_scholarly_session()
                 self._next_refresh_at = self._total_page_count + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
 
                 print(f"      Year {year}: fetching", flush=True)
@@ -1380,7 +1385,8 @@ class PaperCitationFetcher:
             while True:
                 attempt += 1
                 try:
-                    self._refresh_scholarly_session()
+                    if not self.interactive_captcha:
+                        self._refresh_scholarly_session()
                     self._next_refresh_at = self._total_page_count + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
                     if attempt > 1:
                         # Reload cache in case previous attempt saved partial progress
