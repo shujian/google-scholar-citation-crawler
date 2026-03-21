@@ -1376,7 +1376,9 @@ class PaperCitationFetcher:
             print(f"  {action}")
 
             citations = None
-            for attempt in range(1, MAX_RETRIES + 1):
+            attempt = 0
+            while True:
+                attempt += 1
                 try:
                     self._refresh_scholarly_session()
                     self._next_refresh_at = self._total_page_count + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
@@ -1400,26 +1402,29 @@ class PaperCitationFetcher:
                     break
                 except Exception as e:
                     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    print(f"  [{now}] Error (attempt {attempt}/{MAX_RETRIES}, "
+                    # In interactive mode show attempt number only; in non-interactive
+                    # mode show X/MAX_RETRIES so the user knows when it will give up.
+                    attempt_str = (str(attempt) if self.interactive_captcha
+                                   else f"{attempt}/{MAX_RETRIES}")
+                    print(f"  [{now}] Error (attempt {attempt_str}, "
                           f"total pages: {self._total_page_count}, "
                           f"new citations: {self._new_citations_count}): {e}")
-                    if attempt >= MAX_RETRIES:
-                        # Final attempt failed — print time and terminate
+                    # Non-interactive: give up after MAX_RETRIES attempts
+                    if not self.interactive_captcha and attempt >= MAX_RETRIES:
                         traceback.print_exc()
                         print(f"\n  [{now}] All retry attempts exhausted. Terminating.", flush=True)
-                        # Save whatever we have before exiting
                         self._save_output(results)
                         sys.exit(1)
                     # Offer interactive captcha solve when --interactive-captcha is set.
-                    # If the user pastes a fresh cURL from the browser, cookies are
-                    # injected and we retry immediately without the long wait.
+                    # In interactive mode we loop indefinitely — the user decides when
+                    # to give up by killing the program.
                     if self.interactive_captcha:
                         solved = self._try_interactive_captcha(
                             getattr(self, '_current_attempt_url',
                                     getattr(self, '_last_scholar_url',
                                             'https://scholar.google.com/scholar')))
                         if solved:
-                            print(f"  Retrying with injected cookies (attempt {attempt + 1}/{MAX_RETRIES})...",
+                            print(f"  Retrying with injected cookies (attempt {attempt + 1})...",
                                   flush=True)
                             continue  # skip wait, go to next attempt
                     # Save partial progress before the long wait
