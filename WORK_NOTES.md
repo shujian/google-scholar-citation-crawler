@@ -228,6 +228,7 @@ pub_obj = {
 - **2026-03-21** — 程序结束时输出 Run summary：`elapsed X | N pages accessed | M new citations`，与运行中的 `_wait_status()` 格式保持一致；修复了同次提交中 `_save_output` 方法定义被意外删除的 bug（`def _save_output` 行在插入 `_wait_proxy_switch` 时被覆盖）
 - **2026-03-21** — 更新 README：补充所有主要功能（year-based fetching、mandatory breaks、HTTP/2、interactive captcha bypass、proxy-switch wait、run summary、`--skip`/`--limit` 语义、`--force-refresh-citations` 说明）；添加 `user.md` 和 `WORK_NOTES.md` 说明（已提交到 git，无个人信息，记录 AI 辅助开发过程，用户零代码）；注明项目完全由 Claude Code CLI 开发
 - **2026-03-21** — Interactive 模式跳过 session 重置：`--interactive-captcha` 模式下用户已注入真实 cookies，重置 session 会丢弃它们；在 4 处 `_refresh_scholarly_session()` 调用（mandatory break 后、常规 soft refresh、年份切换、retry 开头）均加 `not self.interactive_captcha` 守卫
+- **2026-03-21** — 修复年份中断后重从第1页开始的问题：新增 `partial_year_start` 机制，`_fetch_by_year` 在每个 item 迭代时即更新 `self._partial_year_start[year] = start_index + year_items_seen`；异常时 `save_progress` 将其写入缓存；下次 retry 从缓存读取并用作 `&start=N` 直接跳到断点页；年份完成后 pop 清除；`completed_years` 和 `partial_year_start` 均通过 `_fetch_citations_with_progress` 参数链传入
 
 ---
 

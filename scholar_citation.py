@@ -877,11 +877,13 @@ class PaperCitationFetcher:
 
     def _fetch_citations_with_progress(self, citedby_url, cache_path, title,
                                         num_citations, pub_url, pub_year, resume_from,
-                                        completed_years=None, prev_scholar_count=0):
+                                        completed_years=None, prev_scholar_count=0,
+                                        partial_year_start=None):
         """
         Stream-fetch citations with periodic progress saves.
         resume_from: previously saved citation list (for resume after interruption).
         completed_years: list of years already fully fetched (for resume).
+        partial_year_start: dict {year: start_index} for the in-progress year on last run.
         prev_scholar_count: Scholar citation count from last completed scan (for early stop).
         """
         citations = list(resume_from)
@@ -890,6 +892,9 @@ class PaperCitationFetcher:
         # Load completed years into patch state for _citedby_long to skip
         self._completed_year_segments = set(completed_years or [])
         self._current_year_segment = None
+        # Track the page offset (start_index) for the year currently in progress.
+        # Saved to cache on exception so retry can skip already-fetched pages.
+        self._partial_year_start = dict(partial_year_start or {})
 
         # Note: completed_years are preserved. When Scholar count increases,
         # new citations are typically in recent years, so we only need to
@@ -1030,18 +1035,19 @@ class PaperCitationFetcher:
                     skipped_years += 1
                     continue
 
-                # Always fetch from start_index=0 and rely on dedup to skip
-                # already-cached citations. Using year_counts as start_index is
-                # unreliable because some citations have N/A year fields, causing
-                # year_counts to undercount and real citations to be missed.
-                start_index = 0
+                # Resume from saved page offset for the in-progress year;
+                # otherwise start from 0 and rely on dedup to skip cached entries.
+                start_index = self._partial_year_start.get(year, 0)
 
                 # Refresh session on each year switch (skip in interactive mode)
                 if not self.interactive_captcha:
                     self._refresh_scholarly_session()
                 self._next_refresh_at = self._total_page_count + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
 
-                print(f"      Year {year}: fetching", flush=True)
+                if start_index > 0:
+                    print(f"      Year {year}: resuming from position {start_index}", flush=True)
+                else:
+                    print(f"      Year {year}: fetching", flush=True)
 
                 # URL matches browser navigation: as_sdt=2005 is Scholar's internal
                 # citation-search flag (identical to what Scholar's own year-filter
@@ -1054,7 +1060,12 @@ class PaperCitationFetcher:
                 nav = scholarly._Scholarly__nav
 
                 year_new_count = 0
+                year_items_seen = 0  # total items returned by iterator (incl. dupes)
                 for citing in _SearchScholarIterator(nav, year_url):
+                    year_items_seen += 1
+                    # Keep partial offset current so the except-block save is accurate
+                    # even if the exception occurs between save_every checkpoints.
+                    self._partial_year_start[year] = start_index + year_items_seen
                     info = self._extract_citation_info(citing)
                     dedup_key = info['title'].strip().lower()
                     if dedup_key in seen_titles:
@@ -1077,6 +1088,8 @@ class PaperCitationFetcher:
                         save_progress(complete=False)
                         print(f"  Progress saved ({count} citations, {self._new_citations_count} new in this run)", flush=True)
 
+                # Year fully done: clear partial offset, record completion
+                self._partial_year_start.pop(year, None)
                 self._completed_year_segments.add(year)
                 if year_new_count > 0:
                     print(f"      Year {year} done: {year_new_count} new citations", flush=True)
@@ -1103,8 +1116,9 @@ class PaperCitationFetcher:
             save_progress(complete=False)
             raise
         except Exception:
-            # Save completed_years progress on any network/other error
-            # so the next retry/run doesn't re-fetch already-completed years
+            # Save completed_years and partial_year_start on any network/other error
+            # so the next retry can skip completed years and resume from the right page
+            # within the in-progress year (partial_year_start is already updated in the loop).
             save_progress(complete=False)
             raise
 
@@ -1355,6 +1369,7 @@ class PaperCitationFetcher:
                 continue
 
             prev_scholar_count = 0
+            partial_year_start = {}  # only used in-memory for same-run retries
             if st == 'partial' and cached:
                 resume_from = cached.get('citations', [])
                 old_scholar = cached.get('num_citations_on_scholar', cached.get('num_citations_cached', 0))
@@ -1389,17 +1404,21 @@ class PaperCitationFetcher:
                         self._refresh_scholarly_session()
                     self._next_refresh_at = self._total_page_count + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
                     if attempt > 1:
-                        # Reload cache in case previous attempt saved partial progress
+                        # Reload citations and completed_years from file.
+                        # partial_year_start is kept from memory (in-memory only, not persisted)
+                        # so same-run retries resume from the exact page where the error occurred.
                         latest_cache = self._load_citation_cache(title)
                         if latest_cache:
                             resume_from = latest_cache.get('citations', [])
                             completed_years = latest_cache.get('completed_years', [])
+                            partial_year_start = dict(self._partial_year_start)
                             print(f"  Retrying with {len(resume_from)} cached citations from previous attempt")
                     citations = self._fetch_citations_with_progress(
                         citedby_url, cache_path, title, num_citations,
                         pub_url, pub.get('year', 'N/A'), resume_from,
                         completed_years=completed_years,
-                        prev_scholar_count=prev_scholar_count
+                        prev_scholar_count=prev_scholar_count,
+                        partial_year_start=partial_year_start,
                     )
                     seen_total = len(citations) + self._dedup_count
                     dedup_str = f", {self._dedup_count} dupes" if self._dedup_count else ""
