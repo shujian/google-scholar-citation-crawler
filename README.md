@@ -2,6 +2,8 @@
 
 A Python tool to crawl Google Scholar author profiles and per-paper citation lists. Supports incremental caching, resume after interruption, and outputs both JSON and Excel files.
 
+> **Developed entirely with [Claude Code CLI](https://github.com/anthropics/claude-code)** — the user wrote zero lines of code. All implementation, debugging, and iteration were driven through natural-language conversation. `user.md` and `WORK_NOTES.md` in this repository document that process in full.
+
 ## Features
 
 - **Unified Workflow**: Automatically fetches author profile, then crawls per-paper citations in one command
@@ -131,12 +133,12 @@ If the script is interrupted (Ctrl+C, timeout, or error):
 
 ## Development Notes
 
-This repository includes two documentation files that track development history:
+This repository includes two files that document the AI-assisted development process:
 
-- **`WORK_NOTES.md`** (git-ignored): Detailed technical notes, architecture decisions, bug fixes, and implementation details accumulated during development. Useful for understanding *why* the code is structured as it is.
-- **`user.md`** (git-ignored): A log of all user messages from development conversations, timestamped. Useful for tracing the evolution of requirements and decisions.
+- **`user.md`**: A timestamped log of all user messages from development conversations. Shows exactly how requirements evolved — from initial design to bug fixes to feature requests — entirely through natural language, without the user writing any code.
+- **`WORK_NOTES.md`**: Detailed technical notes, architecture decisions, bug fixes, and implementation details accumulated during development. Explains *why* the code is structured as it is, useful for contributors and as a record of the AI reasoning process.
 
-Neither file is committed to git and neither contains any personally identifiable information.
+Both files are committed to git and contain no personally identifiable information.
 
 ## License
 
