@@ -231,6 +231,8 @@ pub_obj = {
 - **2026-03-21** — 修复年份中断后重从第1页开始的问题：新增 `partial_year_start` 机制（仅内存，不写入缓存文件），`_fetch_by_year` 在每个 item 迭代时即更新 `self._partial_year_start[year] = start_index + year_items_seen`；同一次运行内 retry 从 `self._partial_year_start` 读取断点直接跳到对应页；程序重启时自然清零，从第 0 条重来（更安全）；年份完成后 pop 清除；新增 "resuming from position N" 日志
 - **2026-03-23** — 新增 `approach.md`：记录每次用户提出意见后的标准工作流程（6步：分析→修改→确认→WORK_NOTES→user.md→提交）
 - **2026-03-23** — 完善 `--help` 输出：各参数加详细 `help=` 说明，`--skip`/`--limit` 用 `metavar` 标注变量名，加 `formatter_class=RawDescriptionHelpFormatter` 和 `epilog` 示例区；argparse 原生支持 `--help`，无需额外代码
+- **2026-03-23** — 修正 citation 起始年份：之前用 `pub_year`（Scholar 可能记录 journal 年份），会漏掉引用 arXiv 版本的早期引用；新逻辑：有缓存时用 `min(year_counts.keys())`；首次抓取时先调 `_probe_citation_start_year`，发一个请求到 base citedby URL，解析侧边栏 `as_ylo=YYYY` 链接取最小值 -1 作为 start_year；probe 失败则降级到 `pub_year - 3`
+- **2026-03-23** — 统一 waiting 日志时间戳：新增 `now_str()` 返回 `[HH:MM:SS]`；所有 Waiting/Mandatory break/Probing/Refreshing/Retrying 输出均前置时间戳，方便对照日志定位问题时段
 
 ---
 

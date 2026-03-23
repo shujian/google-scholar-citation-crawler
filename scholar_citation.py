@@ -62,6 +62,11 @@ def rand_delay():
     return random.uniform(DELAY_MIN, DELAY_MAX)
 
 
+def now_str():
+    """Return current time as [HH:MM:SS] string for log prefixes."""
+    return datetime.now().strftime('[%H:%M:%S]')
+
+
 def setup_proxy():
     """Configure proxy from environment variables.
 
@@ -161,7 +166,7 @@ class AuthorProfileFetcher:
             print("Author found, filling basic info...")
 
             d = rand_delay()
-            print(f"Waiting {d:.0f} seconds...")
+            print(f"{now_str()} Waiting {d:.0f}s...")
             time.sleep(d)
 
             author_filled = scholarly.fill(author, sections=['basics', 'indices', 'counts'])
@@ -224,7 +229,7 @@ class AuthorProfileFetcher:
             author = scholarly.search_author_id(self.author_id)
 
             d = rand_delay()
-            print(f"Waiting {d:.0f} seconds...")
+            print(f"{now_str()} Waiting {d:.0f}s...")
             time.sleep(d)
 
             print("Fetching full publication list (may take several minutes)...")
@@ -557,7 +562,7 @@ class AuthorProfileFetcher:
         # Only wait between phases if we actually made network requests
         if basics_fetched:
             d = rand_delay()
-            print(f"\nWaiting {d:.0f} seconds before continuing...")
+            print(f"\n{now_str()} Waiting {d:.0f}s before continuing...")
             time.sleep(d)
 
         # Phase 2: Publications
@@ -739,7 +744,7 @@ class PaperCitationFetcher:
                         f"Too many retries ({sleep_count[0]}) for single page request")
                 d = rand_delay()
                 retry_note = f" (retry {sleep_count[0]})" if sleep_count[0] > 1 else ""
-                print(f"      Waiting {d:.0f}s before request{retry_note}... "
+                print(f"      {now_str()} Waiting {d:.0f}s before request{retry_note}... "
                       f"[{fetcher_self._wait_status()}]", flush=True)
                 original_sleep(d)
             time.sleep = unified_sleep
@@ -777,20 +782,20 @@ class PaperCitationFetcher:
             # injected fresh cookies; resetting would discard them.
             if fetcher_self._total_page_count >= fetcher_self._next_break_at:
                 d = random.uniform(MANDATORY_BREAK_MIN, MANDATORY_BREAK_MAX)
-                print(f"      Mandatory break after {fetcher_self._total_page_count} pages "
+                print(f"      {now_str()} Mandatory break after {fetcher_self._total_page_count} pages "
                       f"({d/60:.1f} min)... [{fetcher_self._wait_status()}]", flush=True)
                 time.sleep(d)
                 fetcher_self._next_break_at = (fetcher_self._total_page_count
                                                + random.randint(MANDATORY_BREAK_EVERY_MIN, MANDATORY_BREAK_EVERY_MAX))
                 if not fetcher_self.interactive_captcha:
-                    print(f"      Refreshing session after break...", flush=True)
+                    print(f"      {now_str()} Refreshing session after break...", flush=True)
                     fetcher_self._refresh_scholarly_session()
                 fetcher_self._next_refresh_at = (fetcher_self._total_page_count
                                                  + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX))
             # Soft session refresh between breaks
             elif fetcher_self._total_page_count >= fetcher_self._next_refresh_at:
                 if not fetcher_self.interactive_captcha:
-                    print(f"      Refreshing session (after {fetcher_self._total_page_count} pages)...", flush=True)
+                    print(f"      {now_str()} Refreshing session (after {fetcher_self._total_page_count} pages)...", flush=True)
                     fetcher_self._refresh_scholarly_session()
                 fetcher_self._next_refresh_at = (fetcher_self._total_page_count
                                                  + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX))
@@ -842,6 +847,46 @@ class PaperCitationFetcher:
         nav = scholarly._Scholarly__nav
         nav.got_403 = False
         print("      (Session reset: got_403 cleared, cookies preserved)", flush=True)
+
+    def _probe_citation_start_year(self, citedby_url):
+        """Fetch the base citedby URL once and parse the earliest year filter
+        offered by Scholar's sidebar (as_ylo=YYYY links).  Returns that year
+        minus one as a conservative start_year, or None if parsing fails.
+
+        This gives a web-based answer to "what is the earliest year citations
+        exist for this paper?" — more reliable than pub_year, which Scholar may
+        record as the journal year while arXiv citations exist years earlier.
+        """
+        import re as _re
+        nav = scholarly._Scholarly__nav
+        try:
+            d = rand_delay()
+            print(f"      {now_str()} Probing citation year range ({d:.0f}s wait)...", flush=True)
+            time.sleep(d)
+            self._total_page_count += 1
+            # Set Referer before the request (mimics browser navigation)
+            for session in (nav._session1, nav._session2):
+                session.headers['referer'] = self._last_scholar_url
+            full_url = (f'https://scholar.google.com{citedby_url}'
+                        if citedby_url.startswith('/') else citedby_url)
+            self._current_attempt_url = full_url
+            soup = nav._get_soup(citedby_url)
+            self._last_scholar_url = full_url
+            # Parse as_ylo=YYYY from all links — Scholar's "Since YEAR" sidebar
+            # filter links indicate the earliest year bracket with citations.
+            years = []
+            for a in soup.find_all('a', href=True):
+                m = _re.search(r'[?&]as_ylo=(\d{4})', a['href'])
+                if m:
+                    years.append(int(m.group(1)))
+            if years:
+                earliest = min(years)
+                print(f"      Scholar year range probe: earliest filter year = {earliest}, "
+                      f"using start_year = {earliest - 1}", flush=True)
+                return earliest - 1  # one year safety buffer
+        except Exception as e:
+            print(f"      (Year range probe failed: {e})", flush=True)
+        return None
 
     def _elapsed_str(self):
         """Return human-readable elapsed time since run started."""
@@ -994,16 +1039,24 @@ class PaperCitationFetcher:
                     pass
 
         current_year = datetime.now().year
-        try:
-            start_year = int(pub_year) if pub_year and pub_year not in ('N/A', '?') else None
-        except (ValueError, TypeError):
-            start_year = None
-        if start_year is None:
-            # Fallback: earliest year in cached citations, minus 1
-            if year_counts:
-                start_year = min(year_counts.keys()) - 1
-            else:
-                start_year = current_year - 30
+        if year_counts:
+            # Have cached citations: use the actual earliest known citation year.
+            # This is more reliable than pub_year because Scholar sometimes records
+            # the journal year (e.g. 2021) while arXiv citations exist years earlier.
+            start_year = min(year_counts.keys())
+        else:
+            # First fetch: ask Scholar directly for the year range by fetching the
+            # base citedby page and parsing its "Since YEAR" sidebar filter links.
+            start_year = self._probe_citation_start_year(citedby_url)
+            if start_year is None:
+                # Probe failed: use pub_year with a 3-year buffer as conservative fallback
+                # (arXiv submission is typically 1-3 years before journal publication).
+                try:
+                    start_year = int(pub_year) - 3 if pub_year and pub_year not in ('N/A', '?') else None
+                except (ValueError, TypeError):
+                    start_year = None
+                if start_year is None:
+                    start_year = current_year - 30
 
         total_years = current_year - start_year + 1
         skipped_years = 0
@@ -1412,7 +1465,7 @@ class PaperCitationFetcher:
                             resume_from = latest_cache.get('citations', [])
                             completed_years = latest_cache.get('completed_years', [])
                             partial_year_start = dict(self._partial_year_start)
-                            print(f"  Retrying with {len(resume_from)} cached citations from previous attempt")
+                            print(f"  {now_str()} Retrying with {len(resume_from)} cached citations from previous attempt")
                     citations = self._fetch_citations_with_progress(
                         citedby_url, cache_path, title, num_citations,
                         pub_url, pub.get('year', 'N/A'), resume_from,
@@ -1449,7 +1502,7 @@ class PaperCitationFetcher:
                                     getattr(self, '_last_scholar_url',
                                             'https://scholar.google.com/scholar')))
                         if solved:
-                            print(f"  Retrying with injected cookies (attempt {attempt + 1})...",
+                            print(f"  {now_str()} Retrying with injected cookies (attempt {attempt + 1})...",
                                   flush=True)
                             continue  # skip wait, go to next attempt
                     # Save partial progress before the long wait
@@ -1464,7 +1517,7 @@ class PaperCitationFetcher:
 
             if fetch_idx < (self.limit or len(need_fetch)):
                 d = rand_delay()
-                print(f"  Waiting {d:.0f}s before next paper... [{self._wait_status()}]", flush=True)
+                print(f"  {now_str()} Waiting {d:.0f}s before next paper... [{self._wait_status()}]", flush=True)
                 time.sleep(d)
 
     def _inject_cookies_from_curl(self, curl_str):
