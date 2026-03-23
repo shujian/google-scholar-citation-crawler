@@ -70,7 +70,11 @@ Papers are always sorted by citation count descending. `--skip M` skips the firs
 
 ### `--force-refresh-citations`
 
-In normal mode, a paper is skipped if its Scholar citation count hasn't increased since the last complete fetch. With `--force-refresh-citations`, any paper where `cached count < Scholar count` is re-fetched. The citation year range is also re-probed from Scholar's page (rather than relying on the cached earliest year), ensuring early citations from arXiv preprints are not missed. Useful when previous runs may have missed citations.
+In normal mode, a paper is skipped if its Scholar citation count hasn't increased since the last complete fetch. With `--force-refresh-citations`, any paper where `cached count < Scholar count` is re-fetched. The citation year range is also re-probed from Scholar's page (rather than relying on the cached earliest year), ensuring early citations from arXiv preprints are not missed. Fetching stops early once the total collected citations reach the Scholar count (use `--hard` to override). Useful when previous runs may have missed citations.
+
+### `--hard`
+
+Only meaningful with `--force-refresh-citations`. Disables the early-stop optimisation so all years are fetched regardless of whether the Scholar citation count has already been reached. Use when you want a complete audit of every year's citations.
 
 ## Output Files
 

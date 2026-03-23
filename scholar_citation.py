@@ -613,6 +613,7 @@ class PaperCitationFetcher:
     def __init__(self, author_id, output_dir=".",
                  limit=None, skip=0, save_every=10,
                  force_refresh_citations=False,
+                 hard=False,
                  interactive_captcha=False):
         self.author_id = author_id
         self.output_dir = output_dir
@@ -620,6 +621,7 @@ class PaperCitationFetcher:
         self.skip = skip
         self.save_every = save_every
         self.force_refresh_citations = force_refresh_citations
+        self.hard = hard  # disables early-stop in year iteration
         self.interactive_captcha = interactive_captcha
 
         # Paths
@@ -1153,19 +1155,20 @@ class PaperCitationFetcher:
                 # Save after each completed year
                 save_progress(complete=False)
 
-                # Early stop: skip older years when we have enough
-                if len(citations) >= num_citations:
-                    print(f"  Reached target ({len(citations)} >= {num_citations}), "
-                          f"skipping older years", flush=True)
-                    break
-                # When updating (Scholar count increased), new citations are typically
-                # in recent years. Once we've found enough to cover the increase,
-                # trust cached data for older years and stop.
-                scholar_increase = num_citations - prev_scholar_count if prev_scholar_count > 0 else 0
-                if scholar_increase > 0 and paper_new_count >= scholar_increase:
-                    print(f"  Found {paper_new_count} new (Scholar increase: {scholar_increase}), "
-                          f"skipping older years", flush=True)
-                    break
+                # Early stop: skip remaining years once we have enough citations.
+                # Disabled by --hard, which forces all years to be fetched.
+                if not self.hard:
+                    if len(citations) >= num_citations:
+                        print(f"  Reached target ({len(citations)} >= {num_citations}), "
+                              f"skipping remaining years", flush=True)
+                        break
+                    # When updating, new citations are typically in recent years.
+                    # Once we've found enough to cover the increase, stop.
+                    scholar_increase = num_citations - prev_scholar_count if prev_scholar_count > 0 else 0
+                    if scholar_increase > 0 and paper_new_count >= scholar_increase:
+                        print(f"  Found {paper_new_count} new (Scholar increase: {scholar_increase}), "
+                              f"skipping remaining years", flush=True)
+                        break
 
         except KeyboardInterrupt:
             save_progress(complete=False)
@@ -1717,7 +1720,13 @@ examples:
                         help='Force re-fetch the publications list from Scholar '
                              '(useful when profile updated but citations fetch was interrupted)')
     parser.add_argument('--force-refresh-citations', action='store_true',
-                        help='Re-fetch citations for any paper where cached count < Scholar count')
+                        help='Re-fetch citations for any paper where cached count < Scholar count; '
+                             'stops early once total collected citations reach the Scholar count '
+                             '(use --hard to override)')
+    parser.add_argument('--hard', action='store_true',
+                        help='Disable early-stop during year iteration: fetch all years even after '
+                             'the Scholar citation count is reached. Only meaningful with '
+                             '--force-refresh-citations')
     parser.add_argument('--interactive-captcha', action='store_true',
                         help='When blocked by Scholar, pause and prompt you to paste a browser '
                              'cURL (Chrome DevTools → Copy as cURL) to inject fresh cookies; '
@@ -1774,6 +1783,7 @@ def main():
         limit=args.limit,
         skip=args.skip,
         force_refresh_citations=args.force_refresh_citations,
+        hard=args.hard,
         interactive_captcha=args.interactive_captcha,
     )
     success = citation_fetcher.run()
