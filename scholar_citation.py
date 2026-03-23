@@ -1039,24 +1039,27 @@ class PaperCitationFetcher:
                     pass
 
         current_year = datetime.now().year
-        if year_counts:
-            # Have cached citations: use the actual earliest known citation year.
-            # This is more reliable than pub_year because Scholar sometimes records
-            # the journal year (e.g. 2021) while arXiv citations exist years earlier.
+        if year_counts and not self.force_refresh_citations:
+            # Resume/update: use the actual earliest known citation year from cache.
+            # More reliable than pub_year (Scholar may record journal year while
+            # arXiv citations exist years earlier).
             start_year = min(year_counts.keys())
         else:
-            # First fetch: ask Scholar directly for the year range by fetching the
-            # base citedby page and parsing its "Since YEAR" sidebar filter links.
+            # First fetch OR force refresh: ask Scholar directly for the year range
+            # by fetching the base citedby page and parsing "Since YEAR" sidebar links.
             start_year = self._probe_citation_start_year(citedby_url)
             if start_year is None:
-                # Probe failed: use pub_year with a 3-year buffer as conservative fallback
-                # (arXiv submission is typically 1-3 years before journal publication).
-                try:
-                    start_year = int(pub_year) - 3 if pub_year and pub_year not in ('N/A', '?') else None
-                except (ValueError, TypeError):
-                    start_year = None
-                if start_year is None:
-                    start_year = current_year - 30
+                # Probe failed: fall back to cached citations if available,
+                # then pub_year-5 (covers arXiv-to-journal gap), then a 5-year window.
+                if year_counts:
+                    start_year = min(year_counts.keys())
+                else:
+                    try:
+                        start_year = int(pub_year) - 5 if pub_year and pub_year not in ('N/A', '?') else None
+                    except (ValueError, TypeError):
+                        start_year = None
+                    if start_year is None:
+                        start_year = current_year - 5
 
         total_years = current_year - start_year + 1
         skipped_years = 0
