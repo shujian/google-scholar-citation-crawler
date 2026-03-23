@@ -924,16 +924,20 @@ class PaperCitationFetcher:
     def _fetch_citations_with_progress(self, citedby_url, cache_path, title,
                                         num_citations, pub_url, pub_year, resume_from,
                                         completed_years=None, prev_scholar_count=0,
-                                        partial_year_start=None):
+                                        partial_year_start=None, saved_dedup_count=0):
         """
         Stream-fetch citations with periodic progress saves.
         resume_from: previously saved citation list (for resume after interruption).
         completed_years: list of years already fully fetched (for resume).
         partial_year_start: dict {year: start_index} for the in-progress year on last run.
         prev_scholar_count: Scholar citation count from last completed scan (for early stop).
+        saved_dedup_count: dedup count from the last save; used as a floor so we never
+            undercount Scholar's self-duplicates when resuming or force-refreshing.
         """
         citations = list(resume_from)
-        self._dedup_count = 0  # duplicates encountered during this paper's fetch
+        # _dedup_count tracks Scholar's own duplicate results (same title, different metadata).
+        # Initialise from the saved value so resume/force-refresh never loses the history.
+        self._dedup_count = saved_dedup_count
 
         # Load completed years into patch state for _citedby_long to skip
         self._completed_year_segments = set(completed_years or [])
@@ -954,7 +958,10 @@ class PaperCitationFetcher:
                     'citedby_url': citedby_url,
                     'num_citations_on_scholar': num_citations,
                     'num_citations_cached': len(citations),
+                    # num_citations_seen = unique citations Scholar has for this paper.
+                    # Use max(current, saved) so the floor is never lost on resume/force-refresh.
                     'num_citations_seen': len(citations) + self._dedup_count,
+                    'dedup_count': self._dedup_count,
                     'complete': complete,
                     'completed_years': sorted(self._completed_year_segments),
                     'fetched_at': datetime.now().isoformat(),
@@ -1428,8 +1435,14 @@ class PaperCitationFetcher:
 
             prev_scholar_count = 0
             partial_year_start = {}  # only used in-memory for same-run retries
+            saved_dedup_count = 0
             if st == 'partial' and cached:
                 resume_from = cached.get('citations', [])
+                # Preserve the previously recorded dedup count unless doing a full
+                # hard re-fetch (--force-refresh-citations --hard), in which case
+                # all years will be re-fetched and duplicates will be re-discovered.
+                if not (self.force_refresh_citations and self.hard):
+                    saved_dedup_count = cached.get('dedup_count', 0)
                 old_scholar = cached.get('num_citations_on_scholar', cached.get('num_citations_cached', 0))
                 prev_scholar_count = old_scholar
                 if self.force_refresh_citations:
@@ -1469,6 +1482,7 @@ class PaperCitationFetcher:
                         if latest_cache:
                             resume_from = latest_cache.get('citations', [])
                             completed_years = latest_cache.get('completed_years', [])
+                            saved_dedup_count = latest_cache.get('dedup_count', 0)
                             partial_year_start = dict(self._partial_year_start)
                             print(f"  {now_str()} Retrying with {len(resume_from)} cached citations from previous attempt")
                     citations = self._fetch_citations_with_progress(
@@ -1477,6 +1491,7 @@ class PaperCitationFetcher:
                         completed_years=completed_years,
                         prev_scholar_count=prev_scholar_count,
                         partial_year_start=partial_year_start,
+                        saved_dedup_count=saved_dedup_count,
                     )
                     seen_total = len(citations) + self._dedup_count
                     dedup_str = f", {self._dedup_count} dupes" if self._dedup_count else ""
