@@ -1637,22 +1637,36 @@ class PaperCitationFetcher:
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description='Google Scholar Citation Crawler - fetch author profiles and paper citations'
+        description='Google Scholar Citation Crawler - fetch author profiles and paper citations',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''\
+examples:
+  python scholar_citation.py --author AUTHOR_ID
+  python scholar_citation.py --author "https://scholar.google.com/citations?user=AUTHOR_ID"
+  python scholar_citation.py --author AUTHOR_ID --limit 3
+  python scholar_citation.py --author AUTHOR_ID --skip 10 --limit 5
+  python scholar_citation.py --author AUTHOR_ID --force-refresh-citations
+  python scholar_citation.py --author AUTHOR_ID --interactive-captcha
+'''
     )
     parser.add_argument('--author', required=True,
                         help='Google Scholar author ID or full profile URL')
-    parser.add_argument('--output-dir', default='./output',
+    parser.add_argument('--output-dir', default='./output', metavar='DIR',
                         help='Output directory (default: ./output)')
-    parser.add_argument('--limit', type=int, default=None,
-                        help='Only process first N papers needing fetch')
-    parser.add_argument('--skip', type=int, default=0,
-                        help='Skip first N papers in fetch list')
+    parser.add_argument('--skip', type=int, default=0, metavar='M',
+                        help='Skip the first M papers in the full list (sorted by citations desc)')
+    parser.add_argument('--limit', type=int, default=None, metavar='N',
+                        help='Process exactly N papers after --skip (papers M+1 to M+N), '
+                             'regardless of whether each needs fetching')
     parser.add_argument('--force-refresh-pubs', action='store_true',
-                        help='Force re-fetch publications list from Scholar')
+                        help='Force re-fetch the publications list from Scholar '
+                             '(useful when profile updated but citations fetch was interrupted)')
     parser.add_argument('--force-refresh-citations', action='store_true',
-                        help='Re-check papers where cached count < Scholar count')
+                        help='Re-fetch citations for any paper where cached count < Scholar count')
     parser.add_argument('--interactive-captcha', action='store_true',
-                        help='When blocked, pause and prompt for browser cookie injection to bypass captcha')
+                        help='When blocked by Scholar, pause and prompt you to paste a browser '
+                             'cURL (Chrome DevTools → Copy as cURL) to inject fresh cookies; '
+                             'retries indefinitely instead of giving up after MAX_RETRIES')
     return parser.parse_args()
 
 
