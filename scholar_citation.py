@@ -881,9 +881,8 @@ class PaperCitationFetcher:
                     years.append(int(m.group(1)))
             if years:
                 earliest = min(years)
-                print(f"      Scholar year range probe: earliest filter year = {earliest}, "
-                      f"using start_year = {earliest - 1}", flush=True)
-                return earliest - 1  # one year safety buffer
+                print(f"      Scholar year range probe: start_year = {earliest}", flush=True)
+                return earliest  # Scholar's own range is authoritative
         except Exception as e:
             print(f"      (Year range probe failed: {e})", flush=True)
         return None
