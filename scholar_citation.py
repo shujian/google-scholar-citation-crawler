@@ -861,42 +861,65 @@ class PaperCitationFetcher:
         print("      (Session reset: got_403 cleared, cookies preserved)", flush=True)
 
     def _probe_citation_start_year(self, citedby_url):
-        """Fetch the base citedby URL once and parse the earliest year filter
-        offered by Scholar's sidebar (as_ylo=YYYY links).  Returns that year
-        minus one as a conservative start_year, or None if parsing fails.
+        """Fetch the base citedby URL once and determine the earliest year with
+        citations, using multiple sources from the page:
 
-        This gives a web-based answer to "what is the earliest year citations
-        exist for this paper?" — more reliable than pub_year, which Scholar may
-        record as the journal year while arXiv citations exist years earlier.
+          1. as_ylo=YYYY sidebar filter links  — Scholar's preset range options (coarse)
+          2. as_ylo=X&as_yhi=X single-year links — from the per-year bar chart
+          3. Year text in citation snippet elements — actual years of visible results
+
+        Taking the minimum across all sources is more accurate than relying on
+        preset filter links alone (those are coarse fixed intervals).
+
+        Network / access errors propagate to the outer retry loop (captcha/proxy).
+        HTML parsing errors fall back silently (return None).
         """
         import re as _re
         nav = scholarly._Scholarly__nav
+        d = rand_delay()
+        print(f"      {now_str()} Probing citation year range ({d:.0f}s wait)...", flush=True)
+        time.sleep(d)
+        self._total_page_count += 1
+        for session in (nav._session1, nav._session2):
+            session.headers['referer'] = self._last_scholar_url
+        full_url = (f'https://scholar.google.com{citedby_url}'
+                    if citedby_url.startswith('/') else citedby_url)
+        self._current_attempt_url = full_url
+        # Let network/access exceptions propagate — caller handles captcha/retry
+        soup = nav._get_soup(citedby_url)
+        self._last_scholar_url = full_url
         try:
-            d = rand_delay()
-            print(f"      {now_str()} Probing citation year range ({d:.0f}s wait)...", flush=True)
-            time.sleep(d)
-            self._total_page_count += 1
-            # Set Referer before the request (mimics browser navigation)
-            for session in (nav._session1, nav._session2):
-                session.headers['referer'] = self._last_scholar_url
-            full_url = (f'https://scholar.google.com{citedby_url}'
-                        if citedby_url.startswith('/') else citedby_url)
-            self._current_attempt_url = full_url
-            soup = nav._get_soup(citedby_url)
-            self._last_scholar_url = full_url
-            # Parse as_ylo=YYYY from all links — Scholar's "Since YEAR" sidebar
-            # filter links indicate the earliest year bracket with citations.
-            years = []
+            current_year = datetime.now().year
+            years = set()
+
             for a in soup.find_all('a', href=True):
-                m = _re.search(r'[?&]as_ylo=(\d{4})', a['href'])
+                href = a['href']
+                # Source 1: as_ylo=YYYY preset sidebar filter links
+                m = _re.search(r'[?&]as_ylo=(\d{4})', href)
                 if m:
-                    years.append(int(m.group(1)))
+                    years.add(int(m.group(1)))
+                # Source 2: single-year bar-chart links (as_ylo=X&as_yhi=X)
+                m_lo = _re.search(r'[?&]as_ylo=(\d{4})', href)
+                m_hi = _re.search(r'[?&]as_yhi=(\d{4})', href)
+                if m_lo and m_hi and m_lo.group(1) == m_hi.group(1):
+                    years.add(int(m_lo.group(1)))
+
+            # Source 3: year text in citation snippet elements
+            for el in soup.find_all(True):
+                cls = ' '.join(el.get('class', []))
+                if any(k in cls for k in ('gs_age', 'gs_gray', 'gs_a')):
+                    for m in _re.finditer(r'\b((?:19|20)\d{2})\b', el.get_text()):
+                        y = int(m.group(1))
+                        if 1990 <= y <= current_year:
+                            years.add(y)
+
             if years:
                 earliest = min(years)
-                print(f"      Scholar year range probe: start_year = {earliest}", flush=True)
-                return earliest  # Scholar's own range is authoritative
+                print(f"      Scholar year range probe: start_year = {earliest} "
+                      f"(from {len(years)} year values found)", flush=True)
+                return earliest
         except Exception as e:
-            print(f"      (Year range probe failed: {e})", flush=True)
+            print(f"      (Year range probe: parsing failed: {e})", flush=True)
         return None
 
     def _elapsed_str(self):
@@ -1065,10 +1088,11 @@ class PaperCitationFetcher:
         else:
             # First fetch OR force refresh: ask Scholar directly for the year range
             # by fetching the base citedby page and parsing "Since YEAR" sidebar links.
+            # Network/access errors propagate so the outer retry loop handles captcha.
             start_year = self._probe_citation_start_year(citedby_url)
             if start_year is None:
-                # Probe failed: fall back to cached citations if available,
-                # then pub_year-5 (covers arXiv-to-journal gap), then a 5-year window.
+                # Probe returned no year links: fall back to cached citations,
+                # then pub_year-5, then a 5-year window.
                 if year_counts:
                     start_year = min(year_counts.keys())
                 else:
@@ -1078,6 +1102,15 @@ class PaperCitationFetcher:
                         start_year = None
                     if start_year is None:
                         start_year = current_year - 5
+            elif year_counts:
+                # Probe succeeded, but Scholar's preset "Since YEAR" links may be
+                # coarser than our actual cached data (e.g. probe returns 2022 while
+                # we already have citations from 2017).  Always use the earlier of the
+                # two so we never skip years we know have citations.
+                cache_min = min(year_counts.keys())
+                if cache_min < start_year:
+                    print(f"      Using cache min year {cache_min} (probe returned {start_year})", flush=True)
+                    start_year = cache_min
 
         total_years = current_year - start_year + 1
         skipped_years = 0
