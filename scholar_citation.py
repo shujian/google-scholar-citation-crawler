@@ -1599,49 +1599,84 @@ class PaperCitationFetcher:
         print(f"  Captcha / block detected. Resolve it manually:", flush=True)
         print(f"  1. Open this URL in your browser:", flush=True)
         print(f"       {url}", flush=True)
-        print(f"  2. Solve the captcha if shown, then let the page load fully", flush=True)
+        print(f"  2. Solve the captcha, then let the page load fully", flush=True)
         print(f"  3. F12 → Network → find the Scholar request", flush=True)
         print(f"     → right-click → Copy as cURL (bash)", flush=True)
-        print(f"  4. Paste the cURL — end is detected automatically", flush=True)
-        print(f"     (Press Enter on empty line to skip)", flush=True)
+        print(f"  4. Paste the cURL here (detected automatically after 3s silence)", flush=True)
+        print(f"     (Press Enter on blank line to skip)", flush=True)
         print(f"{sep}", flush=True)
-        lines = []
         print("  > ", end='', flush=True)
 
-        # Use sys.stdin.readline() instead of input() to avoid Python's readline
-        # library, which processes ANSI escape sequences and can hang in SSH/tmux
-        # when bracketed paste mode injects \x1b[?2004h/l control sequences.
-        import re as _re
+        import select as _sel, os as _os, re as _re
         _ANSI = _re.compile(r'\x1b(?:\[[0-9;?]*[a-zA-Z]|[()][AB012])')
 
-        def _read_line():
-            try:
-                raw = sys.stdin.readline()
-            except Exception:
-                return None
-            if not raw:          # EOF
-                return None
-            # Strip bracketed-paste markers and other ANSI sequences
-            return _ANSI.sub('', raw).rstrip('\r\n')
-
+        fd = sys.stdin.fileno()
+        old_attrs = None
         try:
+            import termios as _termios
+            old_attrs = _termios.tcgetattr(fd)
+        except Exception:
+            pass
+
+        chunks = []
+        try:
+            if old_attrs is not None:
+                # Disable ICANON (line buffering) but keep ECHO so the user
+                # can see what they paste.  This prevents the pty input buffer
+                # from filling up (which would freeze SSH flow control) while
+                # still giving visual feedback.
+                new = list(old_attrs)
+                new[3] = new[3] & ~_termios.ICANON
+                new[6] = list(new[6])
+                new[6][_termios.VMIN] = 1
+                new[6][_termios.VTIME] = 0
+                _termios.tcsetattr(fd, _termios.TCSAFLUSH, new)
+
+            # Phase 1: wait indefinitely for first byte (user takes their time)
+            _sel.select([sys.stdin], [], [])
+
+            # Phase 2: drain all bytes; 3s of silence = paste is done
             while True:
-                line = _read_line()
-                if line is None:
+                ready = _sel.select([sys.stdin], [], [], 3.0)[0]
+                if not ready:
                     break
-                if not line.strip():
+                try:
+                    chunk = _os.read(fd, 4096)
+                except OSError:
                     break
-                lines.append(line)
-                # Chrome DevTools cURL: every line except the last ends with '\'
-                if not line.rstrip().endswith('\\'):
+                if not chunk:
                     break
+                chunks.append(chunk.decode('utf-8', errors='replace'))
         except KeyboardInterrupt:
+            if old_attrs is not None:
+                import termios as _t
+                _t.tcsetattr(fd, _t.TCSADRAIN, old_attrs)
             print(flush=True)
             return False
+        finally:
+            if old_attrs is not None:
+                import termios as _t
+                _t.tcsetattr(fd, _t.TCSADRAIN, old_attrs)
+
+        print(flush=True)   # newline after pasted content
+        raw = ''.join(chunks)
+        raw = _ANSI.sub('', raw)
+        raw = raw.replace('\r\n', '\n').replace('\r', '\n')
+
+        lines = []
+        for line in raw.split('\n'):
+            line = line.rstrip()
+            if not line.strip():
+                if lines:
+                    break   # blank line after content = user confirmed end
+                continue
+            lines.append(line)
+
         if not lines:
             print("  (Skipped — using automatic wait)", flush=True)
             return False
-        return self._inject_cookies_from_curl(' '.join(lines)) > 0
+        print(f"  Received {len(lines)} lines. Processing...", flush=True)
+        return self._inject_cookies_from_curl('\n'.join(lines)) > 0
 
     def _wait_proxy_switch(self, max_hours=24):
         """Wait up to max_hours for the user to switch proxy/IP.
