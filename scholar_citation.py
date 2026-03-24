@@ -692,12 +692,22 @@ class PaperCitationFetcher:
             for k, v in fetcher_self._injected_cookies.items():
                 session.cookies.set(k, v)   # no domain = sent to all requests
 
-        # Replace scholarly's default HTTP/1.1 sessions with HTTP/2 ones
+        # Replace scholarly's default HTTP/1.1 sessions with HTTP/2 ones,
+        # preserving any cookies Scholar set during the profile fetch phase.
+        old_cookies = {}
+        for old_session in (nav._session1, nav._session2):
+            try:
+                old_cookies.update(dict(old_session.cookies))
+            except Exception:
+                pass
         nav._session1 = _make_http2_session()
         nav._session2 = _make_http2_session()
         for session in (nav._session1, nav._session2):
             _apply_browser_headers(session)
-        print(f"  Browser headers applied (HTTP/2, Edge/145, sec-ch-ua-*, referer)", flush=True)
+            for k, v in old_cookies.items():
+                session.cookies.set(k, v)
+        print(f"  Browser headers applied (HTTP/2, Edge/145, sec-ch-ua-*, referer; "
+              f"{len(old_cookies)} profile cookies preserved)", flush=True)
 
         # Patch _new_session: on 403 scholarly recreates the httpx client;
         # replace it with an HTTP/2 session and re-apply full browser identity.
@@ -1597,18 +1607,35 @@ class PaperCitationFetcher:
         print(f"{sep}", flush=True)
         lines = []
         print("  > ", end='', flush=True)
+
+        # Use sys.stdin.readline() instead of input() to avoid Python's readline
+        # library, which processes ANSI escape sequences and can hang in SSH/tmux
+        # when bracketed paste mode injects \x1b[?2004h/l control sequences.
+        import re as _re
+        _ANSI = _re.compile(r'\x1b(?:\[[0-9;?]*[a-zA-Z]|[()][AB012])')
+
+        def _read_line():
+            try:
+                raw = sys.stdin.readline()
+            except Exception:
+                return None
+            if not raw:          # EOF
+                return None
+            # Strip bracketed-paste markers and other ANSI sequences
+            return _ANSI.sub('', raw).rstrip('\r\n')
+
         try:
             while True:
-                line = input()
+                line = _read_line()
+                if line is None:
+                    break
                 if not line.strip():
-                    # Empty line: skip if nothing pasted yet, else treat as confirm
                     break
                 lines.append(line)
                 # Chrome DevTools cURL: every line except the last ends with '\'
-                # Detect end of paste automatically — no Ctrl+D needed
                 if not line.rstrip().endswith('\\'):
                     break
-        except (EOFError, KeyboardInterrupt):
+        except KeyboardInterrupt:
             print(flush=True)
             return False
         if not lines:

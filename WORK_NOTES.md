@@ -232,7 +232,8 @@ pub_obj = {
 - **2026-03-23** — 新增 `approach.md`：记录每次用户提出意见后的标准工作流程（6步：分析→修改→确认→WORK_NOTES→user.md→提交）
 - **2026-03-23** — 完善 `--help` 输出：各参数加详细 `help=` 说明，`--skip`/`--limit` 用 `metavar` 标注变量名，加 `formatter_class=RawDescriptionHelpFormatter` 和 `epilog` 示例区；argparse 原生支持 `--help`，无需额外代码
 - **2026-03-23** — 修正 citation 起始年份：之前用 `pub_year`（Scholar 可能记录 journal 年份），会漏掉引用 arXiv 版本的早期引用；新逻辑：① resume/update 模式有缓存时用 `min(year_counts.keys())`；② 首次抓取或 force refresh 时调 `_probe_citation_start_year`，发一个请求到 base citedby URL，解析侧边栏 `as_ylo=YYYY` 链接取最小值直接作为 start_year（Scholar 给出的范围本身可信，不再额外 -1）；③ probe 失败依次降级：force refresh 时先用 `min(year_counts.keys())`，否则用 `pub_year - 5`，再否则用 `current_year - 5`
-- **2026-03-23** — 统一 waiting 日志时间戳：新增 `now_str()` 返回 `[HH:MM:SS]`；所有 Waiting/Mandatory break/Probing/Refreshing/Retrying 输出均前置时间戳，方便对照日志定位问题时段
+- **2026-03-24** — 修复 profile→citation 过渡触发验证码：`_patch_scholarly()` 创建新 HTTP/2 session 时会丢弃 profile 阶段 Scholar 设置的所有 cookies，Scholar 看到无 cookie 的全新连接直接触发验证码；修复：创建新 session 前先复制旧 session 的全部 cookies，过渡后 Scholar 仍能识别已有连接
+- **2026-03-24** — 修复 SSH/tmux 粘贴 cURL 卡死：`input()` 内部使用 Python readline，tmux bracketed paste mode 会在粘贴内容前后注入 `\x1b[?2004h/l` 控制序列，readline 处理时卡住；改用 `sys.stdin.readline()` 直接读取，并用正则剥掉 ANSI/bracketed-paste 转义序列
 - **2026-03-23** — 新增 `--hard` 参数：force refresh 时默认在 `len(citations) >= num_citations` 或找到足够新引用时提前停止，避免不必要的请求；`--hard` 禁用两个 early-stop 条件，强制抓取所有年份；仅与 `--force-refresh-citations` 配合使用有意义
 - **2026-03-23** — 持久化 `dedup_count`：Scholar 自身结果中的重复条目数量写入缓存 JSON（`dedup_count` 字段）；resume/force-refresh 时以保存值初始化 `_dedup_count`（而非重置为 0），防止 force refresh 时重复条目因命中 `cached_titles` 而不被重新计数，导致 `num_citations_seen` 偏低；仅在 `--force-refresh-citations --hard` 组合时清零（此时全部年份重新抓取，重复会被重新发现）
 
