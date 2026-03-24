@@ -871,56 +871,78 @@ class PaperCitationFetcher:
         Taking the minimum across all sources is more accurate than relying on
         preset filter links alone (those are coarse fixed intervals).
 
-        Network / access errors propagate to the outer retry loop (captcha/proxy).
-        HTML parsing errors fall back silently (return None).
+        Captcha / access errors are handled in-place (same interactive/proxy-switch
+        flow as the main fetch) so the caller never needs to rebuild state just
+        because a single probe request was blocked.  Returns None on total failure.
         """
         import re as _re
         nav = scholarly._Scholarly__nav
-        d = rand_delay()
-        print(f"      {now_str()} Probing citation year range ({d:.0f}s wait)...", flush=True)
-        time.sleep(d)
-        self._total_page_count += 1
-        for session in (nav._session1, nav._session2):
-            session.headers['referer'] = self._last_scholar_url
         full_url = (f'https://scholar.google.com{citedby_url}'
                     if citedby_url.startswith('/') else citedby_url)
-        self._current_attempt_url = full_url
-        # Let network/access exceptions propagate — caller handles captcha/retry
-        soup = nav._get_soup(citedby_url)
-        self._last_scholar_url = full_url
-        try:
-            current_year = datetime.now().year
-            years = set()
+        MAX_PROBE_RETRIES = 3
+        attempt = 0
+        while True:
+            attempt += 1
+            d = rand_delay()
+            print(f"      {now_str()} Probing citation year range ({d:.0f}s wait)...", flush=True)
+            time.sleep(d)
+            self._total_page_count += 1
+            for session in (nav._session1, nav._session2):
+                session.headers['referer'] = self._last_scholar_url
+            self._current_attempt_url = full_url
+            try:
+                soup = nav._get_soup(citedby_url)
+                self._last_scholar_url = full_url
+            except Exception as e:
+                print(f"      {now_str()} Probe blocked (attempt {attempt}): {e}", flush=True)
+                if self.interactive_captcha:
+                    solved = self._try_interactive_captcha(full_url)
+                    if solved:
+                        continue   # retry probe with fresh cookies
+                if attempt >= MAX_PROBE_RETRIES:
+                    print(f"      Probe gave up after {MAX_PROBE_RETRIES} attempts, "
+                          f"falling back to pub_year heuristic", flush=True)
+                    return None
+                self._wait_proxy_switch(max_hours=24)
+                continue
 
-            for a in soup.find_all('a', href=True):
-                href = a['href']
-                # Source 1: as_ylo=YYYY preset sidebar filter links
-                m = _re.search(r'[?&]as_ylo=(\d{4})', href)
-                if m:
-                    years.add(int(m.group(1)))
-                # Source 2: single-year bar-chart links (as_ylo=X&as_yhi=X)
-                m_lo = _re.search(r'[?&]as_ylo=(\d{4})', href)
-                m_hi = _re.search(r'[?&]as_yhi=(\d{4})', href)
-                if m_lo and m_hi and m_lo.group(1) == m_hi.group(1):
-                    years.add(int(m_lo.group(1)))
+            # Request succeeded — parse year data from multiple sources
+            try:
+                current_year = datetime.now().year
+                years = set()
 
-            # Source 3: year text in citation snippet elements
-            for el in soup.find_all(True):
-                cls = ' '.join(el.get('class', []))
-                if any(k in cls for k in ('gs_age', 'gs_gray', 'gs_a')):
-                    for m in _re.finditer(r'\b((?:19|20)\d{2})\b', el.get_text()):
-                        y = int(m.group(1))
-                        if 1990 <= y <= current_year:
-                            years.add(y)
+                for a in soup.find_all('a', href=True):
+                    href = a['href']
+                    # Source 1: as_ylo=YYYY preset sidebar filter links
+                    m = _re.search(r'[?&]as_ylo=(\d{4})', href)
+                    if m:
+                        years.add(int(m.group(1)))
+                    # Source 2: single-year bar-chart links (as_ylo=X&as_yhi=X)
+                    m_lo = _re.search(r'[?&]as_ylo=(\d{4})', href)
+                    m_hi = _re.search(r'[?&]as_yhi=(\d{4})', href)
+                    if m_lo and m_hi and m_lo.group(1) == m_hi.group(1):
+                        years.add(int(m_lo.group(1)))
 
-            if years:
-                earliest = min(years)
-                print(f"      Scholar year range probe: start_year = {earliest} "
-                      f"(from {len(years)} year values found)", flush=True)
-                return earliest
-        except Exception as e:
-            print(f"      (Year range probe: parsing failed: {e})", flush=True)
-        return None
+                # Source 3: year text in citation snippet elements
+                for el in soup.find_all(True):
+                    cls = ' '.join(el.get('class', []))
+                    if any(k in cls for k in ('gs_age', 'gs_gray', 'gs_a')):
+                        for m in _re.finditer(r'\b((?:19|20)\d{2})\b', el.get_text()):
+                            y = int(m.group(1))
+                            if 1990 <= y <= current_year:
+                                years.add(y)
+
+                if years:
+                    earliest = min(years)
+                    print(f"      Scholar year range probe: start_year = {earliest} "
+                          f"(from {len(years)} year values found)", flush=True)
+                    return earliest
+                # Page loaded but no year data found — fall back
+                print(f"      (Year range probe: no year data found on page)", flush=True)
+                return None
+            except Exception as e:
+                print(f"      (Year range probe: parsing failed: {e})", flush=True)
+                return None
 
     def _elapsed_str(self):
         """Return human-readable elapsed time since run started."""
@@ -1080,18 +1102,20 @@ class PaperCitationFetcher:
                     pass
 
         current_year = datetime.now().year
-        if year_counts and not self.force_refresh_citations:
+        if self._completed_year_segments:
+            # Some years already done from a previous attempt: derive start_year
+            # directly from what we know — no need to re-probe Scholar.
+            start_year = min(self._completed_year_segments)
+            if year_counts:
+                start_year = min(start_year, min(year_counts.keys()))
+        elif year_counts and not self.force_refresh_citations:
             # Resume/update: use the actual earliest known citation year from cache.
-            # More reliable than pub_year (Scholar may record journal year while
-            # arXiv citations exist years earlier).
             start_year = min(year_counts.keys())
         else:
-            # First fetch OR force refresh: ask Scholar directly for the year range
-            # by fetching the base citedby page and parsing "Since YEAR" sidebar links.
-            # Network/access errors propagate so the outer retry loop handles captcha.
+            # True first fetch or fresh force-refresh: probe Scholar for year range.
             start_year = self._probe_citation_start_year(citedby_url)
             if start_year is None:
-                # Probe returned no year links: fall back to cached citations,
+                # Probe returned no year data: fall back to cached citations,
                 # then pub_year-5, then a 5-year window.
                 if year_counts:
                     start_year = min(year_counts.keys())
@@ -1167,33 +1191,61 @@ class PaperCitationFetcher:
                 nav = scholarly._Scholarly__nav
 
                 year_new_count = 0
-                year_items_seen = 0  # total items returned by iterator (incl. dupes)
-                for citing in _SearchScholarIterator(nav, year_url):
-                    year_items_seen += 1
-                    # Keep partial offset current so the except-block save is accurate
-                    # even if the exception occurs between save_every checkpoints.
-                    self._partial_year_start[year] = start_index + year_items_seen
-                    info = self._extract_citation_info(citing)
-                    dedup_key = info['title'].strip().lower()
-                    if dedup_key in seen_titles:
-                        if dedup_key not in cached_titles:
-                            # Duplicate within Scholar's own results (not a cache hit)
-                            self._dedup_count += 1
-                        print(f"  [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('year', '?')})"
-                              f"\n          Existing: {seen_titles[dedup_key]}", flush=True)
-                        continue
-                    seen_titles[dedup_key] = f"{info['title'][:50]} ({info.get('year', '?')})"
-                    citations.append(info)
-                    year_new_count += 1
-                    paper_new_count += 1
-                    self._new_citations_count += 1
-                    count = len(citations)
+                year_items_seen = 0
 
-                    print(f"  [{count}] {info['title'][:55]}...", flush=True)
+                # Per-year retry loop: handle captcha/blocks in-place so we avoid
+                # rebuilding the full paper state in the outer retry loop.
+                while True:
+                    resume_start = start_index + year_items_seen
+                    if year_items_seen > 0:
+                        year_url_cur = (f'/scholar?as_ylo={year}&as_yhi={year}&hl=en'
+                                        f'&as_sdt=2005&sciodt=0,5&cites={pub_id}&scipsc='
+                                        f'&start={resume_start}')
+                        print(f"      Year {year}: retrying from position {resume_start}", flush=True)
+                    else:
+                        year_url_cur = year_url
+                    try:
+                        for citing in _SearchScholarIterator(nav, year_url_cur):
+                            year_items_seen += 1
+                            self._partial_year_start[year] = start_index + year_items_seen
+                            info = self._extract_citation_info(citing)
+                            dedup_key = info['title'].strip().lower()
+                            if dedup_key in seen_titles:
+                                if dedup_key not in cached_titles:
+                                    self._dedup_count += 1
+                                print(f"  [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('year', '?')})"
+                                      f"\n          Existing: {seen_titles[dedup_key]}", flush=True)
+                                continue
+                            seen_titles[dedup_key] = f"{info['title'][:50]} ({info.get('year', '?')})"
+                            citations.append(info)
+                            year_new_count += 1
+                            paper_new_count += 1
+                            self._new_citations_count += 1
+                            count = len(citations)
 
-                    if count % self.save_every == 0:
+                            print(f"  [{count}] {info['title'][:55]}...", flush=True)
+
+                            if count % self.save_every == 0:
+                                save_progress(complete=False)
+                                print(f"  Progress saved ({count} citations, "
+                                      f"{self._new_citations_count} new in this run)", flush=True)
+                        break  # year complete — exit per-year retry loop
+                    except KeyboardInterrupt:
                         save_progress(complete=False)
-                        print(f"  Progress saved ({count} citations, {self._new_citations_count} new in this run)", flush=True)
+                        raise
+                    except Exception as e:
+                        now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        print(f"  [{now_s}] Blocked at year {year} "
+                              f"position {resume_start}: {e}", flush=True)
+                        save_progress(complete=False)
+                        if self.interactive_captcha:
+                            cur_url = (f'https://scholar.google.com{year_url_cur}'
+                                       if year_url_cur.startswith('/') else year_url_cur)
+                            solved = self._try_interactive_captcha(cur_url)
+                            if solved:
+                                continue  # retry this year from current position
+                        # Non-interactive or captcha not solved: propagate to outer loop
+                        raise
 
                 # Year fully done: clear partial offset, record completion
                 self._partial_year_start.pop(year, None)
