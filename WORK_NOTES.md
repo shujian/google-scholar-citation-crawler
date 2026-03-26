@@ -239,6 +239,7 @@ pub_obj = {
 - **2026-03-25** — 原地重试机制重构：① probe 遇到验证码/封锁时在方法内部处理（`MAX_PROBE_RETRIES=3`），interactive 模式调 `_try_interactive_captcha`，非 interactive 调 `_wait_proxy_switch`，失败则返回 `None` 降级，不向外抛出；② 年份迭代中途遇到验证码时也原地重试（per-year retry loop）：interactive 模式解完验证码直接 `continue` 从断点位置继续，非 interactive 则向外抛出走 outer retry loop；③ 有 `completed_years` 记录时跳过 probe——直接用 `min(completed_years)` 作为 start_year，retry 时不再重新 probe
 - **2026-03-25** — 修复 citation start_year probe 的主数据源：用户提供了 Scholar 页面真实 DOM 片段，确认年份分布数据直接存在于 `#gs_res_sb_hist_wrp .gs_hist_g_a[data-year][data-count]` 节点中（例如 `data-year="2022" data-count="2"`）；`scholar_chc` 只是埋点请求，不是数据源。现在 `_probe_citation_start_year` 优先解析这些 histogram bar DOM 节点（仅取 `data-count > 0` 的年份），单年链接 `as_ylo=X&as_yhi=X`、粗粒度 `as_ylo=YYYY`、snippet 年份文本只作为 fallback
 - **2026-03-26** — 年份确认逻辑改为“每次新抓取都 probe，一次运行内恢复不重复 probe”：用 TDD 添加 `test_year_probe_logic.py` 验证三种行为——① force refresh 且有缓存年份时仍会 probe；② 普通新一轮抓取即使已有缓存年份也会 probe；③ 同一次运行内如果 `completed_years` 非空，则跳过 probe。实现上删除了“有 `year_counts` 且非 force 就直接信缓存年份”的分支，仅保留“`completed_years` 非空时跳过 probe”的特例。验证命令：`python3 -m unittest test_year_probe_logic.py` 与 `python3 -c "import ast; ast.parse(open('scholar_citation.py').read())"` 均通过
+- **2026-03-26** — CLI 语义清理：将 `--force-refresh-citations` 重命名为 `--recheck-citations`，更准确表达“在选中论文范围内重新检查 citation 完整性并仅重抓不完整者”的实际行为；`--skip` / `--limit` 语义不变。删除已过时的 `--hard` 参数（当前默认 early-stop 行为已经足够，`--hard` 不再提供独立价值）；保留 `--force-refresh-citations` 作为 deprecated alias 以兼容旧用法
 
 ---
 

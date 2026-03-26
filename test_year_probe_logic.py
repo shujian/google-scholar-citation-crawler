@@ -37,15 +37,15 @@ if "openpyxl" not in sys.modules:
     sys.modules["openpyxl"] = openpyxl_mod
     sys.modules["openpyxl.styles"] = styles_mod
 
-from scholar_citation import PaperCitationFetcher
+from scholar_citation import PaperCitationFetcher, parse_args
 
 
 class YearProbeLogicTests(unittest.TestCase):
-    def make_fetcher(self, force=False):
+    def make_fetcher(self, recheck=False):
         fetcher = PaperCitationFetcher(
             author_id="test",
             output_dir=".",
-            force_refresh_citations=force,
+            recheck_citations=recheck,
         )
         fetcher._completed_year_segments = set()
         fetcher._partial_year_start = {}
@@ -55,7 +55,7 @@ class YearProbeLogicTests(unittest.TestCase):
         return fetcher
 
     def test_force_refresh_reprobes_even_with_cached_years(self):
-        fetcher = self.make_fetcher(force=True)
+        fetcher = self.make_fetcher(recheck=True)
         citations = [{"year": "2017", "title": "old"}]
 
         with mock.patch.object(fetcher, "_probe_citation_start_year", return_value=2022) as probe:
@@ -72,7 +72,7 @@ class YearProbeLogicTests(unittest.TestCase):
         probe.assert_called_once()
 
     def test_new_run_without_completed_years_should_still_probe(self):
-        fetcher = self.make_fetcher(force=False)
+        fetcher = self.make_fetcher(recheck=False)
         citations = [{"year": "2017", "title": "old"}]
 
         with mock.patch.object(fetcher, "_probe_citation_start_year", return_value=2017) as probe:
@@ -91,7 +91,7 @@ class YearProbeLogicTests(unittest.TestCase):
         probe.assert_called_once()
 
     def test_same_run_resume_with_completed_years_skips_probe(self):
-        fetcher = self.make_fetcher(force=False)
+        fetcher = self.make_fetcher(recheck=False)
         fetcher._completed_year_segments = {2017, 2018}
         citations = [{"year": "2017", "title": "old"}]
 
@@ -107,6 +107,18 @@ class YearProbeLogicTests(unittest.TestCase):
                         prev_scholar_count=0,
                     )
         probe.assert_not_called()
+
+
+
+
+class CliFlagTests(unittest.TestCase):
+    def test_parse_args_accepts_recheck_citations(self):
+        with mock.patch.object(sys, 'argv', [
+            'scholar_citation.py', '--author', 'abc', '--recheck-citations'
+        ]):
+            args = parse_args()
+        self.assertTrue(args.recheck_citations)
+
 
 
 if __name__ == "__main__":
