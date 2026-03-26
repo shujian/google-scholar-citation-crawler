@@ -1337,3 +1337,148 @@ probe的结果也不应该是看固定档位吧，页面上其实有显示逐年
 请完成更新吧
 
 ---
+
+## Message 208 [2026-03-26]
+
+检测一下，这个url怎么会分析出年份是1996 https://scholar.google.com/scholar?as_ylo=1996&as_yhi=1996&hl=en&as_sdt=2005&sciodt=0,5&cites=5507039711609773325,3066613168129831521&scipsc=
+
+---
+
+## Message 209 [2026-03-26]
+
+好的，修正它吧。
+
+---
+
+## Message 210 [2026-03-26]
+
+我测试了一下结果不对，Scholar year range probe: start_year = 2023 (from histogram DOM, 4 year values found)
+实际上应该是从2017年开始。
+
+---
+
+## Message 211 [2026-03-26]
+
+我看到的例子里，这个小图打开就是完整的年份分布。
+
+---
+
+## Message 212 [2026-03-26]
+
+但是点击小图的时候，html应该不会变吧？会吗？
+
+---
+
+## Message 213 [2026-03-26]
+
+<div class="gs_hist_w"><div class="gs_hist_graph_bars"><span class="gs_hist_g_t" style="right:256px">2018</span> ... <a href="javascript:void(0);" class="gs_hist_g_a gs_hist_transition_slow" data-year="2026" data-count="26" style="height:24px;"><span class="gs_hist_g_al">26</span></a></div></div>
+
+---
+
+## Message 214 [2026-03-26]
+
+这个数据在哪个文件里？这个流程应该是没问题的吧？
+
+---
+
+## Message 215 [2026-03-26]
+
+好的，我确认，可以更新和提交了。
+
+---
+
+## Message 216 [2026-03-26]
+
+我们确认一下年份管理的逻辑，是否每次抓取都会做一次年份的确认呢？因为有可能会因为数据源问题新获取一个之前年份的引用。并且这个代价也不太大。
+
+---
+
+## Message 217 [2026-03-26]
+
+好的，我同意上面关于probe的方案
+
+---
+
+## Message 218 [2026-03-26]
+
+提醒一下，我有个conda环境，叫做scholar
+
+---
+
+## Message 219 [2026-03-26]
+
+好的，可以更新了
+
+---
+
+## Message 220 [2026-03-26]
+
+你对刚刚整理的force refresh citation的逻辑有什么建议吗？
+
+---
+
+## Message 221 [2026-03-26]
+
+因为原先对年份重扫的选项是由hard控制的，现在已经默认会重新获取了，所以也不需要这个控制了。--skip和--limit没问题，就保持现在的语义。force-refresh是不是需要改个名字？
+
+---
+
+## Message 222 [2026-03-26]
+
+好的，可以执行这个修改吧。
+
+---
+
+## Message 223 [2026-03-26]
+
+1 使用 .worktrees/
+
+---
+
+## Message 224 [2026-03-26]
+
+确认
+
+---
+
+## Message 225 [2026-03-26]
+
+你在干什么？
+
+---
+
+## Message 226 [2026-03-26]
+
+请完成更新吧
+
+---
+
+## Message 227 [2026-03-26]
+
+合并回主目录吧，以后如果不是明确有要求，不需要再展开worktree了
+
+---
+
+## Message 228 [2026-03-26]
+
+检测一下，这个url怎么会分析出年份是1996 https://scholar.google.com/scholar?as_ylo=1996&as_yhi=1996&hl=en&as_sdt=2005&sciodt=0,5&cites=5507039711609773325,3066613168129831521&scipsc=
+
+---
+
+## Message 229 [2026-03-26]
+
+好的，修正它吧。
+
+---
+
+## Message 230 [2026-03-26]
+
+w[Request interrupted by user]直接修改代码，对于简单问题，不要做很复杂的流程。
+
+---
+
+## Message 231 [2026-03-26]
+
+我测试了一下好像是对的。更新并提交这些信息吧。
+
+---

@@ -911,8 +911,10 @@ class PaperCitationFetcher:
                 current_year = datetime.now().year
                 years = set()
 
-                # Primary source: histogram bar DOM nodes with explicit year/count
-                for bar in soup.select('#gs_res_sb_hist_wrp .gs_hist_g_a[data-year][data-count]'):
+                # Primary source: full histogram dialog DOM nodes with explicit
+                # year/count. The sidebar mini-chart can be truncated to recent
+                # years only, so do NOT use it as the authoritative source.
+                for bar in soup.select('.gs_rs_hist_dialog-g_bar_wrapper .gs_hist_g_a[data-year][data-count], #gs_md_hist .gs_hist_g_a[data-year][data-count]'):
                     try:
                         y = int(bar.get('data-year', ''))
                         count = int(bar.get('data-count', '0'))
@@ -920,6 +922,15 @@ class PaperCitationFetcher:
                             years.add(y)
                     except (TypeError, ValueError):
                         pass
+
+                # If full histogram DOM is present, trust it and stop here.
+                # Do NOT mix in fallback as_ylo/as_yhi links, which may contain
+                # coarse or misleading years (e.g. 1996) unrelated to actual bars.
+                if years:
+                    earliest = min(years)
+                    print(f"      Scholar year range probe: start_year = {earliest} "
+                          f"(from full histogram DOM, {len(years)} year values found)", flush=True)
+                    return earliest
 
                 # Fallback 1: single-year histogram links (as_ylo=X&as_yhi=X)
                 for a in soup.find_all('a', href=True):
@@ -948,7 +959,7 @@ class PaperCitationFetcher:
                 if years:
                     earliest = min(years)
                     print(f"      Scholar year range probe: start_year = {earliest} "
-                          f"(from {len(years)} year values found)", flush=True)
+                          f"(from fallback, {len(years)} year values found)", flush=True)
                     return earliest
                 print(f"      (Year range probe: no year data found on page)", flush=True)
                 return None
