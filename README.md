@@ -48,7 +48,8 @@ python scholar_citation.py --author YOUR_AUTHOR_ID --skip 2 --limit 3
 ```
 usage: scholar_citation.py [-h] --author AUTHOR [--output-dir DIR]
                            [--limit N] [--skip N]
-                           [--force-refresh-pubs] [--force-refresh-citations]
+                           [--force-refresh-pubs] [--recheck-citations]
+                           [--force-refresh-citations]
                            [--interactive-captcha]
 
 required:
@@ -60,7 +61,8 @@ optional:
   --limit N                     Process exactly N papers starting after --skip M (papers M+1 to M+N),
                                 regardless of whether each paper needs fetching
   --force-refresh-pubs          Force re-fetch publications list from Scholar
-  --force-refresh-citations     Re-check all papers: re-fetch any where cached count < Scholar count
+  --recheck-citations           Re-check citation completeness in the selected paper range
+  --force-refresh-citations     Deprecated alias for --recheck-citations
   --interactive-captcha         Enable interactive captcha bypass (see below)
 ```
 
@@ -68,13 +70,15 @@ optional:
 
 Papers are always sorted by citation count descending. `--skip M` skips the first M papers in that list. `--limit N` then processes exactly the next N papers (positions M+1 to M+N), whether or not they need fetching. This allows targeting a specific range for debugging or manual recovery.
 
-### `--force-refresh-citations`
+### `--recheck-citations`
 
-In normal mode, a paper is skipped if its Scholar citation count hasn't increased since the last complete fetch. With `--force-refresh-citations`, any paper where `cached count < Scholar count` is re-fetched. The citation year range is also re-probed from Scholar's page (rather than relying on the cached earliest year), ensuring early citations from arXiv preprints are not missed. Fetching stops early once the total collected citations reach the Scholar count (use `--hard` to override). Useful when previous runs may have missed citations.
+In normal mode, a paper is skipped if its Scholar citation count hasn't increased since the last complete fetch. With `--recheck-citations`, papers in the selected range are re-evaluated using cached-count vs current-Scholar-count logic, and only papers whose cached citations are incomplete relative to Scholar are fetched again. The citation year range is also re-probed on each fresh run, while same-run resume skips probe and restores directly from known progress.
 
-### `--hard`
+`--skip` and `--limit` semantics are unchanged: `--recheck-citations` only affects papers inside that selected range.
 
-Only meaningful with `--force-refresh-citations`. Disables the early-stop optimisation so all years are fetched regardless of whether the Scholar citation count has already been reached. Use when you want a complete audit of every year's citations.
+### `--force-refresh-citations` (deprecated)
+
+Deprecated alias for `--recheck-citations`. Kept temporarily for backward compatibility.
 
 ## Output Files
 

@@ -612,16 +612,14 @@ class AuthorProfileFetcher:
 class PaperCitationFetcher:
     def __init__(self, author_id, output_dir=".",
                  limit=None, skip=0, save_every=10,
-                 force_refresh_citations=False,
-                 hard=False,
+                 recheck_citations=False,
                  interactive_captcha=False):
         self.author_id = author_id
         self.output_dir = output_dir
         self.limit = limit
         self.skip = skip
         self.save_every = save_every
-        self.force_refresh_citations = force_refresh_citations
-        self.hard = hard  # disables early-stop in year iteration
+        self.recheck_citations = recheck_citations
         self.interactive_captcha = interactive_captcha
 
         # Paths
@@ -1269,19 +1267,17 @@ class PaperCitationFetcher:
                 save_progress(complete=False)
 
                 # Early stop: skip remaining years once we have enough citations.
-                # Disabled by --hard, which forces all years to be fetched.
-                if not self.hard:
-                    if len(citations) >= num_citations:
-                        print(f"  Reached target ({len(citations)} >= {num_citations}), "
-                              f"skipping remaining years", flush=True)
-                        break
-                    # When updating, new citations are typically in recent years.
-                    # Once we've found enough to cover the increase, stop.
-                    scholar_increase = num_citations - prev_scholar_count if prev_scholar_count > 0 else 0
-                    if scholar_increase > 0 and paper_new_count >= scholar_increase:
-                        print(f"  Found {paper_new_count} new (Scholar increase: {scholar_increase}), "
-                              f"skipping remaining years", flush=True)
-                        break
+                if len(citations) >= num_citations:
+                    print(f"  Reached target ({len(citations)} >= {num_citations}), "
+                          f"skipping remaining years", flush=True)
+                    break
+                # When updating, new citations are typically in recent years.
+                # Once we've found enough to cover the increase, stop.
+                scholar_increase = num_citations - prev_scholar_count if prev_scholar_count > 0 else 0
+                if scholar_increase > 0 and paper_new_count >= scholar_increase:
+                    print(f"  Found {paper_new_count} new (Scholar increase: {scholar_increase}), "
+                          f"skipping remaining years", flush=True)
+                    break
 
         except KeyboardInterrupt:
             save_progress(complete=False)
@@ -1394,7 +1390,7 @@ class PaperCitationFetcher:
         # Normal mode: compare Scholar count at last completion vs current.
         # Force mode: compare actual cached count vs current.
         actual_cached = cached.get('num_citations_cached', len(cached.get('citations', [])))
-        if self.force_refresh_citations:
+        if self.recheck_citations:
             if actual_cached >= current:
                 return 'complete'
             return 'partial'
@@ -1544,17 +1540,14 @@ class PaperCitationFetcher:
             saved_dedup_count = 0
             if st == 'partial' and cached:
                 resume_from = cached.get('citations', [])
-                # Preserve the previously recorded dedup count unless doing a full
-                # hard re-fetch (--force-refresh-citations --hard), in which case
-                # all years will be re-fetched and duplicates will be re-discovered.
-                if not (self.force_refresh_citations and self.hard):
-                    saved_dedup_count = cached.get('dedup_count', 0)
+                # Preserve the previously recorded dedup count across rechecks.
+                saved_dedup_count = cached.get('dedup_count', 0)
                 old_scholar = cached.get('num_citations_on_scholar', cached.get('num_citations_cached', 0))
                 prev_scholar_count = old_scholar
-                if self.force_refresh_citations:
-                    # Force mode: clear completed_years to re-check all years
+                if self.recheck_citations:
+                    # Recheck mode: clear completed_years to re-check all years
                     completed_years = []
-                    action = f"force re-check ({len(resume_from)} cached, scholar={num_citations})"
+                    action = f"recheck ({len(resume_from)} cached, scholar={num_citations})"
                 elif old_scholar == num_citations:
                     # Scholar count unchanged, resume from where we left off
                     completed_years = cached.get('completed_years', [])
@@ -1892,14 +1885,11 @@ examples:
     parser.add_argument('--force-refresh-pubs', action='store_true',
                         help='Force re-fetch the publications list from Scholar '
                              '(useful when profile updated but citations fetch was interrupted)')
-    parser.add_argument('--force-refresh-citations', action='store_true',
-                        help='Re-fetch citations for any paper where cached count < Scholar count; '
-                             'stops early once total collected citations reach the Scholar count '
-                             '(use --hard to override)')
-    parser.add_argument('--hard', action='store_true',
-                        help='Disable early-stop during year iteration: fetch all years even after '
-                             'the Scholar citation count is reached. Only meaningful with '
-                             '--force-refresh-citations')
+    parser.add_argument('--recheck-citations', dest='recheck_citations', action='store_true',
+                        help='Re-check citation completeness for papers in the selected range and '
+                             're-fetch only those whose cached citations are incomplete relative to Scholar')
+    parser.add_argument('--force-refresh-citations', dest='recheck_citations', action='store_true',
+                        help='Deprecated alias for --recheck-citations')
     parser.add_argument('--interactive-captcha', action='store_true',
                         help='When blocked by Scholar, pause and prompt you to paste a browser '
                              'cURL (Chrome DevTools → Copy as cURL) to inject fresh cookies; '
@@ -1931,14 +1921,14 @@ def main():
         prev_pubs = prev_profile.get('total_publications', -1)
         curr_pubs = curr_profile.get('total_publications', -2)
 
-        if prev_citations == curr_citations and prev_pubs == curr_pubs and not args.force_refresh_citations:
+        if prev_citations == curr_citations and prev_pubs == curr_pubs and not args.recheck_citations:
             # Even if totals haven't changed, check if all citations are fully cached
             citation_fetcher = PaperCitationFetcher(
                 author_id=author_id,
                 output_dir=args.output_dir,
                 limit=args.limit,
                 skip=args.skip,
-                force_refresh_citations=args.force_refresh_citations,
+                recheck_citations=args.recheck_citations,
             )
             if not citation_fetcher.has_pending_work():
                 print("\n" + "=" * 70)
@@ -1955,8 +1945,7 @@ def main():
         output_dir=args.output_dir,
         limit=args.limit,
         skip=args.skip,
-        force_refresh_citations=args.force_refresh_citations,
-        hard=args.hard,
+        recheck_citations=args.recheck_citations,
         interactive_captcha=args.interactive_captcha,
     )
     success = citation_fetcher.run()
