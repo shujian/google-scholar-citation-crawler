@@ -1117,16 +1117,15 @@ class PaperCitationFetcher:
 
         current_year = datetime.now().year
         if self._completed_year_segments:
-            # Some years already done from a previous attempt: derive start_year
-            # directly from what we know — no need to re-probe Scholar.
+            # Some years already done from a previous attempt in THIS run:
+            # derive start_year directly from known state — no need to re-probe.
             start_year = min(self._completed_year_segments)
             if year_counts:
                 start_year = min(start_year, min(year_counts.keys()))
-        elif year_counts and not self.force_refresh_citations:
-            # Resume/update: use the actual earliest known citation year from cache.
-            start_year = min(year_counts.keys())
         else:
-            # True first fetch or fresh force-refresh: probe Scholar for year range.
+            # Every fresh fetch/run re-checks the year range once.  This catches
+            # newly discoverable older-year citations if Scholar's histogram data
+            # source has changed since the last run.
             start_year = self._probe_citation_start_year(citedby_url)
             if start_year is None:
                 # Probe returned no year data: fall back to cached citations,
@@ -1141,10 +1140,8 @@ class PaperCitationFetcher:
                     if start_year is None:
                         start_year = current_year - 5
             elif year_counts:
-                # Probe succeeded, but Scholar's preset "Since YEAR" links may be
-                # coarser than our actual cached data (e.g. probe returns 2022 while
-                # we already have citations from 2017).  Always use the earlier of the
-                # two so we never skip years we know have citations.
+                # Even after a fresh probe, never start later than the earliest
+                # citation year already present in cache.
                 cache_min = min(year_counts.keys())
                 if cache_min < start_year:
                     print(f"      Using cache min year {cache_min} (probe returned {start_year})", flush=True)
