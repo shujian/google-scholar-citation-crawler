@@ -862,14 +862,17 @@ class PaperCitationFetcher:
 
     def _probe_citation_start_year(self, citedby_url):
         """Fetch the base citedby URL once and determine the earliest year with
-        citations, using multiple sources from the page:
+        citations.
 
-          1. as_ylo=YYYY sidebar filter links  — Scholar's preset range options (coarse)
-          2. as_ylo=X&as_yhi=X single-year links — from the per-year bar chart
-          3. Year text in citation snippet elements — actual years of visible results
+        Primary source (most reliable): already-rendered histogram bars in the
+        page DOM, e.g. `span.gs_hist_g_a[data-year][data-count]` under
+        `#gs_res_sb_hist_wrp`.  These contain the per-year citation distribution
+        directly (`data-year="2022" data-count="2"`).
 
-        Taking the minimum across all sources is more accurate than relying on
-        preset filter links alone (those are coarse fixed intervals).
+        Fallbacks (less reliable):
+          1. as_ylo=X&as_yhi=X single-year links from the histogram UI
+          2. as_ylo=YYYY preset sidebar filter links (coarse fixed intervals)
+          3. Year text in visible citation snippets
 
         Captcha / access errors are handled in-place (same interactive/proxy-switch
         flow as the main fetch) so the caller never needs to rebuild state just
@@ -898,7 +901,7 @@ class PaperCitationFetcher:
                 if self.interactive_captcha:
                     solved = self._try_interactive_captcha(full_url)
                     if solved:
-                        continue   # retry probe with fresh cookies
+                        continue
                 if attempt >= MAX_PROBE_RETRIES:
                     print(f"      Probe gave up after {MAX_PROBE_RETRIES} attempts, "
                           f"falling back to pub_year heuristic", flush=True)
@@ -906,24 +909,36 @@ class PaperCitationFetcher:
                 self._wait_proxy_switch(max_hours=24)
                 continue
 
-            # Request succeeded — parse year data from multiple sources
             try:
                 current_year = datetime.now().year
                 years = set()
 
+                # Primary source: histogram bar DOM nodes with explicit year/count
+                for bar in soup.select('#gs_res_sb_hist_wrp .gs_hist_g_a[data-year][data-count]'):
+                    try:
+                        y = int(bar.get('data-year', ''))
+                        count = int(bar.get('data-count', '0'))
+                        if count > 0 and 1990 <= y <= current_year:
+                            years.add(y)
+                    except (TypeError, ValueError):
+                        pass
+
+                # Fallback 1: single-year histogram links (as_ylo=X&as_yhi=X)
                 for a in soup.find_all('a', href=True):
                     href = a['href']
-                    # Source 1: as_ylo=YYYY preset sidebar filter links
-                    m = _re.search(r'[?&]as_ylo=(\d{4})', href)
-                    if m:
-                        years.add(int(m.group(1)))
-                    # Source 2: single-year bar-chart links (as_ylo=X&as_yhi=X)
                     m_lo = _re.search(r'[?&]as_ylo=(\d{4})', href)
                     m_hi = _re.search(r'[?&]as_yhi=(\d{4})', href)
                     if m_lo and m_hi and m_lo.group(1) == m_hi.group(1):
                         years.add(int(m_lo.group(1)))
 
-                # Source 3: year text in citation snippet elements
+                # Fallback 2: as_ylo=YYYY preset sidebar filter links (coarse)
+                for a in soup.find_all('a', href=True):
+                    href = a['href']
+                    m = _re.search(r'[?&]as_ylo=(\d{4})', href)
+                    if m:
+                        years.add(int(m.group(1)))
+
+                # Fallback 3: year text in visible citation snippets
                 for el in soup.find_all(True):
                     cls = ' '.join(el.get('class', []))
                     if any(k in cls for k in ('gs_age', 'gs_gray', 'gs_a')):
@@ -937,7 +952,6 @@ class PaperCitationFetcher:
                     print(f"      Scholar year range probe: start_year = {earliest} "
                           f"(from {len(years)} year values found)", flush=True)
                     return earliest
-                # Page loaded but no year data found — fall back
                 print(f"      (Year range probe: no year data found on page)", flush=True)
                 return None
             except Exception as e:

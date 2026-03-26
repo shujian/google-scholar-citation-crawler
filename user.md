@@ -1235,3 +1235,39 @@ probe的结果也不应该是看固定档位吧，页面上其实有显示逐年
 请继续之前没完成的任务
 
 ---
+
+## Message 191 [2026-03-26]
+
+不应该这么猜，scholar的页面上其实有显示引用的分布，比如类似这个页面，你能不能查一下看看https://scholar.google.com/scholar?hl=en&as_sdt=2005&sciodt=0,5&cites=4998169379713245716&scipsc=#d=gs_md_hist&t=1774434965731
+
+---
+
+## Message 192 [2026-03-26]
+
+这就是新增的那一个请求：curl 'https://scholar.google.com/scholar_chc?hl=en&as_sdt=2005&sciodt=0,5&cites=4998169379713245716&scipsc=&ei=HHbEaaSfNaqtieoPy-fC4AU' ...
+
+---
+
+## Message 193 [2026-03-26]
+
+这是网页上citation按年份分布的单元对应的一些代码，看上去这是个javascript
+
+---
+
+## Message 194 [2026-03-26]
+
+这个数据在哪个文件里？这个流程应该是没问题的吧？
+
+---
+
+## Message 195 [2026-03-26]
+
+好的，我确认，可以更新和提交了。
+
+---
+
+## Message 196 [2026-03-26]
+
+注意文档里时间相关项目的 顺序
+
+---
