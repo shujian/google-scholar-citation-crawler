@@ -57,9 +57,9 @@ YEAR_BASED_THRESHOLD = 50
 MAX_RETRIES = 3
 
 
-def rand_delay():
+def rand_delay(scale=1.0):
     """Return a random delay between DELAY_MIN and DELAY_MAX seconds."""
-    return random.uniform(DELAY_MIN, DELAY_MAX)
+    return random.uniform(DELAY_MIN, DELAY_MAX) * scale
 
 
 def now_str():
@@ -100,9 +100,10 @@ def extract_author_id(author_input):
 # ============================================================
 
 class AuthorProfileFetcher:
-    def __init__(self, author_id, output_dir="."):
+    def __init__(self, author_id, output_dir=".", delay_scale=1.0):
         self.author_id = author_id
         self.output_dir = output_dir
+        self.delay_scale = delay_scale
 
         # Cache directory
         self.cache_dir = os.path.join(output_dir, "scholar_cache", f"author_{author_id}")
@@ -165,7 +166,7 @@ class AuthorProfileFetcher:
                 raise ValueError("search_author_id returned None — Scholar may be rate-limiting")
             print("Author found, filling basic info...")
 
-            d = rand_delay()
+            d = rand_delay(self.delay_scale)
             print(f"{now_str()} Waiting {d:.0f}s...")
             time.sleep(d)
 
@@ -228,7 +229,7 @@ class AuthorProfileFetcher:
         try:
             author = scholarly.search_author_id(self.author_id)
 
-            d = rand_delay()
+            d = rand_delay(self.delay_scale)
             print(f"{now_str()} Waiting {d:.0f}s...")
             time.sleep(d)
 
@@ -561,7 +562,7 @@ class AuthorProfileFetcher:
 
         # Only wait between phases if we actually made network requests
         if basics_fetched:
-            d = rand_delay()
+            d = rand_delay(self.delay_scale)
             print(f"\n{now_str()} Waiting {d:.0f}s before continuing...")
             time.sleep(d)
 
@@ -621,6 +622,12 @@ class PaperCitationFetcher:
         self.save_every = save_every
         self.recheck_citations = recheck_citations
         self.interactive_captcha = interactive_captcha
+        self._captcha_solved_count = 0
+
+        # Interactive mode experiment: if the IP gets challenged roughly every
+        # ~40 pages regardless of long waits, reduce waits to 1/10 so we can
+        # measure whether faster progress gives a better pages-per-captcha ratio.
+        self._delay_scale = 0.1 if interactive_captcha else 1.0
 
         # Paths
         self.cache_dir = os.path.join(output_dir, "scholar_cache", f"author_{author_id}", "citations")
@@ -752,7 +759,7 @@ class PaperCitationFetcher:
                     time.sleep = original_sleep
                     raise MaxTriesExceededException(
                         f"Too many retries ({sleep_count[0]}) for single page request")
-                d = rand_delay()
+                d = rand_delay(fetcher_self._delay_scale)
                 retry_note = f" (retry {sleep_count[0]})" if sleep_count[0] > 1 else ""
                 print(f"      {now_str()} Waiting {d:.0f}s before request{retry_note}... "
                       f"[{fetcher_self._wait_status()}]", flush=True)
@@ -791,7 +798,7 @@ class PaperCitationFetcher:
             # In interactive mode, skip session resets — the user has already
             # injected fresh cookies; resetting would discard them.
             if fetcher_self._total_page_count >= fetcher_self._next_break_at:
-                d = random.uniform(MANDATORY_BREAK_MIN, MANDATORY_BREAK_MAX)
+                d = random.uniform(MANDATORY_BREAK_MIN, MANDATORY_BREAK_MAX) * fetcher_self._delay_scale
                 print(f"      {now_str()} Mandatory break after {fetcher_self._total_page_count} pages "
                       f"({d/60:.1f} min)... [{fetcher_self._wait_status()}]", flush=True)
                 time.sleep(d)
@@ -884,7 +891,7 @@ class PaperCitationFetcher:
         attempt = 0
         while True:
             attempt += 1
-            d = rand_delay()
+            d = rand_delay(self._delay_scale)
             print(f"      {now_str()} Probing citation year range ({d:.0f}s wait)...", flush=True)
             time.sleep(d)
             self._total_page_count += 1
@@ -981,7 +988,8 @@ class PaperCitationFetcher:
         """Return a status string for wait messages."""
         return (f"elapsed {self._elapsed_str()}, "
                 f"{self._new_citations_count} new citations, "
-                f"{self._total_page_count} pages")
+                f"{self._total_page_count} pages, "
+                f"{self._captcha_solved_count} captcha solves")
 
     def _citation_cache_path(self, title):
         key = hashlib.md5(title.encode('utf-8')).hexdigest()[:16]
@@ -1646,7 +1654,7 @@ class PaperCitationFetcher:
             results[idx - 1] = {'pub': pub, 'citations': citations or []}
 
             if fetch_idx < (self.limit or len(need_fetch)):
-                d = rand_delay()
+                d = rand_delay(self._delay_scale)
                 print(f"  {now_str()} Waiting {d:.0f}s before next paper... [{self._wait_status()}]", flush=True)
                 time.sleep(d)
 
@@ -1681,7 +1689,9 @@ class PaperCitationFetcher:
         # Persist for re-application after scholarly recreates sessions on 403
         self._injected_cookies = cookies
         nav.got_403 = False
-        print(f"  Injected {len(cookies)} cookies (no domain restriction).", flush=True)
+        self._captcha_solved_count += 1
+        print(f"  Injected {len(cookies)} cookies (no domain restriction). "
+              f"Captcha solves: {self._captcha_solved_count}", flush=True)
         return len(cookies)
 
     def _try_interactive_captcha(self, url):
@@ -1918,7 +1928,8 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
 
     # Always run profile first
-    fetcher = AuthorProfileFetcher(author_id, args.output_dir)
+    delay_scale = 0.1 if args.interactive_captcha else 1.0
+    fetcher = AuthorProfileFetcher(author_id, args.output_dir, delay_scale=delay_scale)
     prev_profile = fetcher.load_prev_profile()
     success = fetcher.run(force_refresh_pubs=args.force_refresh_pubs)
     if not success:
