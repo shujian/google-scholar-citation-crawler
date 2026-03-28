@@ -614,7 +614,8 @@ class PaperCitationFetcher:
     def __init__(self, author_id, output_dir=".",
                  limit=None, skip=0, save_every=10,
                  recheck_citations=False,
-                 interactive_captcha=False):
+                 interactive_captcha=False,
+                 delay_scale=1.0):
         self.author_id = author_id
         self.output_dir = output_dir
         self.limit = limit
@@ -623,11 +624,7 @@ class PaperCitationFetcher:
         self.recheck_citations = recheck_citations
         self.interactive_captcha = interactive_captcha
         self._captcha_solved_count = 0
-
-        # Interactive mode experiment: if the IP gets challenged roughly every
-        # ~40 pages regardless of long waits, reduce waits to 1/10 so we can
-        # measure whether faster progress gives a better pages-per-captcha ratio.
-        self._delay_scale = 0.1 if interactive_captcha else 1.0
+        self._delay_scale = delay_scale
 
         # Paths
         self.cache_dir = os.path.join(output_dir, "scholar_cache", f"author_{author_id}", "citations")
@@ -1915,6 +1912,9 @@ examples:
                         help='When blocked by Scholar, pause and prompt you to paste a browser '
                              'cURL (Chrome DevTools → Copy as cURL) to inject fresh cookies; '
                              'retries indefinitely instead of giving up after MAX_RETRIES')
+    parser.add_argument('--accelerate', type=float, default=1.0, metavar='SCALE',
+                        help='Scale all deliberate waits by SCALE. Example: --accelerate 0.1 '
+                             'runs waits at 1/10 of the normal duration. Default: 1.0')
     return parser.parse_args()
 
 
@@ -1928,7 +1928,7 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
 
     # Always run profile first
-    delay_scale = 0.1 if args.interactive_captcha else 1.0
+    delay_scale = args.accelerate if args.interactive_captcha else 1.0
     fetcher = AuthorProfileFetcher(author_id, args.output_dir, delay_scale=delay_scale)
     prev_profile = fetcher.load_prev_profile()
     success = fetcher.run(force_refresh_pubs=args.force_refresh_pubs)
@@ -1969,6 +1969,7 @@ def main():
         skip=args.skip,
         recheck_citations=args.recheck_citations,
         interactive_captcha=args.interactive_captcha,
+        delay_scale=delay_scale,
     )
     success = citation_fetcher.run()
     if not success:

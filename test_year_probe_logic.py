@@ -119,6 +119,13 @@ class CliFlagTests(unittest.TestCase):
             args = parse_args()
         self.assertTrue(args.recheck_citations)
 
+    def test_parse_args_accepts_accelerate(self):
+        with mock.patch.object(sys, 'argv', [
+            'scholar_citation.py', '--author', 'abc', '--accelerate', '0.1'
+        ]):
+            args = parse_args()
+        self.assertEqual(args.accelerate, 0.1)
+
 
 
 if __name__ == "__main__":
