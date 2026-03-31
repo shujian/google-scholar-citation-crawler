@@ -914,6 +914,7 @@ class PaperCitationFetcher:
             try:
                 current_year = datetime.now().year
                 years = set()
+                probed_year_counts = {}
 
                 # Primary source: full histogram dialog DOM nodes with explicit
                 # year/count. The sidebar mini-chart can be truncated to recent
@@ -922,8 +923,10 @@ class PaperCitationFetcher:
                     try:
                         y = int(bar.get('data-year', ''))
                         count = int(bar.get('data-count', '0'))
-                        if count > 0 and 1990 <= y <= current_year:
-                            years.add(y)
+                        if 1990 <= y <= current_year:
+                            probed_year_counts[y] = count
+                            if count > 0:
+                                years.add(y)
                     except (TypeError, ValueError):
                         pass
 
@@ -931,6 +934,7 @@ class PaperCitationFetcher:
                 # Do NOT mix in fallback as_ylo/as_yhi links, which may contain
                 # coarse or misleading years (e.g. 1996) unrelated to actual bars.
                 if years:
+                    self._probed_year_counts = probed_year_counts
                     earliest = min(years)
                     print(f"      Scholar year range probe: start_year = {earliest} "
                           f"(from full histogram DOM, {len(years)} year values found)", flush=True)
@@ -1044,6 +1048,7 @@ class PaperCitationFetcher:
         # Track the page offset (start_index) for the year currently in progress.
         # Saved to cache on exception so retry can skip already-fetched pages.
         self._partial_year_start = dict(partial_year_start or {})
+        self._probed_year_counts = None
 
         # Note: completed_years are preserved. When Scholar count increases,
         # new citations are typically in recent years, so we only need to
@@ -1206,10 +1211,16 @@ class PaperCitationFetcher:
         }
         paper_new_count = 0  # new citations found for THIS paper in this fetch
 
+        probed_year_counts = self._probed_year_counts or {}
+
         try:
             for year in year_range:
                 if year in self._completed_year_segments:
                     skipped_years += 1
+                    continue
+                if probed_year_counts.get(year) == 0:
+                    skipped_years += 1
+                    print(f"      Year {year}: skip (probe count=0)", flush=True)
                     continue
 
                 # Resume from saved page offset for the in-progress year;
