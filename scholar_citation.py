@@ -993,6 +993,22 @@ class PaperCitationFetcher:
         return os.path.join(self.cache_dir, f"{key}.json")
 
     @staticmethod
+    def _normalize_identity_part(value):
+        value = str(value or '').strip().lower()
+        return '' if value in ('', 'n/a', 'na', '?') else value
+
+    @classmethod
+    def _citation_identity_key(cls, info):
+        title = cls._normalize_identity_part(info.get('title'))
+        venue = cls._normalize_identity_part(info.get('venue'))
+        authors = cls._normalize_identity_part(info.get('authors'))
+        if venue:
+            return f"{title}\t{venue}"
+        if authors:
+            return f"{title}\t{authors}"
+        return title
+
+    @staticmethod
     def _extract_citation_info(pub):
         bib = pub.get('bib', {})
         authors = bib.get('author', [])
@@ -1072,24 +1088,26 @@ class PaperCitationFetcher:
             },
         }
 
-        # Build dedup map from existing citations: key -> brief info for logging
-        cached_titles = {c.get('title', '').strip().lower() for c in citations}
-        seen_titles = {k: f"{k[:50]} (cached)" for k in cached_titles}
-        # new_seen_titles: keys seen for the first time in THIS fetch (not from cache)
+        # Build dedup map from existing citations: identity key -> brief info for logging
+        cached_keys = {self._citation_identity_key(c): c for c in citations}
+        seen_keys = {
+            key: f"{c.get('title', '')[:50]} ({c.get('venue', 'N/A')}, {c.get('year', '?')}) [cached]"
+            for key, c in cached_keys.items()
+        }
         # _dedup_count only counts duplicates within Scholar's own results, not cache hits
 
         try:
             for citing in scholarly.citedby(pub_obj):
                 info = self._extract_citation_info(citing)
-                dedup_key = info['title'].strip().lower()
-                if dedup_key in seen_titles:
-                    if dedup_key not in cached_titles:
+                dedup_key = self._citation_identity_key(info)
+                if dedup_key in seen_keys:
+                    if dedup_key not in cached_keys:
                         # Duplicate within Scholar's own results (not a cache hit)
                         self._dedup_count += 1
-                    print(f"  [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('year', '?')})"
-                          f"\n          Existing: {seen_titles[dedup_key]}", flush=True)
+                    print(f"  [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
+                          f"\n          Existing: {seen_keys[dedup_key]}", flush=True)
                     continue
-                seen_titles[dedup_key] = f"{info['title'][:50]} ({info.get('year', '?')})"
+                seen_keys[dedup_key] = f"{info['title'][:50]} ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
                 citations.append(info)
                 self._new_citations_count += 1
                 count = len(citations)
@@ -1180,9 +1198,12 @@ class PaperCitationFetcher:
             year_range = range(start_year, current_year + 1)
             print(f"  Direction: oldest→newest (full scan mode)", flush=True)
 
-        # Build dedup map from existing citations: key -> brief info for logging
-        cached_titles = {c.get('title', '').strip().lower() for c in citations}
-        seen_titles = {k: f"{k[:50]} (cached)" for k in cached_titles}
+        # Build dedup map from existing citations: identity key -> brief info for logging
+        cached_keys = {self._citation_identity_key(c): c for c in citations}
+        seen_keys = {
+            key: f"{c.get('title', '')[:50]} ({c.get('venue', 'N/A')}, {c.get('year', '?')}) [cached]"
+            for key, c in cached_keys.items()
+        }
         paper_new_count = 0  # new citations found for THIS paper in this fetch
 
         try:
@@ -1234,14 +1255,14 @@ class PaperCitationFetcher:
                             year_items_seen += 1
                             self._partial_year_start[year] = start_index + year_items_seen
                             info = self._extract_citation_info(citing)
-                            dedup_key = info['title'].strip().lower()
-                            if dedup_key in seen_titles:
-                                if dedup_key not in cached_titles:
+                            dedup_key = self._citation_identity_key(info)
+                            if dedup_key in seen_keys:
+                                if dedup_key not in cached_keys:
                                     self._dedup_count += 1
-                                print(f"  [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('year', '?')})"
-                                      f"\n          Existing: {seen_titles[dedup_key]}", flush=True)
+                                print(f"  [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
+                                      f"\n          Existing: {seen_keys[dedup_key]}", flush=True)
                                 continue
-                            seen_titles[dedup_key] = f"{info['title'][:50]} ({info.get('year', '?')})"
+                            seen_keys[dedup_key] = f"{info['title'][:50]} ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
                             citations.append(info)
                             year_new_count += 1
                             paper_new_count += 1
