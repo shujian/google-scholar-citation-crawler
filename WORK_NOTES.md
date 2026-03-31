@@ -242,6 +242,7 @@ pub_obj = {
 - **2026-03-26** — CLI 语义清理：将 `--force-refresh-citations` 重命名为 `--recheck-citations`，更准确表达“在选中论文范围内重新检查 citation 完整性并仅重抓不完整者”的实际行为；`--skip` / `--limit` 语义不变。删除已过时的 `--hard` 参数（当前默认 early-stop 行为已经足够，`--hard` 不再提供独立价值）；保留 `--force-refresh-citations` 作为 deprecated alias 以兼容旧用法
 - **2026-03-28** — Interactive 模式等待缩短实验参数化：原先为测试“页面访问数 / 验证次数”关系，曾把 interactive 模式所有 deliberate waits 固定缩短到 1/10；现改为显式参数 `--accelerate SCALE`，默认 `1.0`（原始速度），例如 `--accelerate 0.1` 才表示快 10 倍。该比例统一作用于 profile 阶段等待、citation request wait、citation probe wait、paper-to-paper wait、mandatory break。配合 `_captcha_solved_count` 与 `_wait_status()` 输出中的 captcha solves，一起观察不同等待倍率对验证码频率的影响
 - **2026-03-31** — 引用去重键从 title-only 改为组合 identity：新增 `_normalize_identity_part()` 与 `_citation_identity_key()`，抓取 citation 时优先用 `title + venue` 去重，venue 缺失/N/A 时回退到 `title + authors`，再退回 `title`。普通抓取路径与按年份抓取路径统一使用该键，避免 Scholar 中“同标题但不同 venue/source”的记录被误判为重复；旧缓存无需迁移，resume / recheck 时会基于缓存里的 title/authors/venue 重新计算 identity，自然兼容历史数据。新增 `test_year_probe_logic.py` 回归测试，覆盖 identity 规则、普通路径/年份路径去重，以及旧缓存 resume 场景；测试命令 `python -m unittest test_year_probe_logic.py` 已通过（11 tests）。
+- **2026-03-31** — 补记协作流程要求：`user.md` 与 `WORK_NOTES.md` 需要和 Python 代码一起同步更新，并在每次相关修改时一并提交，避免文档记录落后于代码状态。
 
 ---
 
