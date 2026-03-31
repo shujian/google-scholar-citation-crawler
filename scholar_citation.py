@@ -851,6 +851,37 @@ class PaperCitationFetcher:
         scholarly._citedby_long = patched_citedby_long
 
     @staticmethod
+    def _year_count_map(citations):
+        counts = {}
+        for c in citations:
+            y = c.get('year', 'N/A')
+            if y and y != 'N/A' and y != 'NA':
+                try:
+                    year = int(y)
+                    counts[year] = counts.get(year, 0) + 1
+                except ValueError:
+                    pass
+        return counts
+
+    @staticmethod
+    def _normalize_year_count_map(year_counts):
+        normalized = {}
+        for year, count in (year_counts or {}).items():
+            try:
+                y = int(year)
+                c = int(count)
+            except (TypeError, ValueError):
+                continue
+            if c < 0:
+                continue
+            normalized[y] = c
+        return normalized
+
+    @staticmethod
+    def _dump_year_count_map(year_counts):
+        return {str(year): count for year, count in sorted(year_counts.items())}
+
+    @staticmethod
     def _refresh_scholarly_session():
         """Soft session reset: only clear the 403 flag, preserve the httpx session
         and its accumulated cookies.  Creating a new httpx client would discard
@@ -1049,12 +1080,14 @@ class PaperCitationFetcher:
         # Saved to cache on exception so retry can skip already-fetched pages.
         self._partial_year_start = dict(partial_year_start or {})
         self._probed_year_counts = None
+        self._cached_year_counts = self._year_count_map(citations)
 
         # Note: completed_years are preserved. When Scholar count increases,
         # new citations are typically in recent years, so we only need to
         # re-check years not marked as completed.
 
         def save_progress(complete):
+            self._cached_year_counts = self._year_count_map(citations)
             with open(cache_path, 'w', encoding='utf-8') as f:
                 json.dump({
                     'title': title,
@@ -1068,6 +1101,10 @@ class PaperCitationFetcher:
                     'dedup_count': self._dedup_count,
                     'complete': complete,
                     'completed_years': sorted(self._completed_year_segments),
+                    'probed_year_counts': self._dump_year_count_map(
+                        self._normalize_year_count_map(self._probed_year_counts)
+                    ),
+                    'cached_year_counts': self._dump_year_count_map(self._cached_year_counts),
                     'fetched_at': datetime.now().isoformat(),
                     'citations': citations,
                 }, f, ensure_ascii=False, indent=2)
@@ -1143,14 +1180,10 @@ class PaperCitationFetcher:
         pub_id = m.group(1)
 
         # Build year -> cached count from existing citations
-        year_counts = {}
-        for c in citations:
-            y = c.get('year', 'N/A')
-            if y and y != 'N/A' and y != 'NA':
-                try:
-                    year_counts[int(y)] = year_counts.get(int(y), 0) + 1
-                except ValueError:
-                    pass
+        year_counts = self._year_count_map(citations)
+        cached_year_counts = self._normalize_year_count_map(
+            getattr(self, '_cached_year_counts', None) or year_counts
+        )
 
         current_year = datetime.now().year
         if self._completed_year_segments:
@@ -1211,7 +1244,7 @@ class PaperCitationFetcher:
         }
         paper_new_count = 0  # new citations found for THIS paper in this fetch
 
-        probed_year_counts = self._probed_year_counts or {}
+        probed_year_counts = self._normalize_year_count_map(self._probed_year_counts)
 
         try:
             for year in year_range:
@@ -1220,8 +1253,19 @@ class PaperCitationFetcher:
                     continue
                 if probed_year_counts.get(year) == 0:
                     skipped_years += 1
+                    self._completed_year_segments.add(year)
                     print(f"      Year {year}: skip (probe count=0)", flush=True)
+                    save_progress(complete=False)
                     continue
+                if year not in self._partial_year_start:
+                    live_count = probed_year_counts.get(year)
+                    cached_count = cached_year_counts.get(year)
+                    if live_count is not None and cached_count == live_count:
+                        skipped_years += 1
+                        self._completed_year_segments.add(year)
+                        print(f"      Year {year}: skip (cached={cached_count}, probe={live_count})", flush=True)
+                        save_progress(complete=False)
+                        continue
 
                 # Resume from saved page offset for the in-progress year;
                 # otherwise start from 0 and rely on dedup to skip cached entries.
