@@ -246,6 +246,8 @@ pub_obj = {
 - **2026-03-31** — 持久化年份分布并跳过未变化年份：每篇论文缓存新增 `probed_year_counts`（probe 看到的 Scholar 年份直方图）和 `cached_year_counts`（本地已缓存引用按年份聚合）；后续 update / recheck 时，`_fetch_by_year()` 会比较当前 probe 计数与缓存年份计数，若某年计数相同且该年没有 `partial_year_start` 断点，则直接标记该年完成并跳过请求；旧缓存若没有新字段则回退为从 `citations` 现场聚合年份计数，保持兼容。
 - **2026-04-01** — 修正年份抓取的 early-stop 与 recheck 语义：命中 early-stop 条件时不再立刻中断当前页，而是处理完当前 page 后再停止；同时把 update / recheck 语义显式分离，新增 `allow_incremental_early_stop` 控制参数，只有普通 update 模式允许按 Scholar 增量提前停止并采用 newest→oldest；`--recheck-citations` 改为禁用该增量 early-stop，并固定按 oldest→newest 做完整年份重检。新增 `test_citation_page_stop.py` 覆盖“当前页处理完再停”“recheck 不按增量早停”“recheck 方向为 oldest→newest”三个回归场景，`python -m unittest test_citation_page_stop.py` 通过。
 
+- **2026-04-01** — 修正 citation year probe 的 histogram 完整性语义：`_probe_citation_start_year()` 现在同时接收 Scholar 总引用数和论文 `pub_year`，先校验 full histogram DOM 的年度计数总和是否等于 Scholar 总数；只有总和一致时，才把 `probed_year_counts` 视为完整年份分布并允许 `_fetch_by_year()` 使用 `probe count=0` / `cached==probe` 的按年跳过优化。若 histogram 总和不一致，则回退为保守年份范围（`start_year` 至少不晚于 `pub_year`），并禁用基于该 histogram 的 count-based 年份跳过，避免因直方图缺年而漏抓 citation。`test_citation_page_stop.py` 新增回归测试覆盖“不完整 histogram 回退到 pub_year”“不完整 histogram 不跳年”“完整 histogram 仍保留跳年优化”，`python -m unittest test_citation_page_stop.py` 通过。
+
 ---
 
 ## scholarly 内部实现笔记

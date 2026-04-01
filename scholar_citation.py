@@ -916,7 +916,7 @@ class PaperCitationFetcher:
         nav.got_403 = False
         print("      (Session reset: got_403 cleared, cookies preserved)", flush=True)
 
-    def _probe_citation_start_year(self, citedby_url):
+    def _probe_citation_start_year(self, citedby_url, num_citations=None, pub_year=None):
         """Fetch the base citedby URL once and determine the earliest year with
         citations.
 
@@ -969,6 +969,13 @@ class PaperCitationFetcher:
                 current_year = datetime.now().year
                 years = set()
                 probed_year_counts = {}
+                self._probed_year_counts = None
+                self._probed_year_count_complete = False
+
+                try:
+                    pub_year_int = int(pub_year) if pub_year and pub_year not in ('N/A', '?') else None
+                except (TypeError, ValueError):
+                    pub_year_int = None
 
                 # Primary source: full histogram dialog DOM nodes with explicit
                 # year/count. The sidebar mini-chart can be truncated to recent
@@ -984,15 +991,30 @@ class PaperCitationFetcher:
                     except (TypeError, ValueError):
                         pass
 
-                # If full histogram DOM is present, trust it and stop here.
-                # Do NOT mix in fallback as_ylo/as_yhi links, which may contain
-                # coarse or misleading years (e.g. 1996) unrelated to actual bars.
+                # If full histogram DOM is present, validate that the summed counts
+                # match Scholar's citation total before trusting it for start-year
+                # selection or count-based year skipping.
                 if years:
                     self._probed_year_counts = probed_year_counts
+                    hist_total = sum(probed_year_counts.values())
                     earliest = min(years)
-                    print(f"      Scholar year range probe: start_year = {earliest} "
-                          f"(from full histogram DOM, {len(years)} year values found)", flush=True)
-                    return earliest
+                    if num_citations is not None and hist_total == num_citations:
+                        self._probed_year_count_complete = True
+                        print(f"      Scholar year range probe: start_year = {earliest} "
+                              f"(from full histogram DOM, {len(years)} year values found, total={hist_total})", flush=True)
+                        return earliest
+
+                    conservative_start = earliest
+                    if pub_year_int is not None:
+                        conservative_start = min(conservative_start, pub_year_int)
+                    if num_citations is not None:
+                        print(f"      Scholar year range probe: histogram incomplete "
+                              f"(hist_total={hist_total}, scholar_total={num_citations}), "
+                              f"using conservative start_year = {conservative_start}", flush=True)
+                    else:
+                        print(f"      Scholar year range probe: histogram total unavailable, "
+                              f"using conservative start_year = {conservative_start}", flush=True)
+                    return conservative_start
 
                 # Fallback 1: single-year histogram links (as_ylo=X&as_yhi=X)
                 for a in soup.find_all('a', href=True):
@@ -1020,9 +1042,14 @@ class PaperCitationFetcher:
 
                 if years:
                     earliest = min(years)
+                    if pub_year_int is not None:
+                        earliest = min(earliest, pub_year_int)
                     print(f"      Scholar year range probe: start_year = {earliest} "
                           f"(from fallback, {len(years)} year values found)", flush=True)
                     return earliest
+                if pub_year_int is not None:
+                    print(f"      (Year range probe: no year data found on page, using pub_year {pub_year_int})", flush=True)
+                    return pub_year_int
                 print(f"      (Year range probe: no year data found on page)", flush=True)
                 return None
             except Exception as e:
@@ -1107,6 +1134,7 @@ class PaperCitationFetcher:
         # Saved to cache on exception so retry can skip already-fetched pages.
         self._partial_year_start = dict(partial_year_start or {})
         self._probed_year_counts = None
+        self._probed_year_count_complete = False
         self._cached_year_counts = self._year_count_map(citations)
 
         # Note: completed_years are preserved. When Scholar count increases,
@@ -1277,7 +1305,11 @@ class PaperCitationFetcher:
             # Every fresh fetch/run re-checks the year range once.  This catches
             # newly discoverable older-year citations if Scholar's histogram data
             # source has changed since the last run.
-            start_year = self._probe_citation_start_year(citedby_url)
+            start_year = self._probe_citation_start_year(
+                citedby_url,
+                num_citations=num_citations,
+                pub_year=pub_year,
+            )
             if start_year is None:
                 # Probe returned no year data: fall back to cached citations,
                 # then pub_year-5, then a 5-year window.
@@ -1325,19 +1357,20 @@ class PaperCitationFetcher:
         paper_new_count = 0  # new citations found for THIS paper in this fetch
 
         probed_year_counts = self._normalize_year_count_map(self._probed_year_counts)
+        can_skip_by_probe_counts = getattr(self, '_probed_year_count_complete', False)
 
         try:
             for year in year_range:
                 if year in self._completed_year_segments:
                     skipped_years += 1
                     continue
-                if probed_year_counts.get(year) == 0:
+                if can_skip_by_probe_counts and probed_year_counts.get(year) == 0:
                     skipped_years += 1
                     self._completed_year_segments.add(year)
                     print(f"      Year {year}: skip (probe count=0)", flush=True)
                     save_progress(complete=False)
                     continue
-                if year not in self._partial_year_start:
+                if can_skip_by_probe_counts and year not in self._partial_year_start:
                     live_count = probed_year_counts.get(year)
                     cached_count = cached_year_counts.get(year)
                     if live_count is not None and cached_count == live_count:

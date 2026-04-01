@@ -68,18 +68,24 @@ class CitationPageStopTests(unittest.TestCase):
         self.fetcher._completed_year_segments = set()
         self.fetcher._partial_year_start = {}
         self.fetcher._probed_year_counts = None
+        self.fetcher._probed_year_count_complete = False
         self.fetcher._cached_year_counts = {}
         self.fetcher._dedup_count = 0
         self.fetcher._new_citations_count = 0
         self.fetcher._total_page_count = 0
         self.fetcher._delay_scale = 0
+        self.fetcher._probed_year_counts = None
+        self.fetcher._probed_year_count_complete = False
         self.fetcher.interactive_captcha = False
         self.fetcher._last_scholar_url = "https://scholar.google.com/citations?user=test-author&hl=en"
-        self.fetcher._probe_citation_start_year = lambda citedby_url: 2025
+        self.fetcher._current_attempt_url = None
+        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2025
         self.fetcher._refresh_scholarly_session = lambda: None
+        self.fetcher._try_interactive_captcha = lambda url: False
+        self.fetcher._wait_proxy_switch = lambda max_hours=24: None
 
     def test_fetch_by_year_finishes_current_page_before_stopping(self):
-        self.fetcher._probe_citation_start_year = lambda citedby_url: 2026
+        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2026
         pages = {
             (2026, 0): [
                 {"bib": {"title": "Page1-A", "author": ["A"], "venue": "V1", "pub_year": "2026"}, "pub_url": "u1"},
@@ -213,6 +219,143 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertEqual(plan["direction_label"], "oldest→newest")
         self.assertEqual(plan["direction_reason"], "recheck mode, full year revalidation")
 
+    def test_incomplete_histogram_falls_back_to_pub_year(self):
+        class FakeBar:
+            def __init__(self, year, count):
+                self.year = year
+                self.count = count
 
-if __name__ == "__main__":
-    unittest.main()
+            def get(self, key, default=None):
+                if key == "data-year":
+                    return str(self.year)
+                if key == "data-count":
+                    return str(self.count)
+                return default
+
+        class FakeSoup:
+            def select(self, selector):
+                return [
+                    FakeBar(2024, 2),
+                    FakeBar(2025, 3),
+                ]
+
+            def find_all(self, *args, **kwargs):
+                return []
+
+        nav = scholarly_mod.scholarly._Scholarly__nav
+        nav._get_soup = lambda citedby_url: FakeSoup()
+        original_probe = scholar_citation.PaperCitationFetcher._probe_citation_start_year
+
+        start_year = original_probe(
+            self.fetcher,
+            "/scholar?cites=123",
+            num_citations=10,
+            pub_year="2021",
+        )
+
+        self.assertEqual(start_year, 2021)
+        self.assertEqual(self.fetcher._probed_year_counts, {2024: 2, 2025: 3})
+        self.assertFalse(self.fetcher._probed_year_count_complete)
+        self.assertEqual(sum(self.fetcher._probed_year_counts.values()), 5)
+
+    def test_fetch_by_year_does_not_skip_years_when_histogram_incomplete(self):
+        self.fetcher._probed_year_counts = {2024: 0, 2025: 2}
+        self.fetcher._probed_year_count_complete = False
+        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2024
+
+        requests = []
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                start = 0
+                if "start=" in url:
+                    start = int(url.split("start=")[1].split("&")[0])
+                year = int(url.split("as_ylo=")[1].split("&")[0])
+                self.items = [{
+                    "bib": {"title": f"Y{year}", "author": ["A"], "venue": f"V{year}", "pub_year": str(year)},
+                    "pub_url": f"u{year}",
+                }]
+                self.index = 0
+                self._finished_current_page = False
+                requests.append((year, start))
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                    raise StopIteration
+                item = self.items[self.index]
+                self.index += 1
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                return item
+
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch.object(scholar_citation, "datetime") as fake_datetime:
+            fake_datetime.now.return_value = types.SimpleNamespace(year=2025)
+            citations = self.fetcher._fetch_by_year(
+                citedby_url="/scholar?cites=123",
+                citations=[],
+                save_progress=lambda complete: None,
+                num_citations=10,
+                pub_year="2020",
+                prev_scholar_count=0,
+                allow_incremental_early_stop=False,
+            )
+
+        self.assertEqual(requests, [(2024, 0), (2025, 0)])
+        self.assertEqual([c["title"] for c in citations], ["Y2024", "Y2025"])
+
+    def test_complete_histogram_still_skips_matching_year_counts(self):
+        self.fetcher._probed_year_counts = {2024: 0, 2025: 2}
+        self.fetcher._probed_year_count_complete = True
+        self.fetcher._cached_year_counts = {2025: 2}
+        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2024
+
+        requests = []
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                start = 0
+                if "start=" in url:
+                    start = int(url.split("start=")[1].split("&")[0])
+                year = int(url.split("as_ylo=")[1].split("&")[0])
+                self.items = [{
+                    "bib": {"title": f"Y{year}", "author": ["A"], "venue": f"V{year}", "pub_year": str(year)},
+                    "pub_url": f"u{year}",
+                }]
+                self.index = 0
+                self._finished_current_page = False
+                requests.append((year, start))
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                    raise StopIteration
+                item = self.items[self.index]
+                self.index += 1
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                return item
+
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch.object(scholar_citation, "datetime") as fake_datetime:
+            fake_datetime.now.return_value = types.SimpleNamespace(year=2025)
+            citations = self.fetcher._fetch_by_year(
+                citedby_url="/scholar?cites=123",
+                citations=[],
+                save_progress=lambda complete: None,
+                num_citations=10,
+                pub_year="2020",
+                prev_scholar_count=0,
+                allow_incremental_early_stop=False,
+            )
+
+        self.assertEqual(requests, [])
+        self.assertEqual(citations, [])
+
