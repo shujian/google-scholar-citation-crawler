@@ -248,6 +248,8 @@ pub_obj = {
 
 - **2026-04-01** — 修正 citation year probe 的 histogram 完整性语义：`_probe_citation_start_year()` 现在同时接收 Scholar 总引用数和论文 `pub_year`，先校验 full histogram DOM 的年度计数总和是否等于 Scholar 总数；只有总和一致时，才把 `probed_year_counts` 视为完整年份分布并允许 `_fetch_by_year()` 使用 `probe count=0` / `cached==probe` 的按年跳过优化。若 histogram 总和不一致，则回退为保守年份范围（`start_year` 至少不晚于 `pub_year`），并禁用基于该 histogram 的 count-based 年份跳过，避免因直方图缺年而漏抓 citation。`test_citation_page_stop.py` 新增回归测试覆盖“不完整 histogram 回退到 pub_year”“不完整 histogram 不跳年”“完整 histogram 仍保留跳年优化”，`python -m unittest test_citation_page_stop.py` 通过。
 
+- **2026-04-01** — 补充 year-based 抓取运行日志：在 `_probe_citation_start_year()` 中增加 histogram 年份分布摘要、histogram 完整/不完整说明、`pub_year` 是否参与 conservative `start_year` 回退等日志；在 `_fetch_by_year()` 中增加整体 year fetch context（mode、probe_complete、target、cached/probe/completed/partial year 摘要）以及逐年 skip / fetch / resume / done 的上下文日志，并在 early-stop 时标明发生的 year。新增 `test_citation_page_stop.py` 日志回归测试，验证 incomplete histogram、完整 histogram skip reason、resume year context 三类输出，`python -m unittest test_citation_page_stop.py` 通过。
+
 ---
 
 ## scholarly 内部实现笔记

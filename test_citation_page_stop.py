@@ -2,6 +2,7 @@ import sys
 import types
 import unittest
 from unittest.mock import patch
+from io import StringIO
 
 
 class _DummyNav:
@@ -246,17 +247,22 @@ class CitationPageStopTests(unittest.TestCase):
         nav._get_soup = lambda citedby_url: FakeSoup()
         original_probe = scholar_citation.PaperCitationFetcher._probe_citation_start_year
 
-        start_year = original_probe(
-            self.fetcher,
-            "/scholar?cites=123",
-            num_citations=10,
-            pub_year="2021",
-        )
+        with patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            start_year = original_probe(
+                self.fetcher,
+                "/scholar?cites=123",
+                num_citations=10,
+                pub_year="2021",
+            )
 
+        output = fake_stdout.getvalue()
         self.assertEqual(start_year, 2021)
         self.assertEqual(self.fetcher._probed_year_counts, {2024: 2, 2025: 3})
         self.assertFalse(self.fetcher._probed_year_count_complete)
         self.assertEqual(sum(self.fetcher._probed_year_counts.values()), 5)
+        self.assertIn("histogram incomplete", output)
+        self.assertIn("Year histogram summary:", output)
+        self.assertIn("pub_year=2021 (pub_year fallback applied)", output)
 
     def test_fetch_by_year_does_not_skip_years_when_histogram_incomplete(self):
         self.fetcher._probed_year_counts = {2024: 0, 2025: 2}
@@ -344,7 +350,8 @@ class CitationPageStopTests(unittest.TestCase):
                 return item
 
         with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
-             patch.object(scholar_citation, "datetime") as fake_datetime:
+             patch.object(scholar_citation, "datetime") as fake_datetime, \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
             fake_datetime.now.return_value = types.SimpleNamespace(year=2025)
             citations = self.fetcher._fetch_by_year(
                 citedby_url="/scholar?cites=123",
@@ -356,6 +363,68 @@ class CitationPageStopTests(unittest.TestCase):
                 allow_incremental_early_stop=False,
             )
 
+        output = fake_stdout.getvalue()
         self.assertEqual(requests, [])
         self.assertEqual(citations, [])
+        self.assertIn("Probe year summary:", output)
+        self.assertIn("Cached year summary:", output)
+        self.assertIn("skip (probe count=0, probe_complete=True)", output)
+        self.assertIn("cache matches live histogram count", output)
+
+    def test_resume_logging_includes_year_context(self):
+        self.fetcher._probed_year_counts = {2025: 3}
+        self.fetcher._probed_year_count_complete = True
+        self.fetcher._cached_year_counts = {2025: 1}
+        self.fetcher._partial_year_start = {2025: 2}
+        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2025
+
+        requests = []
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                start = 0
+                if "start=" in url:
+                    start = int(url.split("start=")[1].split("&")[0])
+                year = int(url.split("as_ylo=")[1].split("&")[0])
+                self.items = [{
+                    "bib": {"title": f"Y{year}", "author": ["A"], "venue": f"V{year}", "pub_year": str(year)},
+                    "pub_url": f"u{year}",
+                }]
+                self.index = 0
+                self._finished_current_page = False
+                requests.append((year, start))
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                    raise StopIteration
+                item = self.items[self.index]
+                self.index += 1
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                return item
+
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch.object(scholar_citation, "datetime") as fake_datetime, \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            fake_datetime.now.return_value = types.SimpleNamespace(year=2025)
+            citations = self.fetcher._fetch_by_year(
+                citedby_url="/scholar?cites=123",
+                citations=[],
+                save_progress=lambda complete: None,
+                num_citations=10,
+                pub_year="2020",
+                prev_scholar_count=0,
+                allow_incremental_early_stop=False,
+            )
+
+        output = fake_stdout.getvalue()
+        self.assertEqual(requests, [(2025, 2)])
+        self.assertEqual([c["title"] for c in citations], ["Y2025"])
+        self.assertIn("Partial year resume points: 2025->2", output)
+        self.assertIn("Year 2025: resuming from position 2 (cached=1, probe=3)", output)
+        self.assertIn("Year 2025 status:", output)
 

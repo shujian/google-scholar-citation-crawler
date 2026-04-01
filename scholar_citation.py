@@ -997,16 +997,20 @@ class PaperCitationFetcher:
                 if years:
                     self._probed_year_counts = probed_year_counts
                     hist_total = sum(probed_year_counts.values())
+                    hist_summary = self._format_year_count_summary(probed_year_counts)
                     earliest = min(years)
                     if num_citations is not None and hist_total == num_citations:
                         self._probed_year_count_complete = True
                         print(f"      Scholar year range probe: start_year = {earliest} "
                               f"(from full histogram DOM, {len(years)} year values found, total={hist_total})", flush=True)
+                        print(f"      Year histogram summary: {hist_summary}", flush=True)
                         return earliest
 
                     conservative_start = earliest
-                    if pub_year_int is not None:
-                        conservative_start = min(conservative_start, pub_year_int)
+                    used_pub_year_fallback = False
+                    if pub_year_int is not None and pub_year_int < conservative_start:
+                        conservative_start = pub_year_int
+                        used_pub_year_fallback = True
                     if num_citations is not None:
                         print(f"      Scholar year range probe: histogram incomplete "
                               f"(hist_total={hist_total}, scholar_total={num_citations}), "
@@ -1014,6 +1018,12 @@ class PaperCitationFetcher:
                     else:
                         print(f"      Scholar year range probe: histogram total unavailable, "
                               f"using conservative start_year = {conservative_start}", flush=True)
+                    print(f"      Year histogram summary: {hist_summary}", flush=True)
+                    if pub_year_int is not None:
+                        fallback_note = 'pub_year fallback applied' if used_pub_year_fallback else 'pub_year fallback not needed'
+                        print(f"      Conservative year traversal: pub_year={pub_year_int} ({fallback_note})", flush=True)
+                    else:
+                        print("      Conservative year traversal: pub_year unavailable", flush=True)
                     return conservative_start
 
                 # Fallback 1: single-year histogram links (as_ylo=X&as_yhi=X)
@@ -1046,9 +1056,12 @@ class PaperCitationFetcher:
                         earliest = min(earliest, pub_year_int)
                     print(f"      Scholar year range probe: start_year = {earliest} "
                           f"(from fallback, {len(years)} year values found)", flush=True)
+                    print(f"      Fallback year summary: {self._format_year_set_summary(years)}", flush=True)
+                    print("      Conservative year traversal: no complete histogram available", flush=True)
                     return earliest
                 if pub_year_int is not None:
                     print(f"      (Year range probe: no year data found on page, using pub_year {pub_year_int})", flush=True)
+                    print("      Conservative year traversal: using pub_year fallback only", flush=True)
                     return pub_year_int
                 print(f"      (Year range probe: no year data found on page)", flush=True)
                 return None
@@ -1104,6 +1117,50 @@ class PaperCitationFetcher:
             'year':    str(bib.get('pub_year', 'N/A')),
             'url':     pub.get('pub_url', pub.get('eprint_url', 'N/A')),
         }
+
+    @staticmethod
+    def _format_year_count_summary(year_count_map, limit=8):
+        year_count_map = PaperCitationFetcher._normalize_year_count_map(year_count_map)
+        if not year_count_map:
+            return 'none'
+        items = sorted(year_count_map.items())
+        total = sum(count for _, count in items)
+        nonzero = [(year, count) for year, count in items if count > 0]
+        display_items = items
+        if len(items) > limit:
+            head = items[: max(1, limit // 2)]
+            tail = items[-max(1, limit - len(head)) :]
+            display_items = head + [('...', '...')] + tail
+        parts = []
+        for year, count in display_items:
+            if year == '...':
+                parts.append('...')
+            else:
+                parts.append(f"{year}:{count}")
+        return (f"{len(items)} years, total={total}, nonzero={len(nonzero)}, "
+                f"range={items[0][0]}-{items[-1][0]} [{', '.join(parts)}]")
+
+    @staticmethod
+    def _format_year_set_summary(years):
+        years = sorted(int(y) for y in set(years or []))
+        if not years:
+            return 'none'
+        if len(years) <= 8:
+            return ', '.join(str(year) for year in years)
+        return (f"{', '.join(str(year) for year in years[:4])}, ..., "
+                f"{', '.join(str(year) for year in years[-3:])} "
+                f"({len(years)} total)")
+
+    @staticmethod
+    def _format_partial_year_start_summary(partial_year_start):
+        partial_year_start = partial_year_start or {}
+        if not partial_year_start:
+            return 'none'
+        items = sorted((int(year), start) for year, start in partial_year_start.items())
+        parts = [f"{year}->{start}" for year, start in items[:8]]
+        if len(items) > 8:
+            parts.append('...')
+        return ', '.join(parts)
 
     def _fetch_citations_with_progress(self, citedby_url, cache_path, title,
                                         num_citations, pub_url, pub_year, resume_from,
@@ -1335,6 +1392,9 @@ class PaperCitationFetcher:
 
         print(f"  Year-based resume: {start_year}-{current_year} "
               f"({len(self._completed_year_segments)} years already done)", flush=True)
+        print(f"  Year fetch context: mode={'incremental' if allow_incremental_early_stop else 'full-recheck'}, "
+              f"probe_complete={self._probed_year_count_complete}, "
+              f"prev_scholar={prev_scholar_count}, target={num_citations}, total_years={total_years}", flush=True)
 
         # Fetch direction depends on mode:
         # - Force/full rescan: old→new (stable old years first, new years last)
@@ -1358,16 +1418,21 @@ class PaperCitationFetcher:
 
         probed_year_counts = self._normalize_year_count_map(self._probed_year_counts)
         can_skip_by_probe_counts = getattr(self, '_probed_year_count_complete', False)
+        print(f"  Probe year summary: {self._format_year_count_summary(probed_year_counts)}", flush=True)
+        print(f"  Cached year summary: {self._format_year_count_summary(cached_year_counts)}", flush=True)
+        print(f"  Completed years: {self._format_year_set_summary(self._completed_year_segments)}", flush=True)
+        print(f"  Partial year resume points: {self._format_partial_year_start_summary(self._partial_year_start)}", flush=True)
 
         try:
             for year in year_range:
                 if year in self._completed_year_segments:
                     skipped_years += 1
+                    print(f"      Year {year}: skip (already completed earlier in this run)", flush=True)
                     continue
                 if can_skip_by_probe_counts and probed_year_counts.get(year) == 0:
                     skipped_years += 1
                     self._completed_year_segments.add(year)
-                    print(f"      Year {year}: skip (probe count=0)", flush=True)
+                    print(f"      Year {year}: skip (probe count=0, probe_complete=True)", flush=True)
                     save_progress(complete=False)
                     continue
                 if can_skip_by_probe_counts and year not in self._partial_year_start:
@@ -1376,13 +1441,15 @@ class PaperCitationFetcher:
                     if live_count is not None and cached_count == live_count:
                         skipped_years += 1
                         self._completed_year_segments.add(year)
-                        print(f"      Year {year}: skip (cached={cached_count}, probe={live_count})", flush=True)
+                        print(f"      Year {year}: skip (cached={cached_count}, probe={live_count}, cache matches live histogram count)", flush=True)
                         save_progress(complete=False)
                         continue
 
                 # Resume from saved page offset for the in-progress year;
                 # otherwise start from 0 and rely on dedup to skip cached entries.
                 start_index = self._partial_year_start.get(year, 0)
+                cached_count = cached_year_counts.get(year)
+                live_count = probed_year_counts.get(year)
 
                 # Refresh session on each year switch (skip in interactive mode)
                 if not self.interactive_captcha:
@@ -1390,9 +1457,13 @@ class PaperCitationFetcher:
                 self._next_refresh_at = self._total_page_count + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
 
                 if start_index > 0:
-                    print(f"      Year {year}: resuming from position {start_index}", flush=True)
+                    print(f"      Year {year}: resuming from position {start_index} "
+                          f"(cached={cached_count if cached_count is not None else '?'}, "
+                          f"probe={live_count if live_count is not None else '?'})", flush=True)
                 else:
-                    print(f"      Year {year}: fetching", flush=True)
+                    print(f"      Year {year}: fetching "
+                          f"(cached={cached_count if cached_count is not None else '?'}, "
+                          f"probe={live_count if live_count is not None else '?'})", flush=True)
 
                 # URL matches browser navigation: as_sdt=2005 is Scholar's internal
                 # citation-search flag (identical to what Scholar's own year-filter
@@ -1480,6 +1551,8 @@ class PaperCitationFetcher:
                     print(f"      Year {year} done: {year_new_count} new citations", flush=True)
                 else:
                     print(f"      Year {year} done: no new citations", flush=True)
+                print(f"      Year {year} status: paper_total={len(citations)}, paper_new={paper_new_count}, "
+                      f"pages={self._total_page_count}, skipped_years={skipped_years}", flush=True)
                 # Save after each completed year
                 save_progress(complete=False)
 
@@ -1491,7 +1564,7 @@ class PaperCitationFetcher:
                 )
                 if stop_status['should_stop']:
                     stop_scope = "after current page" if stop_after_current_page else "after current year"
-                    print(f"  {stop_status['message']}, skipping remaining years {stop_scope}", flush=True)
+                    print(f"  Year {year}: {stop_status['message']}, skipping remaining years {stop_scope}", flush=True)
                     break
 
         except KeyboardInterrupt:
