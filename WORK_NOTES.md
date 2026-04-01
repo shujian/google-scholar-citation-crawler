@@ -244,6 +244,7 @@ pub_obj = {
 - **2026-03-31** — 引用去重键从 title-only 改为组合 identity：新增 `_normalize_identity_part()` 与 `_citation_identity_key()`，抓取 citation 时优先用 `title + venue` 去重，venue 缺失/N/A 时回退到 `title + authors`，再退回 `title`。普通抓取路径与按年份抓取路径统一使用该键，避免 Scholar 中“同标题但不同 venue/source”的记录被误判为重复；旧缓存无需迁移，resume / recheck 时会基于缓存里的 title/authors/venue 重新计算 identity，自然兼容历史数据。新增 `test_year_probe_logic.py` 回归测试，覆盖 identity 规则、普通路径/年份路径去重，以及旧缓存 resume 场景；测试命令 `python -m unittest test_year_probe_logic.py` 已通过（11 tests）。
 - **2026-03-31** — 补记协作流程要求：`user.md` 与 `WORK_NOTES.md` 需要和 Python 代码一起同步更新，并在每次相关修改时一并提交，避免文档记录落后于代码状态。
 - **2026-03-31** — 持久化年份分布并跳过未变化年份：每篇论文缓存新增 `probed_year_counts`（probe 看到的 Scholar 年份直方图）和 `cached_year_counts`（本地已缓存引用按年份聚合）；后续 update / recheck 时，`_fetch_by_year()` 会比较当前 probe 计数与缓存年份计数，若某年计数相同且该年没有 `partial_year_start` 断点，则直接标记该年完成并跳过请求；旧缓存若没有新字段则回退为从 `citations` 现场聚合年份计数，保持兼容。
+- **2026-04-01** — 修正年份抓取的 early-stop 与 recheck 语义：命中 early-stop 条件时不再立刻中断当前页，而是处理完当前 page 后再停止；同时把 update / recheck 语义显式分离，新增 `allow_incremental_early_stop` 控制参数，只有普通 update 模式允许按 Scholar 增量提前停止并采用 newest→oldest；`--recheck-citations` 改为禁用该增量 early-stop，并固定按 oldest→newest 做完整年份重检。新增 `test_citation_page_stop.py` 覆盖“当前页处理完再停”“recheck 不按增量早停”“recheck 方向为 oldest→newest”三个回归场景，`python -m unittest test_citation_page_stop.py` 通过。
 
 ---
 

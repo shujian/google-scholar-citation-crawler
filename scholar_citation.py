@@ -772,16 +772,31 @@ class PaperCitationFetcher:
         # --- Patch 2: pagination tracking + dynamic Referer + mandatory break ---
         original_load_url = _SearchScholarIterator._load_url
         original_init = _SearchScholarIterator.__init__
+        original_next = _SearchScholarIterator.__next__
         self._total_page_count = 0
         self._next_break_at = random.randint(MANDATORY_BREAK_EVERY_MIN, MANDATORY_BREAK_EVERY_MAX)
         self._next_refresh_at = self._next_break_at + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
 
         def patched_init(self, nav, url):
             self._page_num = 0
+            self._items_in_current_page = 0
+            self._page_size = None
+            self._stop_after_current_page = False
+            self._finished_current_page = False
             return original_init(self, nav, url)
+
+        def patched_next(self_iter):
+            result = original_next(self_iter)
+            self_iter._items_in_current_page = getattr(self_iter, '_items_in_current_page', 0) + 1
+            page_size = getattr(self_iter, '_page_size', None)
+            if page_size and self_iter._items_in_current_page >= page_size:
+                self_iter._finished_current_page = True
+            return result
 
         def patched_load_url(self_iter, url):
             self_iter._page_num = getattr(self_iter, '_page_num', 0) + 1
+            self_iter._items_in_current_page = 0
+            self_iter._finished_current_page = False
             fetcher_self._total_page_count += 1
             if self_iter._page_num > 1:
                 print(f"      Pagination (page {self_iter._page_num})", flush=True)
@@ -822,12 +837,20 @@ class PaperCitationFetcher:
 
             result = original_load_url(self_iter, url)
 
+            page_size = None
+            try:
+                page_size = len(getattr(self_iter, '_rows', []) or [])
+            except Exception:
+                page_size = None
+            self_iter._page_size = page_size if page_size and page_size > 0 else None
+
             # Only update _last_scholar_url (used as Referer) on success
             fetcher_self._last_scholar_url = fetcher_self._current_attempt_url
 
             return result
 
         _SearchScholarIterator.__init__ = patched_init
+        _SearchScholarIterator.__next__ = patched_next
         _SearchScholarIterator._load_url = patched_load_url
 
         # --- Patch 3: year-segment tracking in _citedby_long ---
@@ -1058,7 +1081,8 @@ class PaperCitationFetcher:
     def _fetch_citations_with_progress(self, citedby_url, cache_path, title,
                                         num_citations, pub_url, pub_year, resume_from,
                                         completed_years=None, prev_scholar_count=0,
-                                        partial_year_start=None, saved_dedup_count=0):
+                                        partial_year_start=None, saved_dedup_count=0,
+                                        allow_incremental_early_stop=True):
         """
         Stream-fetch citations with periodic progress saves.
         resume_from: previously saved citation list (for resume after interruption).
@@ -1067,6 +1091,9 @@ class PaperCitationFetcher:
         prev_scholar_count: Scholar citation count from last completed scan (for early stop).
         saved_dedup_count: dedup count from the last save; used as a floor so we never
             undercount Scholar's self-duplicates when resuming or force-refreshing.
+        allow_incremental_early_stop: when True, update-mode year fetches may stop once
+            the observed Scholar increase has been recovered. Recheck/full-scan flows
+            should pass False so all remaining years are revalidated.
         """
         citations = list(resume_from)
         # _dedup_count tracks Scholar's own duplicate results (same title, different metadata).
@@ -1114,7 +1141,8 @@ class PaperCitationFetcher:
         if num_citations >= YEAR_BASED_THRESHOLD:
             return self._fetch_by_year(
                 citedby_url, citations, save_progress,
-                num_citations, pub_year, prev_scholar_count
+                num_citations, pub_year, prev_scholar_count,
+                allow_incremental_early_stop=allow_incremental_early_stop,
             )
 
         # Simple fetch for small citation counts
@@ -1166,12 +1194,65 @@ class PaperCitationFetcher:
         save_progress(complete=True)
         return citations
 
+    @staticmethod
+    def _build_year_fetch_plan(start_year, current_year, prev_scholar_count, num_citations,
+                               allow_incremental_early_stop=True):
+        is_update_mode = (
+            allow_incremental_early_stop
+            and prev_scholar_count > 0
+            and prev_scholar_count < num_citations
+        )
+        if is_update_mode:
+            return {
+                'year_range': range(current_year, start_year - 1, -1),
+                'is_update_mode': True,
+                'direction_label': 'newest→oldest',
+                'direction_reason': 'update mode, incremental early stop enabled',
+            }
+        return {
+            'year_range': range(start_year, current_year + 1),
+            'is_update_mode': False,
+            'direction_label': 'oldest→newest',
+            'direction_reason': ('recheck mode, full year revalidation'
+                                 if not allow_incremental_early_stop
+                                 else 'full scan mode'),
+        }
+
+    @staticmethod
+    def _get_early_stop_status(citations_count, num_citations, paper_new_count,
+                               prev_scholar_count, allow_incremental_early_stop=True):
+        scholar_increase = num_citations - prev_scholar_count if prev_scholar_count > 0 else 0
+        if citations_count >= num_citations:
+            return {
+                'should_stop': True,
+                'reason': 'target_reached',
+                'message': f"Reached target ({citations_count} >= {num_citations})",
+                'scholar_increase': scholar_increase,
+            }
+        if allow_incremental_early_stop and scholar_increase > 0 and paper_new_count >= scholar_increase:
+            return {
+                'should_stop': True,
+                'reason': 'scholar_increase_recovered',
+                'message': f"Found {paper_new_count} new (Scholar increase: {scholar_increase})",
+                'scholar_increase': scholar_increase,
+            }
+        return {
+            'should_stop': False,
+            'reason': None,
+            'message': '',
+            'scholar_increase': scholar_increase,
+        }
+
     def _fetch_by_year(self, citedby_url, citations, save_progress,
-                        num_citations, pub_year, prev_scholar_count=0):
+                        num_citations, pub_year, prev_scholar_count=0,
+                        allow_incremental_early_stop=True):
         """
         Fetch citations year-by-year. Skips completed years and uses
         start_index within partially completed years for efficient resume.
         prev_scholar_count: Scholar count from last completed scan, used for early stop.
+        allow_incremental_early_stop: controls both update-mode incremental early stop
+            and the corresponding newest→oldest fetch direction. Recheck/full-scan flows
+            should pass False to force full revalidation order.
         """
         import re as _re
         m = _re.search(r"cites=([\d,]+)", citedby_url)
@@ -1227,14 +1308,13 @@ class PaperCitationFetcher:
         # - Force/full rescan: old→new (stable old years first, new years last)
         # - Normal update (Scholar count increased): new→old (new citations in recent years,
         #   early stop kicks in quickly)
-        if prev_scholar_count > 0 and prev_scholar_count < num_citations:
-            # Normal update mode: new→old for efficient early stop
-            year_range = range(current_year, start_year - 1, -1)
-            print(f"  Direction: newest→oldest (update mode, early stop enabled)", flush=True)
-        else:
-            # Force/full rescan mode: old→new for stable progress saving
-            year_range = range(start_year, current_year + 1)
-            print(f"  Direction: oldest→newest (full scan mode)", flush=True)
+        year_fetch_plan = self._build_year_fetch_plan(
+            start_year, current_year, prev_scholar_count, num_citations,
+            allow_incremental_early_stop=allow_incremental_early_stop,
+        )
+        year_range = year_fetch_plan['year_range']
+        print(f"  Direction: {year_fetch_plan['direction_label']} "
+              f"({year_fetch_plan['direction_reason']})", flush=True)
 
         # Build dedup map from existing citations: identity key -> brief info for logging
         cached_keys = {self._citation_identity_key(c): c for c in citations}
@@ -1293,6 +1373,7 @@ class PaperCitationFetcher:
 
                 year_new_count = 0
                 year_items_seen = 0
+                stop_after_current_page = False
 
                 # Per-year retry loop: handle captcha/blocks in-place so we avoid
                 # rebuilding the full paper state in the outer retry loop.
@@ -1306,7 +1387,8 @@ class PaperCitationFetcher:
                     else:
                         year_url_cur = year_url
                     try:
-                        for citing in _SearchScholarIterator(nav, year_url_cur):
+                        iterator = _SearchScholarIterator(nav, year_url_cur)
+                        for citing in iterator:
                             year_items_seen += 1
                             self._partial_year_start[year] = start_index + year_items_seen
                             info = self._extract_citation_info(citing)
@@ -1316,20 +1398,30 @@ class PaperCitationFetcher:
                                     self._dedup_count += 1
                                 print(f"  [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
                                       f"\n          Existing: {seen_keys[dedup_key]}", flush=True)
-                                continue
-                            seen_keys[dedup_key] = f"{info['title'][:50]} ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
-                            citations.append(info)
-                            year_new_count += 1
-                            paper_new_count += 1
-                            self._new_citations_count += 1
-                            count = len(citations)
+                            else:
+                                seen_keys[dedup_key] = f"{info['title'][:50]} ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
+                                citations.append(info)
+                                year_new_count += 1
+                                paper_new_count += 1
+                                self._new_citations_count += 1
+                                count = len(citations)
 
-                            print(f"  [{count}] {info['title'][:55]}...", flush=True)
+                                print(f"  [{count}] {info['title'][:55]}...", flush=True)
 
-                            if count % self.save_every == 0:
-                                save_progress(complete=False)
-                                print(f"  Progress saved ({count} citations, "
-                                      f"{self._new_citations_count} new in this run)", flush=True)
+                                if count % self.save_every == 0:
+                                    save_progress(complete=False)
+                                    print(f"  Progress saved ({count} citations, "
+                                          f"{self._new_citations_count} new in this run)", flush=True)
+
+                            stop_status = self._get_early_stop_status(
+                                len(citations), num_citations, paper_new_count,
+                                prev_scholar_count,
+                                allow_incremental_early_stop=allow_incremental_early_stop,
+                            )
+                            if stop_status['should_stop']:
+                                stop_after_current_page = True
+                                if getattr(iterator, '_finished_current_page', False):
+                                    break
                         break  # year complete — exit per-year retry loop
                     except KeyboardInterrupt:
                         save_progress(complete=False)
@@ -1359,16 +1451,14 @@ class PaperCitationFetcher:
                 save_progress(complete=False)
 
                 # Early stop: skip remaining years once we have enough citations.
-                if len(citations) >= num_citations:
-                    print(f"  Reached target ({len(citations)} >= {num_citations}), "
-                          f"skipping remaining years", flush=True)
-                    break
-                # When updating, new citations are typically in recent years.
-                # Once we've found enough to cover the increase, stop.
-                scholar_increase = num_citations - prev_scholar_count if prev_scholar_count > 0 else 0
-                if scholar_increase > 0 and paper_new_count >= scholar_increase:
-                    print(f"  Found {paper_new_count} new (Scholar increase: {scholar_increase}), "
-                          f"skipping remaining years", flush=True)
+                stop_status = self._get_early_stop_status(
+                    len(citations), num_citations, paper_new_count,
+                    prev_scholar_count,
+                    allow_incremental_early_stop=allow_incremental_early_stop,
+                )
+                if stop_status['should_stop']:
+                    stop_scope = "after current page" if stop_after_current_page else "after current year"
+                    print(f"  {stop_status['message']}, skipping remaining years {stop_scope}", flush=True)
                     break
 
         except KeyboardInterrupt:
@@ -1630,6 +1720,7 @@ class PaperCitationFetcher:
             prev_scholar_count = 0
             partial_year_start = {}  # only used in-memory for same-run retries
             saved_dedup_count = 0
+            allow_incremental_early_stop = True
             if st == 'partial' and cached:
                 resume_from = cached.get('citations', [])
                 # Preserve the previously recorded dedup count across rechecks.
@@ -1639,6 +1730,7 @@ class PaperCitationFetcher:
                 if self.recheck_citations:
                     # Recheck mode: clear completed_years to re-check all years
                     completed_years = []
+                    allow_incremental_early_stop = False
                     action = f"recheck ({len(resume_from)} cached, scholar={num_citations})"
                 elif old_scholar == num_citations:
                     # Scholar count unchanged, resume from where we left off
@@ -1683,6 +1775,7 @@ class PaperCitationFetcher:
                         prev_scholar_count=prev_scholar_count,
                         partial_year_start=partial_year_start,
                         saved_dedup_count=saved_dedup_count,
+                        allow_incremental_early_stop=allow_incremental_early_stop,
                     )
                     seen_total = len(citations) + self._dedup_count
                     dedup_str = f", {self._dedup_count} dupes" if self._dedup_count else ""
