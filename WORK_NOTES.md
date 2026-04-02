@@ -217,7 +217,7 @@ pub_obj = {
 - **2026-03-17** — 修复 `--skip`/`--limit` 语义：改为基于所有论文列表的绝对位置；`--skip M` 跳过前 M 篇，`--limit N` 在 skip 之后处理 N 篇（M+1 到 M+N），skip 不计入 limit
 - **2026-03-17** — 记录 citation URL：每次按年份请求时打印完整 URL 方便对比验证
 - **2026-03-17** — 修复中断后年份丢失：`_fetch_by_year` 的 `except` 由仅捕获 `KeyboardInterrupt` 扩展为同时捕获 `Exception`，任何异常都调用 `save_progress(complete=False)` 保存已完成年份
-- **2026-03-17** — 年份扫描方向自适应：普通更新模式（Scholar 引用增长）从新→老，早停更快；Force/首次抓取模式从老→新，老年份数据稳定，中断续传更高效
+- **2026-04-02** — 交互式验证码恢复增强：粘贴浏览器 cURL 时除 cookies 外，还会复用一小组 allowlisted 请求头（`accept`、`accept-language`、`priority`、`sec-ch-ua*`），并在 scholarly session 重建时自动重放；仍保持程序自身的动态 `referer`、固定 `user-agent` 与其他请求形状不变，以尽量利用跨设备但同 domain 的 cURL 信息，同时控制副作用
 - **2026-03-18** — 改善 `fetch_basics` 异常提示：`AttributeError`/`TypeError`（Scholar 返回 None 导致）单独捕获，输出明确的网络问题提示，不打印堆栈；其他异常仍打印完整堆栈
 - **2026-03-20** — 降级 httpx 至 0.27.2 修复 session 刷新：scholarly 1.7.11 使用已在 httpx 0.28 移除的 `proxies=` 参数，导致 `_new_session()` 始终抛 `TypeError` 被静默吞掉，session 从未真正刷新；降至 0.27.2 后 `_new_session()` 正常工作；requirements.txt 固定 `httpx==0.27.2`
 - **2026-03-20** — 增加请求延迟：`DELAY_MIN 30→45`，`DELAY_MAX 60→90`，降低 Scholar IP 级速率限制触发概率

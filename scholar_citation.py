@@ -676,6 +676,20 @@ class PaperCitationFetcher:
             'upgrade-insecure-requests': '1',
         }
         _PROFILE_URL = f'https://scholar.google.com/citations?user={self.author_id}&hl=en'
+        self._curl_header_allowlist = {
+            'accept',
+            'accept-language',
+            'priority',
+            'sec-ch-ua',
+            'sec-ch-ua-arch',
+            'sec-ch-ua-bitness',
+            'sec-ch-ua-full-version-list',
+            'sec-ch-ua-mobile',
+            'sec-ch-ua-model',
+            'sec-ch-ua-platform',
+            'sec-ch-ua-platform-version',
+            'sec-ch-ua-wow64',
+        }
         self._last_scholar_url = _PROFILE_URL  # tracks current page for Referer
 
         def _make_http2_session():
@@ -686,6 +700,7 @@ class PaperCitationFetcher:
 
         def _apply_browser_headers(session):
             session.headers.update(_BROWSER_HEADERS)
+            session.headers.update(fetcher_self._injected_header_overrides)
             session.headers['referer'] = fetcher_self._last_scholar_url
 
         def _full_session_setup(session):
@@ -715,6 +730,7 @@ class PaperCitationFetcher:
         # replace it with an HTTP/2 session and re-apply full browser identity.
         original_new_session = nav._new_session
         fetcher_self._injected_cookies = {}   # populated by _inject_cookies_from_curl
+        fetcher_self._injected_header_overrides = {}
         def patched_new_session(premium=True, **kwargs):
             original_new_session(premium=premium, **kwargs)   # lets scholarly reset got_403
             if premium:
@@ -1952,17 +1968,18 @@ class PaperCitationFetcher:
                 time.sleep(d)
 
     def _inject_cookies_from_curl(self, curl_str):
-        """Parse cookies from a pasted cURL command and inject into scholarly sessions.
+        """Parse cookies and selected headers from a pasted cURL command.
         Cookies are set without domain restriction so they are sent regardless of
         which regional Scholar domain (e.g. .com.hk vs .com) is used.
-        Also stores them in _injected_cookies so patched_new_session can re-apply
-        them if scholarly recreates the httpx client on a 403.
+        Selected allowlisted headers are stored so patched session rebuilds can
+        reuse browser identity details from the pasted request while keeping the
+        crawler's dynamic Referer handling intact.
         Returns the number of cookies injected, or 0 on failure.
         """
-        m = (re.search(r"-b '([^']+)'", curl_str) or
-             re.search(r'-b "([^"]+)"', curl_str))
+        m = (re.search(r"(?:-b|--cookie) '([^']+)'", curl_str) or
+             re.search(r'(?:-b|--cookie) "([^"]+)"', curl_str))
         if not m:
-            print("  (Could not find -b '...' cookie string in input)", flush=True)
+            print("  (Could not find -b/--cookie '...' string in input)", flush=True)
             return 0
         nav = scholarly._Scholarly__nav
         cookies = {}
@@ -1974,16 +1991,33 @@ class PaperCitationFetcher:
         if not cookies:
             print("  (No valid cookies found in pasted input)", flush=True)
             return 0
+
+        header_overrides = {}
+        header_matches = re.findall(r"(?:-H|--header) '([^']+)'|(?:-H|--header) \"([^\"]+)\"", curl_str)
+        for single_quoted, double_quoted in header_matches:
+            header_line = (single_quoted or double_quoted or '').strip()
+            if not header_line or ':' not in header_line:
+                continue
+            name, value = header_line.split(':', 1)
+            header_name = name.strip().lower()
+            if header_name in self._curl_header_allowlist:
+                header_overrides[header_name] = value.strip()
+
         # Inject without domain so cookies apply to scholar.google.com AND any
         # regional variant (e.g. scholar.google.com.hk) after 302 redirects.
         for session in (nav._session1, nav._session2):
             for k, v in cookies.items():
                 session.cookies.set(k, v)
+            session.headers.update(header_overrides)
+            session.headers['referer'] = self._last_scholar_url
         # Persist for re-application after scholarly recreates sessions on 403
         self._injected_cookies = cookies
+        self._injected_header_overrides = header_overrides
         nav.got_403 = False
         self._captcha_solved_count += 1
-        print(f"  Injected {len(cookies)} cookies (no domain restriction). "
+        header_note = (f", {len(header_overrides)} allowlisted headers"
+                       if header_overrides else '')
+        print(f"  Injected {len(cookies)} cookies{header_note} (no domain restriction). "
               f"Captcha solves: {self._captcha_solved_count}", flush=True)
         return len(cookies)
 
@@ -2005,7 +2039,7 @@ class PaperCitationFetcher:
         print(f"  2. Solve the captcha, then let the page load fully", flush=True)
         print(f"  3. F12 → Network → find the Scholar request", flush=True)
         print(f"     → right-click → Copy as cURL (bash)", flush=True)
-        print(f"  4. Paste the cURL here (detected automatically after 3s silence)", flush=True)
+        print(f"  4. Paste the cURL here (cookies + selected headers reused; detected automatically after 3s silence)", flush=True)
         print(f"     (Press Enter on blank line to skip)", flush=True)
         print(f"{sep}", flush=True)
         print("  > ", end='', flush=True)
@@ -2206,8 +2240,9 @@ examples:
                         help='Deprecated alias for --recheck-citations')
     parser.add_argument('--interactive-captcha', action='store_true',
                         help='When blocked by Scholar, pause and prompt you to paste a browser '
-                             'cURL (Chrome DevTools → Copy as cURL) to inject fresh cookies; '
-                             'retries indefinitely instead of giving up after MAX_RETRIES')
+                             'cURL (Chrome DevTools → Copy as cURL) to inject fresh cookies and '
+                             'selected headers; retries indefinitely instead of giving up after '
+                             'MAX_RETRIES')
     parser.add_argument('--accelerate', type=float, default=1.0, metavar='SCALE',
                         help='Scale all deliberate waits by SCALE. Example: --accelerate 0.1 '
                              'runs waits at 1/10 of the normal duration. Default: 1.0')

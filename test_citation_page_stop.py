@@ -5,10 +5,15 @@ from unittest.mock import patch
 from io import StringIO
 
 
+class _CookieJar(dict):
+    def set(self, key, value):
+        self[key] = value
+
+
 class _DummyNav:
     def __init__(self):
-        self._session1 = types.SimpleNamespace(headers={}, cookies={})
-        self._session2 = types.SimpleNamespace(headers={}, cookies={})
+        self._session1 = types.SimpleNamespace(headers={}, cookies=_CookieJar())
+        self._session2 = types.SimpleNamespace(headers={}, cookies=_CookieJar())
         self.pm1 = types.SimpleNamespace(_handle_captcha2=lambda pagerequest: None)
         self.pm2 = types.SimpleNamespace(_handle_captcha2=lambda pagerequest: None)
         self.got_403 = False
@@ -83,7 +88,96 @@ class CitationPageStopTests(unittest.TestCase):
         self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2025
         self.fetcher._refresh_scholarly_session = lambda: None
         self.fetcher._try_interactive_captcha = lambda url: False
-        self.fetcher._wait_proxy_switch = lambda max_hours=24: None
+        self.fetcher._injected_cookies = {}
+        self.fetcher._injected_header_overrides = {}
+        self.fetcher._curl_header_allowlist = {
+            'accept',
+            'accept-language',
+            'priority',
+            'sec-ch-ua',
+            'sec-ch-ua-arch',
+            'sec-ch-ua-bitness',
+            'sec-ch-ua-full-version-list',
+            'sec-ch-ua-mobile',
+            'sec-ch-ua-model',
+            'sec-ch-ua-platform',
+            'sec-ch-ua-platform-version',
+            'sec-ch-ua-wow64',
+        }
+
+    def test_inject_curl_keeps_cookie_only_behavior(self):
+        curl = "curl 'https://scholar.google.com/scholar?cites=123' -b 'SID=abc; HSID=def'"
+
+        injected = self.fetcher._inject_cookies_from_curl(curl)
+
+        nav = scholarly_mod.scholarly._Scholarly__nav
+        self.assertEqual(injected, 2)
+        self.assertEqual(self.fetcher._injected_cookies, {'SID': 'abc', 'HSID': 'def'})
+        self.assertEqual(self.fetcher._injected_header_overrides, {})
+        self.assertEqual(nav._session1.cookies['SID'], 'abc')
+        self.assertEqual(nav._session2.cookies['HSID'], 'def')
+        self.assertEqual(nav._session1.headers['referer'], self.fetcher._last_scholar_url)
+
+    def test_inject_curl_persists_allowlisted_headers(self):
+        curl = (
+            "curl 'https://scholar.google.com/scholar?cites=123' "
+            "-b 'SID=abc' "
+            "-H 'Accept-Language: en-US,en;q=0.9' "
+            "-H 'sec-ch-ua-platform: \"Windows\"' "
+            "-H 'Priority: u=1, i'"
+        )
+
+        injected = self.fetcher._inject_cookies_from_curl(curl)
+
+        nav = scholarly_mod.scholarly._Scholarly__nav
+        self.assertEqual(injected, 1)
+        self.assertEqual(
+            self.fetcher._injected_header_overrides,
+            {
+                'accept-language': 'en-US,en;q=0.9',
+                'sec-ch-ua-platform': '"Windows"',
+                'priority': 'u=1, i',
+            },
+        )
+        self.assertEqual(nav._session1.headers['accept-language'], 'en-US,en;q=0.9')
+        self.assertEqual(nav._session1.headers['sec-ch-ua-platform'], '"Windows"')
+        self.assertEqual(nav._session2.headers['priority'], 'u=1, i')
+        self.assertEqual(nav._session1.headers['referer'], self.fetcher._last_scholar_url)
+
+    def test_inject_curl_ignores_disallowed_headers(self):
+        curl = (
+            "curl 'https://scholar.google.com/scholar?cites=123' "
+            "-b 'SID=abc' "
+            "-H 'User-Agent: injected-agent' "
+            "-H 'Referer: https://example.com/' "
+            "-H 'Host: scholar.google.com' "
+            "-H 'sec-fetch-site: cross-site'"
+        )
+
+        self.fetcher._inject_cookies_from_curl(curl)
+
+        nav = scholarly_mod.scholarly._Scholarly__nav
+        self.assertEqual(self.fetcher._injected_header_overrides, {})
+        self.assertNotIn('user-agent', nav._session1.headers)
+        self.assertNotIn('host', nav._session1.headers)
+        self.assertEqual(nav._session1.headers['referer'], self.fetcher._last_scholar_url)
+
+    def test_inject_curl_without_cookie_still_fails(self):
+        curl = "curl 'https://scholar.google.com/scholar?cites=123' -H 'Accept-Language: en-US,en;q=0.9'"
+
+        injected = self.fetcher._inject_cookies_from_curl(curl)
+
+        self.assertEqual(injected, 0)
+        self.assertEqual(self.fetcher._injected_cookies, {})
+        self.assertEqual(self.fetcher._injected_header_overrides, {})
+
+    def test_parse_args_mentions_selected_headers_for_interactive_captcha(self):
+        with patch.object(sys, 'argv', ['scholar_citation.py', '--author', 'test', '--help']):
+            with self.assertRaises(SystemExit), patch('sys.stdout', new_callable=StringIO) as fake_stdout:
+                scholar_citation.parse_args()
+
+        help_text = fake_stdout.getvalue()
+        self.assertIn('inject fresh cookies and selected headers', help_text)
 
     def test_fetch_by_year_finishes_current_page_before_stopping(self):
         self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2026
