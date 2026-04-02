@@ -1392,7 +1392,8 @@ class PaperCitationFetcher:
 
         print(f"  Year-based resume: {start_year}-{current_year} "
               f"({len(self._completed_year_segments)} years already done)", flush=True)
-        print(f"  Year fetch context: mode={'incremental' if allow_incremental_early_stop else 'full-recheck'}, "
+
+        print(f"    Fetch context: mode={'incremental' if allow_incremental_early_stop else 'full-recheck'}, "
               f"probe_complete={self._probed_year_count_complete}, "
               f"prev_scholar={prev_scholar_count}, target={num_citations}, total_years={total_years}", flush=True)
 
@@ -1405,7 +1406,7 @@ class PaperCitationFetcher:
             allow_incremental_early_stop=allow_incremental_early_stop,
         )
         year_range = year_fetch_plan['year_range']
-        print(f"  Direction: {year_fetch_plan['direction_label']} "
+        print(f"    Direction: {year_fetch_plan['direction_label']} "
               f"({year_fetch_plan['direction_reason']})", flush=True)
 
         # Build dedup map from existing citations: identity key -> brief info for logging
@@ -1418,10 +1419,30 @@ class PaperCitationFetcher:
 
         probed_year_counts = self._normalize_year_count_map(self._probed_year_counts)
         can_skip_by_probe_counts = getattr(self, '_probed_year_count_complete', False)
-        print(f"  Probe year summary: {self._format_year_count_summary(probed_year_counts)}", flush=True)
-        print(f"  Cached year summary: {self._format_year_count_summary(cached_year_counts)}", flush=True)
-        print(f"  Completed years: {self._format_year_set_summary(self._completed_year_segments)}", flush=True)
-        print(f"  Partial year resume points: {self._format_partial_year_start_summary(self._partial_year_start)}", flush=True)
+        cached_total_citations = len(citations)
+        cached_year_total = sum(cached_year_counts.values())
+        cached_unyeared_citations = max(0, cached_total_citations - cached_year_total)
+        probed_hist_total = sum(probed_year_counts.values())
+        probed_missing_from_histogram = None if num_citations is None else max(0, num_citations - probed_hist_total)
+        print(f"    Probe summary: {self._format_year_count_summary(probed_year_counts)}", flush=True)
+        if num_citations is None:
+            print(f"    Probe totals: scholar_total=?, histogram_total={probed_hist_total}, missing_from_histogram=?", flush=True)
+        else:
+            print(f"    Probe totals: scholar_total={num_citations}, histogram_total={probed_hist_total}, missing_from_histogram={probed_missing_from_histogram}", flush=True)
+        print(f"    Cache summary: {self._format_year_count_summary(cached_year_counts)}", flush=True)
+        print(f"    Cache totals: total={cached_total_citations}, year_total={cached_year_total}, unyeared={cached_unyeared_citations}", flush=True)
+        print(f"    Completed years: {self._format_year_set_summary(self._completed_year_segments)}", flush=True)
+        print(f"    Partial resume points: {self._format_partial_year_start_summary(self._partial_year_start)}", flush=True)
+
+        if num_citations is not None and cached_total_citations == num_citations and not self._partial_year_start:
+            years_to_mark = [year for year in year_range if year not in self._completed_year_segments]
+            if years_to_mark:
+                self._completed_year_segments.update(years_to_mark)
+            print(f"  Year fetch skipped: total-count fallback (cached_total={cached_total_citations}, "
+                  f"scholar_total={num_citations}); histogram gaps are treated as citations without usable year metadata", flush=True)
+            save_progress(complete=False)
+            save_progress(complete=True)
+            return citations
 
         try:
             for year in year_range:
@@ -1441,7 +1462,7 @@ class PaperCitationFetcher:
                     if live_count is not None and cached_count == live_count:
                         skipped_years += 1
                         self._completed_year_segments.add(year)
-                        print(f"      Year {year}: skip (cached={cached_count}, probe={live_count}, cache matches live histogram count)", flush=True)
+                        print(f"      Year {year}: skip (histogram count match; cached={cached_count}, probe={live_count}, probe_complete=True)", flush=True)
                         save_progress(complete=False)
                         continue
 

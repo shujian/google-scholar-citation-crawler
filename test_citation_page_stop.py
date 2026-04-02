@@ -366,10 +366,118 @@ class CitationPageStopTests(unittest.TestCase):
         output = fake_stdout.getvalue()
         self.assertEqual(requests, [])
         self.assertEqual(citations, [])
-        self.assertIn("Probe year summary:", output)
-        self.assertIn("Cached year summary:", output)
+        self.assertIn("    Probe summary:", output)
+        self.assertIn("    Cache summary:", output)
         self.assertIn("skip (probe count=0, probe_complete=True)", output)
-        self.assertIn("cache matches live histogram count", output)
+        self.assertIn("histogram count match", output)
+
+    def test_total_count_match_skips_fetch_when_cached_citations_include_missing_years(self):
+        cached_citations = [
+            {"title": "Y2025", "author": ["A"], "venue": "V2025", "year": 2025, "pub_url": "u1"},
+            {"title": "Y2024", "author": ["B"], "venue": "V2024", "year": 2024, "pub_url": "u2"},
+            {"title": "NoYear", "author": ["C"], "venue": "V?", "year": "N/A", "pub_url": "u3"},
+        ]
+        self.fetcher._probed_year_counts = {2024: 1, 2025: 1}
+        self.fetcher._probed_year_count_complete = True
+        self.fetcher._cached_year_counts = {2024: 1, 2025: 1}
+        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2024
+
+        requests = []
+        save_calls = []
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                requests.append(url)
+                self.items = []
+                self.index = 0
+                self._finished_current_page = True
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                raise StopIteration
+
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch.object(scholar_citation, "datetime") as fake_datetime, \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            fake_datetime.now.return_value = types.SimpleNamespace(year=2025)
+            citations = self.fetcher._fetch_by_year(
+                citedby_url="/scholar?cites=123",
+                citations=list(cached_citations),
+                save_progress=lambda complete: save_calls.append(complete),
+                num_citations=3,
+                pub_year="2020",
+                prev_scholar_count=0,
+                allow_incremental_early_stop=False,
+            )
+
+        output = fake_stdout.getvalue()
+        self.assertEqual(requests, [])
+        self.assertEqual(citations, cached_citations)
+        self.assertEqual(save_calls, [False, True])
+        self.assertIn("    Probe totals: scholar_total=3, histogram_total=2, missing_from_histogram=1", output)
+        self.assertIn("    Cache totals: total=3, year_total=2, unyeared=1", output)
+        self.assertIn("Year fetch skipped: total-count fallback", output)
+        self.assertIn("cached_total=3, scholar_total=3", output)
+        self.assertIn("citations without usable year metadata", output)
+
+    def test_total_count_match_does_not_skip_when_partial_resume_exists(self):
+        cached_citations = [
+            {"title": "Y2025", "author": ["A"], "venue": "V2025", "year": 2025, "pub_url": "u1"},
+            {"title": "Y2024", "author": ["B"], "venue": "V2024", "year": 2024, "pub_url": "u2"},
+            {"title": "NoYear", "author": ["C"], "venue": "V?", "year": "N/A", "pub_url": "u3"},
+        ]
+        self.fetcher._probed_year_counts = {2024: 1, 2025: 1}
+        self.fetcher._probed_year_count_complete = True
+        self.fetcher._cached_year_counts = {2024: 1, 2025: 1}
+        self.fetcher._partial_year_start = {2025: 2}
+        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2024
+
+        requests = []
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                start = 0
+                if "start=" in url:
+                    start = int(url.split("start=")[1].split("&")[0])
+                year = int(url.split("as_ylo=")[1].split("&")[0])
+                self.items = [{
+                    "bib": {"title": f"Fetched-{year}", "author": ["D"], "venue": f"V{year}", "pub_year": str(year)},
+                    "pub_url": f"uf{year}",
+                }]
+                self.index = 0
+                self._finished_current_page = False
+                requests.append((year, start))
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                    raise StopIteration
+                item = self.items[self.index]
+                self.index += 1
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                return item
+
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch.object(scholar_citation, "datetime") as fake_datetime:
+            fake_datetime.now.return_value = types.SimpleNamespace(year=2025)
+            citations = self.fetcher._fetch_by_year(
+                citedby_url="/scholar?cites=123",
+                citations=list(cached_citations),
+                save_progress=lambda complete: None,
+                num_citations=3,
+                pub_year="2020",
+                prev_scholar_count=0,
+                allow_incremental_early_stop=False,
+            )
+
+        self.assertEqual(requests, [(2025, 2)])
+        self.assertEqual(citations[-1]["title"], "Fetched-2025")
 
     def test_resume_logging_includes_year_context(self):
         self.fetcher._probed_year_counts = {2025: 3}
@@ -424,7 +532,7 @@ class CitationPageStopTests(unittest.TestCase):
         output = fake_stdout.getvalue()
         self.assertEqual(requests, [(2025, 2)])
         self.assertEqual([c["title"] for c in citations], ["Y2025"])
-        self.assertIn("Partial year resume points: 2025->2", output)
+        self.assertIn("    Partial resume points: 2025->2", output)
         self.assertIn("Year 2025: resuming from position 2 (cached=1, probe=3)", output)
         self.assertIn("Year 2025 status:", output)
 
