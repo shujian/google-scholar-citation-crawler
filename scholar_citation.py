@@ -654,6 +654,8 @@ class PaperCitationFetcher:
         self.interactive_captcha = interactive_captcha
         self._captcha_solved_count = 0
         self._delay_scale = delay_scale
+        self._injected_cookies = {}
+        self._injected_header_overrides = {}
 
         # Paths
         self.cache_dir = os.path.join(output_dir, "scholar_cache", f"author_{author_id}", "citations")
