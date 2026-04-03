@@ -21,3 +21,9 @@ Thumbs.db
 
 # Git worktrees
 .worktrees/
+
+# Local working notes and scratch files
+CLAUDE.md
+conversation.md
+curl.txt
+docs/

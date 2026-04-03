@@ -98,6 +98,7 @@ scholarly_mod = types.ModuleType("scholarly")
 scholarly_mod.scholarly = types.SimpleNamespace(
     _Scholarly__nav=_DummyNav(),
     _citedby_long=lambda obj, years: iter(()),
+    citedby=lambda obj: iter(()),
 )
 scholarly_mod.ProxyGenerator = object
 sys.modules.setdefault("scholarly", scholarly_mod)
@@ -287,7 +288,8 @@ class CitationPageStopTests(unittest.TestCase):
         with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator):
             citations = self.fetcher._fetch_by_year(
                 citedby_url="/scholar?cites=123",
-                citations=[],
+                old_citations=[],
+                fresh_citations=[],
                 save_progress=lambda complete: save_calls.append(complete),
                 num_citations=2,
                 pub_year="2026",
@@ -346,7 +348,8 @@ class CitationPageStopTests(unittest.TestCase):
         with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator):
             citations = self.fetcher._fetch_by_year(
                 citedby_url="/scholar?cites=123",
-                citations=[],
+                old_citations=[],
+                fresh_citations=[],
                 save_progress=lambda complete: None,
                 num_citations=12,
                 pub_year="2026",
@@ -459,7 +462,8 @@ class CitationPageStopTests(unittest.TestCase):
             fake_datetime.now.return_value = types.SimpleNamespace(year=2025)
             citations = self.fetcher._fetch_by_year(
                 citedby_url="/scholar?cites=123",
-                citations=[],
+                old_citations=[],
+                fresh_citations=[],
                 save_progress=lambda complete: None,
                 num_citations=10,
                 pub_year="2020",
@@ -511,7 +515,8 @@ class CitationPageStopTests(unittest.TestCase):
             fake_datetime.now.return_value = types.SimpleNamespace(year=2025)
             citations = self.fetcher._fetch_by_year(
                 citedby_url="/scholar?cites=123",
-                citations=[],
+                old_citations=[],
+                fresh_citations=[],
                 save_progress=lambda complete: None,
                 num_citations=10,
                 pub_year="2020",
@@ -560,7 +565,8 @@ class CitationPageStopTests(unittest.TestCase):
             fake_datetime.now.return_value = types.SimpleNamespace(year=2025)
             citations = self.fetcher._fetch_by_year(
                 citedby_url="/scholar?cites=123",
-                citations=list(cached_citations),
+                old_citations=list(cached_citations),
+                fresh_citations=[],
                 save_progress=lambda complete: save_calls.append(complete),
                 num_citations=3,
                 pub_year="2020",
@@ -570,7 +576,7 @@ class CitationPageStopTests(unittest.TestCase):
 
         output = fake_stdout.getvalue()
         self.assertEqual(requests, [])
-        self.assertEqual(citations, cached_citations)
+        self.assertEqual(citations, [])
         self.assertEqual(save_calls, [False, True])
         self.assertIn("    Probe totals: scholar_total=3, histogram_total=2, missing_from_histogram=1", output)
         self.assertIn("    Cache totals: total=3, year_total=2, unyeared=1", output)
@@ -619,12 +625,11 @@ class CitationPageStopTests(unittest.TestCase):
                     self._finished_current_page = True
                 return item
 
-        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
-             patch.object(scholar_citation, "datetime") as fake_datetime:
-            fake_datetime.now.return_value = types.SimpleNamespace(year=2025)
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator):
             citations = self.fetcher._fetch_by_year(
                 citedby_url="/scholar?cites=123",
-                citations=list(cached_citations),
+                old_citations=list(cached_citations),
+                fresh_citations=[],
                 save_progress=lambda complete: None,
                 num_citations=3,
                 pub_year="2020",
@@ -677,7 +682,8 @@ class CitationPageStopTests(unittest.TestCase):
             fake_datetime.now.return_value = types.SimpleNamespace(year=2025)
             citations = self.fetcher._fetch_by_year(
                 citedby_url="/scholar?cites=123",
-                citations=[],
+                old_citations=[],
+                fresh_citations=[],
                 save_progress=lambda complete: None,
                 num_citations=10,
                 pub_year="2020",
@@ -692,17 +698,65 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertIn("Year 2025: resuming from position 2 (cached=1, probe=3)", output)
         self.assertIn("Year 2025 status:", output)
 
-    def test_selective_refresh_candidates_prefers_changed_years(self):
-        fetcher = scholar_citation.PaperCitationFetcher("test-author", output_dir=".")
+    def test_materialize_citation_cache_overlays_fresh_on_incomplete_save(self):
+        old_citations = [
+            {"title": "Old-A", "authors": "A", "venue": "V", "year": "2024", "url": "old-a"},
+            {"title": "Keep-B", "authors": "B", "venue": "V2", "year": "2023", "url": "old-b"},
+        ]
+        fresh_citations = [
+            {"title": "Old-A", "authors": "A", "venue": "V", "year": "2024", "url": "new-a"},
+            {"title": "Fresh-C", "authors": "C", "venue": "V3", "year": "2025", "url": "new-c"},
+        ]
 
-        candidate_years = fetcher._selective_refresh_candidate_years(
-            cached_year_counts={2022: 0, 2023: 2, 2024: 3, 2025: 4},
-            probed_year_counts={2022: 0, 2023: 2, 2024: 5, 2025: 4, 2026: 1},
-            year_range=range(2026, 2021, -1),
-            partial_year_start={2022: 20},
-        )
+        materialized = self.fetcher._materialize_citation_cache(old_citations, fresh_citations, complete=False)
 
-        self.assertEqual(candidate_years, [2026, 2024, 2022])
+        self.assertEqual([c["title"] for c in materialized], ["Old-A", "Keep-B", "Fresh-C"])
+        self.assertEqual(materialized[0]["url"], "new-a")
+
+    def test_materialize_citation_cache_uses_only_fresh_on_complete_save(self):
+        old_citations = [
+            {"title": "Old-A", "authors": "A", "venue": "V", "year": "2024", "url": "old-a"},
+            {"title": "Keep-B", "authors": "B", "venue": "V2", "year": "2023", "url": "old-b"},
+        ]
+        fresh_citations = [
+            {"title": "Old-A", "authors": "A", "venue": "V", "year": "2024", "url": "new-a"},
+        ]
+
+        materialized = self.fetcher._materialize_citation_cache(old_citations, fresh_citations, complete=True)
+
+        self.assertEqual(materialized, fresh_citations)
+
+    def test_small_fetch_complete_replaces_old_cache_content(self):
+        old_citations = [
+            {"title": "Old-A", "authors": "A", "venue": "V", "year": "2024", "url": "old-a"},
+            {"title": "Old-B", "authors": "B", "venue": "V2", "year": "2023", "url": "old-b"},
+        ]
+        fetched_items = [
+            {"bib": {"title": "Old-A", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a"},
+            {"bib": {"title": "Fresh-C", "author": ["C"], "venue": "V3", "pub_year": "2025"}, "pub_url": "new-c"},
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = os.path.join(tmpdir, "paper.json")
+            with patch.object(scholar_citation.scholarly, "citedby", return_value=iter(fetched_items)):
+                citations = self.fetcher._fetch_citations_with_progress(
+                    citedby_url="/scholar?cites=123",
+                    cache_path=cache_path,
+                    title="Paper",
+                    num_citations=2,
+                    pub_url="https://example.com/paper",
+                    pub_year="2024",
+                    resume_from=old_citations,
+                    completed_years=[],
+                    prev_scholar_count=2,
+                )
+
+            self.assertEqual([c["title"] for c in citations], ["Old-A", "Fresh-C"])
+            self.assertEqual(citations[0]["url"], "new-a")
+            with open(cache_path, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            self.assertEqual([c["title"] for c in saved["citations"]], ["Old-A", "Fresh-C"])
+            self.assertEqual(saved["citations"][0]["url"], "new-a")
 
     def test_year_bucket_refresh_replaces_cached_year_slice(self):
         citations = [
