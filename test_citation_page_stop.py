@@ -3,6 +3,9 @@ import types
 import unittest
 from unittest.mock import patch
 from io import StringIO
+import json
+import os
+import tempfile
 
 
 class _CookieJar(dict):
@@ -39,6 +42,58 @@ class _DummyIterator:
         raise StopIteration
 
 
+class _DummyWorkbook:
+    def __init__(self):
+        self.active = _DummyWorksheet()
+        self.sheets = [self.active]
+
+    def create_sheet(self, title):
+        ws = _DummyWorksheet()
+        ws.title = title
+        self.sheets.append(ws)
+        return ws
+
+    def save(self, path):
+        self.saved_path = path
+
+
+class _DummyWorksheet:
+    def __init__(self):
+        self.title = ""
+        self.column_dimensions = _DimensionMap()
+        self.row_dimensions = _DimensionMap()
+        self.cells = {}
+        self.merged_ranges = []
+
+    def merge_cells(self, cell_range):
+        self.merged_ranges.append(cell_range)
+
+    def cell(self, row, column, value=None):
+        key = (row, column)
+        if key not in self.cells:
+            self.cells[key] = _DummyCell()
+        cell = self.cells[key]
+        if value is not None:
+            cell.value = value
+        return cell
+
+
+class _DummyCell:
+    def __init__(self):
+        self.value = None
+        self.fill = None
+        self.font = None
+        self.alignment = None
+        self.hyperlink = None
+
+
+class _DimensionMap(dict):
+    def __missing__(self, key):
+        value = types.SimpleNamespace(width=None, height=None)
+        self[key] = value
+        return value
+
+
 scholarly_mod = types.ModuleType("scholarly")
 scholarly_mod.scholarly = types.SimpleNamespace(
     _Scholarly__nav=_DummyNav(),
@@ -56,13 +111,19 @@ pub_parser_mod._SearchScholarIterator = _DummyIterator
 sys.modules.setdefault("scholarly.publication_parser", pub_parser_mod)
 
 openpyxl_mod = types.ModuleType("openpyxl")
-openpyxl_mod.Workbook = object
+openpyxl_mod.Workbook = _DummyWorkbook
 sys.modules.setdefault("openpyxl", openpyxl_mod)
 
+class _Style:
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+
+
 styles_mod = types.ModuleType("openpyxl.styles")
-styles_mod.Font = object
-styles_mod.PatternFill = object
-styles_mod.Alignment = object
+styles_mod.Font = _Style
+styles_mod.PatternFill = _Style
+styles_mod.Alignment = _Style
 sys.modules.setdefault("openpyxl.styles", styles_mod)
 
 import scholar_citation
@@ -79,6 +140,7 @@ class CitationPageStopTests(unittest.TestCase):
         self.fetcher._dedup_count = 0
         self.fetcher._new_citations_count = 0
         self.fetcher._total_page_count = 0
+        self.fetcher._papers_fetched_count = 0
         self.fetcher._delay_scale = 0
         self.fetcher._probed_year_counts = None
         self.fetcher._probed_year_count_complete = False
@@ -630,3 +692,238 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertIn("Year 2025: resuming from position 2 (cached=1, probe=3)", output)
         self.assertIn("Year 2025 status:", output)
 
+    def test_selective_refresh_candidates_prefers_changed_years(self):
+        fetcher = scholar_citation.PaperCitationFetcher("test-author", output_dir=".")
+
+        candidate_years = fetcher._selective_refresh_candidate_years(
+            cached_year_counts={2022: 0, 2023: 2, 2024: 3, 2025: 4},
+            probed_year_counts={2022: 0, 2023: 2, 2024: 5, 2025: 4, 2026: 1},
+            year_range=range(2026, 2021, -1),
+            partial_year_start={2022: 20},
+        )
+
+        self.assertEqual(candidate_years, [2026, 2024, 2022])
+
+    def test_year_bucket_refresh_replaces_cached_year_slice(self):
+        citations = [
+            {"title": "Old-2024-A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+            {"title": "Old-2024-B", "authors": "B", "venue": "V", "year": "2024", "url": "u2"},
+            {"title": "Keep-2023", "authors": "C", "venue": "V", "year": "2023", "url": "u3"},
+            {"title": "Keep-NY", "authors": "D", "venue": "V", "year": "N/A", "url": "u4"},
+        ]
+        refreshed_year = [
+            {"title": "New-2024-A", "authors": "A", "venue": "V2", "year": "2024", "url": "u5"},
+            {"title": "New-2024-B", "authors": "B", "venue": "V2", "year": "2024", "url": "u6"},
+            {"title": "New-2024-C", "authors": "C", "venue": "V2", "year": "2024", "url": "u7"},
+        ]
+
+        merged = self.fetcher._replace_citation_year_bucket(citations, 2024, refreshed_year)
+
+        self.assertEqual(
+            [c["title"] for c in merged],
+            ["Keep-2023", "Keep-NY", "New-2024-A", "New-2024-B", "New-2024-C"],
+        )
+        self.assertEqual(self.fetcher._year_count_map(merged), {2023: 1, 2024: 3})
+
+    def test_refresh_reconciliation_accepts_matching_complete_histogram(self):
+        status = self.fetcher._refresh_reconciliation_status(
+            citations=[
+                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+                {"title": "B", "authors": "B", "venue": "V", "year": "2025", "url": "u2"},
+                {"title": "C", "authors": "C", "venue": "V", "year": "2025", "url": "u3"},
+            ],
+            num_citations=3,
+            probed_year_counts={2024: 1, 2025: 2},
+            probe_complete=True,
+        )
+
+        self.assertTrue(status["ok"])
+        self.assertEqual(status["reason"], "matched_complete_histogram")
+
+    def test_refresh_reconciliation_requests_escalation_on_histogram_mismatch(self):
+        status = self.fetcher._refresh_reconciliation_status(
+            citations=[
+                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+                {"title": "B", "authors": "B", "venue": "V", "year": "2025", "url": "u2"},
+                {"title": "C", "authors": "C", "venue": "V", "year": "2025", "url": "u3"},
+            ],
+            num_citations=3,
+            probed_year_counts={2024: 2, 2025: 1},
+            probe_complete=True,
+        )
+
+        self.assertFalse(status["ok"])
+        self.assertEqual(status["reason"], "year_count_mismatch")
+
+    def test_refresh_reconciliation_uses_total_only_when_histogram_incomplete(self):
+        status = self.fetcher._refresh_reconciliation_status(
+            citations=[
+                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+                {"title": "B", "authors": "B", "venue": "V", "year": "N/A", "url": "u2"},
+                {"title": "C", "authors": "C", "venue": "V", "year": "N/A", "url": "u3"},
+            ],
+            num_citations=3,
+            probed_year_counts={2024: 1},
+            probe_complete=False,
+        )
+
+        self.assertTrue(status["ok"])
+        self.assertEqual(status["reason"], "matched_total_with_incomplete_histogram")
+
+    def test_run_main_loop_escalates_year_refresh_after_failed_reconciliation(self):
+        pub = {
+            "no": 1,
+            "title": "Big Paper",
+            "num_citations": 80,
+            "year": "2024",
+            "venue": "V",
+        }
+        cached = {
+            "citations": [{"title": "Cached-1", "authors": "A", "venue": "V", "year": "2024", "url": "u1"}],
+            "num_citations_on_scholar": 75,
+            "completed_years": [2024],
+            "dedup_count": 0,
+            "complete": False,
+        }
+        publications = [pub]
+        results = []
+        fetch_calls = []
+        first_result = [
+            {"title": "Fetched-2026-A", "authors": "A", "venue": "V", "year": "2026", "url": "u2"},
+        ]
+        second_result = [
+            {"title": "Fetched-2026-A", "authors": "A", "venue": "V", "year": "2026", "url": "u2"},
+            {"title": "Fetched-2025-A", "authors": "B", "venue": "V", "year": "2025", "url": "u3"},
+        ]
+
+        def cache_status(current_pub):
+            self.assertEqual(current_pub["title"], pub["title"])
+            return "partial", cached
+
+        def fake_fetch(*args, **kwargs):
+            fetch_calls.append(
+                {
+                    "resume_from": list(args[6]),
+                    "completed_years": list(kwargs["completed_years"]),
+                    "allow_incremental_early_stop": kwargs["allow_incremental_early_stop"],
+                    "force_year_rebuild": kwargs["force_year_rebuild"],
+                    "selective_refresh_years": kwargs["selective_refresh_years"],
+                    "prev_scholar_count": kwargs["prev_scholar_count"],
+                }
+            )
+            return first_result if len(fetch_calls) == 1 else second_result
+
+        with patch.object(self.fetcher, "_fetch_citations_with_progress", side_effect=fake_fetch), \
+             patch.object(
+                 self.fetcher,
+                 "_refresh_reconciliation_status",
+                 side_effect=[
+                     {"ok": False, "reason": "year_count_mismatch", "cached_total": 1, "scholar_total": 80},
+                     {"ok": True, "reason": "matched_complete_histogram", "cached_total": 2, "scholar_total": 80},
+                     {"ok": True, "reason": "matched_complete_histogram", "cached_total": 2, "scholar_total": 80},
+                 ],
+             ), \
+             patch.object(self.fetcher, "_wait_proxy_switch", return_value=None), \
+             patch("scholar_citation.rand_delay", return_value=0), \
+             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._run_main_loop(
+                publications=publications,
+                cache_status=cache_status,
+                url_map={pub["title"]: {"citedby_url": "/scholar?cites=123", "pub_url": "https://example.com/paper"}},
+                need_fetch=[(pub, "partial", cached)],
+                results=results,
+                fetch_idx=0,
+            )
+
+        self.assertEqual(len(fetch_calls), 2)
+        self.assertTrue(fetch_calls[0]["allow_incremental_early_stop"])
+        self.assertFalse(fetch_calls[0]["force_year_rebuild"])
+        self.assertIsNone(fetch_calls[0]["selective_refresh_years"])
+        self.assertEqual(fetch_calls[0]["prev_scholar_count"], 75)
+        self.assertEqual(fetch_calls[0]["resume_from"], cached["citations"])
+        self.assertEqual(fetch_calls[0]["completed_years"], [])
+
+        self.assertFalse(fetch_calls[1]["allow_incremental_early_stop"])
+        self.assertTrue(fetch_calls[1]["force_year_rebuild"])
+        self.assertIsNone(fetch_calls[1]["selective_refresh_years"])
+        self.assertEqual(fetch_calls[1]["prev_scholar_count"], 75)
+        self.assertEqual(fetch_calls[1]["resume_from"], first_result)
+        self.assertEqual(fetch_calls[1]["completed_years"], [])
+
+        self.assertEqual(results[0]["citations"], second_result)
+        self.assertEqual(self.fetcher._papers_fetched_count, 1)
+
+
+class AuthorProfileCountSummaryTests(unittest.TestCase):
+    def test_build_profile_count_summary_reports_gap(self):
+        fetcher = scholar_citation.AuthorProfileFetcher("author", output_dir=".")
+        basics = {
+            "citedby": 8035,
+            "cites_per_year": {"2015": 100, "2016": 200, "2026": 7658},
+        }
+
+        summary = fetcher._build_profile_count_summary(basics)
+
+        self.assertEqual(summary["scholar_total_citations"], 8035)
+        self.assertEqual(summary["year_table_total_citations"], 7958)
+        self.assertEqual(summary["year_table_gap"], 77)
+        self.assertFalse(summary["year_table_matches_total"])
+        self.assertIn("may exclude citations without usable year metadata", summary["year_table_note"])
+
+    def test_save_profile_json_includes_count_summary(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fetcher = scholar_citation.AuthorProfileFetcher("author", output_dir=tmpdir)
+            basics = {
+                "name": "Test Author",
+                "citedby": 8035,
+                "cites_per_year": {"2015": 100, "2016": 200, "2026": 7658},
+            }
+            publications = []
+
+            profile = fetcher.save_profile_json(basics, publications, change_history=[])
+
+            self.assertEqual(profile["total_citations"], 8035)
+            self.assertEqual(profile["citation_count_summary"]["year_table_total_citations"], 7958)
+            self.assertEqual(profile["citation_count_summary"]["year_table_gap"], 77)
+
+            with open(fetcher.profile_json, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            self.assertEqual(saved["citation_count_summary"], profile["citation_count_summary"])
+
+    def test_save_profile_xlsx_labels_year_gap_explicitly(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fetcher = scholar_citation.AuthorProfileFetcher("author", output_dir=tmpdir)
+            basics = {
+                "name": "Test Author",
+                "affiliation": "Org",
+                "interests": ["NLP"],
+                "scholar_id": "author",
+                "citedby": 8035,
+                "citedby_this_year": 123,
+                "citedby5y": 1000,
+                "hindex": 10,
+                "hindex5y": 9,
+                "i10index": 20,
+                "i10index5y": 18,
+                "cites_per_year": {"2015": 100, "2016": 200, "2026": 7658},
+            }
+
+            with patch.object(scholar_citation, "datetime") as fake_datetime:
+                fake_datetime.now.return_value = types.SimpleNamespace(
+                    year=2026,
+                    strftime=lambda fmt: "2026-04-02 12:00:00",
+                )
+                fetcher.save_profile_xlsx(basics, publications=[], change_history=[])
+
+            workbook = fetcher._last_profile_workbook
+            ws = workbook.active
+            values = [cell.value for cell in ws.cells.values()]
+            self.assertIn("Total Citations (Scholar profile)", values)
+            self.assertIn("Year-table subtotal (cites_per_year)", values)
+            self.assertIn("Year-table gap vs total", values)
+            self.assertIn("Citations Per Year (Scholar cites_per_year)", values)
+            self.assertTrue(any(
+                isinstance(value, str) and "may exclude citations without usable year metadata" in value
+                for value in values
+            ))

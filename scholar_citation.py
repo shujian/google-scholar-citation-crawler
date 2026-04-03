@@ -345,14 +345,33 @@ class AuthorProfileFetcher:
             return profile
         return None
 
+    def _build_profile_count_summary(self, basics):
+        """Summarize how author-level citation totals relate to the yearly histogram."""
+        cites_per_year = basics.get('cites_per_year', {}) or {}
+        year_total = sum(int(v or 0) for v in cites_per_year.values())
+        scholar_total = int(basics.get('citedby', 0) or 0)
+        gap = scholar_total - year_total
+        return {
+            'scholar_total_citations': scholar_total,
+            'year_table_total_citations': year_total,
+            'year_table_gap': gap,
+            'year_table_matches_total': gap == 0,
+            'year_table_note': (
+                'Year-table totals come from Scholar cites_per_year and may exclude '
+                'citations without usable year metadata.'
+            ),
+        }
+
     def save_profile_json(self, basics, publications, change_history=None):
         """Save complete profile as JSON."""
+        count_summary = self._build_profile_count_summary(basics)
         profile = {
             'author_info': basics,
             'publications': publications,
             'fetch_time': datetime.now().isoformat(),
             'total_publications': len(publications),
             'total_citations': basics.get('citedby', 0),
+            'citation_count_summary': count_summary,
             'change_history': change_history or [],
         }
         with open(self.profile_json, 'w', encoding='utf-8') as f:
@@ -367,7 +386,9 @@ class AuthorProfileFetcher:
           Sheet2: Publications (sorted by citation count)
           Sheet3: Change History
         """
+        count_summary = self._build_profile_count_summary(basics)
         wb = openpyxl.Workbook()
+        self._last_profile_workbook = wb
 
         # ===== Sheet1: Author Overview =====
         ws1 = wb.active
@@ -423,7 +444,9 @@ class AuthorProfileFetcher:
         row += 1
 
         stats_items = [
-            ("Total Citations", basics.get('citedby', 0)),
+            ("Total Citations (Scholar profile)", basics.get('citedby', 0)),
+            ("Year-table subtotal (cites_per_year)", count_summary['year_table_total_citations']),
+            ("Year-table gap vs total", count_summary['year_table_gap']),
             (f"Citations This Year ({datetime.now().year})", basics.get('citedby_this_year', 0)),
             ("Citations (5-year)", basics.get('citedby5y', 0)),
             ("h-index", basics.get('hindex', 0)),
@@ -446,11 +469,17 @@ class AuthorProfileFetcher:
         row += 1
 
         ws1.merge_cells(f'A{row}:B{row}')
-        c = ws1.cell(row=row, column=1, value="Citations Per Year")
+        c = ws1.cell(row=row, column=1, value="Citations Per Year (Scholar cites_per_year)")
         c.fill = header_fill
         c.font = header_font
         c.alignment = center
         ws1.row_dimensions[row].height = 24
+        row += 1
+
+        ws1.merge_cells(f'A{row}:B{row}')
+        note_cell = ws1.cell(row=row, column=1, value=count_summary['year_table_note'])
+        note_cell.alignment = left
+        ws1.row_dimensions[row].height = 34
         row += 1
 
         cites_per_year = basics.get('cites_per_year', {})
@@ -921,6 +950,140 @@ class PaperCitationFetcher:
         return {str(year): count for year, count in sorted(year_counts.items())}
 
     @staticmethod
+    def _citation_year_value(info):
+        year = info.get('year', 'N/A')
+        if year in ('N/A', 'NA', '?', '', None):
+            return None
+        try:
+            return int(year)
+        except (TypeError, ValueError):
+            return None
+
+    def _replace_citation_year_bucket(self, citations, year, refreshed_year_citations):
+        kept = [c for c in citations if self._citation_year_value(c) != year]
+        return kept + list(refreshed_year_citations)
+
+    @staticmethod
+    def _selective_refresh_candidate_years(cached_year_counts, probed_year_counts, year_range,
+                                           partial_year_start=None):
+        cached_year_counts = PaperCitationFetcher._normalize_year_count_map(cached_year_counts)
+        probed_year_counts = PaperCitationFetcher._normalize_year_count_map(probed_year_counts)
+        partial_years = {int(year) for year in (partial_year_start or {}).keys()}
+        return [
+            year for year in year_range
+            if year in partial_years or cached_year_counts.get(year, 0) != probed_year_counts.get(year, 0)
+        ]
+
+    def _refresh_reconciliation_status(self, citations, num_citations,
+                                       probed_year_counts=None, probe_complete=False):
+        cached_total = len(citations)
+        cached_year_counts = self._year_count_map(citations)
+        probed_year_counts = self._normalize_year_count_map(probed_year_counts)
+
+        if num_citations is not None and cached_total != num_citations:
+            return {
+                'ok': False,
+                'reason': 'total_count_mismatch',
+                'cached_total': cached_total,
+                'scholar_total': num_citations,
+                'cached_year_counts': cached_year_counts,
+                'probed_year_counts': probed_year_counts,
+            }
+
+        if probe_complete:
+            if cached_year_counts == probed_year_counts:
+                return {
+                    'ok': True,
+                    'reason': 'matched_complete_histogram',
+                    'cached_total': cached_total,
+                    'scholar_total': num_citations,
+                    'cached_year_counts': cached_year_counts,
+                    'probed_year_counts': probed_year_counts,
+                }
+            return {
+                'ok': False,
+                'reason': 'year_count_mismatch',
+                'cached_total': cached_total,
+                'scholar_total': num_citations,
+                'cached_year_counts': cached_year_counts,
+                'probed_year_counts': probed_year_counts,
+            }
+
+        return {
+            'ok': True,
+            'reason': 'matched_total_with_incomplete_histogram',
+            'cached_total': cached_total,
+            'scholar_total': num_citations,
+            'cached_year_counts': cached_year_counts,
+            'probed_year_counts': probed_year_counts,
+        }
+
+    def _resolve_refresh_strategy(self, pub, cached, cache_status):
+        num_citations = pub['num_citations']
+        if cache_status in ('missing', None):
+            return {
+                'mode': 'first_fetch',
+                'resume_from': [],
+                'completed_years': [],
+                'partial_year_start': {},
+                'saved_dedup_count': 0,
+                'prev_scholar_count': 0,
+                'allow_incremental_early_stop': True,
+                'force_year_rebuild': False,
+                'selective_refresh_years': None,
+                'action': 'first fetch',
+            }
+
+        resume_from = cached.get('citations', [])
+        saved_dedup_count = cached.get('dedup_count', 0)
+        old_scholar = cached.get('num_citations_on_scholar', cached.get('num_citations_cached', 0))
+        completed_years = cached.get('completed_years', [])
+        partial_year_start = {}
+        force_year_rebuild = False
+        selective_refresh_years = None
+        allow_incremental_early_stop = True
+        mode = 'resume'
+        action = f"resume ({len(resume_from)} cached, fetching remaining)"
+
+        if self.recheck_citations:
+            mode = 'recheck'
+            completed_years = []
+            allow_incremental_early_stop = False
+            force_year_rebuild = num_citations >= YEAR_BASED_THRESHOLD
+            action = f"recheck ({len(resume_from)} cached, scholar={num_citations})"
+        elif old_scholar != num_citations:
+            mode = 'update'
+            completed_years = []
+            action = f"update ({len(resume_from)} cached, citations {old_scholar} -> {num_citations})"
+
+        return {
+            'mode': mode,
+            'resume_from': resume_from,
+            'completed_years': completed_years,
+            'partial_year_start': partial_year_start,
+            'saved_dedup_count': saved_dedup_count,
+            'prev_scholar_count': old_scholar,
+            'allow_incremental_early_stop': allow_incremental_early_stop,
+            'force_year_rebuild': force_year_rebuild,
+            'selective_refresh_years': selective_refresh_years,
+            'action': action,
+        }
+
+    @staticmethod
+    def _refresh_log_message(prefix, status):
+        return (
+            f"{prefix}: {status['reason']} "
+            f"(cached_total={status['cached_total']}, scholar_total={status['scholar_total']})"
+        )
+
+    @staticmethod
+    def _refresh_escalation_message(status):
+        return (
+            f"Escalating to full revalidation: {status['reason']} "
+            f"(cached_total={status['cached_total']}, scholar_total={status['scholar_total']})"
+        )
+
+    @staticmethod
     def _refresh_scholarly_session():
         """Soft session reset: only clear the 403 flag, preserve the httpx session
         and its accumulated cookies.  Creating a new httpx client would discard
@@ -1182,7 +1345,9 @@ class PaperCitationFetcher:
                                         num_citations, pub_url, pub_year, resume_from,
                                         completed_years=None, prev_scholar_count=0,
                                         partial_year_start=None, saved_dedup_count=0,
-                                        allow_incremental_early_stop=True):
+                                        allow_incremental_early_stop=True,
+                                        force_year_rebuild=False,
+                                        selective_refresh_years=None):
         """
         Stream-fetch citations with periodic progress saves.
         resume_from: previously saved citation list (for resume after interruption).
@@ -1194,6 +1359,9 @@ class PaperCitationFetcher:
         allow_incremental_early_stop: when True, update-mode year fetches may stop once
             the observed Scholar increase has been recovered. Recheck/full-scan flows
             should pass False so all remaining years are revalidated.
+        force_year_rebuild: when True, year-based fetch ignores cached year-bucket contents
+            and rebuilds fetched years from Scholar.
+        selective_refresh_years: optional list of years to refetch authoritatively.
         """
         citations = list(resume_from)
         # _dedup_count tracks Scholar's own duplicate results (same title, different metadata).
@@ -1244,6 +1412,8 @@ class PaperCitationFetcher:
                 citedby_url, citations, save_progress,
                 num_citations, pub_year, prev_scholar_count,
                 allow_incremental_early_stop=allow_incremental_early_stop,
+                force_year_rebuild=force_year_rebuild,
+                selective_refresh_years=selective_refresh_years,
             )
 
         # Simple fetch for small citation counts
@@ -1346,7 +1516,9 @@ class PaperCitationFetcher:
 
     def _fetch_by_year(self, citedby_url, citations, save_progress,
                         num_citations, pub_year, prev_scholar_count=0,
-                        allow_incremental_early_stop=True):
+                        allow_incremental_early_stop=True,
+                        force_year_rebuild=False,
+                        selective_refresh_years=None):
         """
         Fetch citations year-by-year. Skips completed years and uses
         start_index within partially completed years for efficient resume.
@@ -1354,6 +1526,8 @@ class PaperCitationFetcher:
         allow_incremental_early_stop: controls both update-mode incremental early stop
             and the corresponding newest→oldest fetch direction. Recheck/full-scan flows
             should pass False to force full revalidation order.
+        force_year_rebuild: when True, fetched years replace cached year slices.
+        selective_refresh_years: optional iterable of years to revalidate.
         """
         import re as _re
         m = _re.search(r"cites=([\d,]+)", citedby_url)
@@ -1368,6 +1542,12 @@ class PaperCitationFetcher:
         )
 
         current_year = datetime.now().year
+        selective_refresh_years = None if selective_refresh_years is None else set(selective_refresh_years)
+        if force_year_rebuild and selective_refresh_years is None:
+            citations = [c for c in citations if self._citation_year_value(c) is None]
+            year_counts = self._year_count_map(citations)
+            cached_year_counts = self._normalize_year_count_map(year_counts)
+            self._cached_year_counts = cached_year_counts
         if self._completed_year_segments:
             # Some years already done from a previous attempt in THIS run:
             # derive start_year directly from known state — no need to re-probe.
@@ -1449,6 +1629,19 @@ class PaperCitationFetcher:
         print(f"    Cache totals: total={cached_total_citations}, year_total={cached_year_total}, unyeared={cached_unyeared_citations}", flush=True)
         print(f"    Completed years: {self._format_year_set_summary(self._completed_year_segments)}", flush=True)
         print(f"    Partial resume points: {self._format_partial_year_start_summary(self._partial_year_start)}", flush=True)
+        if selective_refresh_years is None and can_skip_by_probe_counts and allow_incremental_early_stop:
+            selective_refresh_years = set(self._selective_refresh_candidate_years(
+                cached_year_counts,
+                probed_year_counts,
+                year_range,
+                partial_year_start=self._partial_year_start,
+            ))
+        if selective_refresh_years is not None and not selective_refresh_years and self._partial_year_start:
+            selective_refresh_years = {int(year) for year in self._partial_year_start.keys()}
+        if selective_refresh_years is None:
+            print("    Selective refresh years: none", flush=True)
+        else:
+            print(f"    Selective refresh years: {self._format_year_set_summary(selective_refresh_years)}", flush=True)
 
         if num_citations is not None and cached_total_citations == num_citations and not self._partial_year_start:
             years_to_mark = [year for year in year_range if year not in self._completed_year_segments]
@@ -1462,6 +1655,12 @@ class PaperCitationFetcher:
 
         try:
             for year in year_range:
+                if selective_refresh_years is not None and year not in selective_refresh_years and year not in self._partial_year_start:
+                    skipped_years += 1
+                    if force_year_rebuild:
+                        self._completed_year_segments.add(year)
+                    print(f"      Year {year}: skip (not selected for refresh)", flush=True)
+                    continue
                 if year in self._completed_year_segments:
                     skipped_years += 1
                     print(f"      Year {year}: skip (already completed earlier in this run)", flush=True)
@@ -1515,6 +1714,7 @@ class PaperCitationFetcher:
                 year_new_count = 0
                 year_items_seen = 0
                 stop_after_current_page = False
+                year_fetched_citations = [] if force_year_rebuild else None
 
                 # Per-year retry loop: handle captcha/blocks in-place so we avoid
                 # rebuilding the full paper state in the outer retry loop.
@@ -1542,6 +1742,8 @@ class PaperCitationFetcher:
                             else:
                                 seen_keys[dedup_key] = f"{info['title'][:50]} ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
                                 citations.append(info)
+                                if year_fetched_citations is not None:
+                                    year_fetched_citations.append(info)
                                 year_new_count += 1
                                 paper_new_count += 1
                                 self._new_citations_count += 1
@@ -1582,6 +1784,13 @@ class PaperCitationFetcher:
                         raise
 
                 # Year fully done: clear partial offset, record completion
+                if year_fetched_citations is not None:
+                    citations = self._replace_citation_year_bucket(citations, year, year_fetched_citations)
+                    seen_keys = {
+                        self._citation_identity_key(c): f"{c.get('title', '')[:50]} ({c.get('venue', 'N/A')}, {c.get('year', '?')})"
+                        for c in citations
+                    }
+                    cached_keys = {self._citation_identity_key(c): c for c in citations}
                 self._partial_year_start.pop(year, None)
                 self._completed_year_segments.add(year)
                 if year_new_count > 0:
@@ -1861,33 +2070,17 @@ class PaperCitationFetcher:
                 continue
 
             prev_scholar_count = 0
-            partial_year_start = {}  # only used in-memory for same-run retries
-            saved_dedup_count = 0
-            allow_incremental_early_stop = True
-            if st == 'partial' and cached:
-                resume_from = cached.get('citations', [])
-                # Preserve the previously recorded dedup count across rechecks.
-                saved_dedup_count = cached.get('dedup_count', 0)
-                old_scholar = cached.get('num_citations_on_scholar', cached.get('num_citations_cached', 0))
-                prev_scholar_count = old_scholar
-                if self.recheck_citations:
-                    # Recheck mode: clear completed_years to re-check all years
-                    completed_years = []
-                    allow_incremental_early_stop = False
-                    action = f"recheck ({len(resume_from)} cached, scholar={num_citations})"
-                elif old_scholar == num_citations:
-                    # Scholar count unchanged, resume from where we left off
-                    completed_years = cached.get('completed_years', [])
-                    action = f"resume ({len(resume_from)} cached, fetching remaining)"
-                else:
-                    # Scholar count changed: keep cached citations but clear completed_years
-                    # so all years are re-checked for new citations
-                    completed_years = []
-                    action = f"update ({len(resume_from)} cached, citations {old_scholar} -> {num_citations})"
-            else:
-                resume_from = []
-                completed_years = []
-                action = "first fetch"
+            attempt_state = self._resolve_refresh_strategy(pub, cached, st)
+            if attempt_state['prev_scholar_count']:
+                prev_scholar_count = attempt_state['prev_scholar_count']
+            partial_year_start = attempt_state['partial_year_start']
+            saved_dedup_count = attempt_state['saved_dedup_count']
+            allow_incremental_early_stop = attempt_state['allow_incremental_early_stop']
+            resume_from = attempt_state['resume_from']
+            completed_years = attempt_state['completed_years']
+            force_year_rebuild = attempt_state['force_year_rebuild']
+            selective_refresh_years = attempt_state['selective_refresh_years']
+            action = attempt_state['action']
 
             print(f"[{idx}/{len(publications)}] {title[:55]}...")
             print(f"  {action}")
@@ -1919,7 +2112,34 @@ class PaperCitationFetcher:
                         partial_year_start=partial_year_start,
                         saved_dedup_count=saved_dedup_count,
                         allow_incremental_early_stop=allow_incremental_early_stop,
+                        force_year_rebuild=force_year_rebuild,
+                        selective_refresh_years=selective_refresh_years,
                     )
+                    reconciliation = self._refresh_reconciliation_status(
+                        citations,
+                        num_citations,
+                        probed_year_counts=getattr(self, '_probed_year_counts', None),
+                        probe_complete=getattr(self, '_probed_year_count_complete', False),
+                    )
+                    if not reconciliation['ok'] and num_citations >= YEAR_BASED_THRESHOLD and not force_year_rebuild:
+                        print(f"  {self._refresh_escalation_message(reconciliation)}", flush=True)
+                        force_year_rebuild = True
+                        selective_refresh_years = None
+                        allow_incremental_early_stop = False
+                        resume_from = citations
+                        completed_years = []
+                        partial_year_start = {}
+                        continue
+                    if not reconciliation['ok'] and num_citations < YEAR_BASED_THRESHOLD and attempt == 1:
+                        print(f"  {self._refresh_escalation_message(reconciliation)}", flush=True)
+                        resume_from = []
+                        completed_years = []
+                        partial_year_start = {}
+                        saved_dedup_count = 0
+                        prev_scholar_count = 0
+                        allow_incremental_early_stop = False
+                        continue
+                    print(f"  {self._refresh_log_message('Refresh reconciliation', reconciliation)}", flush=True)
                     seen_total = len(citations) + self._dedup_count
                     dedup_str = f", {self._dedup_count} dupes" if self._dedup_count else ""
                     print(f"  Done: {len(citations)} cached, {seen_total} seen{dedup_str} (Scholar: {num_citations})")
@@ -2195,10 +2415,11 @@ class PaperCitationFetcher:
         fetched_str = f", {self._papers_fetched_count} fetched" if self._papers_fetched_count else ""
         new_str = f", {self._new_citations_count} new" if self._new_citations_count else ""
         print(f"\nDone! {len(final_results)}/{total_papers} papers{fetched_str}, "
-              f"{total_cites} total citation records{new_str}")
+              f"{total_cites} collected citation records{new_str}")
         print(f"Run summary: elapsed {self._elapsed_str()}"
               f" | {self._total_page_count} pages accessed"
-              f" | {self._new_citations_count} new citations\n")
+              f" | {self._new_citations_count} new citations"
+              f" | output total = collected per-paper citation records\n")
 
         return True
 

@@ -251,9 +251,10 @@ pub_obj = {
 - **2026-04-01** — 补充 year-based 抓取运行日志：在 `_probe_citation_start_year()` 中增加 histogram 年份分布摘要、histogram 完整/不完整说明、`pub_year` 是否参与 conservative `start_year` 回退等日志；在 `_fetch_by_year()` 中增加整体 year fetch context（mode、probe_complete、target、cached/probe/completed/partial year 摘要）以及逐年 skip / fetch / resume / done 的上下文日志，并在 early-stop 时标明发生的 year。新增 `test_citation_page_stop.py` 日志回归测试，验证 incomplete histogram、完整 histogram skip reason、resume year context 三类输出，`python -m unittest test_citation_page_stop.py` 通过。
 - **2026-04-02** — 调整 year-based fetch 的完整性判断与日志可读性：当 `cached_total_citations == scholar_total` 且当前没有 `partial_year_start` 断点时，`_fetch_by_year()` 直接采用 total-count fallback 跳过整篇论文的 year fetch，把 histogram 缺口解释为 citation 缺少年份元数据而非缺失缓存；同时新增对称的 `Probe totals` / `Cache totals` 诊断（分别输出 Scholar 总数、histogram 总数、missing-from-histogram 与 cached 总数、按年计数总和、unyeared），并把 year-based context 日志整理成更清晰的分组块（`Fetch context`、`Direction`、`Probe summary/totals`、`Cache summary/totals`、`Completed years`、`Partial resume points`），缩进加大，便于长输出中快速定位。`test_citation_page_stop.py` 新增 total-count fallback 与 partial-resume 覆盖，回归测试 `python -m unittest test_citation_page_stop.py` 通过。
 
----
+- **2026-04-03** — citation refresh 两阶段策略补齐：在 `_selective_refresh_candidate_years()` 中把 `partial_year_start` 断点年份纳入 changed-years 选择；`_fetch_by_year()` 在 update 模式且 probe histogram 完整时，会显式根据 `cached_year_counts` vs `probed_year_counts` 自动计算 `selective_refresh_years`，优先只刷新发生变化的年份，而不是直接整段重抓；同时把大论文 `--recheck-citations` 的策略收敛为显式 `force_year_rebuild=True`，避免用空 `selective_refresh_years` 表达“全量重检”这种歧义语义。
+- **2026-04-03** — 新增 `_run_main_loop()` escalation 回归测试：`test_citation_page_stop.py` 增加 “第一次 incremental/year-selective fetch 后 reconciliation 失败，再自动升级为 full year revalidation 并成功” 的 orchestration 测试；同时修复测试基础设施里的等待假挂起问题（mock `rand_delay` / `time.sleep` / `_wait_proxy_switch`）和缺失的 `_papers_fetched_count` 初始化。验证通过：`python -m unittest test_citation_page_stop.py`（23 tests, OK）。
 
-## scholarly 内部实现笔记
+---
 
 ### 源码位置
 `<python-env>/lib/python3.11/site-packages/scholarly/`
