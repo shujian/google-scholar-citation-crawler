@@ -991,6 +991,20 @@ class PaperCitationFetcher:
             return list(fresh_citations)
         return self._overlay_citations_by_identity(old_citations, fresh_citations)
 
+    def _materialize_year_fetch_citations(self, old_citations, refreshed_year_buckets,
+                                          refreshed_unyeared=None):
+        materialized = list(old_citations)
+        touched_years = sorted(year for year in refreshed_year_buckets.keys() if year is not None)
+        for year in touched_years:
+            materialized = self._replace_citation_year_bucket(
+                materialized,
+                year,
+                refreshed_year_buckets.get(year, []),
+            )
+        if refreshed_unyeared is not None:
+            materialized = self._replace_citation_year_bucket(materialized, None, refreshed_unyeared)
+        return materialized
+
     @staticmethod
     def _citation_year_buckets(citations):
         buckets = {}
@@ -1010,49 +1024,59 @@ class PaperCitationFetcher:
             if year in partial_years or cached_year_counts.get(year, 0) != probed_year_counts.get(year, 0)
         ]
 
+    @staticmethod
+    def _build_citation_count_summary(citations, scholar_total=None, probed_year_counts=None,
+                                      probe_complete=False, dedup_count=0):
+        cached_total = len(citations or [])
+        cached_year_counts = PaperCitationFetcher._year_count_map(citations or [])
+        cached_year_total = sum(cached_year_counts.values())
+        cached_unyeared_count = max(0, cached_total - cached_year_total)
+        normalized_probed_year_counts = PaperCitationFetcher._normalize_year_count_map(probed_year_counts)
+        histogram_total = sum(normalized_probed_year_counts.values())
+        unyeared_count = None
+        if scholar_total is not None:
+            unyeared_count = max(0, scholar_total - histogram_total)
+        return {
+            'scholar_total': scholar_total,
+            'histogram_total': histogram_total,
+            'cached_total': cached_total,
+            'cached_year_total': cached_year_total,
+            'cached_unyeared_count': cached_unyeared_count,
+            'dedup_count': int(dedup_count or 0),
+            'probe_complete': bool(probe_complete),
+            'unyeared_count': unyeared_count,
+            'cached_year_counts': cached_year_counts,
+            'probed_year_counts': normalized_probed_year_counts,
+        }
+
     def _refresh_reconciliation_status(self, citations, num_citations,
                                        probed_year_counts=None, probe_complete=False):
-        cached_total = len(citations)
-        cached_year_counts = self._year_count_map(citations)
-        probed_year_counts = self._normalize_year_count_map(probed_year_counts)
-
-        if num_citations is not None and cached_total != num_citations:
-            return {
-                'ok': False,
-                'reason': 'total_count_mismatch',
-                'cached_total': cached_total,
-                'scholar_total': num_citations,
-                'cached_year_counts': cached_year_counts,
-                'probed_year_counts': probed_year_counts,
-            }
+        count_summary = self._build_citation_count_summary(
+            citations,
+            scholar_total=num_citations,
+            probed_year_counts=probed_year_counts,
+            probe_complete=probe_complete,
+            dedup_count=getattr(self, '_dedup_count', 0),
+        )
+        status = {
+            'ok': False,
+            'reason': 'histogram_incomplete',
+            **count_summary,
+        }
 
         if probe_complete:
-            if cached_year_counts == probed_year_counts:
-                return {
+            if count_summary['cached_year_counts'] == count_summary['probed_year_counts']:
+                status.update({
                     'ok': True,
                     'reason': 'matched_complete_histogram',
-                    'cached_total': cached_total,
-                    'scholar_total': num_citations,
-                    'cached_year_counts': cached_year_counts,
-                    'probed_year_counts': probed_year_counts,
-                }
-            return {
-                'ok': False,
-                'reason': 'year_count_mismatch',
-                'cached_total': cached_total,
-                'scholar_total': num_citations,
-                'cached_year_counts': cached_year_counts,
-                'probed_year_counts': probed_year_counts,
-            }
+                })
+            else:
+                status.update({
+                    'reason': 'year_count_mismatch',
+                })
+            return status
 
-        return {
-            'ok': True,
-            'reason': 'matched_total_with_incomplete_histogram',
-            'cached_total': cached_total,
-            'scholar_total': num_citations,
-            'cached_year_counts': cached_year_counts,
-            'probed_year_counts': probed_year_counts,
-        }
+        return status
 
     @staticmethod
     def _rehydrate_probe_metadata(cached, current_scholar_total):
@@ -1062,7 +1086,11 @@ class PaperCitationFetcher:
         probe_complete = False
         if normalized_counts:
             cached_probe_complete = (cached or {}).get('probe_complete') is True
-            histogram_total = sum(normalized_counts.values())
+            histogram_total = (cached or {}).get('probed_year_total')
+            try:
+                histogram_total = int(histogram_total)
+            except (TypeError, ValueError):
+                histogram_total = sum(normalized_counts.values())
             if cached_probe_complete and current_scholar_total is not None and histogram_total == current_scholar_total:
                 probe_complete = True
         return normalized_counts or None, probe_complete
@@ -1131,14 +1159,18 @@ class PaperCitationFetcher:
     def _refresh_log_message(prefix, status):
         return (
             f"{prefix}: {status['reason']} "
-            f"(cached_total={status['cached_total']}, scholar_total={status['scholar_total']})"
+            f"(scholar_total={status.get('scholar_total')}, year_sum={status.get('histogram_total', '?')}, "
+            f"cached_total={status.get('cached_total')}, cached_year_sum={status.get('cached_year_total', '?')}, "
+            f"dedup_num={status.get('dedup_count', 0)})"
         )
 
     @staticmethod
     def _refresh_escalation_message(status):
         return (
             f"Escalating to full revalidation: {status['reason']} "
-            f"(cached_total={status['cached_total']}, scholar_total={status['scholar_total']})"
+            f"(scholar_total={status.get('scholar_total')}, year_sum={status.get('histogram_total', '?')}, "
+            f"cached_total={status.get('cached_total')}, cached_year_sum={status.get('cached_year_total', '?')}, "
+            f"dedup_num={status.get('dedup_count', 0)})"
         )
 
     @staticmethod
@@ -1371,7 +1403,7 @@ class PaperCitationFetcher:
                 parts.append('...')
             else:
                 parts.append(f"{year}:{count}")
-        return (f"{len(items)} years, total={total}, nonzero={len(nonzero)}, "
+        return (f"{len(items)} years, total={total}, years_with_citations={len(nonzero)}, "
                 f"range={items[0][0]}-{items[-1][0]} [{', '.join(parts)}]")
 
     @staticmethod
@@ -1441,7 +1473,16 @@ class PaperCitationFetcher:
 
         def save_progress(complete):
             citations_to_save = materialized_citations(complete)
+            if not citations_to_save and old_citations:
+                citations_to_save = list(old_citations)
             self._cached_year_counts = self._year_count_map(citations_to_save)
+            count_summary = self._build_citation_count_summary(
+                citations_to_save,
+                scholar_total=num_citations,
+                probed_year_counts=self._probed_year_counts,
+                probe_complete=self._probed_year_count_complete,
+                dedup_count=self._dedup_count,
+            )
             with open(cache_path, 'w', encoding='utf-8') as f:
                 json.dump({
                     'title': title,
@@ -1459,7 +1500,19 @@ class PaperCitationFetcher:
                     'probed_year_counts': self._dump_year_count_map(
                         self._normalize_year_count_map(self._probed_year_counts)
                     ),
+                    'probed_year_total': count_summary['histogram_total'],
                     'cached_year_counts': self._dump_year_count_map(self._cached_year_counts),
+                    'cached_unyeared_count': count_summary['cached_unyeared_count'],
+                    'citation_count_summary': {
+                        'scholar_total': count_summary['scholar_total'],
+                        'histogram_total': count_summary['histogram_total'],
+                        'cached_total': count_summary['cached_total'],
+                        'cached_year_total': count_summary['cached_year_total'],
+                        'cached_unyeared_count': count_summary['cached_unyeared_count'],
+                        'dedup_count': count_summary['dedup_count'],
+                        'unyeared_count': count_summary['unyeared_count'],
+                        'probe_complete': count_summary['probe_complete'],
+                    },
                     'fetched_at': datetime.now().isoformat(),
                     'citations': citations_to_save,
                 }, f, ensure_ascii=False, indent=2)
@@ -1591,35 +1644,40 @@ class PaperCitationFetcher:
         old_year_buckets = self._citation_year_buckets(old_citations)
         fresh_year_buckets = self._citation_year_buckets(fresh_citations)
         fresh_unyeared = list(fresh_year_buckets.pop(None, []))
-        untouched_old_unyeared = list(old_year_buckets.get(None, []))
 
         def current_citations(complete=False):
-            citations = list(fresh_unyeared)
             if not complete:
-                citations.extend(untouched_old_unyeared)
-            touched_years = set(fresh_year_buckets.keys())
-            all_years = sorted({year for year in old_year_buckets.keys() if year is not None} | touched_years)
-            for year in all_years:
-                if year in fresh_year_buckets:
-                    citations.extend(fresh_year_buckets[year])
-                elif not complete:
-                    citations.extend(old_year_buckets.get(year, []))
-            return citations
+                return self._overlay_citations_by_identity(
+                    old_citations,
+                    fresh_unyeared + [
+                        citation
+                        for year in sorted(fresh_year_buckets.keys())
+                        for citation in fresh_year_buckets[year]
+                    ],
+                )
+            refreshed_unyeared = fresh_unyeared if fresh_unyeared else None
+            return self._materialize_year_fetch_citations(
+                old_citations,
+                fresh_year_buckets,
+                refreshed_unyeared=refreshed_unyeared,
+            )
 
-        # Build year -> cached count from existing citations
         year_counts = self._year_count_map(old_citations)
-        cached_year_counts = self._normalize_year_count_map(
-            getattr(self, '_cached_year_counts', None) or year_counts
+        cached_summary = self._build_citation_count_summary(
+            old_citations,
+            scholar_total=num_citations,
+            probed_year_counts=getattr(self, '_probed_year_counts', None),
+            probe_complete=getattr(self, '_probed_year_count_complete', False),
+            dedup_count=getattr(self, '_dedup_count', 0),
         )
+        cached_year_counts = self._normalize_year_count_map(getattr(self, '_cached_year_counts', None))
+        if not cached_year_counts:
+            cached_year_counts = cached_summary['cached_year_counts']
 
         current_year = datetime.now().year
         selective_refresh_years = None if selective_refresh_years is None else set(selective_refresh_years)
-        if force_year_rebuild and selective_refresh_years is None:
-            old_year_buckets = {None: list(old_year_buckets.get(None, []))}
-            untouched_old_unyeared = list(old_year_buckets.get(None, []))
-            year_counts = self._year_count_map(untouched_old_unyeared)
-            cached_year_counts = self._normalize_year_count_map(year_counts)
-            self._cached_year_counts = cached_year_counts
+        explicit_refresh_years = set(selective_refresh_years or ())
+        explicit_refresh_years.update(int(year) for year in self._partial_year_start.keys())
         if self._completed_year_segments:
             start_year = min(self._completed_year_segments)
             if year_counts:
@@ -1668,18 +1726,25 @@ class PaperCitationFetcher:
 
         probed_year_counts = self._normalize_year_count_map(self._probed_year_counts)
         can_skip_by_probe_counts = getattr(self, '_probed_year_count_complete', False)
-        cached_total_citations = len(old_citations)
-        cached_year_total = sum(cached_year_counts.values())
-        cached_unyeared_citations = max(0, cached_total_citations - cached_year_total)
-        probed_hist_total = sum(probed_year_counts.values())
-        probed_missing_from_histogram = None if num_citations is None else max(0, num_citations - probed_hist_total)
+        count_summary = self._build_citation_count_summary(
+            old_citations,
+            scholar_total=num_citations,
+            probed_year_counts=probed_year_counts,
+            probe_complete=can_skip_by_probe_counts,
+            dedup_count=getattr(self, '_dedup_count', 0),
+        )
+        cached_total_citations = count_summary['cached_total']
+        cached_year_total = count_summary['cached_year_total']
+        cached_unyeared_citations = count_summary['cached_unyeared_count']
+        probed_hist_total = count_summary['histogram_total']
+        probed_missing_from_histogram = count_summary['unyeared_count']
         print(f"    Probe summary: {self._format_year_count_summary(probed_year_counts)}", flush=True)
         if num_citations is None:
-            print(f"    Probe totals: scholar_total=?, histogram_total={probed_hist_total}, missing_from_histogram=?", flush=True)
+            print(f"    Probe totals: scholar_total=?, year_sum={probed_hist_total}, missing_from_histogram=?", flush=True)
         else:
-            print(f"    Probe totals: scholar_total={num_citations}, histogram_total={probed_hist_total}, missing_from_histogram={probed_missing_from_histogram}", flush=True)
+            print(f"    Probe totals: scholar_total={num_citations}, year_sum={probed_hist_total}, missing_from_histogram={probed_missing_from_histogram}", flush=True)
         print(f"    Cache summary: {self._format_year_count_summary(cached_year_counts)}", flush=True)
-        print(f"    Cache totals: total={cached_total_citations}, year_total={cached_year_total}, unyeared={cached_unyeared_citations}", flush=True)
+        print(f"    Cache totals: cached_total={cached_total_citations}, cached_year_sum={cached_year_total}, cached_unyeared={cached_unyeared_citations}, dedup_num={self._dedup_count}", flush=True)
         print(f"    Completed years: {self._format_year_set_summary(self._completed_year_segments)}", flush=True)
         print(f"    Partial resume points: {self._format_partial_year_start_summary(self._partial_year_start)}", flush=True)
         if selective_refresh_years is None and can_skip_by_probe_counts and allow_incremental_early_stop:
@@ -1691,30 +1756,31 @@ class PaperCitationFetcher:
             ))
         if selective_refresh_years is not None and not selective_refresh_years and self._partial_year_start:
             selective_refresh_years = {int(year) for year in self._partial_year_start.keys()}
+        effective_refresh_years = set(selective_refresh_years or ())
+        effective_refresh_years.update(int(year) for year in self._partial_year_start.keys())
         if selective_refresh_years is None:
             print("    Selective refresh years: none", flush=True)
         else:
             print(f"    Selective refresh years: {self._format_year_set_summary(selective_refresh_years)}", flush=True)
 
-        if num_citations is not None and cached_total_citations == num_citations and not self._partial_year_start:
+        if can_skip_by_probe_counts and cached_year_counts == probed_year_counts and not self._partial_year_start:
             years_to_mark = [year for year in year_range if year not in self._completed_year_segments]
             if years_to_mark:
                 self._completed_year_segments.update(years_to_mark)
-            print(f"  Year fetch skipped: total-count fallback (cached_total={cached_total_citations}, "
-                  f"scholar_total={num_citations}); histogram gaps are treated as citations without usable year metadata", flush=True)
+            print(f"  Year fetch skipped: histogram-authoritative match (scholar_total={num_citations}, year_sum={probed_hist_total}, cached_total={cached_total_citations}, cached_year_sum={cached_year_total}, dedup_num={self._dedup_count})", flush=True)
             save_progress(complete=False)
             save_progress(complete=True)
             return current_citations(complete=True)
 
         try:
             for year in year_range:
-                if selective_refresh_years is not None and year not in selective_refresh_years and year not in self._partial_year_start:
+                if selective_refresh_years is not None and year not in effective_refresh_years:
                     skipped_years += 1
                     if force_year_rebuild:
                         self._completed_year_segments.add(year)
                     print(f"      Year {year}: skip (not selected for refresh)", flush=True)
                     continue
-                if year in self._completed_year_segments:
+                if year in self._completed_year_segments and year not in effective_refresh_years:
                     skipped_years += 1
                     print(f"      Year {year}: skip (already completed earlier in this run)", flush=True)
                     continue
@@ -1948,19 +2014,29 @@ class PaperCitationFetcher:
             return 'partial'
 
         current = pub['num_citations']
+        probed_year_counts = self._normalize_year_count_map(cached.get('probed_year_counts'))
+        probe_complete = cached.get('probe_complete') is True and bool(probed_year_counts)
+        if probe_complete:
+            cached_year_counts = self._normalize_year_count_map(cached.get('cached_year_counts'))
+            if not cached_year_counts:
+                cached_year_counts = self._year_count_map(cached.get('citations', []))
+            cached_hist_total = sum(cached_year_counts.values())
+            probed_hist_total = cached.get('probed_year_total')
+            try:
+                probed_hist_total = int(probed_hist_total)
+            except (TypeError, ValueError):
+                probed_hist_total = sum(probed_year_counts.values())
+            if cached_year_counts == probed_year_counts and current >= probed_hist_total:
+                return 'complete'
+            return 'partial'
 
-        # Primary check: num_citations_seen = cached + deduped.
-        # If we've seen >= Scholar count, we have everything (dedup accounts for the gap).
-        # This works for both normal and force mode without ambiguity.
+        # Legacy fallback for caches without authoritative histogram metadata.
         num_seen = cached.get('num_citations_seen')
         if num_seen is not None:
             if num_seen >= current:
                 return 'complete'
             return 'partial'
 
-        # Fallback for caches without num_citations_seen (fetched before this change):
-        # Normal mode: compare Scholar count at last completion vs current.
-        # Force mode: compare actual cached count vs current.
         actual_cached = cached.get('num_citations_cached', len(cached.get('citations', [])))
         if self.recheck_citations:
             if actual_cached >= current:
@@ -2195,6 +2271,13 @@ class PaperCitationFetcher:
                     seen_total = len(citations) + self._dedup_count
                     dedup_str = f", {self._dedup_count} dupes" if self._dedup_count else ""
                     print(f"  Done: {len(citations)} cached, {seen_total} seen{dedup_str} (Scholar: {num_citations})")
+                    year_counts = self._year_count_map(citations)
+                    if year_counts:
+                        year_total = sum(year_counts.values())
+                        unyeared = max(0, len(citations) - year_total)
+                        year_summary = self._format_year_count_summary(year_counts)
+                        unyeared_suffix = f", unyeared={unyeared}" if unyeared else ""
+                        print(f"  Year summary: {year_summary}{unyeared_suffix}", flush=True)
                     self._papers_fetched_count += 1
                     break
                 except Exception as e:

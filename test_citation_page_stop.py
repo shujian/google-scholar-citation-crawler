@@ -567,6 +567,7 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertEqual(citations, [])
         self.assertIn("    Probe summary:", output)
         self.assertIn("    Cache summary:", output)
+        self.assertIn("years_with_citations=1", output)
         self.assertIn("skip (probe count=0, probe_complete=True)", output)
         self.assertIn("histogram count match", output)
 
@@ -614,13 +615,12 @@ class CitationPageStopTests(unittest.TestCase):
 
         output = fake_stdout.getvalue()
         self.assertEqual(requests, [])
-        self.assertEqual(citations, [])
+        self.assertEqual([c["title"] for c in citations], ["Y2025", "Y2024", "NoYear"])
         self.assertEqual(save_calls, [False, True])
-        self.assertIn("    Probe totals: scholar_total=3, histogram_total=2, missing_from_histogram=1", output)
-        self.assertIn("    Cache totals: total=3, year_total=2, unyeared=1", output)
-        self.assertIn("Year fetch skipped: total-count fallback", output)
-        self.assertIn("cached_total=3, scholar_total=3", output)
-        self.assertIn("citations without usable year metadata", output)
+        self.assertIn("    Probe totals: scholar_total=3, year_sum=2, missing_from_histogram=1", output)
+        self.assertIn("    Cache totals: cached_total=3, cached_year_sum=2, cached_unyeared=1, dedup_num=0", output)
+        self.assertIn("Year fetch skipped: histogram-authoritative match", output)
+        self.assertIn("scholar_total=3, year_sum=2, cached_total=3, cached_year_sum=2, dedup_num=0", output)
 
     def test_total_count_match_does_not_skip_when_partial_resume_exists(self):
         cached_citations = [
@@ -817,6 +817,81 @@ class CitationPageStopTests(unittest.TestCase):
         )
         self.assertEqual(self.fetcher._year_count_map(merged), {2023: 1, 2024: 3})
 
+    def test_materialize_year_fetch_citations_preserves_untouched_years(self):
+        old_citations = [
+            {"title": "Old-2024-A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+            {"title": "Keep-2023", "authors": "B", "venue": "V", "year": "2023", "url": "u2"},
+            {"title": "Keep-NY", "authors": "C", "venue": "V", "year": "N/A", "url": "u3"},
+        ]
+        materialized = self.fetcher._materialize_year_fetch_citations(
+            old_citations,
+            {2024: [
+                {"title": "New-2024-A", "authors": "A", "venue": "V2", "year": "2024", "url": "u4"},
+                {"title": "New-2024-B", "authors": "D", "venue": "V2", "year": "2024", "url": "u5"},
+            ]},
+            refreshed_unyeared=[{"title": "Keep-NY", "authors": "C", "venue": "V", "year": "N/A", "url": "u3"}],
+        )
+
+        self.assertEqual(
+            [c["title"] for c in materialized],
+            ["Keep-2023", "New-2024-A", "New-2024-B", "Keep-NY"],
+        )
+
+    def test_selective_refresh_overrides_completed_year_skip(self):
+        self.fetcher._completed_year_segments = {2024}
+        self.fetcher._probed_year_counts = {2024: 2}
+        self.fetcher._probed_year_count_complete = True
+        self.fetcher._cached_year_counts = {2024: 1}
+        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2024
+
+        requests = []
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                requests.append(url)
+                self.items = [{
+                    "bib": {"title": "Fetched-2024", "author": ["A"], "venue": "V2024", "pub_year": "2024"},
+                    "pub_url": "u2024",
+                }]
+                self.index = 0
+                self._finished_current_page = False
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                    raise StopIteration
+                item = self.items[self.index]
+                self.index += 1
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                return item
+
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch.object(scholar_citation, "datetime") as fake_datetime, \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            fake_datetime.now.return_value = types.SimpleNamespace(year=2024)
+            citations = self.fetcher._fetch_by_year(
+                citedby_url="/scholar?cites=123",
+                old_citations=[{"title": "Old-2024", "authors": "A", "venue": "V", "year": "2024", "url": "u-old"}],
+                fresh_citations=[],
+                save_progress=lambda complete: None,
+                num_citations=2,
+                pub_year="2024",
+                prev_scholar_count=0,
+                allow_incremental_early_stop=False,
+                selective_refresh_years={2024},
+            )
+
+        output = fake_stdout.getvalue()
+        self.assertEqual(len(requests), 1)
+        self.assertEqual([c["title"] for c in citations], ["Fetched-2024"])
+        self.assertIn("Selective refresh years: 2024", output)
+        self.assertIn("Year 2024: fetching", output)
+        self.assertNotIn("skip (already completed earlier in this run)", output)
+
     def test_refresh_reconciliation_accepts_matching_complete_histogram(self):
         status = self.fetcher._refresh_reconciliation_status(
             citations=[
@@ -824,13 +899,16 @@ class CitationPageStopTests(unittest.TestCase):
                 {"title": "B", "authors": "B", "venue": "V", "year": "2025", "url": "u2"},
                 {"title": "C", "authors": "C", "venue": "V", "year": "2025", "url": "u3"},
             ],
-            num_citations=3,
+            num_citations=5,
             probed_year_counts={2024: 1, 2025: 2},
             probe_complete=True,
         )
 
         self.assertTrue(status["ok"])
         self.assertEqual(status["reason"], "matched_complete_histogram")
+        self.assertEqual(status["histogram_total"], 3)
+        self.assertEqual(status["unyeared_count"], 2)
+        self.assertEqual(status["cached_year_total"], 3)
 
     def test_refresh_reconciliation_requests_escalation_on_histogram_mismatch(self):
         status = self.fetcher._refresh_reconciliation_status(
@@ -839,15 +917,16 @@ class CitationPageStopTests(unittest.TestCase):
                 {"title": "B", "authors": "B", "venue": "V", "year": "2025", "url": "u2"},
                 {"title": "C", "authors": "C", "venue": "V", "year": "2025", "url": "u3"},
             ],
-            num_citations=3,
+            num_citations=5,
             probed_year_counts={2024: 2, 2025: 1},
             probe_complete=True,
         )
 
         self.assertFalse(status["ok"])
         self.assertEqual(status["reason"], "year_count_mismatch")
+        self.assertEqual(status["histogram_total"], 3)
 
-    def test_refresh_reconciliation_uses_total_only_when_histogram_incomplete(self):
+    def test_refresh_reconciliation_keeps_histogram_incomplete_status_when_probe_incomplete(self):
         status = self.fetcher._refresh_reconciliation_status(
             citations=[
                 {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
@@ -859,8 +938,10 @@ class CitationPageStopTests(unittest.TestCase):
             probe_complete=False,
         )
 
-        self.assertTrue(status["ok"])
-        self.assertEqual(status["reason"], "matched_total_with_incomplete_histogram")
+        self.assertFalse(status["ok"])
+        self.assertEqual(status["reason"], "histogram_incomplete")
+        self.assertEqual(status["histogram_total"], 1)
+        self.assertEqual(status["cached_unyeared_count"], 2)
 
     def test_rehydrate_probe_metadata_marks_complete_only_when_safe(self):
         counts, probe_complete = self.fetcher._rehydrate_probe_metadata(
@@ -935,8 +1016,56 @@ class CitationPageStopTests(unittest.TestCase):
             self.assertEqual(saved["probed_year_counts"], {"2024": 1, "2025": 1})
             self.assertTrue(saved["probe_complete"])
             self.assertEqual(saved["completed_years"], [2024])
+            self.assertEqual(saved["probed_year_total"], 2)
+            self.assertEqual(saved["cached_unyeared_count"], 0)
+            self.assertEqual(saved["citation_count_summary"]["scholar_total"], 2)
+            self.assertEqual(saved["citation_count_summary"]["histogram_total"], 2)
+            self.assertEqual(saved["citation_count_summary"]["cached_total"], 2)
+            self.assertEqual(saved["citation_count_summary"]["cached_year_total"], 2)
+            self.assertEqual(saved["citation_count_summary"]["dedup_count"], 0)
 
-    def test_run_main_loop_retry_rehydrates_probe_metadata_from_latest_cache(self):
+    def test_citation_status_stays_complete_when_only_unyeared_gap_changes(self):
+        pub = {"title": "Paper", "num_citations": 5}
+        cached = {
+            "complete": True,
+            "probed_year_counts": {"2024": 1, "2025": 2},
+            "probed_year_total": 3,
+            "probe_complete": True,
+            "cached_year_counts": {"2024": 1, "2025": 2},
+            "citations": [
+                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+                {"title": "B", "authors": "B", "venue": "V", "year": "2025", "url": "u2"},
+                {"title": "C", "authors": "C", "venue": "V", "year": "2025", "url": "u3"},
+            ],
+            "num_citations_on_scholar": 4,
+            "num_citations_seen": 3,
+        }
+
+        with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
+            status = self.fetcher._citation_status(pub)
+
+        self.assertEqual(status, "complete")
+
+    def test_citation_status_marks_partial_when_histogram_changes(self):
+        pub = {"title": "Paper", "num_citations": 5}
+        cached = {
+            "complete": True,
+            "probed_year_counts": {"2024": 1, "2025": 3},
+            "probed_year_total": 4,
+            "probe_complete": True,
+            "cached_year_counts": {"2024": 1, "2025": 2},
+            "citations": [
+                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+                {"title": "B", "authors": "B", "venue": "V", "year": "2025", "url": "u2"},
+                {"title": "C", "authors": "C", "venue": "V", "year": "2025", "url": "u3"},
+            ],
+        }
+
+        with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
+            status = self.fetcher._citation_status(pub)
+
+        self.assertEqual(status, "partial")
+
         pub = {
             "no": 1,
             "title": "Big Paper",
@@ -1004,6 +1133,64 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertEqual(fetch_calls[1]["saved_dedup_count"], 3)
         self.assertEqual(fetch_calls[1]["rehydrated_probed_year_counts"], {2024: 1, 2025: 79})
         self.assertTrue(fetch_calls[1]["rehydrated_probe_complete"])
+
+    def test_run_main_loop_logs_final_year_summary_when_years_present(self):
+        pub = {
+            "no": 1,
+            "title": "Big Paper",
+            "num_citations": 3,
+            "year": "2024",
+            "venue": "V",
+        }
+        cached = None
+        publications = [pub]
+        results = []
+        final_citations = [
+            {"title": "Y2025", "authors": "A", "venue": "V1", "year": "2025", "url": "u1"},
+            {"title": "Y2024", "authors": "B", "venue": "V2", "year": "2024", "url": "u2"},
+            {"title": "NoYear", "authors": "C", "venue": "V3", "year": "N/A", "url": "u3"},
+        ]
+
+        def cache_status(current_pub):
+            self.assertEqual(current_pub["title"], pub["title"])
+            return "missing", cached
+
+        with patch.object(self.fetcher, "_resolve_refresh_strategy", return_value={
+                "mode": "missing",
+                "resume_from": [],
+                "completed_years": [],
+                "partial_year_start": {},
+                "saved_dedup_count": 0,
+                "allow_incremental_early_stop": True,
+                "force_year_rebuild": False,
+                "selective_refresh_years": None,
+                "rehydrated_probed_year_counts": None,
+                "rehydrated_probe_complete": False,
+                "action": "first fetch",
+                "prev_scholar_count": 0,
+             }), \
+             patch.object(self.fetcher, "_fetch_citations_with_progress", return_value=final_citations), \
+             patch.object(self.fetcher, "_refresh_reconciliation_status", return_value={"ok": True, "reason": "matched_total_with_incomplete_histogram", "cached_total": 3, "scholar_total": 3}), \
+             patch("scholar_citation.rand_delay", return_value=0), \
+             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            self.fetcher._run_main_loop(
+                publications=publications,
+                cache_status=cache_status,
+                url_map={pub["title"]: {"citedby_url": "/scholar?cites=123", "pub_url": "https://example.com/paper"}},
+                need_fetch=[(pub, "missing", cached)],
+                results=results,
+                fetch_idx=0,
+            )
+
+        output = fake_stdout.getvalue()
+        self.assertIn("Done: 3 cached, 3 seen (Scholar: 3)", output)
+        self.assertIn("Year summary:", output)
+        self.assertIn("years_with_citations=2", output)
+        self.assertIn("range=2024-2025 [2024:1, 2025:1]", output)
+        self.assertIn("unyeared=1", output)
+        self.assertEqual(results[0]["citations"], final_citations)
+        self.assertEqual(self.fetcher._papers_fetched_count, 1)
 
     def test_run_main_loop_escalates_year_refresh_after_failed_reconciliation(self):
         pub = {
