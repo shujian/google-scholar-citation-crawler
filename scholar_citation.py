@@ -1108,6 +1108,8 @@ class PaperCitationFetcher:
                 'allow_incremental_early_stop': True,
                 'force_year_rebuild': False,
                 'selective_refresh_years': None,
+                'rehydrated_probed_year_counts': None,
+                'rehydrated_probe_complete': False,
                 'action': 'first fetch',
             }
 
@@ -1642,6 +1644,10 @@ class PaperCitationFetcher:
         pub_id = m.group(1)
 
         old_year_buckets = self._citation_year_buckets(old_citations)
+        old_cache_identity_keys = {
+            self._citation_identity_key(citation)
+            for citation in old_citations
+        }
         fresh_year_buckets = self._citation_year_buckets(fresh_citations)
         fresh_unyeared = list(fresh_year_buckets.pop(None, []))
 
@@ -1827,6 +1833,7 @@ class PaperCitationFetcher:
                 year_new_count = 0
                 year_items_seen = 0
                 stop_after_current_page = False
+                year_progress_saved = False
                 existing_year_fresh = list(fresh_year_buckets.get(year, [])) if start_index > 0 else []
                 year_seen_keys = {
                     self._citation_identity_key(c): f"{c.get('title', '')[:50]} ({c.get('venue', 'N/A')}, {c.get('year', '?')}) [fresh]"
@@ -1845,6 +1852,7 @@ class PaperCitationFetcher:
                         year_url_cur = year_url
                     try:
                         iterator = _SearchScholarIterator(nav, year_url_cur)
+                        page_save_emitted = False
                         for citing in iterator:
                             year_items_seen += 1
                             self._partial_year_start[year] = start_index + year_items_seen
@@ -1859,17 +1867,18 @@ class PaperCitationFetcher:
                                 year_fetched_citations.append(info)
                                 fresh_year_buckets[year] = list(year_fetched_citations)
                                 fresh_citations[:] = current_citations(complete=True)
-                                year_new_count += 1
-                                paper_new_count += 1
-                                self._new_citations_count += 1
+                                if dedup_key not in old_cache_identity_keys:
+                                    year_new_count += 1
+                                    paper_new_count += 1
+                                    self._new_citations_count += 1
                                 count = len(fresh_citations)
 
                                 print(f"  [{count}] {info['title'][:55]}...", flush=True)
 
-                                if count % self.save_every == 0:
-                                    save_progress(complete=False)
-                                    print(f"  Progress saved ({count} citations, "
-                                          f"{self._new_citations_count} new in this run)", flush=True)
+                            if getattr(iterator, '_finished_current_page', False) and not page_save_emitted:
+                                save_progress(complete=False)
+                                page_save_emitted = True
+                                year_progress_saved = True
 
                             stop_status = self._get_early_stop_status(
                                 len(current_citations(complete=False)), num_citations, paper_new_count,
@@ -1907,7 +1916,8 @@ class PaperCitationFetcher:
                     print(f"      Year {year} done: no new citations", flush=True)
                 print(f"      Year {year} status: paper_total={len(current_citations(complete=False))}, paper_new={paper_new_count}, "
                       f"pages={self._total_page_count}, skipped_years={skipped_years}", flush=True)
-                save_progress(complete=False)
+                if not year_progress_saved:
+                    save_progress(complete=False)
 
                 stop_status = self._get_early_stop_status(
                     len(current_citations(complete=False)), num_citations, paper_new_count,

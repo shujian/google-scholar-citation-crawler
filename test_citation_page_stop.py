@@ -299,8 +299,7 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertEqual([c["title"] for c in citations], ["Page1-A", "Page1-B", "Page1-C"])
         self.assertEqual(requests, [(2026, 0)])
         self.assertEqual(self.fetcher._new_citations_count, 3)
-        self.assertTrue(save_calls)
-        self.assertTrue(save_calls[-1])
+        self.assertEqual(save_calls, [False, True])
     def test_recheck_mode_does_not_stop_after_recovering_scholar_increase(self):
         pages = {
             (2026, 0): [
@@ -837,7 +836,62 @@ class CitationPageStopTests(unittest.TestCase):
             ["Keep-2023", "New-2024-A", "New-2024-B", "Keep-NY"],
         )
 
-    def test_selective_refresh_overrides_completed_year_skip(self):
+    def test_selective_refresh_does_not_early_stop_after_refetching_cached_citation(self):
+        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2024
+        pages = {
+            (2025, 0): [
+                {"bib": {"title": "Cached-2025", "author": ["A"], "venue": "V2025", "pub_year": "2025"}, "pub_url": "u-cached"},
+            ],
+            (2024, 0): [
+                {"bib": {"title": "New-2024", "author": ["B"], "venue": "V2024", "pub_year": "2024"}, "pub_url": "u-new"},
+            ],
+        }
+        requests = []
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                start = 0
+                if "start=" in url:
+                    start = int(url.split("start=")[1].split("&")[0])
+                year = int(url.split("as_ylo=")[1].split("&")[0])
+                self.items = list(pages.get((year, start), []))
+                self.index = 0
+                self._finished_current_page = False
+                requests.append((year, start))
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                    raise StopIteration
+                item = self.items[self.index]
+                self.index += 1
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                return item
+
+        old_citations = [
+            {"title": "Cached-2025", "authors": "A", "venue": "V2025", "year": "2025", "url": "u-cached"},
+        ]
+
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator):
+            citations = self.fetcher._fetch_by_year(
+                citedby_url="/scholar?cites=123",
+                old_citations=old_citations,
+                fresh_citations=[],
+                save_progress=lambda complete: None,
+                num_citations=2,
+                pub_year="2025",
+                prev_scholar_count=1,
+                selective_refresh_years={2024, 2025},
+            )
+
+        self.assertEqual(requests, [(2025, 0), (2024, 0)])
+        self.assertEqual([c["title"] for c in citations], ["New-2024", "Cached-2025"])
+        self.assertEqual(self.fetcher._new_citations_count, 1)
+
         self.fetcher._completed_year_segments = {2024}
         self.fetcher._probed_year_counts = {2024: 2}
         self.fetcher._probed_year_count_complete = True
