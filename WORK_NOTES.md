@@ -260,6 +260,7 @@ pub_obj = {
 - **2026-04-08** — 新增运行日志镜像：`main()` 在每次运行开始时创建 `output/logs/author_<id>_run_<timestamp>.log`，通过 `TeeStream` 将 stdout 同时写入终端和日志文件，覆盖 profile/citation/proxy/skip 等现有 `print()` 输出，不引入额外 logging 框架；`test_citation_page_stop.py` 新增回归测试验证时间戳命名日志文件创建与 skip 分支日志写入。
 - **2026-04-08** — 修复 year-based citation 抓取缺少年份时的回填：`_extract_citation_info(pub, fallback_year=None)` 在 Scholar 未返回 `pub_year`（空值 / `N/A` / `?`）时允许使用当前 year-query 的年份回填；仅在 `_fetch_by_year()` 的按年份请求路径传入 `fallback_year=year`，普通 citedby 路径保持不变，从而修正 `cached_year_counts`、`cached_unyeared_count`、`citation_count_summary` 与 reconciliation 的 year-based 统计。新增回归测试覆盖“缺失年份回填查询年份”和“若 citation 自带明确 `pub_year` 则保持原值不覆盖”。
 - **2026-04-08** — 修复 paper citations JSON / Excel 导出不一致：`_save_output()` 改为先构造共享 `output_payload`（`author_id`、`fetch_time`、`total_papers`、`total_citations_collected`、`papers`），JSON 直接写出该 payload，Excel 通过 `_save_xlsx(results, metadata=output_payload)` 新增 `Run Metadata` sheet，同步写入顶层运行级元数据；新增回归测试验证 Excel metadata 与 JSON 顶层字段一致，并检查 citation 行中的 `year` 与 JSON 同步。
+- **2026-04-08** — citation 去重进一步升级为 Scholar 原生 `cites_id` 优先：`_extract_citation_info()` 现在持久化 `cites_id`，`_citation_identity_keys()` 优先使用 `cites_id` 做 identity，同时保留 `title + venue/authors` 的 metadata fallback；`_overlay_citations_by_identity()`、普通抓取、year-based 抓取、cache overlay 与最终 JSON/XLSX 导出统一复用这套规则，因此新抓取记录可以无缝覆盖旧缓存中没有 `cites_id` 的 citation，避免重复且无需做一次性缓存迁移。`All Citations` 工作表同步增加 `Cites ID` 列，并补充 `test_citation_page_stop.py` 回归测试覆盖 `cites_id` 提取、identity 优先级、legacy cache merge 与输出写出。
 
 ---
 

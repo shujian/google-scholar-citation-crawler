@@ -9,7 +9,7 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 - **Unified Workflow**: Automatically fetches author profile, then crawls per-paper citations in one command
 - **Smart Skip**: If total citations and publication count haven't changed since the last run, citation crawling is skipped entirely
 - **Incremental Caching**: Only re-fetches citation lists when Scholar reports more citations; tracks seen/dedup counts so already-complete papers are not re-fetched unnecessarily
-- **Dedup Handling**: Automatically deduplicates citations; tolerates count differences caused by Scholar duplicates
+- **Dedup Handling**: Automatically deduplicates citations, preferring Scholar-native `cites_id` when available and falling back to metadata identity when it is not; tolerates count differences caused by Scholar duplicates
 - **Resume Support**: Interrupted fetches resume from the last checkpoint; per-year progress is saved so even mid-paper interruptions recover gracefully
 - **Year-Based Fetching**: Papers with many citations are fetched year-by-year (newest→oldest for updates, oldest→newest for first fetch/force), with early-stop when enough citations are collected
 - **Anti-Ban Strategies**: Randomized delays, mandatory long breaks, browser header simulation, and HTTP/2 to reduce Scholar IP-level rate limiting
