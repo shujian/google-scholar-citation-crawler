@@ -262,6 +262,8 @@ pub_obj = {
 - **2026-04-08** — 修复 paper citations JSON / Excel 导出不一致：`_save_output()` 改为先构造共享 `output_payload`（`author_id`、`fetch_time`、`total_papers`、`total_citations_collected`、`papers`），JSON 直接写出该 payload，Excel 通过 `_save_xlsx(results, metadata=output_payload)` 新增 `Run Metadata` sheet，同步写入顶层运行级元数据；新增回归测试验证 Excel metadata 与 JSON 顶层字段一致，并检查 citation 行中的 `year` 与 JSON 同步。
 - **2026-04-08** — citation 去重进一步升级为 Scholar 原生 `cites_id` 优先：`_extract_citation_info()` 现在持久化 `cites_id`，`_citation_identity_keys()` 优先使用 `cites_id` 做 identity，同时保留 `title + venue/authors` 的 metadata fallback；`_overlay_citations_by_identity()`、普通抓取、year-based 抓取、cache overlay 与最终 JSON/XLSX 导出统一复用这套规则，因此新抓取记录可以无缝覆盖旧缓存中没有 `cites_id` 的 citation，避免重复且无需做一次性缓存迁移。`All Citations` 工作表同步增加 `Cites ID` 列，并补充 `test_citation_page_stop.py` 回归测试覆盖 `cites_id` 提取、identity 优先级、legacy cache merge 与输出写出。
 
+- **2026-04-08** — year-based resume 状态语义澄清：把持久化/运行时混用的 `completed_years` 明确收敛为 `completed_years_in_current_run`，只表示“当前这一次运行里已经完成的年份”，仅用于同次运行中断后的 retry/resume 控制；fresh run / cross-run 是否需要重抓，不再把这个字段当作 authoritative truth，而是主要依赖 cache/probe reconciliation（`probe_complete`、`probed_year_counts`、`cached_year_counts`）。为兼容旧缓存，读取时仍会回退接受历史 `completed_years` 字段，但新语义下日志与主流程都按 current-run resume state 解释。同步更新 `test_citation_page_stop.py` 覆盖 `_run_main_loop()`、retry rehydrate、保存字段与 fetch 调用参数，验证 targeted regression `python -m unittest test_citation_page_stop.py` 通过（42 tests, OK）。
+
 ---
 
 ### 源码位置

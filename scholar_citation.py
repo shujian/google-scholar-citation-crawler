@@ -1128,7 +1128,7 @@ class PaperCitationFetcher:
             return {
                 'mode': 'first_fetch',
                 'resume_from': [],
-                'completed_years': [],
+                'completed_years_in_current_run': [],
                 'partial_year_start': {},
                 'saved_dedup_count': 0,
                 'prev_scholar_count': 0,
@@ -1143,7 +1143,10 @@ class PaperCitationFetcher:
         resume_from = cached.get('citations', [])
         saved_dedup_count = cached.get('dedup_count', 0)
         old_scholar = cached.get('num_citations_on_scholar', cached.get('num_citations_cached', 0))
-        completed_years = cached.get('completed_years', [])
+        completed_years_in_current_run = cached.get(
+            'completed_years_in_current_run',
+            cached.get('completed_years', []),
+        )
         partial_year_start = {}
         force_year_rebuild = False
         selective_refresh_years = None
@@ -1155,13 +1158,13 @@ class PaperCitationFetcher:
 
         if self.recheck_citations:
             mode = 'recheck'
-            completed_years = []
+            completed_years_in_current_run = []
             allow_incremental_early_stop = False
             force_year_rebuild = num_citations >= YEAR_BASED_THRESHOLD
             action = f"recheck ({len(resume_from)} cached, scholar={num_citations})"
         elif old_scholar != num_citations:
             mode = 'update'
-            completed_years = []
+            completed_years_in_current_run = []
             action = f"update ({len(resume_from)} cached, citations {old_scholar} -> {num_citations})"
         else:
             rehydrated_probed_year_counts, rehydrated_probe_complete = self._rehydrate_probe_metadata(
@@ -1172,7 +1175,7 @@ class PaperCitationFetcher:
         return {
             'mode': mode,
             'resume_from': resume_from,
-            'completed_years': completed_years,
+            'completed_years_in_current_run': completed_years_in_current_run,
             'partial_year_start': partial_year_start,
             'saved_dedup_count': saved_dedup_count,
             'prev_scholar_count': old_scholar,
@@ -1488,7 +1491,7 @@ class PaperCitationFetcher:
 
     def _fetch_citations_with_progress(self, citedby_url, cache_path, title,
                                         num_citations, pub_url, pub_year, resume_from,
-                                        completed_years=None, prev_scholar_count=0,
+                                        completed_years_in_current_run=None, prev_scholar_count=0,
                                         partial_year_start=None, saved_dedup_count=0,
                                         allow_incremental_early_stop=True,
                                         force_year_rebuild=False,
@@ -1498,7 +1501,7 @@ class PaperCitationFetcher:
         """
         Stream-fetch citations with periodic progress saves.
         resume_from: previously saved citation list (for resume after interruption).
-        completed_years: list of years already fully fetched (for resume).
+        completed_years_in_current_run: list of years already fully fetched in this run (for resume).
         partial_year_start: dict {year: start_index} for the in-progress year on last run.
         prev_scholar_count: Scholar citation count from last completed scan (for early stop).
         saved_dedup_count: dedup count from the last save; used as a floor so we never
@@ -1517,7 +1520,7 @@ class PaperCitationFetcher:
         self._dedup_count = saved_dedup_count
 
         # Load completed years into patch state for _citedby_long to skip
-        self._completed_year_segments = set(completed_years or [])
+        self._completed_year_segments = set(completed_years_in_current_run or [])
         self._current_year_segment = None
         # Track the page offset (start_index) for the year currently in progress.
         # Saved to cache on exception so retry can skip already-fetched pages.
@@ -1554,6 +1557,7 @@ class PaperCitationFetcher:
                     'dedup_count': self._dedup_count,
                     'complete': complete,
                     'completed_years': sorted(self._completed_year_segments),
+                    'completed_years_in_current_run': sorted(self._completed_year_segments),
                     'probe_complete': bool(self._probed_year_count_complete),
                     'probed_year_counts': self._dump_year_count_map(
                         self._normalize_year_count_map(self._probed_year_counts)
@@ -1576,7 +1580,7 @@ class PaperCitationFetcher:
                 }, f, ensure_ascii=False, indent=2)
 
         # Year-based fetch: for papers with many citations, fetch by year
-        # so that completed years are tracked and resume is efficient
+        # so current-run completed years are tracked and resume is efficient
         if num_citations >= YEAR_BASED_THRESHOLD:
             return self._fetch_by_year(
                 citedby_url, old_citations, fresh_citations, save_progress,
@@ -1769,8 +1773,8 @@ class PaperCitationFetcher:
         selective_refresh_years = None if selective_refresh_years is None else set(selective_refresh_years)
         explicit_refresh_years = set(selective_refresh_years or ())
         explicit_refresh_years.update(int(year) for year in self._partial_year_start.keys())
-        if self._completed_year_segments:
-            start_year = min(self._completed_year_segments)
+        if self._completed_year_segments and explicit_refresh_years:
+            start_year = min(min(self._completed_year_segments), min(explicit_refresh_years))
             if year_count_map:
                 start_year = min(start_year, min(year_count_map.keys()))
         else:
@@ -1798,8 +1802,8 @@ class PaperCitationFetcher:
         total_years = current_year - start_year + 1
         skipped_years = 0
 
-        print(f"  Year-based resume: {start_year}-{current_year} "
-              f"({len(self._completed_year_segments)} years already done)", flush=True)
+        print(f"  Year-based plan: {start_year}-{current_year} "
+              f"(current-run completed={len(self._completed_year_segments)})", flush=True)
 
         year_fetch_plan = self._build_year_fetch_plan(
             start_year, current_year, prev_scholar_count, num_citations,
@@ -1837,7 +1841,7 @@ class PaperCitationFetcher:
         print(f"    Fetch context: mode={'incremental' if allow_incremental_early_stop else 'full-recheck'}, "
               f"probe_complete={self._probed_year_count_complete}, "
               f"prev_scholar={prev_scholar_count}, target={effective_target}, total_years={total_years}", flush=True)
-        print(f"    Completed years: {self._format_year_set_summary(self._completed_year_segments)}", flush=True)
+        print(f"    Current-run completed years: {self._format_year_set_summary(self._completed_year_segments)}", flush=True)
         print(f"    Partial resume points: {self._format_partial_year_start_summary(self._partial_year_start)}", flush=True)
         if selective_refresh_years is None and can_skip_by_probe_counts and allow_incremental_early_stop:
             selective_refresh_years = set(self._selective_refresh_candidate_years(
@@ -2370,7 +2374,7 @@ class PaperCitationFetcher:
             saved_dedup_count = attempt_state['saved_dedup_count']
             allow_incremental_early_stop = attempt_state['allow_incremental_early_stop']
             resume_from = attempt_state['resume_from']
-            completed_years = attempt_state['completed_years']
+            completed_years_in_current_run = attempt_state['completed_years_in_current_run']
             force_year_rebuild = attempt_state['force_year_rebuild']
             selective_refresh_years = attempt_state['selective_refresh_years']
             rehydrated_probed_year_counts = attempt_state['rehydrated_probed_year_counts']
@@ -2394,13 +2398,16 @@ class PaperCitationFetcher:
                             preserve_escalated_state_once = False
                             print(f"  {now_str()} Retrying escalated full revalidation with in-memory state")
                         else:
-                            # Reload citations and completed_years from file.
+                            # Reload citations and current-run completed years from file.
                             # partial_year_start is kept from memory (in-memory only, not persisted)
                             # so same-run retries resume from the exact page where the error occurred.
                             latest_cache = self._load_citation_cache(title)
                             if latest_cache:
                                 resume_from = latest_cache.get('citations', [])
-                                completed_years = latest_cache.get('completed_years', [])
+                                completed_years_in_current_run = latest_cache.get(
+                                    'completed_years_in_current_run',
+                                    latest_cache.get('completed_years', []),
+                                )
                                 saved_dedup_count = latest_cache.get('dedup_count', 0)
                                 rehydrated_probed_year_counts, rehydrated_probe_complete = self._rehydrate_probe_metadata(
                                     latest_cache,
@@ -2411,7 +2418,7 @@ class PaperCitationFetcher:
                     citations = self._fetch_citations_with_progress(
                         citedby_url, cache_path, title, num_citations,
                         pub_url, pub.get('year', 'N/A'), resume_from,
-                        completed_years=completed_years,
+                        completed_years_in_current_run=completed_years_in_current_run,
                         prev_scholar_count=prev_scholar_count,
                         partial_year_start=partial_year_start,
                         saved_dedup_count=saved_dedup_count,

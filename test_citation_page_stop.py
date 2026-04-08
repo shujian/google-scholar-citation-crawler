@@ -1012,7 +1012,7 @@ class CitationPageStopTests(unittest.TestCase):
                     pub_url="https://example.com/paper",
                     pub_year="2024",
                     resume_from=old_citations,
-                    completed_years=[],
+                    completed_years_in_current_run=[],
                     prev_scholar_count=2,
                 )
 
@@ -1644,7 +1644,7 @@ class CitationPageStopTests(unittest.TestCase):
                     pub_url="https://example.com/paper",
                     pub_year="2024",
                     resume_from=cached_citations,
-                    completed_years=[2024],
+                    completed_years_in_current_run=[2024],
                     prev_scholar_count=2,
                     rehydrated_probed_year_counts={2024: 1, 2025: 1},
                     rehydrated_probe_complete=True,
@@ -1655,7 +1655,7 @@ class CitationPageStopTests(unittest.TestCase):
                 saved = json.load(f)
             self.assertEqual(saved["probed_year_counts"], {"2024": 1, "2025": 1})
             self.assertTrue(saved["probe_complete"])
-            self.assertEqual(saved["completed_years"], [2024])
+            self.assertEqual(saved["completed_years_in_current_run"], [2024])
             self.assertEqual(saved["probed_year_total"], 2)
             self.assertEqual(saved["cached_unyeared_count"], 0)
             self.assertEqual(saved["citation_count_summary"]["scholar_total"], 2)
@@ -1716,14 +1716,14 @@ class CitationPageStopTests(unittest.TestCase):
         cached = {
             "citations": [{"title": "Cached-1", "authors": "A", "venue": "V", "year": "2024", "url": "u1"}],
             "num_citations_on_scholar": 80,
-            "completed_years": [2024],
+            "completed_years_in_current_run": [2024],
             "dedup_count": 0,
             "complete": False,
             "probed_year_counts": {"2024": 1},
         }
         latest_cache = {
             "citations": [{"title": "Cached-2", "authors": "A", "venue": "V", "year": "2024", "url": "u2"}],
-            "completed_years": [2024, 2025],
+            "completed_years_in_current_run": [2024, 2025],
             "dedup_count": 3,
             "probe_complete": True,
             "probed_year_counts": {"2024": 1, "2025": 79},
@@ -1739,7 +1739,7 @@ class CitationPageStopTests(unittest.TestCase):
             fetch_calls.append(
                 {
                     "resume_from": resume_from,
-                    "completed_years": list(kwargs["completed_years"]),
+                    "completed_years_in_current_run": list(kwargs["completed_years_in_current_run"]),
                     "saved_dedup_count": kwargs["saved_dedup_count"],
                     "rehydrated_probed_year_counts": kwargs["rehydrated_probed_year_counts"],
                     "rehydrated_probe_complete": kwargs["rehydrated_probe_complete"],
@@ -1768,7 +1768,7 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertEqual(fetch_calls[0]["rehydrated_probed_year_counts"], {2024: 1})
         self.assertFalse(fetch_calls[0]["rehydrated_probe_complete"])
         self.assertEqual(fetch_calls[1]["resume_from"], latest_cache["citations"])
-        self.assertEqual(fetch_calls[1]["completed_years"], [2024, 2025])
+        self.assertEqual(fetch_calls[1]["completed_years_in_current_run"], [2024, 2025])
         self.assertEqual(fetch_calls[1]["saved_dedup_count"], 3)
         self.assertEqual(fetch_calls[1]["rehydrated_probed_year_counts"], {2024: 1, 2025: 79})
         self.assertTrue(fetch_calls[1]["rehydrated_probe_complete"])
@@ -1797,7 +1797,7 @@ class CitationPageStopTests(unittest.TestCase):
         with patch.object(self.fetcher, "_resolve_refresh_strategy", return_value={
                 "mode": "missing",
                 "resume_from": [],
-                "completed_years": [],
+                "completed_years_in_current_run": [],
                 "partial_year_start": {},
                 "saved_dedup_count": 0,
                 "allow_incremental_early_stop": True,
@@ -1841,13 +1841,13 @@ class CitationPageStopTests(unittest.TestCase):
         cached = {
             "citations": [{"title": "Cached-1", "authors": "A", "venue": "V", "year": "2024", "url": "u1"}],
             "num_citations_on_scholar": 75,
-            "completed_years": [2024],
+            "completed_years_in_current_run": [2024],
             "dedup_count": 0,
             "complete": False,
         }
         stale_retry_cache = {
             "citations": [{"title": "Stale-2024", "authors": "A", "venue": "V", "year": "2024", "url": "u-stale"}],
-            "completed_years": [2024, 2025],
+            "completed_years_in_current_run": [2024, 2025],
             "dedup_count": 7,
             "probe_complete": True,
             "probed_year_counts": {"2024": 10, "2025": 70},
@@ -1869,7 +1869,7 @@ class CitationPageStopTests(unittest.TestCase):
             fetch_calls.append(
                 {
                     "resume_from": list(args[6]),
-                    "completed_years": list(kwargs["completed_years"]),
+                    "completed_years_in_current_run": list(kwargs["completed_years_in_current_run"]),
                     "allow_incremental_early_stop": kwargs["allow_incremental_early_stop"],
                     "force_year_rebuild": kwargs["force_year_rebuild"],
                     "selective_refresh_years": kwargs["selective_refresh_years"],
@@ -1905,14 +1905,14 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertIsNone(fetch_calls[0]["selective_refresh_years"])
         self.assertEqual(fetch_calls[0]["prev_scholar_count"], 75)
         self.assertEqual(fetch_calls[0]["resume_from"], cached["citations"])
-        self.assertEqual(fetch_calls[0]["completed_years"], [])
+        self.assertEqual(fetch_calls[0]["completed_years_in_current_run"], [])
 
         self.assertTrue(fetch_calls[1]["allow_incremental_early_stop"])
         self.assertFalse(fetch_calls[1]["force_year_rebuild"])
         self.assertIsNone(fetch_calls[1]["selective_refresh_years"])
         self.assertEqual(fetch_calls[1]["prev_scholar_count"], 75)
         self.assertEqual(fetch_calls[1]["resume_from"], stale_retry_cache["citations"])
-        self.assertEqual(fetch_calls[1]["completed_years"], [2024, 2025])
+        self.assertEqual(fetch_calls[1]["completed_years_in_current_run"], [2024, 2025])
         self.assertEqual(fetch_calls[1]["saved_dedup_count"], 7)
         self.assertEqual(fetch_calls[1]["rehydrated_probed_year_counts"], {2024: 10, 2025: 70})
         self.assertTrue(fetch_calls[1]["rehydrated_probe_complete"])
