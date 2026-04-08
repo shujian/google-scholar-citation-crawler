@@ -67,6 +67,24 @@ def now_str():
     return datetime.now().strftime('[%H:%M:%S]')
 
 
+class TeeStream:
+    """Mirror stdout writes to both terminal and a log file."""
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, data):
+        for stream in self.streams:
+            stream.write(data)
+        return len(data)
+
+    def flush(self):
+        for stream in self.streams:
+            stream.flush()
+
+    def isatty(self):
+        return any(getattr(stream, 'isatty', lambda: False)() for stream in self.streams)
+
+
 def setup_proxy():
     """Configure proxy from environment variables.
 
@@ -1375,14 +1393,17 @@ class PaperCitationFetcher:
         return title
 
     @staticmethod
-    def _extract_citation_info(pub):
+    def _extract_citation_info(pub, fallback_year=None):
         bib = pub.get('bib', {})
         authors = bib.get('author', [])
+        year = str(bib.get('pub_year', 'N/A'))
+        if str(year).strip().lower() in ('', 'n/a', 'na', '?') and fallback_year is not None:
+            year = str(fallback_year)
         return {
             'title':   bib.get('title', 'N/A'),
             'authors': ', '.join(authors) if isinstance(authors, list) else str(authors),
             'venue':   bib.get('venue', 'N/A'),
-            'year':    str(bib.get('pub_year', 'N/A')),
+            'year':    year,
             'url':     pub.get('pub_url', pub.get('eprint_url', 'N/A')),
         }
 
@@ -1652,20 +1673,20 @@ class PaperCitationFetcher:
         fresh_unyeared = list(fresh_year_buckets.pop(None, []))
 
         def current_citations(complete=False):
-            if not complete:
-                return self._overlay_citations_by_identity(
+            if complete or force_year_rebuild:
+                refreshed_unyeared = fresh_unyeared if fresh_unyeared else None
+                return self._materialize_year_fetch_citations(
                     old_citations,
-                    fresh_unyeared + [
-                        citation
-                        for year in sorted(fresh_year_buckets.keys())
-                        for citation in fresh_year_buckets[year]
-                    ],
+                    fresh_year_buckets,
+                    refreshed_unyeared=refreshed_unyeared,
                 )
-            refreshed_unyeared = fresh_unyeared if fresh_unyeared else None
-            return self._materialize_year_fetch_citations(
+            return self._overlay_citations_by_identity(
                 old_citations,
-                fresh_year_buckets,
-                refreshed_unyeared=refreshed_unyeared,
+                fresh_unyeared + [
+                    citation
+                    for year in sorted(fresh_year_buckets.keys())
+                    for citation in fresh_year_buckets[year]
+                ],
             )
 
         year_counts = self._year_count_map(old_citations)
@@ -1856,7 +1877,7 @@ class PaperCitationFetcher:
                         for citing in iterator:
                             year_items_seen += 1
                             self._partial_year_start[year] = start_index + year_items_seen
-                            info = self._extract_citation_info(citing)
+                            info = self._extract_citation_info(citing, fallback_year=year)
                             dedup_key = self._citation_identity_key(info)
                             if dedup_key in year_seen_keys:
                                 self._dedup_count += 1
@@ -1940,8 +1961,9 @@ class PaperCitationFetcher:
         save_progress(complete=True)
         return list(fresh_citations)
 
-    def _save_xlsx(self, results):
+    def _save_xlsx(self, results, metadata=None):
         wb = openpyxl.Workbook()
+        metadata = metadata or {}
 
         hdr_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
         hdr_font = Font(bold=True, color="FFFFFF", size=11)
@@ -2000,6 +2022,19 @@ class PaperCitationFetcher:
                 lc.alignment = wrap
                 ws2.row_dimensions[row].height = 32
                 row += 1
+
+        ws3 = wb.create_sheet("Run Metadata")
+        ws3.column_dimensions['A'].width = 26
+        ws3.column_dimensions['B'].width = 50
+        for row, (key, value) in enumerate([
+            ("Author ID", metadata.get('author_id', self.author_id)),
+            ("Fetch Time", metadata.get('fetch_time', 'N/A')),
+            ("Total Papers", metadata.get('total_papers', len(results))),
+            ("Total Citations Collected", metadata.get('total_citations_collected', sum(len(item['citations']) for item in results))),
+        ], 1):
+            label = ws3.cell(row=row, column=1, value=key)
+            label.fill, label.font, label.alignment = hdr_fill, hdr_font, center
+            ws3.cell(row=row, column=2, value=value).alignment = wrap
 
         wb.save(self.out_xlsx)
 
@@ -2543,17 +2578,18 @@ class PaperCitationFetcher:
                 citations = cached.get('citations', []) if cached else []
                 final_results.append({'pub': pub, 'citations': citations})
         total_cites = sum(len(r['citations']) for r in final_results)
+        output_payload = {
+            'author_id': self.author_id,
+            'fetch_time': datetime.now().isoformat(),
+            'total_papers': len(final_results),
+            'total_citations_collected': total_cites,
+            'papers': final_results,
+        }
         with open(self.out_json, 'w', encoding='utf-8') as f:
-            json.dump({
-                'author_id': self.author_id,
-                'fetch_time': datetime.now().isoformat(),
-                'total_papers': len(final_results),
-                'total_citations_collected': total_cites,
-                'papers': final_results,
-            }, f, ensure_ascii=False, indent=2)
+            json.dump(output_payload, f, ensure_ascii=False, indent=2)
         print(f"Saved JSON : {self.out_json}")
 
-        self._save_xlsx(final_results)
+        self._save_xlsx(final_results, metadata=output_payload)
         print(f"Saved Excel: {self.out_xlsx}")
 
         total_papers = len(results)  # includes None slots (total publications)
@@ -2617,60 +2653,83 @@ examples:
 
 def main():
     args = parse_args()
-    setup_proxy()
-
     author_id = extract_author_id(args.author)
-    print(f"Author ID: {author_id}")
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # Always run profile first
-    delay_scale = args.accelerate if args.interactive_captcha else 1.0
-    fetcher = AuthorProfileFetcher(author_id, args.output_dir, delay_scale=delay_scale)
-    prev_profile = fetcher.load_prev_profile()
-    success = fetcher.run(force_refresh_pubs=args.force_refresh_pubs)
-    if not success:
-        sys.exit(1)
+    original_stdout = sys.stdout
+    log_file = None
+    log_path = None
+    try:
+        logs_dir = os.path.join(args.output_dir, "logs")
+        os.makedirs(logs_dir, exist_ok=True)
+        log_name = f"author_{author_id}_run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        log_path = os.path.join(logs_dir, log_name)
+        log_file = open(log_path, 'w', encoding='utf-8')
+        sys.stdout = TeeStream(original_stdout, log_file)
+        print(f"Run log: {log_path}")
+    except OSError as e:
+        sys.stdout = original_stdout
+        print(f"Warning: Failed to open run log file: {e}")
+        log_file = None
+        log_path = None
 
-    # Check if citations or publication count changed since last run
-    curr_profile = fetcher.load_prev_profile()  # just saved
-    if prev_profile and curr_profile:
-        prev_citations = prev_profile.get('total_citations', prev_profile.get('author_info', {}).get('citedby', -1))
-        curr_citations = curr_profile.get('total_citations', curr_profile.get('author_info', {}).get('citedby', -2))
-        prev_pubs = prev_profile.get('total_publications', -1)
-        curr_pubs = curr_profile.get('total_publications', -2)
+    try:
+        setup_proxy()
+        print(f"Author ID: {author_id}")
 
-        if prev_citations == curr_citations and prev_pubs == curr_pubs and not args.recheck_citations:
-            # Even if totals haven't changed, check if all citations are fully cached
-            citation_fetcher = PaperCitationFetcher(
-                author_id=author_id,
-                output_dir=args.output_dir,
-                limit=args.limit,
-                skip=args.skip,
-                recheck_citations=args.recheck_citations,
-            )
-            if not citation_fetcher.has_pending_work():
-                print("\n" + "=" * 70)
-                print(f"  No changes detected (citations: {curr_citations}, publications: {curr_pubs})")
-                print("  All citation caches are complete. Skipping citation fetch.")
-                print("=" * 70 + "\n")
-                return
-            else:
-                print("\nNo changes in totals, but some citations are incomplete. Continuing fetch...")
+        # Always run profile first
+        delay_scale = args.accelerate if args.interactive_captcha else 1.0
+        fetcher = AuthorProfileFetcher(author_id, args.output_dir, delay_scale=delay_scale)
+        prev_profile = fetcher.load_prev_profile()
+        success = fetcher.run(force_refresh_pubs=args.force_refresh_pubs)
+        if not success:
+            sys.exit(1)
 
-    # Run citation fetcher
-    citation_fetcher = PaperCitationFetcher(
-        author_id=author_id,
-        output_dir=args.output_dir,
-        limit=args.limit,
-        skip=args.skip,
-        recheck_citations=args.recheck_citations,
-        interactive_captcha=args.interactive_captcha,
-        delay_scale=delay_scale,
-    )
-    success = citation_fetcher.run()
-    if not success:
-        sys.exit(1)
+        # Check if citations or publication count changed since last run
+        curr_profile = fetcher.load_prev_profile()  # just saved
+        if prev_profile and curr_profile:
+            prev_citations = prev_profile.get('total_citations', prev_profile.get('author_info', {}).get('citedby', -1))
+            curr_citations = curr_profile.get('total_citations', curr_profile.get('author_info', {}).get('citedby', -2))
+            prev_pubs = prev_profile.get('total_publications', -1)
+            curr_pubs = curr_profile.get('total_publications', -2)
+
+            if prev_citations == curr_citations and prev_pubs == curr_pubs and not args.recheck_citations:
+                # Even if totals haven't changed, check if all citations are fully cached
+                citation_fetcher = PaperCitationFetcher(
+                    author_id=author_id,
+                    output_dir=args.output_dir,
+                    limit=args.limit,
+                    skip=args.skip,
+                    recheck_citations=args.recheck_citations,
+                )
+                if not citation_fetcher.has_pending_work():
+                    print("\n" + "=" * 70)
+                    print(f"  No changes detected (citations: {curr_citations}, publications: {curr_pubs})")
+                    print("  All citation caches are complete. Skipping citation fetch.")
+                    print("=" * 70 + "\n")
+                    return
+                else:
+                    print("\nNo changes in totals, but some citations are incomplete. Continuing fetch...")
+
+        # Run citation fetcher
+        citation_fetcher = PaperCitationFetcher(
+            author_id=author_id,
+            output_dir=args.output_dir,
+            limit=args.limit,
+            skip=args.skip,
+            recheck_citations=args.recheck_citations,
+            interactive_captcha=args.interactive_captcha,
+            delay_scale=delay_scale,
+        )
+        success = citation_fetcher.run()
+        if not success:
+            sys.exit(1)
+    finally:
+        sys.stdout = original_stdout
+        if log_file is not None:
+            log_file.flush()
+            log_file.close()
 
 
 if __name__ == "__main__":

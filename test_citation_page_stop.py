@@ -946,7 +946,364 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertIn("Year 2024: fetching", output)
         self.assertNotIn("skip (already completed earlier in this run)", output)
 
-    def test_refresh_reconciliation_accepts_matching_complete_histogram(self):
+    def test_force_year_rebuild_uses_replaced_year_totals_for_status_and_stop(self):
+        self.fetcher._probed_year_counts = {2018: 37, 2019: 27}
+        self.fetcher._probed_year_count_complete = True
+        self.fetcher._cached_year_counts = {2018: 36, 2019: 27}
+        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2018
+
+        old_citations = [
+            {"title": f"Old-2018-{i}", "authors": "A", "venue": "V2018", "year": "2018", "url": f"u2018-{i}"}
+            for i in range(37)
+        ] + [
+            {"title": f"Old-2019-{i}", "authors": "B", "venue": "V2019", "year": "2019", "url": f"u2019-{i}"}
+            for i in range(27)
+        ]
+        requests = []
+        save_calls = []
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                start = 0
+                if "start=" in url:
+                    start = int(url.split("start=")[1].split("&")[0])
+                year = int(url.split("as_ylo=")[1].split("&")[0])
+                requests.append((year, start))
+                if year == 2018:
+                    self.items = [
+                        {
+                            "bib": {"title": f"Old-2018-{i}", "author": ["A"], "venue": "V2018", "pub_year": "2018"},
+                            "pub_url": f"u2018-{i}",
+                        }
+                        for i in range(10)
+                    ]
+                else:
+                    self.items = [
+                        {
+                            "bib": {"title": f"Fetched-2019-{i}", "author": ["B"], "venue": "V2019", "pub_year": "2019"},
+                            "pub_url": f"uf2019-{i}",
+                        }
+                        for i in range(27)
+                    ]
+                self.index = 0
+                self._finished_current_page = False
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                    raise StopIteration
+                item = self.items[self.index]
+                self.index += 1
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                return item
+
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch.object(scholar_citation, "datetime") as fake_datetime, \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            fake_datetime.now.return_value = types.SimpleNamespace(year=2019)
+            citations = self.fetcher._fetch_by_year(
+                citedby_url="/scholar?cites=123",
+                old_citations=old_citations,
+                fresh_citations=[],
+                save_progress=lambda complete: save_calls.append(complete),
+                num_citations=64,
+                pub_year="2018",
+                prev_scholar_count=64,
+                allow_incremental_early_stop=False,
+                force_year_rebuild=True,
+                selective_refresh_years={2018, 2019},
+
+            )
+
+        output = fake_stdout.getvalue()
+        self.assertEqual(requests, [(2018, 0)])
+        self.assertEqual(save_calls, [False, False, True])
+        self.assertEqual(len(citations), 37)
+        self.assertIn("Year 2018 status: paper_total=37", output)
+        self.assertIn("Year 2019: skip (histogram count match; cached=27, probe=27, probe_complete=True)", output)
+        self.assertNotIn("Reached target (64 >= 64)", output)
+
+    def test_main_mirrors_stdout_to_timestamped_log_file(self):
+        fake_args = types.SimpleNamespace(
+            author="test-author",
+            output_dir=None,
+            limit=None,
+            skip=0,
+            recheck_citations=False,
+            interactive_captcha=False,
+            accelerate=1.0,
+            force_refresh_pubs=False,
+        )
+
+        class FakeAuthorFetcher:
+            def __init__(self, author_id, output_dir, delay_scale=1.0):
+                self.output_dir = output_dir
+                self.profile_json = os.path.join(output_dir, "author_test-author_profile.json")
+
+            def load_prev_profile(self):
+                return None
+
+            def run(self, force_refresh_pubs=False):
+                with open(self.profile_json, "w", encoding="utf-8") as f:
+                    json.dump({"total_citations": 1, "total_publications": 1, "author_info": {"citedby": 1}}, f)
+                print("Profile fetch done")
+                return True
+
+        class FakePaperFetcher:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def run(self):
+                print("Citation fetch done")
+                return True
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_args.output_dir = tmpdir
+            with patch.object(scholar_citation, "parse_args", return_value=fake_args), \
+                 patch.object(scholar_citation, "setup_proxy", side_effect=lambda: print("Proxy ready")), \
+                 patch.object(scholar_citation, "AuthorProfileFetcher", FakeAuthorFetcher), \
+                 patch.object(scholar_citation, "PaperCitationFetcher", FakePaperFetcher), \
+                 patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+                scholar_citation.main()
+
+            output = fake_stdout.getvalue()
+            logs_dir = os.path.join(tmpdir, "logs")
+            log_files = os.listdir(logs_dir)
+            self.assertEqual(len(log_files), 1)
+            self.assertRegex(log_files[0], r"^author_test-author_run_\d{8}_\d{6}\.log$")
+            log_path = os.path.join(logs_dir, log_files[0])
+            with open(log_path, "r", encoding="utf-8") as f:
+                log_text = f.read()
+
+        self.assertIn("Run log:", output)
+        self.assertIn("Author ID: test-author", output)
+        self.assertIn("Proxy ready", output)
+        self.assertIn("Profile fetch done", output)
+        self.assertIn("Citation fetch done", output)
+        self.assertIn("Author ID: test-author", log_text)
+        self.assertIn("Proxy ready", log_text)
+        self.assertIn("Profile fetch done", log_text)
+        self.assertIn("Citation fetch done", log_text)
+
+    def test_main_skip_message_is_written_to_log_file(self):
+        prev_profile = {
+            "total_citations": 5,
+            "total_publications": 2,
+            "author_info": {"citedby": 5},
+        }
+        curr_profile = {
+            "total_citations": 5,
+            "total_publications": 2,
+            "author_info": {"citedby": 5},
+        }
+        fake_args = types.SimpleNamespace(
+            author="test-author",
+            output_dir=None,
+            limit=None,
+            skip=0,
+            recheck_citations=False,
+            interactive_captcha=False,
+            accelerate=1.0,
+            force_refresh_pubs=False,
+        )
+
+        class FakeAuthorFetcher:
+            def __init__(self, author_id, output_dir, delay_scale=1.0):
+                self.calls = 0
+
+            def load_prev_profile(self):
+                self.calls += 1
+                return prev_profile if self.calls == 1 else curr_profile
+
+            def run(self, force_refresh_pubs=False):
+                print("Profile fetch done")
+                return True
+
+        class FakePaperFetcher:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def has_pending_work(self):
+                return False
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_args.output_dir = tmpdir
+            with patch.object(scholar_citation, "parse_args", return_value=fake_args), \
+                 patch.object(scholar_citation, "setup_proxy", side_effect=lambda: print("Proxy ready")), \
+                 patch.object(scholar_citation, "AuthorProfileFetcher", FakeAuthorFetcher), \
+                 patch.object(scholar_citation, "PaperCitationFetcher", FakePaperFetcher), \
+                 patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+                scholar_citation.main()
+
+            output = fake_stdout.getvalue()
+            logs_dir = os.path.join(tmpdir, "logs")
+            log_path = os.path.join(logs_dir, os.listdir(logs_dir)[0])
+            with open(log_path, "r", encoding="utf-8") as f:
+                log_text = f.read()
+
+        self.assertIn("All citation caches are complete. Skipping citation fetch.", output)
+        self.assertIn("All citation caches are complete. Skipping citation fetch.", log_text)
+
+    def test_year_fetch_backfills_missing_year_from_query_context(self):
+        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2024
+        self.fetcher._probed_year_counts = {2024: 1}
+        self.fetcher._probed_year_count_complete = True
+        self.fetcher._cached_year_counts = {}
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                self.items = [{
+                    "bib": {"title": "Fetched-2024", "author": ["A"], "venue": "V2024"},
+                    "pub_url": "u2024",
+                }]
+                self.index = 0
+                self._finished_current_page = False
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                    raise StopIteration
+                item = self.items[self.index]
+                self.index += 1
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                return item
+
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch.object(scholar_citation, "datetime") as fake_datetime:
+            fake_datetime.now.return_value = types.SimpleNamespace(year=2024)
+            citations = self.fetcher._fetch_by_year(
+                citedby_url="/scholar?cites=123",
+                old_citations=[],
+                fresh_citations=[],
+                save_progress=lambda complete: None,
+                num_citations=1,
+                pub_year="2024",
+                prev_scholar_count=0,
+                allow_incremental_early_stop=False,
+            )
+
+        self.assertEqual(len(citations), 1)
+        self.assertEqual(citations[0]["year"], "2024")
+        self.assertEqual(self.fetcher._year_count_map(citations), {2024: 1})
+
+    def test_year_fetch_keeps_explicit_pub_year_from_citation(self):
+        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2024
+        self.fetcher._probed_year_counts = {2024: 1}
+        self.fetcher._probed_year_count_complete = True
+        self.fetcher._cached_year_counts = {}
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                self.items = [{
+                    "bib": {"title": "Fetched-2023", "author": ["A"], "venue": "V2023", "pub_year": "2023"},
+                    "pub_url": "u2023",
+                }]
+                self.index = 0
+                self._finished_current_page = False
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                    raise StopIteration
+                item = self.items[self.index]
+                self.index += 1
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                return item
+
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch.object(scholar_citation, "datetime") as fake_datetime:
+            fake_datetime.now.return_value = types.SimpleNamespace(year=2024)
+            citations = self.fetcher._fetch_by_year(
+                citedby_url="/scholar?cites=123",
+                old_citations=[],
+                fresh_citations=[],
+                save_progress=lambda complete: None,
+                num_citations=1,
+                pub_year="2024",
+                prev_scholar_count=0,
+                allow_incremental_early_stop=False,
+            )
+
+        self.assertEqual(len(citations), 1)
+        self.assertEqual(citations[0]["year"], "2023")
+        self.assertEqual(self.fetcher._year_count_map(citations), {2023: 1})
+
+    def test_save_output_writes_excel_run_metadata_from_json_payload(self):
+        pub = {
+            "no": 1,
+            "title": "Paper One",
+            "num_citations": 1,
+            "year": "2024",
+            "venue": "Venue",
+        }
+        result = {
+            "pub": pub,
+            "citations": [
+                {"title": "Citing Paper", "authors": "A", "venue": "CV", "year": "2024", "url": "https://example.com/cite"}
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.fetcher.profile_json = os.path.join(tmpdir, "author_test-author_profile.json")
+            self.fetcher.out_json = os.path.join(tmpdir, "author_test-author_paper_citations.json")
+            self.fetcher.out_xlsx = os.path.join(tmpdir, "author_test-author_paper_citations.xlsx")
+            self.fetcher._run_start_time = 0
+            with open(self.fetcher.profile_json, "w", encoding="utf-8") as f:
+                json.dump({"publications": [pub]}, f)
+
+            captured = {}
+            original_workbook = scholar_citation.openpyxl.Workbook
+
+            class CapturingWorkbook(original_workbook):
+                def __init__(self):
+                    super().__init__()
+                    captured["workbook"] = self
+
+            with patch.object(scholar_citation.openpyxl, "Workbook", CapturingWorkbook), \
+                 patch.object(scholar_citation, "datetime") as fake_datetime:
+                fake_datetime.now.return_value = types.SimpleNamespace(
+                    isoformat=lambda: "2026-04-07T12:34:56",
+                    strftime=lambda fmt: "20260407_123456",
+                    year=2026,
+                )
+                self.fetcher._save_output([result])
+
+            with open(self.fetcher.out_json, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+
+        workbook = captured["workbook"]
+        self.assertEqual(payload["author_id"], "test-author")
+        self.assertEqual(payload["fetch_time"], "2026-04-07T12:34:56")
+        self.assertEqual(payload["total_papers"], 1)
+        self.assertEqual(payload["total_citations_collected"], 1)
+        self.assertEqual(len(workbook.sheets), 3)
+        self.assertEqual(workbook.sheets[2].title, "Run Metadata")
+        metadata_sheet = workbook.sheets[2]
+        self.assertEqual(metadata_sheet.cells[(1, 1)].value, "Author ID")
+        self.assertEqual(metadata_sheet.cells[(1, 2)].value, payload["author_id"])
+        self.assertEqual(metadata_sheet.cells[(2, 1)].value, "Fetch Time")
+        self.assertEqual(metadata_sheet.cells[(2, 2)].value, payload["fetch_time"])
+        self.assertEqual(metadata_sheet.cells[(3, 1)].value, "Total Papers")
+        self.assertEqual(metadata_sheet.cells[(3, 2)].value, payload["total_papers"])
+        self.assertEqual(metadata_sheet.cells[(4, 1)].value, "Total Citations Collected")
+        self.assertEqual(metadata_sheet.cells[(4, 2)].value, payload["total_citations_collected"])
+
+        citations_sheet = workbook.sheets[1]
+        self.assertEqual(citations_sheet.title, "All Citations")
+        self.assertEqual(citations_sheet.cells[(2, 5)].value, payload["papers"][0]["citations"][0]["year"])
+
         status = self.fetcher._refresh_reconciliation_status(
             citations=[
                 {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
