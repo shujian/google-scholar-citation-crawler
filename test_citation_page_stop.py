@@ -1247,7 +1247,37 @@ class CitationPageStopTests(unittest.TestCase):
             self.assertEqual(saved["citations"][0]["cites_id"], "cid-old-a")
             self.assertEqual(saved["citations"][1]["cites_id"], "cid-fresh-c")
 
-    def test_year_bucket_refresh_replaces_cached_year_slice(self):
+    def test_small_fetch_promotes_live_scholar_total_in_cache(self):
+        fetched_items = [
+            {"bib": {"title": "Old-A", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a", "cites_id": "cid-old-a"},
+            {"bib": {"title": "Fresh-B", "author": ["B"], "venue": "V2", "pub_year": "2024"}, "pub_url": "new-b", "cites_id": "cid-fresh-b"},
+            {"bib": {"title": "Fresh-C", "author": ["C"], "venue": "V3", "pub_year": "2025"}, "pub_url": "new-c", "cites_id": "cid-fresh-c"},
+        ]
+        pub = {"title": "Paper", "num_citations": 2}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = os.path.join(tmpdir, "paper.json")
+            with patch.object(scholar_citation.scholarly, "citedby", return_value=iter(fetched_items)):
+                citations = self.fetcher._fetch_citations_with_progress(
+                    citedby_url="/scholar?cites=123",
+                    cache_path=cache_path,
+                    title="Paper",
+                    num_citations=2,
+                    pub_url="https://example.com/paper",
+                    pub_year="2024",
+                    resume_from=[],
+                    completed_years_in_current_run=[],
+                    prev_scholar_count=2,
+                    pub_obj=pub,
+                )
+
+            self.assertEqual(len(citations), 3)
+            self.assertEqual(pub["num_citations"], 3)
+            with open(cache_path, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            self.assertEqual(saved["num_citations_on_scholar"], 3)
+            self.assertEqual(saved["citation_count_summary"]["scholar_total"], 3)
+
         citations = [
             {"title": "Old-2024-A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
             {"title": "Old-2024-B", "authors": "B", "venue": "V", "year": "2024", "url": "u2"},
@@ -1757,6 +1787,61 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertEqual(citations[0]["year"], "2023")
         self.assertEqual(self.fetcher._year_count_map(citations), {2023: 1})
 
+    def test_save_output_flushes_promoted_publication_counts(self):
+        pub = {
+            "no": 1,
+            "title": "Paper One",
+            "num_citations": 1,
+            "year": "2024",
+            "venue": "Venue",
+        }
+        cache_pub = {
+            "title": "Paper One",
+            "num_citations": 1,
+            "citedby_url": "/scholar?cites=1",
+            "url": "https://example.com/paper",
+        }
+        result = {
+            "pub": dict(pub),
+            "citations": [
+                {"title": "Citing Paper", "authors": "A", "venue": "CV", "year": "2024", "url": "https://example.com/cite"}
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.fetcher.profile_json = os.path.join(tmpdir, "author_test-author_profile.json")
+            self.fetcher.pubs_cache = os.path.join(tmpdir, "publications.json")
+            self.fetcher.out_json = os.path.join(tmpdir, "author_test-author_paper_citations.json")
+            self.fetcher.out_xlsx = os.path.join(tmpdir, "author_test-author_paper_citations.xlsx")
+            self.fetcher._run_start_time = 0
+            self.fetcher._updated_publication_counts = {"Paper One": 3}
+            self.fetcher._profile_data = {
+                "author_info": {"name": "Author", "citedby": 10, "cites_per_year": {"2026": 10}},
+                "publications": [dict(pub)],
+                "fetch_time": "2026-04-01T00:00:00",
+                "total_publications": 1,
+                "total_citations": 10,
+                "citation_count_summary": {},
+                "change_history": [],
+            }
+            self.fetcher._pubs_data = {"publications": [dict(cache_pub)]}
+            with open(self.fetcher.profile_json, "w", encoding="utf-8") as f:
+                json.dump(self.fetcher._profile_data, f)
+            with open(self.fetcher.pubs_cache, "w", encoding="utf-8") as f:
+                json.dump(self.fetcher._pubs_data, f)
+
+            self.fetcher._save_output([result])
+
+            with open(self.fetcher.profile_json, "r", encoding="utf-8") as f:
+                saved_profile = json.load(f)
+            with open(self.fetcher.pubs_cache, "r", encoding="utf-8") as f:
+                saved_pubs = json.load(f)
+
+        self.assertEqual(saved_profile["publications"][0]["num_citations"], 3)
+        self.assertEqual(saved_profile["publications"][0]["no"], 1)
+        self.assertEqual(saved_profile["fetch_time"], "2026-04-01T00:00:00")
+        self.assertEqual(saved_pubs["publications"][0]["num_citations"], 3)
+
     def test_save_output_writes_excel_run_metadata_from_json_payload(self):
         pub = {
             "no": 1,
@@ -1965,6 +2050,25 @@ class CitationPageStopTests(unittest.TestCase):
                 {"title": "C", "authors": "C", "venue": "V", "year": "2025", "url": "u3"},
             ],
             "num_citations_on_scholar": 4,
+            "num_citations_seen": 3,
+        }
+
+        with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
+            status = self.fetcher._citation_status(pub)
+
+        self.assertEqual(status, "complete")
+
+    def test_citation_status_stays_complete_when_cache_promoted_total_covers_current(self):
+        pub = {"title": "Paper", "num_citations": 5}
+        cached = {
+            "complete": True,
+            "probe_complete": False,
+            "citations": [
+                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+                {"title": "B", "authors": "B", "venue": "V", "year": "2025", "url": "u2"},
+                {"title": "C", "authors": "C", "venue": "V", "year": "2025", "url": "u3"},
+            ],
+            "num_citations_on_scholar": 6,
             "num_citations_seen": 3,
         }
 
@@ -2228,6 +2332,23 @@ class AuthorProfileCountSummaryTests(unittest.TestCase):
         self.assertEqual(summary["year_table_gap"], 77)
         self.assertFalse(summary["year_table_matches_total"])
         self.assertIn("may exclude citations without usable year metadata", summary["year_table_note"])
+
+    def test_save_profile_json_preserves_explicit_fetch_time(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fetcher = scholar_citation.AuthorProfileFetcher("author", output_dir=tmpdir)
+            basics = {"name": "Test Author", "citedby": 10, "cites_per_year": {"2026": 10}}
+
+            profile = fetcher.save_profile_json(
+                basics,
+                [],
+                change_history=[],
+                fetch_time="2026-04-01T00:00:00",
+            )
+
+            self.assertEqual(profile["fetch_time"], "2026-04-01T00:00:00")
+            with open(fetcher.profile_json, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            self.assertEqual(saved["fetch_time"], "2026-04-01T00:00:00")
 
     def test_save_profile_json_includes_count_summary(self):
         with tempfile.TemporaryDirectory() as tmpdir:

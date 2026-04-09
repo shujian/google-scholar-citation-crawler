@@ -380,13 +380,13 @@ class AuthorProfileFetcher:
             ),
         }
 
-    def save_profile_json(self, basics, publications, change_history=None):
+    def save_profile_json(self, basics, publications, change_history=None, fetch_time=None):
         """Save complete profile as JSON."""
         count_summary = self._build_profile_count_summary(basics)
         profile = {
             'author_info': basics,
             'publications': publications,
-            'fetch_time': datetime.now().isoformat(),
+            'fetch_time': fetch_time or datetime.now().isoformat(),
             'total_publications': len(publications),
             'total_citations': basics.get('citedby', 0),
             'citation_count_summary': count_summary,
@@ -397,7 +397,7 @@ class AuthorProfileFetcher:
         print(f"Saved JSON: {self.profile_json}")
         return profile
 
-    def save_profile_xlsx(self, basics, publications, change_history=None):
+    def save_profile_xlsx(self, basics, publications, change_history=None, fetch_time=None):
         """
         Save Excel file with 3 sheets:
           Sheet1: Author Overview
@@ -407,6 +407,11 @@ class AuthorProfileFetcher:
         count_summary = self._build_profile_count_summary(basics)
         wb = openpyxl.Workbook()
         self._last_profile_workbook = wb
+
+        display_fetch_time = fetch_time
+        if display_fetch_time is None:
+            now = datetime.now()
+            display_fetch_time = now.isoformat() if hasattr(now, 'isoformat') else str(now)
 
         # ===== Sheet1: Author Overview =====
         ws1 = wb.active
@@ -438,7 +443,7 @@ class AuthorProfileFetcher:
             ("Affiliation", basics.get('affiliation', 'N/A')),
             ("Research Interests", ', '.join(basics.get('interests', [])) or 'N/A'),
             ("Scholar ID", basics.get('scholar_id', 'N/A')),
-            ("Fetch Time", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            ("Fetch Time", display_fetch_time.replace('T', ' ')[:19]),
         ]
 
         for label, value in info_items:
@@ -970,9 +975,45 @@ class PaperCitationFetcher:
         return {str(year): count for year, count in sorted(year_counts.items())}
 
     @staticmethod
-    def _citation_year_value(info):
-        year = info.get('year', 'N/A')
-        if year in ('N/A', 'NA', '?', '', None):
+    def _effective_scholar_total(pub, cached=None):
+        current = int(pub.get('num_citations', 0) or 0)
+        if cached:
+            for key in ('num_citations_on_scholar',):
+                try:
+                    cached_total = int(cached.get(key))
+                except (TypeError, ValueError):
+                    continue
+                current = max(current, cached_total)
+        return current
+
+    def _promote_live_citation_count(self, pub, live_total, source=None):
+        try:
+            promoted_total = int(live_total)
+        except (TypeError, ValueError):
+            return int(pub.get('num_citations', 0) or 0)
+        current_total = int(pub.get('num_citations', 0) or 0)
+        if promoted_total <= current_total:
+            return current_total
+        pub['num_citations'] = promoted_total
+        updates = getattr(self, '_updated_publication_counts', None)
+        if updates is not None:
+            title = pub.get('title')
+            if title:
+                updates[title] = promoted_total
+        if source:
+            print(f"    Live citation count promoted: {current_total} -> {promoted_total} ({source})", flush=True)
+        return promoted_total
+
+    @staticmethod
+    def _resort_publications(publications):
+        publications.sort(key=lambda item: item.get('num_citations', 0), reverse=True)
+        for index, publication in enumerate(publications, 1):
+            publication['no'] = index
+
+    @staticmethod
+    def _citation_year_value(citation):
+        year = citation.get('year', 'N/A') if citation else 'N/A'
+        if year in (None, '', 'N/A', 'NA'):
             return None
         try:
             return int(year)
@@ -1310,8 +1351,14 @@ class PaperCitationFetcher:
                     hist_total = sum(probed_year_counts.values())
                     hist_summary = self._format_year_count_summary(probed_year_counts)
                     earliest = min(years)
-                    if num_citations is not None and hist_total == num_citations:
+                    if num_citations is not None and hist_total >= num_citations:
                         self._probed_year_count_complete = True
+                        if hist_total > num_citations and getattr(self, '_current_pub_for_live_promotion', None) is not None:
+                            self._promote_live_citation_count(
+                                self._current_pub_for_live_promotion,
+                                hist_total,
+                                source='year_histogram_total',
+                            )
                         print(f"      Scholar year range probe: start_year = {earliest} "
                               f"(from full histogram DOM, {len(years)} year values found, total={hist_total})", flush=True)
                         print(f"      Year histogram summary: {hist_summary}", flush=True)
@@ -1510,7 +1557,8 @@ class PaperCitationFetcher:
                                         force_year_rebuild=False,
                                         selective_refresh_years=None,
                                         rehydrated_probed_year_counts=None,
-                                        rehydrated_probe_complete=False):
+                                        rehydrated_probe_complete=False,
+                                        pub_obj=None):
         """
         Stream-fetch citations with periodic progress saves.
         resume_from: previously saved citation list (for resume after interruption).
@@ -1528,6 +1576,10 @@ class PaperCitationFetcher:
         """
         old_citations = list(resume_from)
         fresh_citations = []
+        effective_num_citations = int(num_citations or 0)
+        if pub_obj is not None:
+            effective_num_citations = self._effective_scholar_total(pub_obj)
+            pub_obj['num_citations'] = effective_num_citations
         # _dedup_count tracks Scholar's own duplicate results (same title, different metadata).
         # Initialise from the saved value so resume/force-refresh never loses the history.
         self._dedup_count = saved_dedup_count
@@ -1540,7 +1592,23 @@ class PaperCitationFetcher:
         self._partial_year_start = dict(partial_year_start or {})
         self._probed_year_counts = self._normalize_year_count_map(rehydrated_probed_year_counts) or None
         self._probed_year_count_complete = bool(rehydrated_probe_complete and self._probed_year_counts)
-        self._cached_year_counts = self._year_count_map(old_citations)
+
+        def current_scholar_total():
+            if pub_obj is not None:
+                return self._effective_scholar_total(pub_obj)
+            return effective_num_citations
+
+        def maybe_promote_scholar_total(live_total, source=None):
+            nonlocal effective_num_citations
+            try:
+                live_total = int(live_total)
+            except (TypeError, ValueError):
+                return current_scholar_total()
+            if pub_obj is not None:
+                effective_num_citations = self._promote_live_citation_count(pub_obj, live_total, source=source)
+            elif live_total > effective_num_citations:
+                effective_num_citations = live_total
+            return effective_num_citations
 
         def materialized_citations(complete):
             return self._materialize_citation_cache(old_citations, fresh_citations, complete)
@@ -1552,7 +1620,7 @@ class PaperCitationFetcher:
             self._cached_year_counts = self._year_count_map(citations_to_save)
             count_summary = self._build_citation_count_summary(
                 citations_to_save,
-                scholar_total=num_citations,
+                scholar_total=current_scholar_total(),
                 probed_year_counts=self._probed_year_counts,
                 probe_complete=self._probed_year_count_complete,
                 dedup_count=self._dedup_count,
@@ -1562,7 +1630,7 @@ class PaperCitationFetcher:
                     'title': title,
                     'pub_url': pub_url,
                     'citedby_url': citedby_url,
-                    'num_citations_on_scholar': num_citations,
+                    'num_citations_on_scholar': current_scholar_total(),
                     'num_citations_cached': len(citations_to_save),
                     # num_citations_seen = unique citations Scholar has for this paper.
                     # Use max(current, saved) so the floor is never lost on resume/force-refresh.
@@ -1594,20 +1662,20 @@ class PaperCitationFetcher:
 
         # Year-based fetch: for papers with many citations, fetch by year
         # so current-run completed years are tracked and resume is efficient
-        if num_citations >= YEAR_BASED_THRESHOLD:
+        if current_scholar_total() >= YEAR_BASED_THRESHOLD:
             return self._fetch_by_year(
                 citedby_url, old_citations, fresh_citations, save_progress,
-                num_citations, pub_year, prev_scholar_count,
+                current_scholar_total(), pub_year, prev_scholar_count,
                 allow_incremental_early_stop=allow_incremental_early_stop,
                 force_year_rebuild=force_year_rebuild,
                 selective_refresh_years=selective_refresh_years,
             )
 
         # Simple fetch for small citation counts
-        pub_obj = {
+        direct_fetch_pub = {
             'citedby_url': citedby_url,
             'container_type': 'Publication',
-            'num_citations': num_citations,
+            'num_citations': current_scholar_total(),
             'filled': True,
             'source': 'PUBLICATION_SEARCH_SNIPPET',
             'bib': {
@@ -1624,7 +1692,7 @@ class PaperCitationFetcher:
         fresh_seen = {}
 
         try:
-            for citing in scholarly.citedby(pub_obj):
+            for citing in scholarly.citedby(direct_fetch_pub):
                 info = self._extract_citation_info(citing)
                 identity_keys = self._citation_identity_keys(info)
                 matched_key = next((key for key in identity_keys if key in fresh_seen), None)
@@ -1639,6 +1707,9 @@ class PaperCitationFetcher:
                 fresh_citations.append(info)
                 if not any(key in old_cache_identity_keys for key in identity_keys):
                     self._new_citations_count += 1
+                seen_total = len(fresh_citations) + self._dedup_count
+                maybe_promote_scholar_total(seen_total, source='direct_fetch_seen_total')
+                direct_fetch_pub['num_citations'] = current_scholar_total()
                 count = len(fresh_citations)
 
                 print(f"  [{count}] {info['title'][:55]}...", flush=True)
@@ -1652,13 +1723,13 @@ class PaperCitationFetcher:
 
         direct_summary = self._build_citation_count_summary(
             fresh_citations,
-            scholar_total=num_citations,
+            scholar_total=current_scholar_total(),
             probed_year_counts=None,
             probe_complete=False,
             dedup_count=getattr(self, '_dedup_count', 0),
         )
         print("    Probe summary: none", flush=True)
-        print(f"    Probe totals: scholar_total={num_citations}, year_sum=0, missing_from_histogram=?", flush=True)
+        print(f"    Probe totals: scholar_total={current_scholar_total()}, year_sum=0, missing_from_histogram=?", flush=True)
         print(f"    Cache summary: {self._format_year_count_summary(direct_summary['cached_year_counts'])}", flush=True)
         print(f"    Cache totals: cached_total={direct_summary['cached_total']}, cached_year_sum={direct_summary['cached_year_total']}, cached_unyeared={direct_summary['cached_unyeared_count']}, dedup_num={self._dedup_count}", flush=True)
         save_progress(complete=True)
@@ -2217,6 +2288,13 @@ class PaperCitationFetcher:
             return 'partial'
 
         current = pub['num_citations']
+        promoted_scholar_total = 0
+        try:
+            promoted_scholar_total = int(cached.get('num_citations_on_scholar', 0) or 0)
+        except (TypeError, ValueError):
+            promoted_scholar_total = 0
+        if current <= promoted_scholar_total:
+            return 'complete'
         probed_year_counts = self._normalize_year_count_map(cached.get('probed_year_counts'))
         probe_complete = cached.get('probe_complete') is True and bool(probed_year_counts)
         if probe_complete:
@@ -2285,6 +2363,7 @@ class PaperCitationFetcher:
         with open(self.profile_json, 'r', encoding='utf-8') as f:
             profile = json.load(f)
         publications = profile.get('publications', [])
+        self._profile_data = profile
 
         # Load citedby_url mapping from publications cache
         if not os.path.exists(self.pubs_cache):
@@ -2292,6 +2371,7 @@ class PaperCitationFetcher:
             return False
         with open(self.pubs_cache, 'r', encoding='utf-8') as f:
             pubs_data = json.load(f)
+        self._pubs_data = pubs_data
         url_map = {p['title']: {
             'citedby_url': p.get('citedby_url', ''),
             'pub_url':     p.get('url', 'N/A'),
@@ -2435,6 +2515,7 @@ class PaperCitationFetcher:
                                 )
                                 partial_year_start = dict(self._partial_year_start)
                                 print(f"  {now_str()} Retrying with {len(resume_from)} cached citations from previous attempt")
+                    self._current_pub_for_live_promotion = pub
                     citations = self._fetch_citations_with_progress(
                         citedby_url, cache_path, title, num_citations,
                         pub_url, pub.get('year', 'N/A'), resume_from,
@@ -2447,10 +2528,13 @@ class PaperCitationFetcher:
                         selective_refresh_years=selective_refresh_years,
                         rehydrated_probed_year_counts=rehydrated_probed_year_counts,
                         rehydrated_probe_complete=rehydrated_probe_complete,
+                        pub_obj=pub,
                     )
+                    num_citations = pub['num_citations']
                     seen_total = len(citations) + self._dedup_count
                     dedup_str = f", {self._dedup_count} dupes" if self._dedup_count else ""
                     print(f"  Done: {len(citations)} cached, {seen_total} seen{dedup_str} (Scholar: {num_citations})")
+                    self._current_pub_for_live_promotion = None
                     year_counts = self._year_count_map(citations)
                     if year_counts:
                         year_total = sum(year_counts.values())
@@ -2695,13 +2779,97 @@ class PaperCitationFetcher:
         print(f"  [{ts}] {max_hours}h elapsed. Resuming...", flush=True)
         return False
 
+    def _flush_publication_count_updates(self, profile, pubs_data):
+        updates = getattr(self, '_updated_publication_counts', None) or {}
+        if not updates:
+            return
+
+        profile_publications = profile.get('publications', [])
+        cache_publications = pubs_data.get('publications', [])
+        updated_titles = set()
+        changed = False
+        for publication in profile_publications:
+            title = publication.get('title')
+            if title in updates and updates[title] > int(publication.get('num_citations', 0) or 0):
+                publication['num_citations'] = updates[title]
+                updated_titles.add(title)
+                changed = True
+        for publication in cache_publications:
+            title = publication.get('title')
+            if title in updates and updates[title] > int(publication.get('num_citations', 0) or 0):
+                publication['num_citations'] = updates[title]
+                updated_titles.add(title)
+                changed = True
+        if not changed:
+            return
+
+        for result in getattr(self, '_results_in_progress', []) or []:
+            if not result:
+                continue
+            publication = result.get('pub')
+            if not publication:
+                continue
+            title = publication.get('title')
+            if title in updated_titles and title in updates:
+                publication['num_citations'] = updates[title]
+
+        results_in_progress = getattr(self, '_results_in_progress', []) or []
+        if results_in_progress and profile_publications:
+            profile_by_title = {publication.get('title'): publication for publication in profile_publications}
+            for result in results_in_progress:
+                if not result:
+                    continue
+                publication = result.get('pub')
+                if not publication:
+                    continue
+                synced_publication = profile_by_title.get(publication.get('title'))
+                if synced_publication is not None:
+                    result['pub'] = dict(synced_publication)
+
+        self._resort_publications(profile_publications)
+        self._resort_publications(cache_publications)
+        profile['total_publications'] = len(profile_publications)
+
+        basics = profile.get('author_info', {})
+        change_history = profile.get('change_history', [])
+        preserved_fetch_time = profile.get('fetch_time')
+        rebuilt_profile = {
+            'author_info': basics,
+            'publications': profile_publications,
+            'fetch_time': preserved_fetch_time,
+            'total_publications': len(profile_publications),
+            'total_citations': basics.get('citedby', 0),
+            'citation_count_summary': AuthorProfileFetcher(self.author_id, self.output_dir)._build_profile_count_summary(basics),
+            'change_history': change_history,
+        }
+        profile.clear()
+        profile.update(rebuilt_profile)
+        with open(self.profile_json, 'w', encoding='utf-8') as f:
+            json.dump(profile, f, ensure_ascii=False, indent=2)
+        AuthorProfileFetcher(self.author_id, self.output_dir).save_profile_xlsx(
+            basics,
+            profile_publications,
+            change_history=change_history,
+            fetch_time=preserved_fetch_time,
+        )
+        with open(self.pubs_cache, 'w', encoding='utf-8') as f:
+            json.dump(pubs_data, f, ensure_ascii=False, indent=2)
+
     def _save_output(self, results):
         """Save citation results to JSON and Excel."""
         print("\n" + "=" * 70)
-        publications = []
-        if os.path.exists(self.profile_json):
+        profile = getattr(self, '_profile_data', None)
+        pubs_data = getattr(self, '_pubs_data', None)
+        self._results_in_progress = results
+        if profile is None and os.path.exists(self.profile_json):
             with open(self.profile_json, 'r', encoding='utf-8') as f:
-                publications = json.load(f).get('publications', [])
+                profile = json.load(f)
+        if pubs_data is None and os.path.exists(self.pubs_cache):
+            with open(self.pubs_cache, 'r', encoding='utf-8') as f:
+                pubs_data = json.load(f)
+        if profile is not None and pubs_data is not None:
+            self._flush_publication_count_updates(profile, pubs_data)
+        publications = profile.get('publications', []) if profile else []
         final_results = []
         for i, r in enumerate(results):
             if r is not None:
