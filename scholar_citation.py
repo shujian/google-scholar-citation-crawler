@@ -1755,6 +1755,12 @@ class PaperCitationFetcher:
                 ],
             )
 
+        def current_count_for_stop_and_status():
+            citations = current_citations(complete=True)
+            if effective_target:
+                return len(self._year_count_map(citations))
+            return len(citations)
+
         year_count_map = self._year_count_map(old_citations)
         probed_year_counts = self._normalize_year_count_map(self._probed_year_counts)
         can_skip_by_probe_counts = getattr(self, '_probed_year_count_complete', False)
@@ -1887,7 +1893,7 @@ class PaperCitationFetcher:
         target_reached_by_histogram = lambda: (
             effective_target is not None
             and effective_target > 0
-            and len(self._year_count_map(current_citations(complete=False))) >= effective_target
+            and current_count_for_stop_and_status() >= effective_target
             and not suppress_final_histogram_target_stop
         )
 
@@ -1999,7 +2005,7 @@ class PaperCitationFetcher:
                                 year_progress_saved = True
 
                             stop_status = self._get_early_stop_status(
-                                len(self._year_count_map(current_citations(complete=False))) if effective_target else len(current_citations(complete=False)),
+                                current_count_for_stop_and_status(),
                                 effective_target,
                                 paper_new_count,
                                 prev_scholar_count,
@@ -2021,7 +2027,7 @@ class PaperCitationFetcher:
                                     **stop_status,
                                     'should_stop': True,
                                     'reason': 'target_reached',
-                                    'message': f"Reached target ({len(self._year_count_map(current_citations(complete=False)))} >= {effective_target})",
+                                    'message': f"Reached target ({current_count_for_stop_and_status()} >= {effective_target})",
                                 }
                             if stop_status['should_stop']:
                                 stop_after_current_page = True
@@ -2052,13 +2058,13 @@ class PaperCitationFetcher:
                     print(f"      Year {year} done: {year_new_count} new citations", flush=True)
                 else:
                     print(f"      Year {year} done: no new citations", flush=True)
-                print(f"      Year {year} status: paper_total={len(current_citations(complete=False))}, paper_new={paper_new_count}, "
+                print(f"      Year {year} status: paper_total={len(current_citations(complete=True))}, paper_new={paper_new_count}, "
                       f"pages={self._total_page_count}, skipped_years={skipped_years}", flush=True)
                 if not year_progress_saved:
                     save_progress(complete=False)
 
                 stop_status = self._get_early_stop_status(
-                    len(self._year_count_map(current_citations(complete=False))) if effective_target else len(current_citations(complete=False)),
+                    current_count_for_stop_and_status(),
                     effective_target,
                     paper_new_count,
                     prev_scholar_count,
@@ -2080,7 +2086,7 @@ class PaperCitationFetcher:
                         **stop_status,
                         'should_stop': True,
                         'reason': 'target_reached',
-                        'message': f"Reached target ({len(self._year_count_map(current_citations(complete=False)))} >= {effective_target})",
+                        'message': f"Reached target ({current_count_for_stop_and_status()} >= {effective_target})",
                     }
                 if stop_status['should_stop']:
                     stop_scope = "after current page" if stop_after_current_page else "after current year"
