@@ -1,5 +1,6 @@
 # Work Notes: Google Scholar Citation Crawler
 
+- **2026-04-09** — 放宽 incomplete probe 在 year-based incremental update 中的用途：即使 `probe_complete=False`，只要 histogram 已经明确指出某些年份存在 deficit（`cached_year_counts[year] < probed_year_counts[year]`），`_fetch_by_year()` 也会自动把 selective refresh 缩到这些 deficit years；`probe_complete` 继续只用于 authoritative match / reconciliation 这类“是否已完全一致”的严格语义，不再作为 selective refresh 的硬门槛。同步补充 `test_citation_page_stop.py` 回归测试，覆盖 deficit-only refresh、missing probed year 不视为 0、empty-candidate fallback、partial resume 优先级，`python -m unittest test_citation_page_stop.py` 通过（47 tests, OK）。
 - **2026-04-09** — 修复 year-based refresh 的状态统计口径：`_fetch_by_year()` 在年份抓取过程中虽然已经用 year-bucket replacement 更新了 authoritative citation state，但 `Year {year} status: paper_total=...`、histogram target reached、以及 year-path partial save 仍有部分地方读取旧的 overlay 视图，导致日志里的 `paper_total` 落后于真实替换后的总数。这次统一改成在 year-based 路径下使用 authoritative materialized citations 进行状态统计与 partial save；非 year-based / small-paper 的 incomplete save 仍保留原有 overlay 语义。同步补充 `test_citation_page_stop.py` 回归测试，覆盖 year status total 与 partial save snapshot，`python -m unittest test_citation_page_stop.py` 通过（43 tests, OK）。
 
 ## 项目结构

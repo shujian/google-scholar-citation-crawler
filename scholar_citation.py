@@ -1042,14 +1042,27 @@ class PaperCitationFetcher:
 
     @staticmethod
     def _selective_refresh_candidate_years(cached_year_counts, probed_year_counts,
-                                           year_range, partial_year_start=None):
+                                           year_range, partial_year_start=None,
+                                           probe_complete=False):
         cached_year_counts = PaperCitationFetcher._normalize_year_count_map(cached_year_counts)
         probed_year_counts = PaperCitationFetcher._normalize_year_count_map(probed_year_counts)
         partial_years = {int(year) for year in (partial_year_start or {}).keys()}
-        return [
+        candidate_years = set(partial_years)
+
+        if probe_complete:
+            candidate_years.update(
+                year for year in year_range
+                if cached_year_counts.get(year, 0) != probed_year_counts.get(year, 0)
+            )
+            return [year for year in year_range if year in candidate_years]
+
+        candidate_years.update(
             year for year in year_range
-            if year in partial_years or cached_year_counts.get(year, 0) != probed_year_counts.get(year, 0)
-        ]
+            if year in probed_year_counts and cached_year_counts.get(year, 0) < probed_year_counts[year]
+        )
+        if not candidate_years:
+            return None
+        return [year for year in year_range if year in candidate_years]
 
     @staticmethod
     def _build_citation_count_summary(citations, scholar_total=None, probed_year_counts=None,
@@ -1849,13 +1862,14 @@ class PaperCitationFetcher:
               f"prev_scholar={prev_scholar_count}, target={effective_target}, total_years={total_years}", flush=True)
         print(f"    Current-run completed years: {self._format_year_set_summary(self._completed_year_segments)}", flush=True)
         print(f"    Partial resume points: {self._format_partial_year_start_summary(self._partial_year_start)}", flush=True)
-        if selective_refresh_years is None and can_skip_by_probe_counts and allow_incremental_early_stop:
-            selective_refresh_years = set(self._selective_refresh_candidate_years(
+        if selective_refresh_years is None and probed_year_counts and allow_incremental_early_stop:
+            selective_refresh_years = self._selective_refresh_candidate_years(
                 cached_year_counts,
                 probed_year_counts,
                 year_range,
                 partial_year_start=self._partial_year_start,
-            ))
+                probe_complete=can_skip_by_probe_counts,
+            )
         if selective_refresh_years is not None and not selective_refresh_years and self._partial_year_start:
             selective_refresh_years = {int(year) for year in self._partial_year_start.keys()}
         effective_refresh_years = set(selective_refresh_years or ())
