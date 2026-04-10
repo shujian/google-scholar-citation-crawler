@@ -704,3 +704,61 @@ probe year的逻辑还需要检查一下，我发现存在没有在直方图上�
 ## Message 105 [2026-04-09T00:00:00Z]
 
 请撤回上一次提交，更新worknotes和user之后一起提交
+
+---
+
+## Message 106 [2026-04-10T00:00:00Z]
+
+发现了一个死循环，请处理一下 Year summary: 6 years, total=132, years_with_citations=6, range=2021-2026 [2021:3, 2022:27, 2023:31, 2024:47, 2025:19, 2026:5], unyeared=3
+  [20:39:43] Retrying with 135 cached citations from previous attempt
+      [20:39:43] Waiting 52s before request... [elapsed 2h18m15s, 0 new citations, 82 pages, 1 captcha solves]
+      Scholar year range probe: start_year = 2021 (from full histogram DOM, 6 year values found, total=132)
+      Year histogram summary: 6 years, total=132, years_with_citations=6, range=2021-2026 [2021:3, 2022:27, 2023:31, 2024:47, 2025:19, 2026:5]
+  Year-based plan: 2021-2026 (current-run completed=6)
+    Direction: newest→oldest (update mode, incremental early stop enabled)
+    Probe summary: 6 years, total=132, years_with_citations=6, range=2021-2026 [2021:3, 2022:27, 2023:31, 2024:47, 2025:19, 2026:5]
+    Probe totals: scholar_total=132, year_sum=132, missing_from_histogram=0
+    Cache summary: 6 years, total=132, years_with_citations=6, range=2021-2026 [2021:3, 2022:27, 2023:31, 2024:47, 2025:19, 2026:5]
+    Cache totals: cached_total=135, cached_year_sum=132, cached_unyeared=3, dedup_num=0
+    Fetch context: mode=incremental, probe_complete=True, prev_scholar=131, target=132, total_years=6
+    Current-run completed years: 2021, 2022, 2023, 2024, 2025, 2026
+    Partial resume points: none
+    Selective refresh years: none
+  Year fetch skipped: histogram-authoritative match (scholar_total=132, year_sum=132, cached_total=135, cached_year_sum=132, dedup_num=0)
+  Done: 135 cached, 135 seen (Scholar: 132)
+  Year summary: 6 years, total=132, years_with_citations=6, range=2021-2026 [2021:3, 2022:27, 2023:31, 2024:47, 2025:19, 2026:5], unyeared=3
+  [20:40:37] Retrying with 135 cached citations from previous attempt
+      [20:40:37] Waiting 61s before request... [elapsed 2h19m09s, 0 new citations, 83 pages, 1 captcha solves]
+      Scholar year range probe: start_year = 2021 (from full histogram DOM, 6 year values found, total=132)
+      Year histogram summary: 6 years, total=132, years_with_citations=6, range=2021-2026 [2021:3, 2022:27, 2023:31, 2024:47, 2025:19, 2026:5]
+  Year-based plan: 2021-2026 (current-run completed=6)
+    Direction: newest→oldest (update mode, incremental early stop enabled)
+    Probe summary: 6 years, total=132, years_with_citations=6, range=2021-2026 [2021:3, 2022:27, 2023:31, 2024:47, 2025:19, 2026:5]
+    Probe totals: scholar_total=132, year_sum=132, missing_from_histogram=0
+    Cache summary: 6 years, total=132, years_with_citations=6, range=2021-2026 [2021:3, 2022:27, 2023:31, 2024:47, 2025:19, 2026:5]
+    Cache totals: cached_total=135, cached_year_sum=132, cached_unyeared=3, dedup_num=0
+    Fetch context: mode=incremental, probe_complete=True, prev_scholar=131, target=132, total_years=6
+    Current-run completed years: 2021, 2022, 2023, 2024, 2025, 2026
+    Partial resume points: none
+    Selective refresh years: none
+  Year fetch skipped: histogram-authoritative match (scholar_total=132, year_sum=132, cached_total=135, cached_year_sum=132, dedup_num=0)
+  Done: 135 cached, 135 seen (Scholar: 132)
+  Year summary: 6 years, total=132, years_with_citations=6, range=2021-2026 [2021:3, 2022:27, 2023:31, 2024:47, 2025:19, 2026:5], unyeared=3
+
+---
+
+## Message 107 [2026-04-10T00:00:00Z]
+
+为什么测试要花这么长时间？
+
+---
+
+## Message 108 [2026-04-10T00:00:00Z]
+
+你可以试一下，不过以后测试应该尽快结束，节约时间。
+
+---
+
+## Message 109 [2026-04-10T00:00:00Z]
+
+请提交git，更新worknotes和user。
