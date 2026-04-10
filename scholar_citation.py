@@ -1659,8 +1659,11 @@ class PaperCitationFetcher:
                 effective_num_citations = live_total
             return effective_num_citations
 
-        def materialized_citations(complete):
+        def direct_materialized_citations(complete):
             return self._materialize_citation_cache(old_citations, fresh_citations, complete)
+
+        def materialized_citations(complete):
+            return direct_materialized_citations(complete)
 
         def save_progress(complete):
             citations_to_save = materialized_citations(complete)
@@ -1737,6 +1740,15 @@ class PaperCitationFetcher:
                 'pub_year': pub_year,
             },
         }
+        direct_fetch_allow_early_stop = (
+            not self.recheck_citations
+            and not force_year_rebuild
+        )
+        has_cached_citations = bool(old_citations)
+        scholar_increase = (
+            max(0, current_scholar_total() - int(prev_scholar_count or 0))
+            if has_cached_citations else 0
+        )
 
         print("    Direct fetch mode: no year probe, summary shown after fetch", flush=True)
 
@@ -1759,11 +1771,13 @@ class PaperCitationFetcher:
                 for key in identity_keys:
                     fresh_seen[key] = label
                 fresh_citations.append(info)
-                if not any(key in old_cache_identity_keys for key in identity_keys):
+                is_new_citation = not any(key in old_cache_identity_keys for key in identity_keys)
+                if is_new_citation:
                     self._new_citations_count += 1
                 seen_total = len(fresh_citations) + self._dedup_count
                 maybe_promote_scholar_total(seen_total, source='direct_fetch_seen_total')
                 direct_fetch_pub['num_citations'] = current_scholar_total()
+                materialized_total = len(direct_materialized_citations(complete=False))
                 count = len(fresh_citations)
 
                 print(f"  [{count}] {info['title'][:55]}...", flush=True)
@@ -1771,6 +1785,13 @@ class PaperCitationFetcher:
                 if count % self.save_every == 0:
                     save_progress(complete=False)
                     print(f"  Progress saved ({count} citations, {self._new_citations_count} new in this run)", flush=True)
+
+                if direct_fetch_allow_early_stop and materialized_total >= current_scholar_total():
+                    print(f"  Direct fetch: reached target ({materialized_total} >= {current_scholar_total()}), stopping early", flush=True)
+                    break
+                if direct_fetch_allow_early_stop and scholar_increase > 0 and is_new_citation and self._new_citations_count >= scholar_increase:
+                    print(f"  Direct fetch: recovered Scholar increase ({self._new_citations_count} >= {scholar_increase}), stopping early", flush=True)
+                    break
         except KeyboardInterrupt:
             save_progress(complete=False)
             raise
@@ -1951,7 +1972,7 @@ class PaperCitationFetcher:
 
         year_fetch_plan = self._build_year_fetch_plan(
             start_year, current_year, prev_scholar_count, num_citations,
-            allow_incremental_early_stop=allow_incremental_early_stop,
+            allow_incremental_early_stop=False,
         )
         year_range = year_fetch_plan['year_range']
         print(f"    Direction: {year_fetch_plan['direction_label']} "
@@ -2142,36 +2163,8 @@ class PaperCitationFetcher:
                                 save_progress(complete=False)
                                 page_save_emitted = True
                                 year_progress_saved = True
-
-                            stop_status = self._get_early_stop_status(
-                                current_count_for_stop_and_status(),
-                                effective_target,
-                                paper_new_count,
-                                prev_scholar_count,
-                                allow_incremental_early_stop=allow_incremental_early_stop,
-                                suppress_target_reached=suppress_target_reached,
-                                stop_after_partial_resume=(
-                                    stop_partial_resume_once_satisfied
-                                    and resuming_partial_year
-                                    and live_count is not None
-                                    and len(year_fetched_citations) >= live_count
-                                ),
-                                disable_target_reached=(
-                                    histogram_authoritative
-                                    and can_skip_by_probe_counts
-                                ),
-                            )
-                            if target_reached_by_histogram() and not (suppress_target_reached or suppress_final_histogram_target_stop or (histogram_authoritative and can_skip_by_probe_counts)):
-                                stop_status = {
-                                    **stop_status,
-                                    'should_stop': True,
-                                    'reason': 'target_reached',
-                                    'message': f"Reached target ({current_count_for_stop_and_status()} >= {effective_target})",
-                                }
-                            if stop_status['should_stop']:
-                                stop_after_current_page = True
-                                if getattr(iterator, '_finished_current_page', False):
-                                    break
+                        if year_items_seen > 0 and page_save_emitted:
+                            continue
                         break
                     except KeyboardInterrupt:
                         save_progress(complete=False)
@@ -2202,34 +2195,8 @@ class PaperCitationFetcher:
                 if not year_progress_saved:
                     save_progress(complete=False)
 
-                stop_status = self._get_early_stop_status(
-                    current_count_for_stop_and_status(),
-                    effective_target,
-                    paper_new_count,
-                    prev_scholar_count,
-                    allow_incremental_early_stop=allow_incremental_early_stop,
-                    suppress_target_reached=suppress_target_reached,
-                    stop_after_partial_resume=(
-                        stop_partial_resume_once_satisfied
-                        and resuming_partial_year
-                        and live_count is not None
-                        and len(year_fetched_citations) >= live_count
-                    ),
-                    disable_target_reached=(
-                        histogram_authoritative
-                        and can_skip_by_probe_counts
-                    ),
-                )
-                if target_reached_by_histogram() and not (suppress_target_reached or suppress_final_histogram_target_stop or (histogram_authoritative and can_skip_by_probe_counts)):
-                    stop_status = {
-                        **stop_status,
-                        'should_stop': True,
-                        'reason': 'target_reached',
-                        'message': f"Reached target ({current_count_for_stop_and_status()} >= {effective_target})",
-                    }
-                if stop_status['should_stop']:
-                    stop_scope = "after current page" if stop_after_current_page else "after current year"
-                    print(f"  Year {year}: {stop_status['message']}, skipping remaining years {stop_scope}", flush=True)
+                if stop_partial_resume_once_satisfied and resuming_partial_year and live_count is not None and len(year_fetched_citations) >= live_count:
+                    print(f"  Year {year}: Completed resumed year segment, skipping remaining years after current year", flush=True)
                     break
 
         except KeyboardInterrupt:
@@ -2615,6 +2582,17 @@ class PaperCitationFetcher:
                         )
                         if not refresh_status['ok']:
                             print(f"  {self._refresh_log_message('Refresh check', refresh_status)}")
+                            is_selective_refresh_attempt = bool(selective_refresh_years)
+                            is_incomplete_histogram = (
+                                refresh_status['reason'] == 'histogram_incomplete'
+                                and not refresh_status.get('probe_complete', False)
+                            )
+                            if is_selective_refresh_attempt:
+                                print("  Selective refresh reconciliation failed; recording current results without escalation", flush=True)
+                                break
+                            if is_incomplete_histogram:
+                                print("  Histogram is incomplete; recording current results without escalation", flush=True)
+                                break
                             fetch_policy = self._resolve_citation_fetch_policy(
                                 num_citations,
                                 pub.get('year', 'N/A'),
