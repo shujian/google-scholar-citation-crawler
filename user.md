@@ -923,3 +923,63 @@ Refresh check: histogram_incomplete (scholar_total=131, year_sum=130, cached_tot
 ## Message 127 [2026-04-10T00:00:00Z]
 
 为什么update user.md总是会出现错误？
+
+---
+
+## Message 128 [2026-04-10T00:00:00Z]
+
+但是user.md应该还是有不少没有更新的消息，你再帮我查一下，确认一下。
+
+---
+
+## Message 129 [2026-04-10T00:00:00Z]
+
+好的，继续解决cached论文1，但是没有被更新的问题
+
+---
+
+## Message 130 [2026-04-10T00:00:00Z]
+
+Year summary: 7 years, total=38, years_with_citations=7, range=2019-2025 [2019:3, 2020:10, 2021:6, 2022:10, 2023:4, 2024:3, 2025:2]
+Refresh check: histogram_incomplete (scholar_total=38, year_sum=0, cached_total=38, cached_year_sum=38, dedup_num=0)
+Histogram is incomplete; recording current results without escalation
+这数量不是对的吗？
+
+---
+
+## Message 131 [2026-04-10T00:00:00Z]
+
+好的，修改代码并完成更新。
+
+---
+
+## Message 132 [2026-04-10T00:00:00Z]
+
+之前讨论过，probe得到year histogram，如果有一些unyeared我们就放弃这部分，如果cached的year histogram和probe的一致，也应该视为complete。
+
+---
+
+## Message 133 [2026-04-10T00:00:00Z]
+
+Done: 25 cached, 25 seen (Scholar: 25)
+Year summary: 8 years, total=23, years_with_citations=8, range=2017-2024 [2017:2, 2018:8, 2019:4, 2020:2, 2021:4, 2022:1, 2023:1, 2024:1], unyeared=2
+Refresh check: histogram_incomplete (scholar_total=25, year_sum=0, cached_total=25, cached_year_sum=23, dedup_num=0)
+类似这样，没有probe year的，应该把cached year sum和cached unyeard的总数跟scholar总数对应匹配，因为此时不存在probe的year sum（程序中设为了0）。
+
+---
+
+## Message 134 [2026-04-10T00:00:00Z]
+
+你描述了三个条件，我觉得应该是两条，且应用范围应该明确。其中第一个是year histogram一致，这是按照year抓取的判断完整的标准；第二条 cached_total == scholar_total作为small的判断标准，我觉得就可以了。注意year histogram的比较是逐年比较。small的比较是整体比较（含unyeared）。
+
+---
+
+## Message 135 [2026-04-11T00:00:00Z]
+
+好的
+
+---
+
+## Message 136 [2026-04-11T00:00:00Z]
+
+要整理更新worknotes 、user，如果有需要，还要更新readme。
