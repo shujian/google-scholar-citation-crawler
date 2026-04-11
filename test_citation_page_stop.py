@@ -1357,6 +1357,41 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertIn("Direct fetch: reached target (2 >= 2), stopping early", output)
         self.assertNotIn("Fresh-C", [c["title"] for c in citations])
 
+    def test_direct_fetch_does_not_count_overlayed_cache_toward_target(self):
+        fetched_items = [
+            {"bib": {"title": "Fresh-A", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a", "cites_id": "cid-a"},
+            {"bib": {"title": "Fresh-B", "author": ["B"], "venue": "V2", "pub_year": "2024"}, "pub_url": "new-b", "cites_id": "cid-b"},
+            {"bib": {"title": "Fresh-C", "author": ["C"], "venue": "V3", "pub_year": "2025"}, "pub_url": "new-c", "cites_id": "cid-c"},
+        ]
+        old_citations = [
+            {"title": "Old-1", "authors": "A", "venue": "V", "year": "2020", "url": "old-1", "cites_id": "old-1"},
+            {"title": "Old-2", "authors": "B", "venue": "V", "year": "2021", "url": "old-2", "cites_id": "old-2"},
+            {"title": "Old-3", "authors": "C", "venue": "V", "year": "2022", "url": "old-3", "cites_id": "old-3"},
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = os.path.join(tmpdir, "paper.json")
+            with patch.object(scholar_citation.scholarly, "citedby", return_value=iter(fetched_items)), \
+                 patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+                citations = self.fetcher._fetch_citations_with_progress(
+                    citedby_url="/scholar?cites=123",
+                    cache_path=cache_path,
+                    title="Paper",
+                    num_citations=3,
+                    pub_url="https://example.com/paper",
+                    pub_year="2024",
+                    resume_from=old_citations,
+                    completed_years_in_current_run=[],
+                    prev_scholar_count=0,
+                )
+
+        output = fake_stdout.getvalue()
+        self.assertEqual([c["title"] for c in citations], ["Fresh-A", "Fresh-B", "Fresh-C"])
+        self.assertIn("Direct fetch: reached target (3 >= 3), stopping early", output)
+        self.assertNotIn("Direct fetch: reached target (4 >= 3)", output)
+        self.assertNotIn("Direct fetch: reached target (5 >= 3)", output)
+        self.assertNotIn("Direct fetch: reached target (6 >= 3)", output)
+
     def test_direct_fetch_first_fetch_does_not_stop_on_scholar_increase(self):
         fetched_items = [
             {"bib": {"title": "Fresh-A", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a", "cites_id": "cid-a"},

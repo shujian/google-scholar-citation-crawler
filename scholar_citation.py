@@ -1792,11 +1792,10 @@ class PaperCitationFetcher:
                 is_new_citation = not any(key in old_cache_identity_keys for key in identity_keys)
                 if is_new_citation:
                     self._new_citations_count += 1
-                seen_total = len(fresh_citations) + self._dedup_count
-                maybe_promote_scholar_total(seen_total, source='direct_fetch_seen_total')
                 direct_fetch_pub['num_citations'] = current_scholar_total()
-                materialized_total = len(direct_materialized_citations(complete=False))
-                count = len(fresh_citations)
+                latest_scholar_total = len(fresh_citations)
+                maybe_promote_scholar_total(latest_scholar_total, source='direct_fetch_seen_total')
+                count = latest_scholar_total
 
                 print(f"  [{count}] {info['title'][:55]}...", flush=True)
 
@@ -1804,8 +1803,8 @@ class PaperCitationFetcher:
                     save_progress(complete=False)
                     print(f"  Progress saved ({count} citations, {self._new_citations_count} new in this run)", flush=True)
 
-                if direct_fetch_allow_early_stop and materialized_total >= current_scholar_total():
-                    print(f"  Direct fetch: reached target ({materialized_total} >= {current_scholar_total()}), stopping early", flush=True)
+                if direct_fetch_allow_early_stop and latest_scholar_total >= current_scholar_total():
+                    print(f"  Direct fetch: reached target ({latest_scholar_total} >= {current_scholar_total()}), stopping early", flush=True)
                     break
                 if direct_fetch_allow_early_stop and scholar_increase > 0 and is_new_citation and self._new_citations_count >= scholar_increase:
                     print(f"  Direct fetch: recovered Scholar increase ({self._new_citations_count} >= {scholar_increase}), stopping early", flush=True)

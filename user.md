@@ -1023,3 +1023,39 @@ Year summary: 8 years, total=161, years_with_citations=8, range=2019-2026 [2019:
 ## Message 141 [2026-04-11T10:25:00Z]
 
 请更新相关文档并提交git
+
+---
+
+## Message 142 [2026-04-11T10:32:00Z]
+
+这里为什么明明是106 v.s. 109，log会说109>=109并且early stop了？什么地方搞错了？
+
+---
+
+## Message 143 [2026-04-11T10:33:00Z]
+
+[106] Utilizing Text Structure for Information Extraction...
+Direct fetch: reached target (109 >= 109), stopping early
+  Probe summary: none
+  Probe totals: scholar_total=109, year_sum=0, missing_from_histogram=?
+  Cache summary: 7 years, total=104, years_with_citations=7, range=2020-2026 [2020:5, 2021:14, 2022:21, 2023:23, 2024:17, 2025:23, 2026:1]
+  Cache totals: cached_total=106, cached_year_sum=104, cached_unyeared=2, dedup_num=0
+Done: 106 cached, 106 seen (Scholar: 109)
+
+---
+
+## Message 144 [2026-04-11T10:34:00Z]
+
+但是一共引用计数才到106，为什么materialized_total会是109？我看了一下，也没有dedup
+
+---
+
+## Message 145 [2026-04-11T10:35:00Z]
+
+好的，检查一下这个问题。引用应该以最新scholar上更新内容为准。
+
+---
+
+## Message 146 [2026-04-11T10:36:00Z]
+
+肯定是什么地方的计数出问题了。
