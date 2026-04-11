@@ -1202,6 +1202,22 @@ class PaperCitationFetcher:
                 })
             return status
 
+        if count_summary['probed_year_counts']:
+            if count_summary['cached_year_counts'] == count_summary['probed_year_counts']:
+                status.update({
+                    'ok': True,
+                    'reason': 'matched_incomplete_histogram',
+                })
+                return status
+            return status
+
+        if count_summary['cached_total'] == count_summary['scholar_total']:
+            status.update({
+                'ok': True,
+                'reason': 'count_matched_without_histogram',
+            })
+            return status
+
         return status
 
     @staticmethod
@@ -2309,12 +2325,13 @@ class PaperCitationFetcher:
             return 'partial'
 
         current = pub['num_citations']
+        actual_cached = cached.get('num_citations_cached', len(cached.get('citations', [])))
         promoted_scholar_total = 0
         try:
             promoted_scholar_total = int(cached.get('num_citations_on_scholar', 0) or 0)
         except (TypeError, ValueError):
             promoted_scholar_total = 0
-        if current <= promoted_scholar_total:
+        if current <= promoted_scholar_total and actual_cached >= current:
             return 'complete'
         probed_year_counts = self._normalize_year_count_map(cached.get('probed_year_counts'))
         probe_complete = cached.get('probe_complete') is True and bool(probed_year_counts)

@@ -2107,7 +2107,56 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertEqual(status["reason"], "year_count_mismatch")
         self.assertEqual(status["histogram_total"], 3)
 
-    def test_refresh_reconciliation_keeps_histogram_incomplete_status_when_probe_incomplete(self):
+    def test_refresh_reconciliation_accepts_matching_year_histogram_when_probe_incomplete(self):
+        status = self.fetcher._refresh_reconciliation_status(
+            citations=[
+                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+                {"title": "B", "authors": "B", "venue": "V", "year": "N/A", "url": "u2"},
+                {"title": "C", "authors": "C", "venue": "V", "year": "N/A", "url": "u3"},
+            ],
+            num_citations=5,
+            probed_year_counts={2024: 1},
+            probe_complete=False,
+        )
+
+        self.assertTrue(status["ok"])
+        self.assertEqual(status["reason"], "matched_incomplete_histogram")
+        self.assertEqual(status["histogram_total"], 1)
+        self.assertEqual(status["cached_unyeared_count"], 2)
+
+    def test_refresh_reconciliation_keeps_histogram_incomplete_status_when_probe_incomplete_histogram_mismatches(self):
+        status = self.fetcher._refresh_reconciliation_status(
+            citations=[
+                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+            ],
+            num_citations=3,
+            probed_year_counts={2024: 2},
+            probe_complete=False,
+        )
+
+        self.assertFalse(status["ok"])
+        self.assertEqual(status["reason"], "histogram_incomplete")
+        self.assertEqual(status["histogram_total"], 2)
+        self.assertEqual(status["cached_total"], 1)
+
+    def test_refresh_reconciliation_accepts_count_match_without_probe_histogram(self):
+        status = self.fetcher._refresh_reconciliation_status(
+            citations=[
+                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+                {"title": "B", "authors": "B", "venue": "V", "year": "N/A", "url": "u2"},
+                {"title": "C", "authors": "C", "venue": "V", "year": "N/A", "url": "u3"},
+            ],
+            num_citations=3,
+            probed_year_counts=None,
+            probe_complete=False,
+        )
+
+        self.assertTrue(status["ok"])
+        self.assertEqual(status["reason"], "count_matched_without_histogram")
+        self.assertEqual(status["histogram_total"], 0)
+        self.assertEqual(status["cached_unyeared_count"], 2)
+
+    def test_refresh_reconciliation_accepts_count_match_when_probe_incomplete(self):
         status = self.fetcher._refresh_reconciliation_status(
             citations=[
                 {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
@@ -2119,8 +2168,8 @@ class CitationPageStopTests(unittest.TestCase):
             probe_complete=False,
         )
 
-        self.assertFalse(status["ok"])
-        self.assertEqual(status["reason"], "histogram_incomplete")
+        self.assertTrue(status["ok"])
+        self.assertEqual(status["reason"], "matched_incomplete_histogram")
         self.assertEqual(status["histogram_total"], 1)
         self.assertEqual(status["cached_unyeared_count"], 2)
 
@@ -2226,7 +2275,24 @@ class CitationPageStopTests(unittest.TestCase):
 
         self.assertEqual(status, "complete")
 
-    def test_citation_status_stays_complete_when_cache_promoted_total_covers_current(self):
+    def test_citation_status_marks_partial_when_promoted_total_exceeds_sparse_cache(self):
+        pub = {"title": "Paper", "num_citations": 44}
+        cached = {
+            "complete": True,
+            "probe_complete": False,
+            "citations": [
+                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+            ],
+            "num_citations_on_scholar": 44,
+            "num_citations_seen": 1,
+        }
+
+        with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
+            status = self.fetcher._citation_status(pub)
+
+        self.assertEqual(status, "partial")
+
+    def test_citation_status_marks_partial_when_promoted_total_only_updates_metadata(self):
         pub = {"title": "Paper", "num_citations": 5}
         cached = {
             "complete": True,
@@ -2243,7 +2309,7 @@ class CitationPageStopTests(unittest.TestCase):
         with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
             status = self.fetcher._citation_status(pub)
 
-        self.assertEqual(status, "complete")
+        self.assertEqual(status, "partial")
 
     def test_citation_status_marks_partial_when_histogram_changes(self):
         pub = {"title": "Paper", "num_citations": 5}
