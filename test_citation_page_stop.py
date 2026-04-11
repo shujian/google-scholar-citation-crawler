@@ -672,6 +672,7 @@ class CitationPageStopTests(unittest.TestCase):
         output = fake_stdout.getvalue()
         self.assertEqual(len(citations), 3)
         self.assertIn("Direct fetch mode: no year probe, summary shown after fetch", output)
+        self.assertIn("Direct fetch target: scholar_total=3, prev_scholar=0, cached_total=0, allow_early_stop=True", output)
         self.assertIn("Probe summary: none", output)
         self.assertIn("Probe totals: scholar_total=3, year_sum=0, missing_from_histogram=?", output)
         self.assertIn("Cache totals: cached_total=3, cached_year_sum=2, cached_unyeared=1, dedup_num=0", output)
@@ -2656,6 +2657,58 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertIn("Histogram is incomplete; recording current results without escalation", log_output)
         self.assertNotIn("Escalating to full revalidation", log_output)
         self.assertEqual(results[0]["citations"], fetched_citations)
+    def test_run_main_loop_limits_post_fetch_reconciliation_retry(self):
+        pub = {
+            "no": 1,
+            "title": "Post Fetch Retry Paper",
+            "num_citations": 163,
+            "year": "2020",
+            "venue": "V",
+        }
+        cached = {
+            "citations": [{"title": "Cached", "authors": "A", "venue": "V", "year": "2020", "url": "u0"}],
+            "num_citations_on_scholar": 160,
+            "complete": False,
+        }
+        fetched_citations = [
+            {"title": "Fetched-1", "authors": "A", "venue": "V", "year": "2020", "url": "u1"},
+            {"title": "Fetched-2", "authors": "B", "venue": "V", "year": "2021", "url": "u2"},
+        ]
+        results = []
+        refresh_calls = {"count": 0}
+
+        def cache_status(current_pub):
+            self.assertEqual(current_pub["title"], pub["title"])
+            return "partial", cached
+
+        def flaky_refresh_status(*args, **kwargs):
+            refresh_calls["count"] += 1
+            raise RuntimeError(f"boom-{refresh_calls['count']}")
+
+        with patch.object(self.fetcher, "_fetch_citations_with_progress", return_value=fetched_citations) as mock_fetch, \
+             patch.object(self.fetcher, "_refresh_reconciliation_status", side_effect=flaky_refresh_status), \
+             patch.object(self.fetcher, "_wait_proxy_switch", return_value=None) as mock_wait, \
+             patch("scholar_citation.MAX_RETRIES", 2), \
+             patch("scholar_citation.rand_delay", return_value=0), \
+             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            with self.assertRaisesRegex(RuntimeError, "Post-fetch reconciliation failed after retry: RuntimeError: boom-2"):
+                self.fetcher._run_main_loop(
+                    publications=[pub],
+                    cache_status=cache_status,
+                    url_map={pub["title"]: {"citedby_url": "/scholar?cites=123", "pub_url": "https://example.com/paper"}},
+                    need_fetch=[(pub, "partial", cached)],
+                    results=results,
+                    fetch_idx=0,
+                )
+
+        log_output = fake_stdout.getvalue()
+        self.assertEqual(mock_fetch.call_count, 1)
+        self.assertEqual(refresh_calls["count"], 2)
+        self.assertEqual(log_output.count("Retrying post-fetch reconciliation with in-memory citations"), 1)
+        self.assertNotIn("Retrying post-fetch reconciliation with in-memory citations\n  Done: 2 cached, 2 seen (Scholar: 163)\n  Year summary: 2 years, total=2, years_with_citations=2, range=2020-2021 [2020:1, 2021:1]\n  [10:21:14] Retrying post-fetch reconciliation with in-memory citations", log_output)
+        mock_wait.assert_not_called()
+
     def test_run_main_loop_records_selective_refresh_reconciliation_failure_without_escalation(self):
         pub = {
             "no": 1,
@@ -2720,11 +2773,6 @@ class CitationPageStopTests(unittest.TestCase):
 
 class AuthorProfileCountSummaryTests(unittest.TestCase):
     def test_build_profile_count_summary_reports_gap(self):
-        fetcher = scholar_citation.AuthorProfileFetcher("author", output_dir=".")
-        basics = {
-            "citedby": 8035,
-            "cites_per_year": {"2015": 100, "2016": 200, "2026": 7658},
-        }
 
         summary = fetcher._build_profile_count_summary(basics)
 

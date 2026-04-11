@@ -983,3 +983,43 @@ Refresh check: histogram_incomplete (scholar_total=25, year_sum=0, cached_total=
 ## Message 136 [2026-04-11T00:00:00Z]
 
 要整理更新worknotes 、user，如果有需要，还要更新readme。
+
+
+---
+
+## Message 137 [2026-04-11T10:22:00Z]
+
+为什么还有这个bug！ [10:11:31] Retrying post-fetch reconciliation with in-memory citations
+Done: 163 cached, 163 seen (Scholar: 163)
+Year summary: 8 years, total=161, years_with_citations=8, range=2019-2026 [2019:2, 2020:20, 2021:29, 2022:31, 2023:24, 2024:27, 2025:25, 2026:3], unyeared=2
+[10:11:31] Retrying post-fetch reconciliation with in-memory citations
+Done: 163 cached, 163 seen (Scholar: 163)
+Year summary: 8 years, total=161, years_with_citations=8, range=2019-2026 [2019:2, 2020:20, 2021:29, 2022:31, 2023:24, 2024:27, 2025:25, 2026:3], unyeared=2
+[10:11:31] Retrying post-fetch reconciliation with in-memory citations
+Done: 163 cached, 163 seen (Scholar: 163)
+Year summary: 8 years, total=161, years_with_citations=8, range=2019-2026 [2019:2, 2020:20, 2021:29, 2022:31, 2023:24, 2024:27, 2025:25, 2026:3], unyeared=2
+[10:11:31] Retrying post-fetch reconciliation with in-memory citations
+
+---
+
+## Message 138 [2026-04-11T10:22:30Z]
+
+那post-fetch为什么会出异常？
+
+---
+
+## Message 139 [2026-04-11T10:23:00Z]
+
+是的，应该打印一下异常内容
+
+---
+
+## Message 140 [2026-04-11T10:24:00Z]
+
+在刚进入抓取的时候请也打印一下抓取的目标，现在只呈现了resume和cache的数量
+
+---
+
+## Message 141 [2026-04-11T10:25:00Z]
+
+请更新相关文档并提交git

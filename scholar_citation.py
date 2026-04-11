@@ -1767,6 +1767,8 @@ class PaperCitationFetcher:
         )
 
         print("    Direct fetch mode: no year probe, summary shown after fetch", flush=True)
+        print(f"    Direct fetch target: scholar_total={current_scholar_total()}, prev_scholar={prev_scholar_count}, "
+              f"cached_total={len(old_citations)}, allow_early_stop={direct_fetch_allow_early_stop}", flush=True)
 
         old_cache_identity_keys = set()
         for citation in old_citations:
@@ -2530,6 +2532,7 @@ class PaperCitationFetcher:
             attempt = 0
             preserve_escalated_state_once = False
             fetch_completed = False
+            post_fetch_retry_attempted = False
             while True:
                 attempt += 1
                 try:
@@ -2628,13 +2631,24 @@ class PaperCitationFetcher:
                                 rehydrated_probed_year_counts = None
                                 rehydrated_probe_complete = False
                                 fetch_completed = False
+                                post_fetch_retry_attempted = False
                                 citations = None
                                 preserve_escalated_state_once = True
                                 print(f"  {self._refresh_escalation_message(refresh_status)}")
                                 print(f"  {now_str()} Retrying escalated full revalidation with in-memory state")
                                 continue
+                    break
 
                 except Exception as e:
+                    is_post_fetch_failure = fetch_completed
+                    if is_post_fetch_failure:
+                        if post_fetch_retry_attempted:
+                            raise RuntimeError(
+                                f"Post-fetch reconciliation failed after retry: {type(e).__name__}: {e}"
+                            ) from e
+                        post_fetch_retry_attempted = True
+                    else:
+                        post_fetch_retry_attempted = False
                     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     # In interactive mode show attempt number only; in non-interactive
                     # mode show X/MAX_RETRIES so the user knows when it will give up.
@@ -2643,6 +2657,8 @@ class PaperCitationFetcher:
                     print(f"  [{now}] Error (attempt {attempt_str}, "
                           f"total pages: {self._total_page_count}, "
                           f"new citations: {self._new_citations_count}): {e}")
+                    if is_post_fetch_failure:
+                        continue
                     # Non-interactive: give up after MAX_RETRIES attempts
                     if not self.interactive_captcha and attempt >= MAX_RETRIES:
                         traceback.print_exc()
