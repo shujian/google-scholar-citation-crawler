@@ -67,6 +67,25 @@ def now_str():
     return datetime.now().strftime('[%H:%M:%S]')
 
 
+def _scholar_request_url(pagerequest):
+    """Best-effort extraction of the target Google Scholar URL for logging."""
+    if pagerequest is None:
+        return None
+    candidate = getattr(pagerequest, 'url', None)
+    if candidate is None and isinstance(pagerequest, dict):
+        candidate = pagerequest.get('url') or pagerequest.get('URL')
+    if candidate is None:
+        candidate = pagerequest
+    if not isinstance(candidate, str):
+        candidate = str(candidate)
+    candidate = candidate.strip()
+    if not candidate:
+        return None
+    if candidate.startswith('/'):
+        return f'https://scholar.google.com{candidate}'
+    return candidate
+
+
 class TeeStream:
     """Mirror stdout writes to both terminal and a log file."""
     def __init__(self, *streams):
@@ -820,6 +839,17 @@ class PaperCitationFetcher:
         def patched_get_page(pagerequest, premium=False):
             sleep_count = [0]
             original_sleep = time.sleep
+            request_url = _scholar_request_url(pagerequest)
+            if request_url:
+                fetcher_self._current_attempt_url = request_url
+            referer = None
+            for session in (nav._session1, nav._session2):
+                referer = session.headers.get('referer')
+                if referer:
+                    break
+            if request_url:
+                referer_str = f" (referer: {referer})" if referer else ""
+                print(f"      Request URL: {request_url}{referer_str}", flush=True)
             def unified_sleep(seconds):
                 sleep_count[0] += 1
                 if sleep_count[0] > MAX_SLEEPS_PER_PAGE:

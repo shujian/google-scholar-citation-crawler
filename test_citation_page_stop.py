@@ -41,6 +41,9 @@ class _DummyIterator:
     def __next__(self):
         raise StopIteration
 
+    def _load_url(self, url):
+        return None
+
 
 class _DummyWorkbook:
     def __init__(self):
@@ -99,6 +102,8 @@ scholarly_mod.scholarly = types.SimpleNamespace(
     _Scholarly__nav=_DummyNav(),
     _citedby_long=lambda obj, years: iter(()),
     citedby=lambda obj: iter(()),
+    search_author_id=lambda author_id: {"scholar_id": author_id},
+    fill=lambda author, sections=None: author,
 )
 scholarly_mod.ProxyGenerator = object
 sys.modules.setdefault("scholarly", scholarly_mod)
@@ -167,6 +172,70 @@ class CitationPageStopTests(unittest.TestCase):
             'sec-ch-ua-platform-version',
             'sec-ch-ua-wow64',
         }
+
+    def test_patch_scholarly_logs_request_url_before_page_fetch(self):
+        nav = scholarly_mod.scholarly._Scholarly__nav
+        seen_requests = []
+
+        def fake_get_page(pagerequest, premium=False):
+            seen_requests.append((pagerequest, premium))
+            return {"ok": True}
+
+        nav._get_page = fake_get_page
+        self.fetcher._patch_scholarly()
+
+        with patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            result = nav._get_page("/scholar?start=10&cites=123", premium=False)
+
+        output = fake_stdout.getvalue()
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(seen_requests, [("/scholar?start=10&cites=123", False)])
+        self.assertIn("Request URL: https://scholar.google.com/scholar?start=10&cites=123", output)
+        self.assertIn("referer: https://scholar.google.com/citations?user=test-author&hl=en", output)
+
+    def test_fetch_basics_logs_profile_request_url(self):
+        author_fetcher = scholar_citation.AuthorProfileFetcher("test-author", output_dir=".", delay_scale=0)
+        search_calls = []
+        fill_calls = []
+
+        def fake_search(author_id):
+            search_calls.append(author_id)
+            return {"scholar_id": author_id}
+
+        def fake_fill(author, sections=None):
+            fill_calls.append(tuple(sections or []))
+            nav = scholarly_mod.scholarly._Scholarly__nav
+            nav._get_page(f"/citations?user={author['scholar_id']}&hl=en")
+            return {
+                "name": "Author",
+                "affiliation": "Aff",
+                "citedby": 12,
+                "cites_per_year": {2026: 3},
+                "hindex": 4,
+                "i10index": 2,
+            }
+
+        nav = scholarly_mod.scholarly._Scholarly__nav
+        nav._session1.headers['referer'] = "https://scholar.google.com/"
+        nav._session2.headers['referer'] = "https://scholar.google.com/"
+        nav._get_page = lambda pagerequest, premium=False: None
+
+        with patch.object(scholar_citation.scholarly, "search_author_id", side_effect=fake_search), \
+             patch.object(scholar_citation.scholarly, "fill", side_effect=fake_fill), \
+             patch("scholar_citation.rand_delay", return_value=0), \
+             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            paper_fetcher = scholar_citation.PaperCitationFetcher("test-author", output_dir=".")
+            paper_fetcher._delay_scale = 0
+            paper_fetcher._patch_scholarly()
+            basics, fetched = author_fetcher.fetch_basics()
+
+        output = fake_stdout.getvalue()
+        self.assertTrue(fetched)
+        self.assertEqual(basics["name"], "Author")
+        self.assertEqual(search_calls, ["test-author"])
+        self.assertEqual(fill_calls, [("basics", "indices", "counts")])
+        self.assertIn("Request URL: https://scholar.google.com/citations?user=test-author&hl=en", output)
 
     def test_extract_citation_info_keeps_cites_id_and_fallback_year(self):
         info = self.fetcher._extract_citation_info(
