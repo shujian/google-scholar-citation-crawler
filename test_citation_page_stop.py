@@ -2703,7 +2703,7 @@ class CitationPageStopTests(unittest.TestCase):
             self.assertEqual(saved["citation_count_summary"]["dedup_count"], 0)
 
     def test_citation_status_stays_complete_when_seen_matches_current_total(self):
-        pub = {"title": "Paper", "num_citations": 5}
+        pub = {"title": "Paper", "num_citations": 5, "year": "2024"}
         cached = {
             "complete": True,
             "probe_complete": False,
@@ -2713,6 +2713,25 @@ class CitationPageStopTests(unittest.TestCase):
                 {"title": "C", "authors": "C", "venue": "V", "year": "2025", "url": "u3"},
             ],
             "num_citations_on_scholar": 3,
+            "num_citations_seen": 5,
+        }
+
+        with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
+            status = self.fetcher._citation_status(pub)
+
+        self.assertEqual(status, "complete")
+
+    def test_citation_status_stays_complete_for_direct_when_seen_reaches_current_total(self):
+        pub = {"title": "Paper", "num_citations": 5, "year": "2024"}
+        cached = {
+            "complete": True,
+            "probe_complete": False,
+            "citations": [
+                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+                {"title": "B", "authors": "B", "venue": "V", "year": "2025", "url": "u2"},
+                {"title": "C", "authors": "C", "venue": "V", "year": "2025", "url": "u3"},
+            ],
+            "num_citations_on_scholar": 5,
             "num_citations_seen": 5,
         }
 
@@ -2742,7 +2761,7 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertEqual(status, "partial")
 
     def test_citation_status_stays_complete_when_only_unyeared_gap_changes(self):
-        pub = {"title": "Paper", "num_citations": 5}
+        pub = {"title": "Paper", "num_citations": 5, "year": "2019"}
         cached = {
             "complete": True,
             "probed_year_counts": {"2024": 1, "2025": 2},
@@ -2756,6 +2775,35 @@ class CitationPageStopTests(unittest.TestCase):
             ],
             "num_citations_on_scholar": 4,
             "num_citations_seen": 3,
+        }
+
+        with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
+            status = self.fetcher._citation_status(pub)
+
+        self.assertEqual(status, "complete")
+
+    def test_citation_status_stays_complete_for_year_mode_when_seen_covers_total_minus_unyeared(self):
+        pub = {"title": "Paper", "num_citations": 1335, "year": "2018"}
+        cached = {
+            "complete": True,
+            "probe_complete": False,
+            "probed_year_counts": {
+                "2018": 38,
+                "2019": 107,
+                "2020": 156,
+                "2021": 219,
+                "2022": 213,
+                "2023": 213,
+                "2024": 175,
+                "2025": 178,
+                "2026": 29,
+            },
+            "probed_year_total": 1328,
+            "citations": [
+                {"title": "A", "authors": "A", "venue": "V", "year": "2017", "url": "u1"},
+            ],
+            "num_citations_on_scholar": 1335,
+            "num_citations_seen": 1331,
         }
 
         with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
@@ -2781,7 +2829,7 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertEqual(status, "partial")
 
     def test_citation_status_marks_partial_when_promoted_total_only_updates_metadata(self):
-        pub = {"title": "Paper", "num_citations": 5}
+        pub = {"title": "Paper", "num_citations": 5, "year": "2024"}
         cached = {
             "complete": True,
             "probe_complete": False,
@@ -2792,6 +2840,35 @@ class CitationPageStopTests(unittest.TestCase):
             ],
             "num_citations_on_scholar": 6,
             "num_citations_seen": 3,
+        }
+
+        with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
+            status = self.fetcher._citation_status(pub)
+
+        self.assertEqual(status, "partial")
+
+    def test_citation_status_marks_partial_for_year_mode_when_seen_below_total_minus_unyeared(self):
+        pub = {"title": "Paper", "num_citations": 1335, "year": "2018"}
+        cached = {
+            "complete": True,
+            "probe_complete": False,
+            "probed_year_counts": {
+                "2018": 38,
+                "2019": 107,
+                "2020": 156,
+                "2021": 219,
+                "2022": 213,
+                "2023": 213,
+                "2024": 175,
+                "2025": 178,
+                "2026": 29,
+            },
+            "probed_year_total": 1328,
+            "citations": [
+                {"title": "A", "authors": "A", "venue": "V", "year": "2017", "url": "u1"},
+            ],
+            "num_citations_on_scholar": 1335,
+            "num_citations_seen": 1327,
         }
 
         with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):

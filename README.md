@@ -8,7 +8,7 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 
 - **Unified Workflow**: Automatically fetches author profile, then crawls per-paper citations in one command
 - **Smart Skip**: If total citations and publication count haven't changed since the last run, citation crawling is skipped entirely
-- **Incremental Caching**: Only re-fetches citation lists when Scholar reports more citations; tracks seen/dedup counts so already-complete papers are not re-fetched unnecessarily
+- **Incremental Caching**: Re-fetches citation lists only when the cached result is incomplete relative to current Scholar counts; tracks seen/dedup counts so direct fetches use `seen >= scholar total` and year-based fetches use the probed year-histogram target when deciding whether a paper is already complete
 - **Dedup Handling**: Automatically deduplicates citations, preferring Scholar-native `cites_id` when available and falling back to metadata identity when it is not; tolerates count differences caused by Scholar duplicates
 - **Resume Support**: Interrupted fetches resume from the last checkpoint; per-year progress is saved so even mid-paper interruptions recover gracefully
 - **Year-Based Fetching**: Papers with many citations are fetched year-by-year (newest→oldest for updates, oldest→newest for first fetch/force), with early-stop when enough citations are collected
@@ -72,7 +72,7 @@ Papers are always sorted by citation count descending. `--skip M` skips the firs
 
 ### `--recheck-citations`
 
-In normal mode, a paper is skipped if its Scholar citation count hasn't increased since the last complete fetch. With `--recheck-citations`, papers in the selected range are re-evaluated using cached-count vs current-Scholar-count logic, and only papers whose cached citations are incomplete relative to Scholar are fetched again. The citation year range is also re-probed on each fresh run, while same-run resume skips probe and restores directly from known progress.
+In normal mode, a paper is skipped if its cached citation state is already complete for the current Scholar totals. For direct fetches this means prior `seen >= scholar total`; for year-based fetches it means the cached run already covers the effective histogram target (the current probed year total, i.e. Scholar total minus current unyeared citations when the histogram is incomplete). With `--recheck-citations`, papers in the selected range are re-evaluated using cached-count vs current-Scholar-count logic, and only papers whose cached citations are incomplete relative to Scholar are fetched again. The citation year range is also re-probed on each fresh run, while same-run resume skips probe and restores directly from known progress.
 
 `--skip` and `--limit` semantics are unchanged: `--recheck-citations` only affects papers inside that selected range.
 

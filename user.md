@@ -1077,3 +1077,52 @@ Done: 106 cached, 106 seen (Scholar: 109)
 好的，可以更新notes、user和提交了。
 
 ---
+
+## Message 149 [2026-04-13T00:00:00.000Z]
+
+按照之前的约定，这个应该已经算是抓取成功了吧？Probe totals: scholar_total=1335, year_sum=1328, missing_from_histogram=7
+
+Probe summary: 9 years, total=1328, years_with_citations=9, range=2018-2026 [2018:38, 2019:107, 2020:156, 2021:219, ..., 2023:213, 2024:175, 2025:178, 2026:29]
+    Probe totals: scholar_total=1335, year_sum=1328, missing_from_histogram=7
+    Cache summary: 10 years, total=1299, years_with_citations=10, range=2017-2026 [2017:3, 2018:38, 2019:107, 2020:156, ..., 2023:194, 2024:172, 2025:171, 2026:27]
+    Cache totals: cached_total=1299, cached_year_sum=1299, cached_unyeared=0, dedup_num=0
+    Fetch context: mode=incremental, probe_complete=False, prev_scholar=1335, target=1328, total_years=10
+    Current-run completed years: 2018, 2019, 2020, 2021, 2022
+
+
+Done: 1330 cached, 1331 seen, 1 dupes (Scholar: 1335)
+  Year summary: 10 years, total=1330, years_with_citations=10, range=2017-2026 [2017:3, 2018:38, 2019:107, 2020:156, ..., 2023:213, 2024:175, 2025:177, 2026:29]
+  Refresh check: histogram_incomplete (scholar_total=1335, year_sum=1328, cached_total=1330, cached_year_sum=1330, dedup_num=1)
+  Histogram is incomplete; recording current results without escalation
+
+---
+
+## Message 150 [2026-04-13T00:00:00.000Z]
+
+所以下次抓取，如果引用总数不变，这篇论文应该不需要更新了对吧？
+
+---
+
+## Message 151 [2026-04-13T00:00:00.000Z]
+
+不好意思，我忘记了unyear，所以在year based条件下，上一轮如果满足 seen >= scholar total - scholar unyeared，那就应该不更新。
+
+---
+
+## Message 152 [2026-04-13T00:00:00.000Z]
+
+类似的，在direct fetch时，如果上一轮 seen >= scholar total，那下一轮如果scholar total没有变化，可以不用更新。
+
+---
+
+## Message 153 [2026-04-13T00:00:00.000Z]
+
+请检查一下代码里的实现，更新到跟这个口径一致。
+
+---
+
+## Message 154 [2026-04-13T00:00:00.000Z]
+
+请更新相关材料，包括user.md, worknotes.md 如果有必要的话更新一下readme，然后git提交。
+
+---
