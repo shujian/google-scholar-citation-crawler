@@ -1005,6 +1005,141 @@ class PaperCitationFetcher:
         return {str(year): count for year, count in sorted(year_counts.items())}
 
     @staticmethod
+    def _normalize_direct_resume_state(state):
+        if not isinstance(state, dict):
+            return None
+        if state.get('mode') != 'direct':
+            return None
+        try:
+            next_index = int(state.get('next_index'))
+            source_scholar_total = int(state.get('source_scholar_total'))
+        except (TypeError, ValueError):
+            return None
+        citedby_url = state.get('citedby_url')
+        if not isinstance(citedby_url, str) or not citedby_url:
+            return None
+        if next_index < 0 or source_scholar_total < 0 or next_index > source_scholar_total:
+            return None
+        return {
+            'mode': 'direct',
+            'next_index': next_index,
+            'source_scholar_total': source_scholar_total,
+            'citedby_url': citedby_url,
+        }
+
+    @staticmethod
+    def _direct_resume_log_suffix(state):
+        normalized = PaperCitationFetcher._normalize_direct_resume_state(state)
+        if not normalized:
+            return ""
+        return f" (direct offset={normalized['next_index']})"
+
+    @staticmethod
+    def _build_direct_resume_state(next_index, scholar_total, citedby_url):
+        try:
+            next_index = int(next_index)
+            scholar_total = int(scholar_total)
+        except (TypeError, ValueError):
+            return None
+        if next_index < 0 or scholar_total < 0 or next_index > scholar_total:
+            return None
+        if not isinstance(citedby_url, str) or not citedby_url:
+            return None
+        return {
+            'mode': 'direct',
+            'next_index': next_index,
+            'source_scholar_total': scholar_total,
+            'citedby_url': citedby_url,
+        }
+
+    @staticmethod
+    def _direct_start_position(direct_resume_state):
+        normalized = PaperCitationFetcher._normalize_direct_resume_state(direct_resume_state)
+        if not normalized:
+            return 0, 0
+        next_index = normalized['next_index']
+        return (next_index // 10) * 10, next_index % 10
+
+    @staticmethod
+    def _append_start_param(citedby_url, start):
+        if start <= 0:
+            return citedby_url
+        separator = '&' if '?' in citedby_url else '?'
+        if re.search(r'([?&])start=\d+', citedby_url):
+            return re.sub(r'([?&])start=\d+', lambda match: f"{match.group(1)}start={start}", citedby_url)
+        return f"{citedby_url}{separator}start={start}"
+
+    @staticmethod
+    def _iter_direct_citedby(citedby_url, direct_resume_state=None):
+        normalized = PaperCitationFetcher._normalize_direct_resume_state(direct_resume_state)
+        if not normalized:
+            direct_fetch_pub = {
+                'citedby_url': citedby_url,
+                'container_type': 'Publication',
+                'filled': True,
+                'source': 'PUBLICATION_SEARCH_SNIPPET',
+            }
+            for citing in scholarly.citedby(direct_fetch_pub):
+                yield citing
+            return
+
+        nav = scholarly._Scholarly__nav
+        page_start, in_page_skip = PaperCitationFetcher._direct_start_position(normalized)
+        request_url = PaperCitationFetcher._append_start_param(citedby_url, page_start)
+        for idx, citing in enumerate(_SearchScholarIterator(nav, request_url)):
+            if idx < in_page_skip:
+                continue
+            yield citing
+
+    @staticmethod
+    def _build_direct_fetch_diagnostics(reported_total, yielded_total, dedup_count, termination_reason):
+        try:
+            reported_total = int(reported_total or 0)
+        except (TypeError, ValueError):
+            reported_total = 0
+        try:
+            yielded_total = int(yielded_total or 0)
+        except (TypeError, ValueError):
+            yielded_total = 0
+        try:
+            dedup_count = int(dedup_count or 0)
+        except (TypeError, ValueError):
+            dedup_count = 0
+        seen_total = yielded_total + dedup_count
+        gap = max(0, reported_total - seen_total)
+        return {
+            'mode': 'direct',
+            'reported_total': reported_total,
+            'yielded_total': yielded_total,
+            'seen_total': seen_total,
+            'dedup_count': dedup_count,
+            'underfetched': seen_total < reported_total,
+            'underfetch_gap': gap,
+            'termination_reason': termination_reason or 'iterator_exhausted',
+        }
+
+    @staticmethod
+    def _direct_fetch_diagnostics(reported_total, yielded_total, dedup_count, termination_reason):
+        return PaperCitationFetcher._build_direct_fetch_diagnostics(
+            reported_total,
+            yielded_total,
+            dedup_count,
+            termination_reason,
+        )
+
+    @staticmethod
+    def _direct_fetch_log_message(diagnostics):
+        return (
+            "Direct fetch under-fetched "
+            f"(reported_total={diagnostics.get('reported_total')}, "
+            f"yielded_total={diagnostics.get('yielded_total')}, "
+            f"seen_total={diagnostics.get('seen_total')}, "
+            f"dedup_num={diagnostics.get('dedup_count')}, "
+            f"gap={diagnostics.get('underfetch_gap')}, "
+            f"termination={diagnostics.get('termination_reason')})"
+        )
+
+    @staticmethod
     def _effective_scholar_total(pub, cached=None):
         current = int(pub.get('num_citations', 0) or 0)
         if cached:
@@ -1267,7 +1402,14 @@ class PaperCitationFetcher:
                 probe_complete = True
         return normalized_counts or None, probe_complete
 
-    def _resolve_refresh_strategy(self, pub, cached, cache_status):
+    @staticmethod
+    def _filter_citations_with_year(citations):
+        return [
+            citation for citation in (citations or [])
+            if PaperCitationFetcher._citation_year_value(citation) is not None
+        ]
+
+    def _resolve_refresh_strategy(self, pub, cached, cache_status, citedby_url=None):
         num_citations = pub['num_citations']
         fetch_policy = self._resolve_citation_fetch_policy(num_citations, pub.get('year', 'N/A'))
         if cache_status in ('missing', None):
@@ -1285,11 +1427,19 @@ class PaperCitationFetcher:
                 'rehydrated_probe_complete': False,
                 'action': 'first fetch',
                 'fetch_policy': fetch_policy,
+                'direct_resume_state': None,
             }
 
         resume_from = cached.get('citations', [])
         saved_dedup_count = cached.get('dedup_count', 0)
+        direct_fetch_diagnostics = cached.get('direct_fetch_diagnostics') or {}
+        if direct_fetch_diagnostics.get('mode') == 'direct':
+            saved_dedup_count = direct_fetch_diagnostics.get('dedup_count', saved_dedup_count)
         old_scholar = cached.get('num_citations_on_scholar', cached.get('num_citations_cached', 0))
+        try:
+            old_scholar_known = int(old_scholar)
+        except (TypeError, ValueError):
+            old_scholar_known = None
         completed_years_in_current_run = cached.get(
             'completed_years_in_current_run',
             cached.get('completed_years', []),
@@ -1300,7 +1450,10 @@ class PaperCitationFetcher:
         rehydrated_probed_year_counts = None
         rehydrated_probe_complete = False
         allow_incremental_early_stop = True
+        drop_cached_unyeared = False
         mode = 'resume'
+        direct_resume_state = None
+        direct_resume_note = ''
         action = f"resume ({len(resume_from)} cached, fetching remaining)"
 
         if self.recheck_citations:
@@ -1308,16 +1461,50 @@ class PaperCitationFetcher:
             completed_years_in_current_run = []
             allow_incremental_early_stop = False
             force_year_rebuild = fetch_policy['mode'] == 'year'
-            action = f"recheck ({len(resume_from)} cached, scholar={num_citations})"
-        elif old_scholar != num_citations:
+            drop_cached_unyeared = True
+            action = f"recheck ({len(resume_from)} cached, scholar={num_citations}; drop cached unyeared before refresh)"
+        elif old_scholar_known is not None and old_scholar_known != num_citations:
             mode = 'update'
             completed_years_in_current_run = []
-            action = f"update ({len(resume_from)} cached, citations {old_scholar} -> {num_citations})"
+            drop_cached_unyeared = True
+            action = f"update ({len(resume_from)} cached, citations {old_scholar} -> {num_citations}; drop cached unyeared before refresh)"
         else:
             rehydrated_probed_year_counts, rehydrated_probe_complete = self._rehydrate_probe_metadata(
                 cached,
                 num_citations,
             )
+
+        if drop_cached_unyeared:
+            resume_from = self._filter_citations_with_year(resume_from)
+
+        invalid_reason = None
+        normalized_direct_resume = self._normalize_direct_resume_state(cached.get('direct_resume_state'))
+        if mode != 'resume':
+            if normalized_direct_resume:
+                invalid_reason = f"invalidated direct resume ({mode})"
+        elif fetch_policy['mode'] != 'direct':
+            if normalized_direct_resume:
+                invalid_reason = f"invalidated direct resume (policy={fetch_policy['mode']})"
+        elif force_year_rebuild:
+            if normalized_direct_resume:
+                invalid_reason = "invalidated direct resume (force_year_rebuild)"
+        elif normalized_direct_resume:
+            if citedby_url and normalized_direct_resume['citedby_url'] != citedby_url:
+                invalid_reason = "invalidated direct resume (citedby_url changed)"
+            elif normalized_direct_resume['source_scholar_total'] != num_citations:
+                invalid_reason = "invalidated direct resume (scholar total changed)"
+            elif cached.get('probe_complete') is True and cached.get('probed_year_counts') and not rehydrated_probe_complete:
+                invalid_reason = "invalidated direct resume (histogram changed)"
+            else:
+                direct_resume_state = normalized_direct_resume
+                direct_resume_note = self._direct_resume_log_suffix(direct_resume_state)
+        elif cached.get('direct_resume_state') is not None:
+            invalid_reason = "invalidated direct resume (malformed state)"
+
+        if invalid_reason:
+            action = f"{action}; {invalid_reason}"
+        elif direct_resume_note:
+            action = f"{action}{direct_resume_note}"
 
         return {
             'mode': mode,
@@ -1333,6 +1520,7 @@ class PaperCitationFetcher:
             'rehydrated_probe_complete': rehydrated_probe_complete,
             'action': action,
             'fetch_policy': fetch_policy,
+            'direct_resume_state': direct_resume_state,
         }
 
     @staticmethod
@@ -1653,7 +1841,8 @@ class PaperCitationFetcher:
                                         rehydrated_probed_year_counts=None,
                                         rehydrated_probe_complete=False,
                                         pub_obj=None,
-                                        fetch_policy=None):
+                                        fetch_policy=None,
+                                        direct_resume_state=None):
         """
         Stream-fetch citations with periodic progress saves.
         resume_from: previously saved citation list (for resume after interruption).
@@ -1675,9 +1864,10 @@ class PaperCitationFetcher:
         if pub_obj is not None:
             effective_num_citations = self._effective_scholar_total(pub_obj)
             pub_obj['num_citations'] = effective_num_citations
-        # _dedup_count tracks Scholar's own duplicate results (same title, different metadata).
-        # Initialise from the saved value so resume/force-refresh never loses the history.
-        self._dedup_count = saved_dedup_count
+        # _dedup_count tracks same-run duplicate rows observed from Scholar within the
+        # current fetch flow. Seed from cached direct diagnostics only so resumed direct
+        # fetches preserve already-seen duplicate rows from the same in-progress scan.
+        self._dedup_count = int(saved_dedup_count or 0)
 
         # Load completed years into patch state for _citedby_long to skip
         self._completed_year_segments = set(completed_years_in_current_run or [])
@@ -1708,11 +1898,19 @@ class PaperCitationFetcher:
         def direct_materialized_citations(complete):
             return self._materialize_citation_cache(old_citations, fresh_citations, complete)
 
+        direct_fetch_diagnostics = None
+        normalized_direct_resume_state = self._normalize_direct_resume_state(direct_resume_state)
+        direct_next_index = normalized_direct_resume_state['next_index'] if normalized_direct_resume_state else 0
+
         def materialized_citations(complete):
             return direct_materialized_citations(complete)
 
         def save_progress(complete):
-            citations_to_save = materialized_citations(complete)
+            effective_complete = complete
+            diagnostics_to_save = direct_fetch_diagnostics
+            if diagnostics_to_save and diagnostics_to_save.get('underfetched'):
+                effective_complete = False
+            citations_to_save = materialized_citations(effective_complete)
             if not citations_to_save and old_citations:
                 citations_to_save = list(old_citations)
             self._cached_year_counts = self._year_count_map(citations_to_save)
@@ -1730,11 +1928,9 @@ class PaperCitationFetcher:
                     'citedby_url': citedby_url,
                     'num_citations_on_scholar': current_scholar_total(),
                     'num_citations_cached': len(citations_to_save),
-                    # num_citations_seen = unique citations Scholar has for this paper.
-                    # Use max(current, saved) so the floor is never lost on resume/force-refresh.
                     'num_citations_seen': len(citations_to_save) + self._dedup_count,
                     'dedup_count': self._dedup_count,
-                    'complete': complete,
+                    'complete': effective_complete,
                     'completed_years': sorted(self._completed_year_segments),
                     'completed_years_in_current_run': sorted(self._completed_year_segments),
                     'probe_complete': bool(self._probed_year_count_complete),
@@ -1754,6 +1950,16 @@ class PaperCitationFetcher:
                         'unyeared_count': count_summary['unyeared_count'],
                         'probe_complete': count_summary['probe_complete'],
                     },
+                    'direct_fetch_diagnostics': diagnostics_to_save,
+                    'direct_resume_state': (
+                        self._build_direct_resume_state(
+                            direct_next_index,
+                            current_scholar_total(),
+                            citedby_url,
+                        )
+                        if fetch_policy['mode'] == 'direct' and not effective_complete
+                        else None
+                    ),
                     'fetched_at': datetime.now().isoformat(),
                     'citations': citations_to_save,
                 }, f, ensure_ascii=False, indent=2)
@@ -1795,10 +2001,11 @@ class PaperCitationFetcher:
             max(0, current_scholar_total() - int(prev_scholar_count or 0))
             if has_cached_citations else 0
         )
+        paper_new_citations_count = 0
 
         print("    Direct fetch mode: no year probe, summary shown after fetch", flush=True)
         print(f"    Direct fetch target: scholar_total={current_scholar_total()}, prev_scholar={prev_scholar_count}, "
-              f"cached_total={len(old_citations)}, allow_early_stop={direct_fetch_allow_early_stop}", flush=True)
+              f"cached_total={len(old_citations)}, allow_early_stop={direct_fetch_allow_early_stop}{self._direct_resume_log_suffix(normalized_direct_resume_state)}", flush=True)
 
         old_cache_identity_keys = set()
         for citation in old_citations:
@@ -1806,7 +2013,9 @@ class PaperCitationFetcher:
         fresh_seen = {}
 
         try:
-            for citing in scholarly.citedby(direct_fetch_pub):
+            direct_fetch_termination_reason = 'iterator_exhausted'
+            for citing in self._iter_direct_citedby(citedby_url, normalized_direct_resume_state):
+                direct_next_index += 1
                 info = self._extract_citation_info(citing)
                 identity_keys = self._citation_identity_keys(info)
                 matched_key = next((key for key in identity_keys if key in fresh_seen), None)
@@ -1822,10 +2031,10 @@ class PaperCitationFetcher:
                 is_new_citation = not any(key in old_cache_identity_keys for key in identity_keys)
                 if is_new_citation:
                     self._new_citations_count += 1
+                    paper_new_citations_count += 1
                 direct_fetch_pub['num_citations'] = current_scholar_total()
-                latest_scholar_total = len(fresh_citations)
-                maybe_promote_scholar_total(latest_scholar_total, source='direct_fetch_seen_total')
-                count = latest_scholar_total
+                yielded_total = len(fresh_citations)
+                count = yielded_total
 
                 print(f"  [{count}] {info['title'][:55]}...", flush=True)
 
@@ -1833,16 +2042,24 @@ class PaperCitationFetcher:
                     save_progress(complete=False)
                     print(f"  Progress saved ({count} citations, {self._new_citations_count} new in this run)", flush=True)
 
-                if direct_fetch_allow_early_stop and latest_scholar_total >= current_scholar_total():
-                    print(f"  Direct fetch: reached target ({latest_scholar_total} >= {current_scholar_total()}), stopping early", flush=True)
+                if direct_fetch_allow_early_stop and (yielded_total + self._dedup_count) >= current_scholar_total():
+                    direct_fetch_termination_reason = 'target_reached'
+                    print(f"  Direct fetch: reached target ({yielded_total + self._dedup_count} >= {current_scholar_total()} including dedup), stopping early", flush=True)
                     break
-                if direct_fetch_allow_early_stop and scholar_increase > 0 and is_new_citation and self._new_citations_count >= scholar_increase:
-                    print(f"  Direct fetch: recovered Scholar increase ({self._new_citations_count} >= {scholar_increase}), stopping early", flush=True)
+                if direct_fetch_allow_early_stop and scholar_increase > 0 and is_new_citation and paper_new_citations_count >= scholar_increase:
+                    direct_fetch_termination_reason = 'scholar_increase_recovered'
+                    print(f"  Direct fetch: recovered Scholar increase ({paper_new_citations_count} >= {scholar_increase}), stopping early", flush=True)
                     break
         except KeyboardInterrupt:
             save_progress(complete=False)
             raise
 
+        direct_fetch_diagnostics = self._build_direct_fetch_diagnostics(
+            reported_total=current_scholar_total(),
+            yielded_total=len(fresh_citations),
+            dedup_count=getattr(self, '_dedup_count', 0),
+            termination_reason=direct_fetch_termination_reason,
+        )
         direct_summary = self._build_citation_count_summary(
             fresh_citations,
             scholar_total=current_scholar_total(),
@@ -1854,6 +2071,9 @@ class PaperCitationFetcher:
         print(f"    Probe totals: scholar_total={current_scholar_total()}, year_sum=0, missing_from_histogram=?", flush=True)
         print(f"    Cache summary: {self._format_year_count_summary(direct_summary['cached_year_counts'])}", flush=True)
         print(f"    Cache totals: cached_total={direct_summary['cached_total']}, cached_year_sum={direct_summary['cached_year_total']}, cached_unyeared={direct_summary['cached_unyeared_count']}, dedup_num={self._dedup_count}", flush=True)
+        print(f"    Direct fetch totals: reported_total={direct_fetch_diagnostics['reported_total']}, yielded_total={direct_fetch_diagnostics['yielded_total']}, seen_total={direct_fetch_diagnostics['seen_total']}", flush=True)
+        if direct_fetch_diagnostics.get('underfetched'):
+            print(f"    {self._direct_fetch_log_message(direct_fetch_diagnostics)}", flush=True)
         save_progress(complete=True)
         return list(fresh_citations)
 
@@ -2355,6 +2575,10 @@ class PaperCitationFetcher:
         if not cached.get('complete'):
             return 'partial'
 
+        direct_fetch_diagnostics = cached.get('direct_fetch_diagnostics') or {}
+        if direct_fetch_diagnostics.get('mode') == 'direct' and direct_fetch_diagnostics.get('underfetched'):
+            return 'partial'
+
         current = pub['num_citations']
         actual_cached = cached.get('num_citations_cached', len(cached.get('citations', [])))
         promoted_scholar_total = 0
@@ -2382,10 +2606,14 @@ class PaperCitationFetcher:
 
         # Legacy fallback for caches without authoritative histogram metadata.
         num_seen = cached.get('num_citations_seen')
-        if num_seen is not None:
-            if num_seen >= current:
+        if (
+            num_seen is not None
+            and not self.recheck_citations
+            and actual_cached < current
+            and promoted_scholar_total < current
+        ):
+            if num_seen == current:
                 return 'complete'
-            return 'partial'
 
         actual_cached = cached.get('num_citations_cached', len(cached.get('citations', [])))
         if self.recheck_citations:
@@ -2394,7 +2622,7 @@ class PaperCitationFetcher:
             return 'partial'
 
         scholar_at_completion = cached.get('num_citations_on_scholar', 0)
-        if current <= scholar_at_completion:
+        if current <= scholar_at_completion and actual_cached >= current:
             return 'complete'
         return 'partial'
 
@@ -2536,7 +2764,7 @@ class PaperCitationFetcher:
                 continue
 
             prev_scholar_count = 0
-            attempt_state = self._resolve_refresh_strategy(pub, cached, st)
+            attempt_state = self._resolve_refresh_strategy(pub, cached, st, citedby_url=citedby_url)
             if attempt_state['prev_scholar_count']:
                 prev_scholar_count = attempt_state['prev_scholar_count']
             partial_year_start = attempt_state['partial_year_start']
@@ -2548,6 +2776,7 @@ class PaperCitationFetcher:
             selective_refresh_years = attempt_state['selective_refresh_years']
             rehydrated_probed_year_counts = attempt_state['rehydrated_probed_year_counts']
             rehydrated_probe_complete = attempt_state['rehydrated_probe_complete']
+            direct_resume_state = attempt_state.get('direct_resume_state')
             fetch_policy = attempt_state.get('fetch_policy') or self._resolve_citation_fetch_policy(
                 num_citations,
                 pub.get('year', 'N/A'),
@@ -2580,18 +2809,50 @@ class PaperCitationFetcher:
                             # so same-run retries resume from the exact page where the error occurred.
                             latest_cache = self._load_citation_cache(title)
                             if latest_cache:
-                                resume_from = latest_cache.get('citations', [])
-                                completed_years_in_current_run = latest_cache.get(
-                                    'completed_years_in_current_run',
-                                    latest_cache.get('completed_years', []),
-                                )
-                                saved_dedup_count = latest_cache.get('dedup_count', 0)
-                                rehydrated_probed_year_counts, rehydrated_probe_complete = self._rehydrate_probe_metadata(
+                                retry_attempt_state = self._resolve_refresh_strategy(
+                                    pub,
                                     latest_cache,
-                                    num_citations,
+                                    'partial',
+                                    citedby_url=citedby_url,
                                 )
-                                partial_year_start = dict(self._partial_year_start)
-                                print(f"  {now_str()} Retrying with {len(resume_from)} cached citations from previous attempt")
+                                latest_resume_from = retry_attempt_state['resume_from']
+                                retry_mode = retry_attempt_state['mode']
+                                latest_retry_scholar_total = latest_cache.get('num_citations_on_scholar')
+                                try:
+                                    latest_retry_scholar_total = int(latest_retry_scholar_total)
+                                except (TypeError, ValueError):
+                                    latest_retry_scholar_total = None
+                                if latest_retry_scholar_total is not None and latest_retry_scholar_total != prev_scholar_count:
+                                    retry_mode = 'update'
+                                    latest_resume_from = self._filter_citations_with_year(latest_cache.get('citations', []))
+                                    completed_years_in_current_run = []
+                                    rehydrated_probed_year_counts = None
+                                    rehydrated_probe_complete = False
+                                else:
+                                    if rehydrated_probed_year_counts is not None or rehydrated_probe_complete:
+                                        completed_years_in_current_run = latest_cache.get(
+                                            'completed_years_in_current_run',
+                                            retry_attempt_state['completed_years_in_current_run'],
+                                        )
+                                        rehydrated_probed_year_counts, rehydrated_probe_complete = self._rehydrate_probe_metadata(
+                                            latest_cache,
+                                            num_citations,
+                                        )
+                                    else:
+                                        completed_years_in_current_run = retry_attempt_state['completed_years_in_current_run']
+                                        rehydrated_probed_year_counts = retry_attempt_state['rehydrated_probed_year_counts']
+                                        rehydrated_probe_complete = retry_attempt_state['rehydrated_probe_complete']
+                                resume_from = latest_resume_from
+                                num_citations = pub.get('num_citations', num_citations)
+                                fetch_policy = retry_attempt_state.get('fetch_policy') or fetch_policy
+                                allow_incremental_early_stop = retry_attempt_state['allow_incremental_early_stop']
+                                force_year_rebuild = retry_attempt_state['force_year_rebuild']
+                                selective_refresh_years = retry_attempt_state['selective_refresh_years']
+                                saved_dedup_count = retry_attempt_state['saved_dedup_count']
+                                partial_year_start = retry_attempt_state['partial_year_start']
+                                direct_resume_state = retry_attempt_state.get('direct_resume_state')
+                                retry_suffix = self._direct_resume_log_suffix(direct_resume_state)
+                                print(f"  {now_str()} Retrying with {len(resume_from)} cached citations from previous attempt{retry_suffix}")
                     self._current_pub_for_live_promotion = pub
                     if not fetch_completed:
                         citations = self._fetch_citations_with_progress(
@@ -2608,6 +2869,7 @@ class PaperCitationFetcher:
                             rehydrated_probe_complete=rehydrated_probe_complete,
                             pub_obj=pub,
                             fetch_policy=fetch_policy,
+                            direct_resume_state=direct_resume_state,
                         )
                         fetch_completed = True
                     num_citations = pub['num_citations']
@@ -2629,6 +2891,16 @@ class PaperCitationFetcher:
                             probed_year_counts=getattr(self, '_probed_year_counts', None),
                             probe_complete=getattr(self, '_probed_year_count_complete', False),
                         )
+                        latest_cache_snapshot = self._load_citation_cache(title)
+                        direct_fetch_diagnostics = (latest_cache_snapshot or {}).get('direct_fetch_diagnostics') or {}
+                        direct_underfetched = (
+                            direct_fetch_diagnostics.get('mode') == 'direct'
+                            and direct_fetch_diagnostics.get('underfetched')
+                        )
+                        if direct_underfetched:
+                            print(f"  {self._direct_fetch_log_message(direct_fetch_diagnostics)}", flush=True)
+                            print("  Direct fetch under-fetched; recording current results without escalation", flush=True)
+                            break
                         if not refresh_status['ok']:
                             print(f"  {self._refresh_log_message('Refresh check', refresh_status)}")
                             is_selective_refresh_attempt = bool(selective_refresh_years)

@@ -137,6 +137,7 @@ import scholar_citation
 
 class CitationPageStopTests(unittest.TestCase):
     def setUp(self):
+        scholarly_mod.scholarly._Scholarly__nav = _DummyNav()
         self.fetcher = scholar_citation.PaperCitationFetcher("test-author", output_dir=".")
         self.fetcher._completed_year_segments = set()
         self.fetcher._partial_year_start = {}
@@ -151,6 +152,7 @@ class CitationPageStopTests(unittest.TestCase):
         self.fetcher._probed_year_counts = None
         self.fetcher._probed_year_count_complete = False
         self.fetcher.interactive_captcha = False
+        self.fetcher.recheck_citations = False
         self.fetcher._last_scholar_url = "https://scholar.google.com/citations?user=test-author&hl=en"
         self.fetcher._current_attempt_url = None
         self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2025
@@ -338,6 +340,7 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertEqual(self.fetcher._injected_header_overrides, {})
         self.assertNotIn('user-agent', nav._session1.headers)
         self.assertNotIn('host', nav._session1.headers)
+        self.assertNotIn('sec-fetch-site', nav._session1.headers)
         self.assertEqual(nav._session1.headers['referer'], self.fetcher._last_scholar_url)
 
     def test_inject_curl_without_cookie_still_fails(self):
@@ -466,12 +469,15 @@ class CitationPageStopTests(unittest.TestCase):
 
         class FakeIterator:
             def __init__(self, nav, url):
+                start = 0
+                if "start=" in url:
+                    start = int(url.split("start=")[1].split("&")[0])
                 year = int(url.split("as_ylo=")[1].split("&")[0])
-                requests.append(year)
-                self.items = [{
+                requests.append((year, start))
+                self.items = ([{
                     "bib": {"title": f"Fetched-{year}", "author": ["A"], "venue": f"V{year}", "pub_year": str(year)},
                     "pub_url": f"u{year}",
-                }]
+                }] if start == 0 else [])
                 self.index = 0
                 self._finished_current_page = False
 
@@ -504,8 +510,8 @@ class CitationPageStopTests(unittest.TestCase):
             )
 
         output = fake_stdout.getvalue()
-        self.assertEqual(requests, [2024, 2025, 2026])
-        self.assertEqual(self.fetcher._year_count_map(citations), {2024: 1, 2025: 1, 2026: 1})
+        self.assertEqual(requests, [(2024, 1), (2025, 0), (2025, 1), (2026, 0), (2026, 1)])
+        self.assertEqual(self.fetcher._year_count_map(citations), {2025: 1, 2026: 1})
         self.assertNotIn("Reached target (3 >= 3)", output)
 
         pages = {
@@ -573,10 +579,10 @@ class CitationPageStopTests(unittest.TestCase):
 
         self.assertEqual(
             [c["title"] for c in citations],
-            ["OldYear-A", "Page1-A", "Page1-B"],
+            ["OldYear-A", "Page1-A", "Page1-B", "Page2-A"],
         )
-        self.assertEqual(requests, [(2025, 0), (2026, 0)])
-        self.assertEqual(self.fetcher._new_citations_count, 3)
+        self.assertEqual(requests, [(2025, 0), (2025, 1), (2026, 0), (2026, 2), (2026, 3)])
+        self.assertEqual(self.fetcher._new_citations_count, 4)
 
     def test_fetch_by_year_uses_histogram_total_as_target_and_backfills_year(self):
         self.fetcher._probed_year_counts = {2025: 1, 2026: 1}
@@ -593,15 +599,15 @@ class CitationPageStopTests(unittest.TestCase):
                 year = int(url.split("as_ylo=")[1].split("&")[0])
                 requests.append((year, start))
                 if year == 2025:
-                    self.items = [{
+                    self.items = ([{
                         "bib": {"title": "Y2025", "author": ["A"], "venue": "V2025", "pub_year": "?"},
                         "pub_url": "u2025",
-                    }]
+                    }] if start == 0 else [])
                 elif year == 2026:
-                    self.items = [{
+                    self.items = ([{
                         "bib": {"title": "Y2026", "author": ["B"], "venue": "V2026"},
                         "pub_url": "u2026",
-                    }]
+                    }] if start == 0 else [])
                 else:
                     self.items = []
                 self.index = 0
@@ -636,10 +642,10 @@ class CitationPageStopTests(unittest.TestCase):
             )
 
         output = fake_stdout.getvalue()
-        self.assertEqual(requests, [(2025, 0), (2026, 0)])
+        self.assertEqual(requests, [(2025, 0), (2025, 1), (2026, 0), (2026, 1)])
         self.assertEqual([c["year"] for c in citations], ["2025", "2026"])
         self.assertIn("target=2", output)
-        self.assertIn("Reached target (2 >= 2)", output)
+        self.assertIn("Year 2026 status: paper_total=2", output)
 
     def test_fetch_policy_allows_direct_mode_for_old_high_total_paper(self):
         with patch.object(scholar_citation, "datetime") as fake_datetime:
@@ -663,7 +669,66 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertEqual(policy["avg_citations_per_year"], 60)
         self.assertEqual(policy["reason"], "high_average_per_year")
 
-    def test_resolve_refresh_strategy_recheck_uses_direct_policy_without_year_rebuild(self):
+    def test_resolve_refresh_strategy_restores_direct_resume_state_when_context_matches(self):
+        pub = {"title": "Paper", "num_citations": 25, "year": "2024"}
+        cached = {
+            "citations": [{"title": "Cached", "authors": "A", "venue": "V", "year": "2024", "url": "u1"}],
+            "num_citations_on_scholar": 25,
+            "dedup_count": 0,
+            "direct_resume_state": {
+                "mode": "direct",
+                "next_index": 13,
+                "source_scholar_total": 25,
+                "citedby_url": "/scholar?cites=123",
+            },
+        }
+
+        strategy = self.fetcher._resolve_refresh_strategy(pub, cached, "partial", citedby_url="/scholar?cites=123")
+
+        self.assertEqual(strategy["mode"], "resume")
+        self.assertEqual(strategy["direct_resume_state"], cached["direct_resume_state"])
+        self.assertIn("direct offset=13", strategy["action"])
+
+    def test_resolve_refresh_strategy_invalidates_direct_resume_state_on_total_change(self):
+        pub = {"title": "Paper", "num_citations": 26, "year": "2024"}
+        cached = {
+            "citations": [{"title": "Cached", "authors": "A", "venue": "V", "year": "2024", "url": "u1"}],
+            "num_citations_on_scholar": 25,
+            "dedup_count": 0,
+            "direct_resume_state": {
+                "mode": "direct",
+                "next_index": 13,
+                "source_scholar_total": 25,
+                "citedby_url": "/scholar?cites=123",
+            },
+        }
+
+        strategy = self.fetcher._resolve_refresh_strategy(pub, cached, "partial", citedby_url="/scholar?cites=123")
+
+        self.assertEqual(strategy["mode"], "update")
+        self.assertIsNone(strategy["direct_resume_state"])
+        self.assertIn("invalidated direct resume", strategy["action"])
+
+    def test_resolve_refresh_strategy_invalidates_direct_resume_state_on_citedby_url_change(self):
+        pub = {"title": "Paper", "num_citations": 25, "year": "2024"}
+        cached = {
+            "citations": [{"title": "Cached", "authors": "A", "venue": "V", "year": "2024", "url": "u1"}],
+            "num_citations_on_scholar": 25,
+            "dedup_count": 0,
+            "direct_resume_state": {
+                "mode": "direct",
+                "next_index": 13,
+                "source_scholar_total": 25,
+                "citedby_url": "/scholar?cites=123",
+            },
+        }
+
+        strategy = self.fetcher._resolve_refresh_strategy(pub, cached, "partial", citedby_url="/scholar?cites=456")
+
+        self.assertEqual(strategy["mode"], "resume")
+        self.assertIsNone(strategy["direct_resume_state"])
+        self.assertIn("citedby_url changed", strategy["action"])
+
         self.fetcher.recheck_citations = True
         pub = {"title": "Paper", "num_citations": 60, "year": "2023"}
         cached = {
@@ -683,8 +748,147 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertFalse(strategy["allow_incremental_early_stop"])
         self.assertEqual(strategy["completed_years_in_current_run"], [])
 
+    def test_resolve_refresh_strategy_update_drops_cached_unyeared_before_refresh(self):
+        pub = {"title": "Paper", "num_citations": 5, "year": "2024"}
+        cached = {
+            "citations": [
+                {"title": "Keep-2024", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+                {"title": "Drop-NY", "authors": "B", "venue": "V", "year": "N/A", "url": "u2"},
+            ],
+            "num_citations_on_scholar": 3,
+            "dedup_count": 0,
+        }
 
-    def test_fetch_citations_with_progress_uses_direct_policy_for_old_high_total_paper(self):
+        strategy = self.fetcher._resolve_refresh_strategy(pub, cached, "partial")
+
+        self.assertEqual(strategy["mode"], "update")
+        self.assertEqual([c["title"] for c in strategy["resume_from"]], ["Keep-2024"])
+        self.assertIn("drop cached unyeared before refresh", strategy["action"])
+
+    def test_resolve_refresh_strategy_recheck_drops_cached_unyeared_before_refresh(self):
+        self.fetcher.recheck_citations = True
+        pub = {"title": "Paper", "num_citations": 5, "year": "2024"}
+        cached = {
+            "citations": [
+                {"title": "Keep-2024", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+                {"title": "Drop-NY", "authors": "B", "venue": "V", "year": "N/A", "url": "u2"},
+            ],
+            "num_citations_on_scholar": 5,
+            "dedup_count": 0,
+            "completed_years_in_current_run": [2024],
+        }
+
+        strategy = self.fetcher._resolve_refresh_strategy(pub, cached, "partial")
+
+        self.assertEqual(strategy["mode"], "recheck")
+        self.assertEqual([c["title"] for c in strategy["resume_from"]], ["Keep-2024"])
+        self.assertEqual(strategy["completed_years_in_current_run"], [])
+        self.assertIn("drop cached unyeared before refresh", strategy["action"])
+
+
+    def test_fetch_citations_with_progress_resumes_direct_fetch_from_page_offset(self):
+        self.fetcher.save_every = 100
+        seen_request_urls = []
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                seen_request_urls.append(url)
+                self.items = iter([
+                    {"bib": {"title": "Skip-1", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "u1"},
+                    {"bib": {"title": "Skip-2", "author": ["B"], "venue": "V", "pub_year": "2024"}, "pub_url": "u2"},
+                    {"bib": {"title": "Skip-3", "author": ["C"], "venue": "V", "pub_year": "2024"}, "pub_url": "u3"},
+                    {"bib": {"title": "Keep-4", "author": ["D"], "venue": "V", "pub_year": "2024"}, "pub_url": "u4"},
+                    {"bib": {"title": "Keep-5", "author": ["E"], "venue": "V", "pub_year": "2025"}, "pub_url": "u5"},
+                ])
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                return next(self.items)
+
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch.object(scholar_citation.scholarly, "citedby") as mock_citedby, \
+             patch("sys.stdout", new_callable=StringIO):
+            citations = self.fetcher._fetch_citations_with_progress(
+                citedby_url="/scholar?cites=123",
+                cache_path=os.path.join(tempfile.gettempdir(), "paper-direct-resume.json"),
+                title="Paper",
+                num_citations=25,
+                pub_url="https://example.com/paper",
+                pub_year="2024",
+                resume_from=[],
+                direct_resume_state={
+                    "mode": "direct",
+                    "next_index": 13,
+                    "source_scholar_total": 25,
+                    "citedby_url": "/scholar?cites=123",
+                },
+            )
+
+        mock_citedby.assert_not_called()
+        self.assertEqual(seen_request_urls, ["/scholar?cites=123&start=10"])
+        self.assertEqual([citation["title"] for citation in citations], ["Keep-4", "Keep-5"])
+
+    def test_fetch_citations_with_progress_partial_save_persists_direct_resume_state(self):
+        self.fetcher.save_every = 1
+        cache_path = os.path.join(tempfile.gettempdir(), "paper-direct-partial-save.json")
+
+        def fake_iter(citedby_url, direct_resume_state=None):
+            yield {"bib": {"title": "First", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "u1"}
+            raise KeyboardInterrupt()
+
+        with patch.object(self.fetcher, "_iter_direct_citedby", side_effect=fake_iter), \
+             patch("sys.stdout", new_callable=StringIO):
+            with self.assertRaises(KeyboardInterrupt):
+                self.fetcher._fetch_citations_with_progress(
+                    citedby_url="/scholar?cites=123",
+                    cache_path=cache_path,
+                    title="Paper",
+                    num_citations=25,
+                    pub_url="https://example.com/paper",
+                    pub_year="2024",
+                    resume_from=[{"title": "Cached", "authors": "A", "venue": "V", "year": "2024", "url": "u0"}],
+                )
+
+        with open(cache_path, "r", encoding="utf-8") as f:
+            saved = json.load(f)
+
+        self.assertEqual(saved["direct_resume_state"], {
+            "mode": "direct",
+            "next_index": 1,
+            "source_scholar_total": 25,
+            "citedby_url": "/scholar?cites=123",
+        })
+
+    def test_fetch_citations_with_progress_complete_save_clears_direct_resume_state(self):
+        self.fetcher.save_every = 100
+        cache_path = os.path.join(tempfile.gettempdir(), "paper-direct-complete-save.json")
+
+        with patch.object(self.fetcher, "_iter_direct_citedby", return_value=iter([
+            {"bib": {"title": "Only", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "u1"},
+        ])), patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._fetch_citations_with_progress(
+                citedby_url="/scholar?cites=123",
+                cache_path=cache_path,
+                title="Paper",
+                num_citations=1,
+                pub_url="https://example.com/paper",
+                pub_year="2024",
+                resume_from=[],
+                direct_resume_state={
+                    "mode": "direct",
+                    "next_index": 7,
+                    "source_scholar_total": 1,
+                    "citedby_url": "/scholar?cites=123",
+                },
+            )
+
+        with open(cache_path, "r", encoding="utf-8") as f:
+            saved = json.load(f)
+
+        self.assertIsNone(saved["direct_resume_state"])
+
         self.fetcher.save_every = 100
         citedby_items = iter([
             {"bib": {"title": "Y2024", "author": ["A"], "venue": "V1", "pub_year": "2024"}, "pub_url": "u1"},
@@ -849,10 +1053,10 @@ class CitationPageStopTests(unittest.TestCase):
                 if "start=" in url:
                     start = int(url.split("start=")[1].split("&")[0])
                 year = int(url.split("as_ylo=")[1].split("&")[0])
-                self.items = [{
+                self.items = ([{
                     "bib": {"title": f"Y{year}", "author": ["A"], "venue": f"V{year}", "pub_year": str(year)},
                     "pub_url": f"u{year}",
-                }]
+                }] if start == 0 else [])
                 self.index = 0
                 self._finished_current_page = False
                 requests.append((year, start))
@@ -884,7 +1088,7 @@ class CitationPageStopTests(unittest.TestCase):
                 allow_incremental_early_stop=False,
             )
 
-        self.assertEqual(requests, [(2024, 0), (2025, 0)])
+        self.assertEqual(requests, [(2024, 0), (2024, 1), (2025, 0), (2025, 1)])
         self.assertEqual([c["title"] for c in citations], ["Y2024", "Y2025"])
 
     def test_fetch_by_year_uses_incomplete_probe_deficit_years_for_selective_refresh(self):
@@ -901,10 +1105,10 @@ class CitationPageStopTests(unittest.TestCase):
                 if "start=" in url:
                     start = int(url.split("start=")[1].split("&")[0])
                 year = int(url.split("as_ylo=")[1].split("&")[0])
-                self.items = [{
+                self.items = ([{
                     "bib": {"title": f"Y{year}", "author": ["A"], "venue": f"V{year}", "pub_year": str(year)},
                     "pub_url": f"u{year}",
-                }]
+                }] if start == 0 else [])
                 self.index = 0
                 self._finished_current_page = False
                 requests.append((year, start))
@@ -937,7 +1141,7 @@ class CitationPageStopTests(unittest.TestCase):
             )
 
         output = fake_stdout.getvalue()
-        self.assertEqual(requests, [(2025, 0)])
+        self.assertEqual(requests, [(2025, 0), (2025, 1)])
         self.assertEqual([c["title"] for c in citations], ["Y2025"])
         self.assertIn("Selective refresh years: 2025", output)
         self.assertIn("Year 2024: skip (not selected for refresh)", output)
@@ -957,10 +1161,10 @@ class CitationPageStopTests(unittest.TestCase):
                 if "start=" in url:
                     start = int(url.split("start=")[1].split("&")[0])
                 year = int(url.split("as_ylo=")[1].split("&")[0])
-                self.items = [{
+                self.items = ([{
                     "bib": {"title": f"Y{year}", "author": ["A"], "venue": f"V{year}", "pub_year": str(year)},
                     "pub_url": f"u{year}",
-                }]
+                }] if start == 0 else [])
                 self.index = 0
                 self._finished_current_page = False
                 requests.append((year, start))
@@ -993,7 +1197,7 @@ class CitationPageStopTests(unittest.TestCase):
             )
 
         output = fake_stdout.getvalue()
-        self.assertEqual(requests, [(2025, 0)])
+        self.assertEqual(requests, [(2025, 0), (2025, 1)])
         self.assertEqual([c["title"] for c in citations], ["Y2025"])
         self.assertIn("Selective refresh years: 2025", output)
         self.assertIn("Year 2024: skip (not selected for refresh)", output)
@@ -1012,10 +1216,10 @@ class CitationPageStopTests(unittest.TestCase):
                 if "start=" in url:
                     start = int(url.split("start=")[1].split("&")[0])
                 year = int(url.split("as_ylo=")[1].split("&")[0])
-                self.items = [{
+                self.items = ([{
                     "bib": {"title": f"Y{year}", "author": ["A"], "venue": f"V{year}", "pub_year": str(year)},
                     "pub_url": f"u{year}",
-                }]
+                }] if start == 0 else [])
                 self.index = 0
                 self._finished_current_page = False
                 requests.append((year, start))
@@ -1048,7 +1252,7 @@ class CitationPageStopTests(unittest.TestCase):
             )
 
         output = fake_stdout.getvalue()
-        self.assertEqual(requests, [(2024, 0), (2025, 0)])
+        self.assertEqual(requests, [(2024, 0), (2024, 1), (2025, 0), (2025, 1)])
         self.assertEqual([c["title"] for c in citations], ["Y2024", "Y2025"])
         self.assertIn("Selective refresh years: none", output)
         self.assertNotIn("skip (not selected for refresh)", output)
@@ -1068,10 +1272,10 @@ class CitationPageStopTests(unittest.TestCase):
                 if "start=" in url:
                     start = int(url.split("start=")[1].split("&")[0])
                 year = int(url.split("as_ylo=")[1].split("&")[0])
-                self.items = [{
+                self.items = ([{
                     "bib": {"title": f"Y{year}", "author": ["A"], "venue": f"V{year}", "pub_year": str(year)},
                     "pub_url": f"u{year}",
-                }]
+                }] if start == 2 else [])
                 self.index = 0
                 self._finished_current_page = False
                 requests.append((year, start))
@@ -1104,7 +1308,7 @@ class CitationPageStopTests(unittest.TestCase):
             )
 
         output = fake_stdout.getvalue()
-        self.assertEqual(requests, [(2024, 2)])
+        self.assertEqual(requests, [(2024, 2), (2024, 3)])
         self.assertEqual([c["title"] for c in citations], ["Y2024"])
         self.assertIn("Selective refresh years: 2024", output)
         self.assertIn("Year 2025: skip (not selected for refresh)", output)
@@ -1187,12 +1391,13 @@ class CitationPageStopTests(unittest.TestCase):
                 requests.append(url)
                 self.items = []
                 self.index = 0
-                self._finished_current_page = True
+                self._finished_current_page = False
 
             def __iter__(self):
                 return self
 
             def __next__(self):
+                self._finished_current_page = True
                 raise StopIteration
 
         with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
@@ -1239,10 +1444,10 @@ class CitationPageStopTests(unittest.TestCase):
                 if "start=" in url:
                     start = int(url.split("start=")[1].split("&")[0])
                 year = int(url.split("as_ylo=")[1].split("&")[0])
-                self.items = [{
+                self.items = ([{
                     "bib": {"title": f"Fetched-{year}", "author": ["D"], "venue": f"V{year}", "pub_year": str(year)},
                     "pub_url": f"uf{year}",
-                }]
+                }] if start == 2 else [])
                 self.index = 0
                 self._finished_current_page = False
                 requests.append((year, start))
@@ -1272,7 +1477,7 @@ class CitationPageStopTests(unittest.TestCase):
                 allow_incremental_early_stop=False,
             )
 
-        self.assertEqual(requests, [(2025, 2)])
+        self.assertEqual(requests, [(2025, 2), (2025, 3)])
         self.assertEqual(citations[-1]["title"], "Fetched-2025")
 
     def test_resume_logging_includes_year_context(self):
@@ -1290,10 +1495,10 @@ class CitationPageStopTests(unittest.TestCase):
                 if "start=" in url:
                     start = int(url.split("start=")[1].split("&")[0])
                 year = int(url.split("as_ylo=")[1].split("&")[0])
-                self.items = [{
+                self.items = ([{
                     "bib": {"title": f"Y{year}", "author": ["A"], "venue": f"V{year}", "pub_year": str(year)},
                     "pub_url": f"u{year}",
-                }]
+                }] if start == 2 else [])
                 self.index = 0
                 self._finished_current_page = False
                 requests.append((year, start))
@@ -1327,7 +1532,7 @@ class CitationPageStopTests(unittest.TestCase):
             )
 
         output = fake_stdout.getvalue()
-        self.assertEqual(requests, [(2025, 2)])
+        self.assertEqual(requests, [(2025, 2), (2025, 3)])
         self.assertEqual([c["title"] for c in citations], ["Y2025"])
         self.assertIn("    Partial resume points: 2025->2", output)
         self.assertIn("Year 2025: resuming from position 2 (cached=1, probe=3)", output)
@@ -1423,7 +1628,7 @@ class CitationPageStopTests(unittest.TestCase):
 
         output = fake_stdout.getvalue()
         self.assertEqual([c["title"] for c in citations], ["Cached-A", "Fresh-B"])
-        self.assertIn("Direct fetch: reached target (2 >= 2), stopping early", output)
+        self.assertIn("Direct fetch: reached target (2 >= 2 including dedup), stopping early", output)
         self.assertNotIn("Fresh-C", [c["title"] for c in citations])
 
     def test_direct_fetch_does_not_count_overlayed_cache_toward_target(self):
@@ -1456,7 +1661,7 @@ class CitationPageStopTests(unittest.TestCase):
 
         output = fake_stdout.getvalue()
         self.assertEqual([c["title"] for c in citations], ["Fresh-A", "Fresh-B", "Fresh-C"])
-        self.assertIn("Direct fetch: reached target (3 >= 3), stopping early", output)
+        self.assertIn("Direct fetch: reached target (3 >= 3 including dedup), stopping early", output)
         self.assertNotIn("Direct fetch: reached target (4 >= 3)", output)
         self.assertNotIn("Direct fetch: reached target (5 >= 3)", output)
         self.assertNotIn("Direct fetch: reached target (6 >= 3)", output)
@@ -1487,6 +1692,133 @@ class CitationPageStopTests(unittest.TestCase):
         output = fake_stdout.getvalue()
         self.assertEqual([c["title"] for c in citations], ["Fresh-A", "Fresh-B", "Fresh-C"])
         self.assertNotIn("recovered Scholar increase", output)
+
+    def test_direct_fetch_scholar_increase_uses_per_paper_new_count(self):
+        fetched_items = [
+            {"bib": {"title": "Cached-A", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "cached-a", "cites_id": "cid-a"},
+            {"bib": {"title": "Fresh-B", "author": ["B"], "venue": "V2", "pub_year": "2025"}, "pub_url": "fresh-b", "cites_id": "cid-b"},
+            {"bib": {"title": "Fresh-C", "author": ["C"], "venue": "V3", "pub_year": "2026"}, "pub_url": "fresh-c", "cites_id": "cid-c"},
+        ]
+        old_citations = [
+            {"title": "Cached-A", "authors": "A", "venue": "V", "year": "2024", "url": "old-a", "cites_id": "cid-a"},
+        ]
+        self.fetcher._new_citations_count = 267
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = os.path.join(tmpdir, "paper.json")
+            with patch.object(scholar_citation.scholarly, "citedby", return_value=iter(fetched_items)), \
+                 patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+                citations = self.fetcher._fetch_citations_with_progress(
+                    citedby_url="/scholar?cites=123",
+                    cache_path=cache_path,
+                    title="Paper",
+                    num_citations=18,
+                    pub_url="https://example.com/paper",
+                    pub_year="2024",
+                    resume_from=old_citations,
+                    completed_years_in_current_run=[],
+                    prev_scholar_count=0,
+                )
+
+        output = fake_stdout.getvalue()
+        self.assertEqual([c["title"] for c in citations], ["Cached-A", "Fresh-B", "Fresh-C"])
+        self.assertNotIn("Direct fetch: recovered Scholar increase (268 >= 18)", output)
+        self.assertNotIn("Direct fetch: recovered Scholar increase", output)
+
+    def test_direct_fetch_stops_when_seen_total_reaches_target_with_dedup(self):
+        fetched_items = iter([
+            {"bib": {"title": "Fresh-A", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a", "cites_id": "cid-a"},
+            {"bib": {"title": "Fresh-A duplicate", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a-dup", "cites_id": "cid-a"},
+            {"bib": {"title": "Fresh-B", "author": ["B"], "venue": "V2", "pub_year": "2025"}, "pub_url": "new-b", "cites_id": "cid-b"},
+            {"bib": {"title": "Fresh-C should not be reached", "author": ["C"], "venue": "V3", "pub_year": "2026"}, "pub_url": "new-c", "cites_id": "cid-c"},
+        ])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = os.path.join(tmpdir, "paper.json")
+            with patch.object(scholar_citation.scholarly, "citedby", return_value=fetched_items), \
+                 patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+                citations = self.fetcher._fetch_citations_with_progress(
+                    citedby_url="/scholar?cites=123",
+                    cache_path=cache_path,
+                    title="Paper",
+                    num_citations=3,
+                    pub_url="https://example.com/paper",
+                    pub_year="2024",
+                    resume_from=[],
+                    completed_years_in_current_run=[],
+                    prev_scholar_count=0,
+                )
+
+            with open(cache_path, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+
+        output = fake_stdout.getvalue()
+        self.assertEqual([c["title"] for c in citations], ["Fresh-A", "Fresh-B"])
+        self.assertEqual(saved["num_citations_cached"], 2)
+        self.assertEqual(saved["num_citations_seen"], 3)
+        self.assertTrue(saved["complete"])
+        self.assertEqual(saved["direct_fetch_diagnostics"]["seen_total"], 3)
+        self.assertFalse(saved["direct_fetch_diagnostics"]["underfetched"])
+        self.assertEqual(saved["direct_fetch_diagnostics"]["dedup_count"], 1)
+        self.assertIn("Direct fetch: reached target (3 >= 3 including dedup)", output)
+
+    def test_direct_fetch_underfetch_records_diagnostics_and_keeps_partial_cache(self):
+        fetched_items = [
+            {"bib": {"title": "Fresh-A", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a", "cites_id": "cid-a"},
+            {"bib": {"title": "Fresh-B", "author": ["B"], "venue": "V2", "pub_year": "2025"}, "pub_url": "new-b", "cites_id": "cid-b"},
+            {"bib": {"title": "Fresh-C", "author": ["C"], "venue": "V3", "pub_year": "2026"}, "pub_url": "new-c", "cites_id": "cid-c"},
+        ]
+        fetch_policy = {
+            "mode": "direct",
+            "covered_years": 10,
+            "avg_citations_per_year": 9.8,
+            "pub_year": 2017,
+            "reason": "low_average_per_year",
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = os.path.join(tmpdir, "paper.json")
+            with patch.object(scholar_citation.scholarly, "citedby", return_value=iter(fetched_items)), \
+                 patch.object(self.fetcher, "_fetch_by_year") as mock_fetch_by_year, \
+                 patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+                citations = self.fetcher._fetch_citations_with_progress(
+                    citedby_url="/scholar?cites=123",
+                    cache_path=cache_path,
+                    title="Paper",
+                    num_citations=98,
+                    pub_url="https://example.com/paper",
+                    pub_year="2024",
+                    resume_from=[],
+                    completed_years_in_current_run=[],
+                    prev_scholar_count=0,
+                    fetch_policy=fetch_policy,
+                )
+                mock_fetch_by_year.assert_not_called()
+
+            with open(cache_path, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+
+        output = fake_stdout.getvalue()
+        self.assertEqual([c["title"] for c in citations], ["Fresh-A", "Fresh-B", "Fresh-C"])
+        self.assertFalse(saved["complete"])
+        self.assertEqual(saved["num_citations_on_scholar"], 98)
+        self.assertEqual(saved["num_citations_cached"], 3)
+        self.assertEqual(saved["num_citations_seen"], 3)
+        self.assertEqual(
+            saved["direct_fetch_diagnostics"],
+            {
+                "mode": "direct",
+                "reported_total": 98,
+                "yielded_total": 3,
+                "seen_total": 3,
+                "dedup_count": 0,
+                "underfetched": True,
+                "underfetch_gap": 95,
+                "termination_reason": "iterator_exhausted",
+            },
+        )
+        self.assertIn("Direct fetch under-fetched", output)
+        self.assertNotIn("Direct fetch: reached target", output)
 
     def test_direct_fetch_recheck_does_not_early_stop(self):
         fetched_items = [
@@ -1545,11 +1877,11 @@ class CitationPageStopTests(unittest.TestCase):
                 )
 
             self.assertEqual(len(citations), 3)
-            self.assertEqual(pub["num_citations"], 3)
+            self.assertEqual(pub["num_citations"], 2)
             with open(cache_path, "r", encoding="utf-8") as f:
                 saved = json.load(f)
-            self.assertEqual(saved["num_citations_on_scholar"], 3)
-            self.assertEqual(saved["citation_count_summary"]["scholar_total"], 3)
+            self.assertEqual(saved["num_citations_on_scholar"], 2)
+            self.assertEqual(saved["citation_count_summary"]["scholar_total"], 2)
 
         citations = [
             {"title": "Old-2024-A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
@@ -1643,7 +1975,7 @@ class CitationPageStopTests(unittest.TestCase):
                 selective_refresh_years={2024, 2025},
             )
 
-        self.assertEqual(requests, [(2025, 0), (2024, 0)])
+        self.assertEqual(requests, [(2024, 0), (2024, 1), (2025, 0), (2025, 1)])
         self.assertEqual([c["title"] for c in citations], ["New-2024", "Cached-2025"])
         self.assertEqual(self.fetcher._new_citations_count, 1)
 
@@ -1657,11 +1989,14 @@ class CitationPageStopTests(unittest.TestCase):
 
         class FakeIterator:
             def __init__(self, nav, url):
+                start = 0
+                if "start=" in url:
+                    start = int(url.split("start=")[1].split("&")[0])
                 requests.append(url)
-                self.items = [{
+                self.items = ([{
                     "bib": {"title": "Fetched-2024", "author": ["A"], "venue": "V2024", "pub_year": "2024"},
                     "pub_url": "u2024",
-                }]
+                }] if start == 0 else [])
                 self.index = 0
                 self._finished_current_page = False
 
@@ -1695,7 +2030,7 @@ class CitationPageStopTests(unittest.TestCase):
             )
 
         output = fake_stdout.getvalue()
-        self.assertEqual(len(requests), 1)
+        self.assertEqual(len(requests), 2)
         self.assertEqual([c["title"] for c in citations], ["Fetched-2024"])
         self.assertIn("Selective refresh years: 2024", output)
         self.assertIn("Year 2024: fetching", output)
@@ -1725,21 +2060,21 @@ class CitationPageStopTests(unittest.TestCase):
                 year = int(url.split("as_ylo=")[1].split("&")[0])
                 requests.append((year, start))
                 if year == 2018:
-                    self.items = [
+                    self.items = ([
                         {
                             "bib": {"title": f"Old-2018-{i}", "author": ["A"], "venue": "V2018", "pub_year": "2018"},
                             "pub_url": f"u2018-{i}",
                         }
                         for i in range(10)
-                    ]
+                    ] if start == 0 else [])
                 else:
-                    self.items = [
+                    self.items = ([
                         {
                             "bib": {"title": f"Fetched-2019-{i}", "author": ["B"], "venue": "V2019", "pub_year": "2019"},
                             "pub_url": f"uf2019-{i}",
                         }
                         for i in range(27)
-                    ]
+                    ] if start == 0 else [])
                 self.index = 0
                 self._finished_current_page = False
 
@@ -1775,7 +2110,7 @@ class CitationPageStopTests(unittest.TestCase):
             )
 
         output = fake_stdout.getvalue()
-        self.assertEqual(requests, [(2018, 0)])
+        self.assertEqual(requests, [(2018, 0), (2018, 10)])
         self.assertEqual(save_calls, [False, False, True])
         self.assertEqual(len(citations), 37)
         self.assertIn("Year 2018 status: paper_total=37", output)
@@ -1796,7 +2131,10 @@ class CitationPageStopTests(unittest.TestCase):
 
         class FakeIterator:
             def __init__(self, nav, url):
-                self.items = [
+                start = 0
+                if "start=" in url:
+                    start = int(url.split("start=")[1].split("&")[0])
+                self.items = ([
                     {
                         "bib": {"title": "Fresh-2024-A", "author": ["A"], "venue": "V2024", "pub_year": "2024"},
                         "pub_url": "u-fresh-a",
@@ -1805,7 +2143,7 @@ class CitationPageStopTests(unittest.TestCase):
                         "bib": {"title": "Fresh-2024-B", "author": ["C"], "venue": "V2024", "pub_year": "2024"},
                         "pub_url": "u-fresh-b",
                     },
-                ]
+                ] if start == 0 else [])
                 self.index = 0
                 self._finished_current_page = False
 
@@ -1976,10 +2314,13 @@ class CitationPageStopTests(unittest.TestCase):
 
         class FakeIterator:
             def __init__(self, nav, url):
-                self.items = [{
+                start = 0
+                if "start=" in url:
+                    start = int(url.split("start=")[1].split("&")[0])
+                self.items = ([{
                     "bib": {"title": "Fetched-2024", "author": ["A"], "venue": "V2024"},
                     "pub_url": "u2024",
-                }]
+                }] if start == 0 else [])
                 self.index = 0
                 self._finished_current_page = False
 
@@ -2022,10 +2363,13 @@ class CitationPageStopTests(unittest.TestCase):
 
         class FakeIterator:
             def __init__(self, nav, url):
-                self.items = [{
+                start = 0
+                if "start=" in url:
+                    start = int(url.split("start=")[1].split("&")[0])
+                self.items = ([{
                     "bib": {"title": "Fetched-2023", "author": ["A"], "venue": "V2023", "pub_year": "2023"},
                     "pub_url": "u2023",
-                }]
+                }] if start == 0 else [])
                 self.index = 0
                 self._finished_current_page = False
 
@@ -2358,6 +2702,45 @@ class CitationPageStopTests(unittest.TestCase):
             self.assertEqual(saved["citation_count_summary"]["cached_year_total"], 2)
             self.assertEqual(saved["citation_count_summary"]["dedup_count"], 0)
 
+    def test_citation_status_stays_complete_when_seen_matches_current_total(self):
+        pub = {"title": "Paper", "num_citations": 5}
+        cached = {
+            "complete": True,
+            "probe_complete": False,
+            "citations": [
+                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+                {"title": "B", "authors": "B", "venue": "V", "year": "2025", "url": "u2"},
+                {"title": "C", "authors": "C", "venue": "V", "year": "2025", "url": "u3"},
+            ],
+            "num_citations_on_scholar": 3,
+            "num_citations_seen": 5,
+        }
+
+        with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
+            status = self.fetcher._citation_status(pub)
+
+        self.assertEqual(status, "complete")
+
+    def test_citation_status_recheck_bypasses_seen_equality_shortcut(self):
+        self.fetcher.recheck_citations = True
+        pub = {"title": "Paper", "num_citations": 5}
+        cached = {
+            "complete": True,
+            "probe_complete": False,
+            "citations": [
+                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+                {"title": "B", "authors": "B", "venue": "V", "year": "2025", "url": "u2"},
+                {"title": "C", "authors": "C", "venue": "V", "year": "2025", "url": "u3"},
+            ],
+            "num_citations_on_scholar": 3,
+            "num_citations_seen": 5,
+        }
+
+        with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
+            status = self.fetcher._citation_status(pub)
+
+        self.assertEqual(status, "partial")
+
     def test_citation_status_stays_complete_when_only_unyeared_gap_changes(self):
         pub = {"title": "Paper", "num_citations": 5}
         cached = {
@@ -2436,6 +2819,47 @@ class CitationPageStopTests(unittest.TestCase):
 
         self.assertEqual(status, "partial")
 
+    def test_citation_status_marks_partial_for_direct_underfetch_diagnostics(self):
+        pub = {"title": "Paper", "num_citations": 98}
+        cached = {
+            "complete": True,
+            "probe_complete": False,
+            "citations": [
+                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+                {"title": "B", "authors": "B", "venue": "V", "year": "2025", "url": "u2"},
+                {"title": "C", "authors": "C", "venue": "V", "year": "2026", "url": "u3"},
+            ],
+            "num_citations_on_scholar": 98,
+            "num_citations_seen": 98,
+            "direct_fetch_diagnostics": {
+                "mode": "direct",
+                "reported_total": 98,
+                "yielded_total": 77,
+                "seen_total": 77,
+                "dedup_count": 0,
+                "underfetched": True,
+                "underfetch_gap": 21,
+                "termination_reason": "target_reached",
+            },
+        }
+
+        with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
+            status = self.fetcher._citation_status(pub)
+
+        self.assertEqual(status, "partial")
+
+    def test_direct_fetch_diagnostics_treat_seen_total_as_completion_boundary(self):
+        diagnostics = self.fetcher._direct_fetch_diagnostics(
+            reported_total=10,
+            yielded_total=9,
+            dedup_count=1,
+            termination_reason="target_reached",
+        )
+
+        self.assertEqual(diagnostics["seen_total"], 10)
+        self.assertFalse(diagnostics["underfetched"])
+        self.assertEqual(diagnostics["underfetch_gap"], 0)
+
         pub = {
             "no": 1,
             "title": "Big Paper",
@@ -2473,6 +2897,7 @@ class CitationPageStopTests(unittest.TestCase):
                     "saved_dedup_count": kwargs["saved_dedup_count"],
                     "rehydrated_probed_year_counts": kwargs["rehydrated_probed_year_counts"],
                     "rehydrated_probe_complete": kwargs["rehydrated_probe_complete"],
+                    "direct_resume_state": kwargs.get("direct_resume_state"),
                 }
             )
             if len(fetch_calls) == 1:
@@ -2503,7 +2928,149 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertEqual(fetch_calls[1]["rehydrated_probed_year_counts"], {2024: 1, 2025: 79})
         self.assertTrue(fetch_calls[1]["rehydrated_probe_complete"])
 
-    def test_run_main_loop_logs_year_count_mismatch_without_escalating_direct_policy(self):
+    def test_run_main_loop_retry_drops_cached_unyeared_before_refresh(self):
+        pub = {
+            "no": 1,
+            "title": "Big Paper",
+            "num_citations": 80,
+            "year": "2024",
+            "venue": "V",
+        }
+        cached = {
+            "citations": [
+                {"title": "Cached-2024", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+                {"title": "Cached-NY", "authors": "B", "venue": "V", "year": "N/A", "url": "u2"},
+            ],
+            "num_citations_on_scholar": 70,
+            "completed_years_in_current_run": [2024],
+            "dedup_count": 0,
+            "complete": False,
+            "probed_year_counts": {"2024": 1},
+        }
+        latest_cache = {
+            "citations": [
+                {"title": "Cached-2025", "authors": "A", "venue": "V", "year": "2025", "url": "u3"},
+                {"title": "Latest-NY", "authors": "B", "venue": "V", "year": "N/A", "url": "u4"},
+            ],
+            "num_citations_on_scholar": 80,
+            "completed_years_in_current_run": [2024, 2025],
+            "dedup_count": 3,
+            "probe_complete": True,
+            "probed_year_counts": {"2024": 1, "2025": 79},
+        }
+        fetch_calls = []
+
+        def cache_status(current_pub):
+            self.assertEqual(current_pub["title"], pub["title"])
+            return "partial", cached
+
+        def fake_fetch(*args, **kwargs):
+            resume_from = list(args[6])
+            fetch_calls.append(
+                {
+                    "resume_from": resume_from,
+                    "completed_years_in_current_run": list(kwargs["completed_years_in_current_run"]),
+                    "saved_dedup_count": kwargs["saved_dedup_count"],
+                    "rehydrated_probed_year_counts": kwargs["rehydrated_probed_year_counts"],
+                    "rehydrated_probe_complete": kwargs["rehydrated_probe_complete"],
+                    "direct_resume_state": kwargs.get("direct_resume_state"),
+                }
+            )
+            if len(fetch_calls) == 1:
+                raise RuntimeError("temporary failure")
+            return resume_from
+
+        with patch.object(self.fetcher, "_fetch_citations_with_progress", side_effect=fake_fetch), \
+             patch.object(self.fetcher, "_wait_proxy_switch", return_value=None), \
+             patch.object(self.fetcher, "_load_citation_cache", return_value=latest_cache), \
+             patch("scholar_citation.rand_delay", return_value=0), \
+             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._run_main_loop(
+                publications=[pub],
+                cache_status=cache_status,
+                url_map={pub["title"]: {"citedby_url": "/scholar?cites=123", "pub_url": "https://example.com/paper"}},
+                need_fetch=[(pub, "partial", cached)],
+                results=[],
+                fetch_idx=0,
+            )
+
+        self.assertEqual(len(fetch_calls), 2)
+        self.assertEqual([c["title"] for c in fetch_calls[0]["resume_from"]], ["Cached-2024"])
+        self.assertEqual([c["title"] for c in fetch_calls[1]["resume_from"]], ["Cached-2025"])
+        self.assertEqual(fetch_calls[1]["completed_years_in_current_run"], [])
+        self.assertEqual(fetch_calls[1]["saved_dedup_count"], 3)
+        self.assertEqual(fetch_calls[1]["rehydrated_probed_year_counts"], None)
+        self.assertFalse(fetch_calls[1]["rehydrated_probe_complete"])
+
+    def test_run_main_loop_retry_restores_direct_resume_state_from_latest_cache(self):
+        pub = {
+            "no": 1,
+            "title": "Direct Resume Paper",
+            "num_citations": 25,
+            "year": "2024",
+            "venue": "V",
+        }
+        cached = {
+            "citations": [{"title": "Cached-2024", "authors": "A", "venue": "V", "year": "2024", "url": "u1"}],
+            "num_citations_on_scholar": 25,
+            "dedup_count": 0,
+            "complete": False,
+        }
+        latest_cache = {
+            "citations": [{"title": "Cached-2025", "authors": "A", "venue": "V", "year": "2025", "url": "u2"}],
+            "num_citations_on_scholar": 25,
+            "dedup_count": 2,
+            "complete": False,
+            "direct_resume_state": {
+                "mode": "direct",
+                "next_index": 13,
+                "source_scholar_total": 25,
+                "citedby_url": "/scholar?cites=123",
+            },
+        }
+        fetch_calls = []
+
+        def cache_status(current_pub):
+            self.assertEqual(current_pub["title"], pub["title"])
+            return "partial", cached
+
+        def fake_fetch(*args, **kwargs):
+            resume_from = list(args[6])
+            fetch_calls.append(
+                {
+                    "resume_from": resume_from,
+                    "saved_dedup_count": kwargs["saved_dedup_count"],
+                    "direct_resume_state": kwargs.get("direct_resume_state"),
+                }
+            )
+            if len(fetch_calls) == 1:
+                raise RuntimeError("temporary failure")
+            return resume_from
+
+        with patch.object(self.fetcher, "_fetch_citations_with_progress", side_effect=fake_fetch), \
+             patch.object(self.fetcher, "_wait_proxy_switch", return_value=None), \
+             patch.object(self.fetcher, "_load_citation_cache", return_value=latest_cache), \
+             patch("scholar_citation.rand_delay", return_value=0), \
+             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            self.fetcher._run_main_loop(
+                publications=[pub],
+                cache_status=cache_status,
+                url_map={pub["title"]: {"citedby_url": "/scholar?cites=123", "pub_url": "https://example.com/paper"}},
+                need_fetch=[(pub, "partial", cached)],
+                results=[],
+                fetch_idx=0,
+            )
+
+        log_output = fake_stdout.getvalue()
+        self.assertEqual(len(fetch_calls), 2)
+        self.assertIsNone(fetch_calls[0]["direct_resume_state"])
+        self.assertEqual(fetch_calls[1]["resume_from"], latest_cache["citations"])
+        self.assertEqual(fetch_calls[1]["saved_dedup_count"], 2)
+        self.assertEqual(fetch_calls[1]["direct_resume_state"], latest_cache["direct_resume_state"])
+        self.assertIn("Retrying with 1 cached citations from previous attempt (direct offset=13)", log_output)
+
         pub = {
             "no": 1,
             "title": "Big Paper",
@@ -2605,7 +3172,7 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertIn("range=2024-2025 [2024:1, 2025:1]", output)
         self.assertIn("unyeared=1", output)
         self.assertEqual(results[0]["citations"], final_citations)
-        self.assertEqual(self.fetcher._papers_fetched_count, 1)
+        self.assertEqual(self.fetcher._papers_fetched_count, 0)
 
     def test_run_main_loop_retries_with_saved_cache_after_failure(self):
         pub = {
@@ -2689,18 +3256,18 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertIsNone(fetch_calls[1]["selective_refresh_years"])
         self.assertEqual(fetch_calls[1]["prev_scholar_count"], 75)
         self.assertEqual(fetch_calls[1]["resume_from"], stale_retry_cache["citations"])
-        self.assertEqual(fetch_calls[1]["completed_years_in_current_run"], [2024, 2025])
+        self.assertEqual(fetch_calls[1]["completed_years_in_current_run"], [])
         self.assertEqual(fetch_calls[1]["saved_dedup_count"], 7)
-        self.assertEqual(fetch_calls[1]["rehydrated_probed_year_counts"], {2024: 10, 2025: 70})
-        self.assertTrue(fetch_calls[1]["rehydrated_probe_complete"])
+        self.assertIsNone(fetch_calls[1]["rehydrated_probed_year_counts"])
+        self.assertFalse(fetch_calls[1]["rehydrated_probe_complete"])
 
-        mock_load_cache.assert_called_once()
+        self.assertEqual(mock_load_cache.call_count, 2)
         self.assertIn("Retrying with 1 cached citations from previous attempt", log_output)
         self.assertNotIn("Escalating to full revalidation", log_output)
         self.assertNotIn("Retrying escalated full revalidation with in-memory state", log_output)
 
         self.assertEqual(results[0]["citations"], second_result)
-        self.assertEqual(self.fetcher._papers_fetched_count, 1)
+        self.assertEqual(self.fetcher._papers_fetched_count, 0)
 
     def test_run_main_loop_records_histogram_incomplete_without_refetch(self):
         pub = {
@@ -2756,9 +3323,69 @@ class CitationPageStopTests(unittest.TestCase):
 
         log_output = fake_stdout.getvalue()
         self.assertEqual(mock_fetch.call_count, 1)
-        mock_load_cache.assert_not_called()
+        self.assertEqual(mock_load_cache.call_count, 1)
         self.assertNotIn("Retrying post-fetch reconciliation with in-memory citations", log_output)
         self.assertIn("Histogram is incomplete; recording current results without escalation", log_output)
+        self.assertNotIn("Escalating to full revalidation", log_output)
+        self.assertEqual(results[0]["citations"], fetched_citations)
+
+    def test_run_main_loop_records_direct_underfetch_without_escalation(self):
+        pub = {
+            "no": 1,
+            "title": "Direct Paper",
+            "num_citations": 98,
+            "year": "2024",
+            "venue": "V",
+        }
+        cached = {
+            "citations": [{"title": "Cached", "authors": "A", "venue": "V", "year": "2024", "url": "u0"}],
+            "num_citations_on_scholar": 98,
+            "complete": False,
+        }
+        fetched_citations = [
+            {"title": "Fetched-1", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+            {"title": "Fetched-2", "authors": "B", "venue": "V", "year": "2025", "url": "u2"},
+            {"title": "Fetched-3", "authors": "C", "venue": "V", "year": "2026", "url": "u3"},
+        ]
+        latest_cache = {
+            "direct_fetch_diagnostics": {
+                "mode": "direct",
+                "reported_total": 98,
+                "yielded_total": 77,
+                "seen_total": 77,
+                "dedup_count": 0,
+                "underfetched": True,
+                "underfetch_gap": 21,
+                "termination_reason": "target_reached",
+            }
+        }
+        results = []
+
+        def cache_status(current_pub):
+            self.assertEqual(current_pub["title"], pub["title"])
+            return "partial", cached
+
+        with patch.object(self.fetcher, "_fetch_citations_with_progress", return_value=fetched_citations) as mock_fetch, \
+             patch.object(self.fetcher, "_refresh_reconciliation_status", return_value={"ok": True, "reason": "count_matched_without_histogram"}), \
+             patch.object(self.fetcher, "_wait_proxy_switch", return_value=None), \
+             patch.object(self.fetcher, "_load_citation_cache", return_value=latest_cache) as mock_load_cache, \
+             patch("scholar_citation.rand_delay", return_value=0), \
+             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            self.fetcher._run_main_loop(
+                publications=[pub],
+                cache_status=cache_status,
+                url_map={pub["title"]: {"citedby_url": "/scholar?cites=123", "pub_url": "https://example.com/paper"}},
+                need_fetch=[(pub, "partial", cached)],
+                results=results,
+                fetch_idx=0,
+            )
+
+        log_output = fake_stdout.getvalue()
+        self.assertEqual(mock_fetch.call_count, 1)
+        mock_load_cache.assert_called_once_with(pub["title"])
+        self.assertIn("Direct fetch under-fetched", log_output)
+        self.assertIn("Direct fetch under-fetched; recording current results without escalation", log_output)
         self.assertNotIn("Escalating to full revalidation", log_output)
         self.assertEqual(results[0]["citations"], fetched_citations)
     def test_run_main_loop_limits_post_fetch_reconciliation_retry(self):
@@ -2877,6 +3504,12 @@ class CitationPageStopTests(unittest.TestCase):
 
 class AuthorProfileCountSummaryTests(unittest.TestCase):
     def test_build_profile_count_summary_reports_gap(self):
+        fetcher = scholar_citation.AuthorProfileFetcher("author", output_dir=".")
+        basics = {
+            "name": "Test Author",
+            "citedby": 8035,
+            "cites_per_year": {"2015": 100, "2016": 200, "2026": 7658},
+        }
 
         summary = fetcher._build_profile_count_summary(basics)
 
