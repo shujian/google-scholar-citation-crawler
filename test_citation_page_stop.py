@@ -697,7 +697,7 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertEqual(policy["avg_citations_per_year"], 60)
         self.assertEqual(policy["reason"], "high_average_per_year")
 
-    def test_resolve_refresh_strategy_restores_direct_resume_state_when_context_matches(self):
+    def test_resolve_refresh_strategy_does_not_restore_direct_resume_state(self):
         pub = {"title": "Paper", "num_citations": 25, "year": "2024"}
         cached = {
             "citations": [{"title": "Cached", "authors": "A", "venue": "V", "year": "2024", "url": "u1"}],
@@ -714,8 +714,8 @@ class CitationPageStopTests(unittest.TestCase):
         strategy = self.fetcher._resolve_refresh_strategy(pub, cached, "partial", citedby_url="/scholar?cites=123")
 
         self.assertEqual(strategy["mode"], "resume")
-        self.assertEqual(strategy["direct_resume_state"], cached["direct_resume_state"])
-        self.assertIn("direct offset=13", strategy["action"])
+        self.assertIsNone(strategy["direct_resume_state"])
+        self.assertIn("direct fetch restarts from head", strategy["action"])
 
     def test_resolve_refresh_strategy_invalidates_direct_resume_state_on_total_change(self):
         pub = {"title": "Paper", "num_citations": 26, "year": "2024"}
@@ -735,7 +735,7 @@ class CitationPageStopTests(unittest.TestCase):
 
         self.assertEqual(strategy["mode"], "update")
         self.assertIsNone(strategy["direct_resume_state"])
-        self.assertIn("invalidated direct resume", strategy["action"])
+        self.assertIn("direct fetch restarts from head", strategy["action"])
 
     def test_resolve_refresh_strategy_invalidates_direct_resume_state_on_citedby_url_change(self):
         pub = {"title": "Paper", "num_citations": 25, "year": "2024"}
@@ -755,7 +755,7 @@ class CitationPageStopTests(unittest.TestCase):
 
         self.assertEqual(strategy["mode"], "resume")
         self.assertIsNone(strategy["direct_resume_state"])
-        self.assertIn("citedby_url changed", strategy["action"])
+        self.assertIn("direct fetch restarts from head", strategy["action"])
 
         self.fetcher.recheck_citations = True
         pub = {"title": "Paper", "num_citations": 60, "year": "2023"}
@@ -2023,6 +2023,39 @@ class CitationPageStopTests(unittest.TestCase):
         )
         self.assertIn("Direct fetch under-fetched", output)
         self.assertNotIn("Direct fetch: reached target", output)
+
+    def test_direct_fetch_logs_materialized_totals_separately(self):
+        fetched_items = [
+            {"bib": {"title": "Fresh-A", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a", "cites_id": "cid-a"},
+            {"bib": {"title": "Fresh-B", "author": ["B"], "venue": "V2", "pub_year": "2025"}, "pub_url": "new-b", "cites_id": "cid-b"},
+            {"bib": {"title": "Fresh-C", "author": ["C"], "venue": "V3", "pub_year": "2026"}, "pub_url": "new-c", "cites_id": "cid-c"},
+        ]
+        old_citations = [
+            {"title": "Old-1", "authors": "A", "venue": "V", "year": "2020", "url": "old-1", "cites_id": "old-1"},
+            {"title": "Old-2", "authors": "B", "venue": "V", "year": "2021", "url": "old-2", "cites_id": "old-2"},
+            {"title": "Old-3", "authors": "C", "venue": "V", "year": "2022", "url": "old-3", "cites_id": "old-3"},
+            {"title": "Old-4", "authors": "D", "venue": "V", "year": "2023", "url": "old-4", "cites_id": "old-4"},
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = os.path.join(tmpdir, "paper.json")
+            with patch.object(scholar_citation.scholarly, "citedby", return_value=iter(fetched_items)), \
+                 patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+                self.fetcher._fetch_citations_with_progress(
+                    citedby_url="/scholar?cites=123",
+                    cache_path=cache_path,
+                    title="Paper",
+                    num_citations=48,
+                    pub_url="https://example.com/paper",
+                    pub_year="2024",
+                    resume_from=old_citations,
+                    completed_years_in_current_run=[],
+                    prev_scholar_count=48,
+                )
+
+        output = fake_stdout.getvalue()
+        self.assertIn("Cache totals: cached_total=7", output)
+        self.assertIn("Direct fetch totals: reported_total=48, yielded_total=3, seen_total=3, materialized_total=7, materialized_seen_total=7", output)
 
     def test_direct_fetch_recheck_does_not_early_stop(self):
         fetched_items = [
@@ -3550,7 +3583,7 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertEqual(fetch_calls[1]["rehydrated_probed_year_counts"], None)
         self.assertFalse(fetch_calls[1]["rehydrated_probe_complete"])
         self.assertIsNone(fetch_calls[1]["rehydrated_year_fetch_diagnostics"])
-    def test_run_main_loop_retry_restores_direct_resume_state_from_latest_cache(self):
+    def test_run_main_loop_retry_does_not_restore_direct_resume_state(self):
         pub = {
             "no": 1,
             "title": "Direct Resume Paper",
@@ -3615,8 +3648,9 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertIsNone(fetch_calls[0]["direct_resume_state"])
         self.assertEqual(fetch_calls[1]["resume_from"], latest_cache["citations"])
         self.assertEqual(fetch_calls[1]["saved_dedup_count"], 2)
-        self.assertEqual(fetch_calls[1]["direct_resume_state"], latest_cache["direct_resume_state"])
-        self.assertIn("Retrying with 1 cached citations from previous attempt (direct offset=13)", log_output)
+        self.assertIsNone(fetch_calls[1]["direct_resume_state"])
+        self.assertIn("Retrying with 1 cached citations from previous attempt", log_output)
+        self.assertNotIn("direct offset=13", log_output)
 
         pub = {
             "no": 1,

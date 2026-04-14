@@ -1725,34 +1725,10 @@ class PaperCitationFetcher:
         if drop_cached_unyeared:
             resume_from = self._filter_citations_with_year(resume_from)
 
-        invalid_reason = None
-        normalized_direct_resume = self._normalize_direct_resume_state(cached.get('direct_resume_state'))
-        if mode != 'resume':
-            if normalized_direct_resume:
-                invalid_reason = f"invalidated direct resume ({mode})"
-        elif fetch_policy['mode'] != 'direct':
-            if normalized_direct_resume:
-                invalid_reason = f"invalidated direct resume (policy={fetch_policy['mode']})"
-        elif force_year_rebuild:
-            if normalized_direct_resume:
-                invalid_reason = "invalidated direct resume (force_year_rebuild)"
-        elif normalized_direct_resume:
-            if citedby_url and normalized_direct_resume['citedby_url'] != citedby_url:
-                invalid_reason = "invalidated direct resume (citedby_url changed)"
-            elif normalized_direct_resume['source_scholar_total'] != num_citations:
-                invalid_reason = "invalidated direct resume (scholar total changed)"
-            elif cached.get('probe_complete') is True and cached.get('probed_year_counts') and not rehydrated_probe_complete:
-                invalid_reason = "invalidated direct resume (histogram changed)"
-            else:
-                direct_resume_state = normalized_direct_resume
-                direct_resume_note = self._direct_resume_log_suffix(direct_resume_state)
-        elif cached.get('direct_resume_state') is not None:
-            invalid_reason = "invalidated direct resume (malformed state)"
+        if cached.get('direct_resume_state') is not None and fetch_policy['mode'] == 'direct':
+            action = f"{action}; direct fetch restarts from head"
 
-        if invalid_reason:
-            action = f"{action}; {invalid_reason}"
-        elif direct_resume_note:
-            action = f"{action}{direct_resume_note}"
+        direct_resume_state = None
 
         return {
             'mode': mode,
@@ -2371,8 +2347,11 @@ class PaperCitationFetcher:
             dedup_count=getattr(self, '_dedup_count', 0),
             termination_reason=direct_fetch_termination_reason,
         )
+        direct_materialized_cache = materialized_citations(complete=False)
+        direct_materialized_total = len(direct_materialized_cache)
+        direct_materialized_seen_total = direct_materialized_total + getattr(self, '_dedup_count', 0)
         direct_summary = self._build_citation_count_summary(
-            fresh_citations,
+            direct_materialized_cache,
             scholar_total=current_scholar_total(),
             probed_year_counts=None,
             probe_complete=False,
@@ -2382,7 +2361,7 @@ class PaperCitationFetcher:
         print(f"    Probe totals: scholar_total={current_scholar_total()}, year_sum=0, missing_from_histogram=?", flush=True)
         print(f"    Cache summary: {self._format_year_count_summary(direct_summary['cached_year_counts'])}", flush=True)
         print(f"    Cache totals: cached_total={direct_summary['cached_total']}, cached_year_sum={direct_summary['cached_year_total']}, cached_unyeared={direct_summary['cached_unyeared_count']}, dedup_num={self._dedup_count}", flush=True)
-        print(f"    Direct fetch totals: reported_total={direct_fetch_diagnostics['reported_total']}, yielded_total={direct_fetch_diagnostics['yielded_total']}, seen_total={direct_fetch_diagnostics['seen_total']}", flush=True)
+        print(f"    Direct fetch totals: reported_total={direct_fetch_diagnostics['reported_total']}, yielded_total={direct_fetch_diagnostics['yielded_total']}, seen_total={direct_fetch_diagnostics['seen_total']}, materialized_total={direct_materialized_total}, materialized_seen_total={direct_materialized_seen_total}", flush=True)
         if direct_fetch_diagnostics.get('underfetched'):
             print(f"    {self._direct_fetch_log_message(direct_fetch_diagnostics)}", flush=True)
         save_progress(complete=True)

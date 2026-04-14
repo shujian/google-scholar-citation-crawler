@@ -1301,3 +1301,36 @@ Year 2026: retrying from position 17 这个retrying是什么意思？
          Direct fetch totals: reported_total=48, yielded_total=41, seen_total=41
 
 ---
+
+## Message 173 [2026-04-14T00:00:00.000Z]
+
+direct offset是用来干什么的？
+
+---
+
+## Message 174 [2026-04-14T00:00:00.000Z]
+
+这个地方显然不对，这一轮从40之后又取得了7个引用，计算总数应该是47，而不是7。此外，这里按照以往的机制，应该从头进行direct fetch，为什么是从40开始的？
+[Request interrupted by user]
+[18:37:50] Retrying with injected cookies (attempt 2)...
+  [18:37:50] Retrying with 46 cached citations from previous attempt (direct offset=41)
+    Direct fetch mode: no year probe, summary shown after fetch
+    Direct fetch target: scholar_total=48, prev_scholar=48, cached_total=46, allow_early_stop=True (direct offset=41)
+      Request URL: https://scholar.google.com/scholar?oi=bibs&hl=en&cites=7114138798796717484&start=40 (referer: https://scholar.google.com/citations?user=HF3-E9kAAAAJ&hl=en)
+      [18:37:50] Waiting 83s before request... [elapsed 1m56s, 0 new citations, 2 pages, 1 captcha solves]
+  [1] Beyond Surface Alignment: Grounding the Dynamics of Sit...
+  [2] What about our bug?: a study on the responsiveness of p...
+  [3] Semantic analysis of early stage startups: a framework ...
+  [4] Beyond Next-Token Prediction: Diffusion vs. Autoregress...
+  [5] HumanSet Theory: A Set-Theoretic Framework for Modeling...
+  [6] Generative Ai as a Fuzzy Validation Partner: A Perspect...
+  [7] AI 基于韩国文学翻译策略探索...
+  Progress saved (7 citations, 2 new in this run)
+    Probe summary: none
+    Probe totals: scholar_total=48, year_sum=0, missing_from_histogram=?
+    Cache summary: 3 years, total=5, years_with_citations=3, range=2024-2026 [2024:1, 2025:3, 2026:1]
+    Cache totals: cached_total=7, cached_year_sum=5, cached_unyeared=2, dedup_num=0
+    Direct fetch totals: reported_total=48, yielded_total=7, seen_total=7
+    Direct fetch under-fetched (reported_total=48, yielded_total=7, seen_total=7, dedup_num=0, gap=41, termination=iterator_exhausted)
+
+---
