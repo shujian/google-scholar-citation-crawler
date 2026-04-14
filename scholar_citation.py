@@ -1310,15 +1310,7 @@ class PaperCitationFetcher:
 
     @staticmethod
     def _effective_scholar_total(pub, cached=None):
-        current = int(pub.get('num_citations', 0) or 0)
-        if cached:
-            for key in ('num_citations_on_scholar',):
-                try:
-                    cached_total = int(cached.get(key))
-                except (TypeError, ValueError):
-                    continue
-                current = max(current, cached_total)
-        return current
+        return int(pub.get('num_citations', 0) or 0)
 
     def _promote_live_citation_count(self, pub, live_total, source=None):
         try:

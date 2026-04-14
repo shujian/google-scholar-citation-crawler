@@ -697,6 +697,27 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertEqual(policy["avg_citations_per_year"], 60)
         self.assertEqual(policy["reason"], "high_average_per_year")
 
+    def test_effective_scholar_total_ignores_historical_cache_high_watermark(self):
+        pub = {"title": "Paper", "num_citations": 109, "year": "2020"}
+        cached = {
+            "num_citations_on_scholar": 120,
+            "num_citations_seen": 109,
+        }
+
+        self.assertEqual(self.fetcher._effective_scholar_total(pub, cached), 109)
+
+    def test_promote_live_citation_count_keeps_upward_only_runtime_semantics(self):
+        pub = {"title": "Paper", "num_citations": 109}
+        self.fetcher._updated_publication_counts = {}
+
+        promoted = self.fetcher._promote_live_citation_count(pub, 120, source="live_probe")
+        unchanged = self.fetcher._promote_live_citation_count(pub, 118, source="live_probe")
+
+        self.assertEqual(promoted, 120)
+        self.assertEqual(unchanged, 120)
+        self.assertEqual(pub["num_citations"], 120)
+        self.assertEqual(self.fetcher._updated_publication_counts["Paper"], 120)
+
     def test_resolve_refresh_strategy_does_not_restore_direct_resume_state(self):
         pub = {"title": "Paper", "num_citations": 25, "year": "2024"}
         cached = {
@@ -3403,6 +3424,27 @@ class CitationPageStopTests(unittest.TestCase):
         }
 
         with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
+            status = self.fetcher._citation_status(pub)
+
+        self.assertEqual(status, "complete")
+
+    def test_citation_status_uses_current_profile_total_instead_of_cached_high_watermark(self):
+        pub = {"title": "Paper", "num_citations": 109, "year": "2020"}
+        cached = {
+            "complete": True,
+            "probe_complete": False,
+            "citations": [
+                {"title": f"A-{idx}", "authors": "A", "venue": "V", "year": "2020", "url": f"u{idx}"}
+                for idx in range(109)
+            ],
+            "num_citations_on_scholar": 120,
+            "num_citations_cached": 109,
+            "num_citations_seen": 109,
+        }
+
+        with patch.object(self.fetcher, "_load_citation_cache", return_value=cached), \
+             patch.object(scholar_citation, "datetime") as fake_datetime:
+            fake_datetime.now.return_value = types.SimpleNamespace(year=2026)
             status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "complete")
