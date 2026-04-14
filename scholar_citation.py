@@ -2329,8 +2329,6 @@ class PaperCitationFetcher:
             else:
                 if page_items_seen > 0:
                     yielded_total = len(fresh_citations)
-                    save_progress(complete=False)
-                    print(f"  Progress saved ({yielded_total} citations, {self._new_citations_count} new in this run)", flush=True)
                     if direct_fetch_allow_early_stop and (yielded_total + self._dedup_count) >= current_scholar_total():
                         direct_fetch_termination_reason = 'target_reached'
                         print(f"  Direct fetch: reached target ({yielded_total + self._dedup_count} >= {current_scholar_total()} including dedup), stopping early", flush=True)
@@ -3086,15 +3084,20 @@ class PaperCitationFetcher:
         cached_year_counts = state['cached_year_counts']
         year_fetch_diagnostics = state['year_fetch_diagnostics']
 
-        if probe_complete:
-            if (
-                self._probed_year_counts_satisfied(
-                    cached_year_counts,
-                    probed_year_counts,
-                    year_fetch_diagnostics,
-                )
-                and current >= probed_hist_total
-            ):
+        year_histogram_satisfied = bool(probed_year_counts) and self._probed_year_counts_satisfied(
+            cached_year_counts,
+            probed_year_counts,
+            year_fetch_diagnostics,
+        )
+        histogram_match_complete = (
+            bool(probed_year_counts)
+            and year_histogram_satisfied
+            and current >= probed_hist_total
+        )
+        probe_histogram_complete = probe_complete and histogram_match_complete
+
+        if fetch_policy['mode'] == 'year' and probe_complete:
+            if probe_histogram_complete:
                 return 'complete'
             return 'partial'
 
@@ -3105,24 +3108,12 @@ class PaperCitationFetcher:
             elif probed_year_counts:
                 if num_seen >= probed_hist_total:
                     return 'complete'
-                if self._probed_year_counts_satisfied(
-                    cached_year_counts,
-                    probed_year_counts,
-                    year_fetch_diagnostics,
-                ):
+                if histogram_match_complete:
                     return 'complete'
             elif num_seen >= current:
                 return 'complete'
 
-        if (
-            probed_year_counts
-            and not self.recheck_citations
-            and self._probed_year_counts_satisfied(
-                cached_year_counts,
-                probed_year_counts,
-                year_fetch_diagnostics,
-            )
-        ):
+        if not self.recheck_citations and histogram_match_complete:
             return 'complete'
 
         if self.recheck_citations:

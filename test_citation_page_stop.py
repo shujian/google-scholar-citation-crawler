@@ -1967,6 +1967,35 @@ class CitationPageStopTests(unittest.TestCase):
         self.assertIn("Direct fetch: reached target (3 >= 2 including dedup), stopping early", output)
         self.assertNotIn("Fresh-D should not be reached", [c["title"] for c in citations])
 
+    def test_direct_fetch_final_page_emits_single_progress_save(self):
+        fetched_items = self._paged_direct_iterator([
+            [
+                {"bib": {"title": "Fresh-A", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a", "cites_id": "cid-a"},
+                {"bib": {"title": "Fresh-B", "author": ["B"], "venue": "V2", "pub_year": "2025"}, "pub_url": "new-b", "cites_id": "cid-b"},
+                {"bib": {"title": "Fresh-C", "author": ["C"], "venue": "V3", "pub_year": "2026"}, "pub_url": "new-c", "cites_id": "cid-c"},
+            ],
+        ])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = os.path.join(tmpdir, "paper.json")
+            with patch.object(scholar_citation.scholarly, "citedby", return_value=fetched_items), \
+                 patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+                citations = self.fetcher._fetch_citations_with_progress(
+                    citedby_url="/scholar?cites=123",
+                    cache_path=cache_path,
+                    title="Paper",
+                    num_citations=30,
+                    pub_url="https://example.com/paper",
+                    pub_year="2024",
+                    resume_from=[],
+                    completed_years_in_current_run=[],
+                    prev_scholar_count=0,
+                )
+
+        output = fake_stdout.getvalue()
+        self.assertEqual([c["title"] for c in citations], ["Fresh-A", "Fresh-B", "Fresh-C"])
+        self.assertEqual(output.count("Progress saved (3 citations, 3 new in this run)"), 1)
+
         fetched_items = [
             {"bib": {"title": "Fresh-A", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a", "cites_id": "cid-a"},
             {"bib": {"title": "Fresh-B", "author": ["B"], "venue": "V2", "pub_year": "2025"}, "pub_url": "new-b", "cites_id": "cid-b"},
@@ -3374,6 +3403,78 @@ class CitationPageStopTests(unittest.TestCase):
         }
 
         with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
+            status = self.fetcher._citation_status(pub)
+
+        self.assertEqual(status, "complete")
+
+    def test_citation_status_prefers_current_direct_policy_over_stale_year_probe_state(self):
+        pub = {"title": "Paper", "num_citations": 109, "year": "2020"}
+        cached = {
+            "complete": True,
+            "probe_complete": True,
+            "probed_year_counts": {
+                "2020": 5,
+                "2021": 15,
+                "2022": 23,
+                "2023": 24,
+                "2024": 17,
+                "2025": 24,
+                "2026": 1,
+            },
+            "cached_year_counts": {
+                "2020": 5,
+                "2021": 14,
+                "2022": 21,
+                "2023": 24,
+                "2024": 17,
+                "2025": 23,
+                "2026": 1,
+            },
+            "citations": [
+                {"title": "Cached", "authors": "A", "venue": "V", "year": "2020", "url": "u1"},
+            ],
+            "num_citations_on_scholar": 109,
+            "num_citations_seen": 109,
+            "year_fetch_diagnostics": {
+                "2021": {
+                    "mode": "year",
+                    "year": 2021,
+                    "scholar_total": 15,
+                    "cached_total": 14,
+                    "seen_total": 14,
+                    "dedup_count": 0,
+                    "underfetched": True,
+                    "underfetch_gap": 1,
+                    "termination_reason": "short_page_stop",
+                },
+                "2022": {
+                    "mode": "year",
+                    "year": 2022,
+                    "scholar_total": 23,
+                    "cached_total": 21,
+                    "seen_total": 21,
+                    "dedup_count": 0,
+                    "underfetched": True,
+                    "underfetch_gap": 2,
+                    "termination_reason": "short_page_stop",
+                },
+                "2025": {
+                    "mode": "year",
+                    "year": 2025,
+                    "scholar_total": 24,
+                    "cached_total": 23,
+                    "seen_total": 23,
+                    "dedup_count": 0,
+                    "underfetched": True,
+                    "underfetch_gap": 1,
+                    "termination_reason": "short_page_stop",
+                },
+            },
+        }
+
+        with patch.object(self.fetcher, "_load_citation_cache", return_value=cached), \
+             patch.object(scholar_citation, "datetime") as fake_datetime:
+            fake_datetime.now.return_value = types.SimpleNamespace(year=2026)
             status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "complete")
