@@ -1222,8 +1222,82 @@ Year 2026: retrying from position 17 这个retrying是什么意思？
 
 ---
 
-## Message 165 [2026-04-14T00:00:00.000Z]
+## Message 166 [2026-04-14T00:00:00.000Z]
 
-好的，更新吧
+我们在direct fetch中建立了一套跟scholar_total、seen、dedup、cached_total相关的判定机制，现在请把这套机制应用到year-based fetch中，以每年为一个单位，也进行类似的比较和判定，用来决定当年是否抓取完成，以及是否需要更新抓取。
+
+---
+
+## Message 167 [2026-04-14T00:00:00.000Z]
+
+在每个年份，seen >= scholar 可以判定为已经完成。cached应该为seen-dedup，对吧？
+
+---
+
+## Message 168 [2026-04-14T00:00:00.000Z]
+
+请在抓取结束的时候输出一下相关的情况，包括按年的比较情况和direct fetch的情况
+
+---
+
+## Message 169 [2026-04-14T00:00:00.000Z]
+
+做好了吗？
+
+---
+
+## Message 170 [2026-04-14T00:00:00.000Z]
+
+好的，请赶快完成。你停了很长时间。
+
+---
+
+## Message 171 [2026-04-14T00:00:00.000Z]
+
+好的，更新相关资料并且提交。
+
+---
+
+## Message 172 [2026-04-14T00:00:00.000Z]
+
+这里又出现了save的bug，我们之前说过不要按照每10个citation来保存，而是在每个页面获取完毕之后保存。
+
+     [100] Learning to identify and encode entities with deep lear...
+       Progress saved (100 citations, 5 new in this run)
+       [101] 生物医学事件触发词识别研究....
+       [102] Um mÃ© todo adaptativo para anÃ¡ lise sintÃ¡ tica do Po...
+       [dedup] Skipping duplicate: From Genesis to Creole language: Transfer Learning... (ACM Transactions on Asian and Low …, 2010)
+               Existing: From genesis to creole language: Transfer learning (ACM Transactions on Asian and Low …, 2019)
+       [103] Neural Techniques for German Dependency Parsing...
+       [104] Method for semantic recognition and electronic device...
+       [105] Conversion and Exploitation of Dependency Treebanks wit...
+       [106] Recursive LSTM Tree Representation for Arc-Standard Tra...
+       [107] Deep learning applications for transition-based depende...
+       [108] Transition-Based Dependency Parsing with Neural Network...
+           Pagination (page 12)
+           Request URL: xxx
+           [13:59:12] Waiting 71s before request... [elapsed 1h44m51s, 5 new citations, 36 pages, 1 captcha solves]
+       [109] Structured learning with latent variables: theory and a...
+       [110] Evaluating Globally Normalized Transition Based Neural ...
+       Progress saved (110 citations, 5 new in this run)
+       [111] Parsing with Recurrent Neural Networks...
+       [112] Structured Learning with Inexact Search: Advances in Sh...
+       [113] SLDP: Sequence learning dependency parsing model using ...
+       [114] Evaluating a Deterministic Shift-Reduce Neural Parser f...
+
+这里也不对，请以页面上所有论文为抓取单位，没处理完毕不应该停止。这里第5页应该有8篇论文，怎么能抓到1个就停止呢？这里的增量计数好像不对。另外，即使这个抓到增量就early stop的处理，也应该是以页面为单位进行才对。
+
+     [40] Designing Reliable Language Models...
+       Progress saved (40 citations, 16 new in this run)
+           Pagination (page 5)
+           Request URL: https://scholar.google.com/scholar?start=40&hl=en&as_sdt=2005&sciodt=0,5&cites=7114138798796717484&scipsc= (referer: https://scholar.google.com/scholar?start=30&hl=en&as_sdt=2005&sciodt=0,5&cites=7114138798796717484&scipsc=)
+           [14:37:47] Waiting 71s before request... [elapsed 2h23m26s, 16 new citations, 58 pages, 1 captcha solves]
+       [41] CaTS: Calibrated Test-Time Scaling for Efficient LLM Re...
+       Direct fetch: recovered Scholar increase (1 >= 1), stopping early
+         Probe summary: none
+         Probe totals: scholar_total=48, year_sum=0, missing_from_histogram=?
+         Cache summary: 3 years, total=40, years_with_citations=3, range=2024-2026 [2024:3, 2025:30, 2026:7]
+         Cache totals: cached_total=41, cached_year_sum=40, cached_unyeared=1, dedup_num=0
+         Direct fetch totals: reported_total=48, yielded_total=41, seen_total=41
 
 ---
