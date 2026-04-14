@@ -2999,6 +2999,71 @@ class PaperCitationFetcher:
                 return json.load(f)
         return None
 
+    def _derive_citation_cache_state(self, pub, cached):
+        citations = cached.get('citations', []) or []
+        current = self._effective_scholar_total(pub, cached)
+        fetch_policy = self._resolve_citation_fetch_policy(current, pub.get('year', 'N/A'))
+
+        actual_cached = cached.get('num_citations_cached', len(citations))
+        try:
+            actual_cached = int(actual_cached)
+        except (TypeError, ValueError):
+            actual_cached = len(citations)
+        actual_cached = max(actual_cached, len(citations))
+
+        try:
+            promoted_scholar_total = int(cached.get('num_citations_on_scholar', 0) or 0)
+        except (TypeError, ValueError):
+            promoted_scholar_total = 0
+
+        num_seen = cached.get('num_citations_seen')
+        try:
+            num_seen = int(num_seen) if num_seen is not None else None
+        except (TypeError, ValueError):
+            num_seen = None
+
+        direct_fetch_diagnostics = cached.get('direct_fetch_diagnostics') or {}
+        if direct_fetch_diagnostics.get('mode') != 'direct':
+            direct_fetch_diagnostics = {}
+        direct_seen_total = direct_fetch_diagnostics.get('seen_total')
+        try:
+            direct_seen_total = int(direct_seen_total) if direct_seen_total is not None else None
+        except (TypeError, ValueError):
+            direct_seen_total = None
+        if num_seen is None and direct_seen_total is not None:
+            num_seen = direct_seen_total
+        if num_seen is not None:
+            num_seen = max(num_seen, actual_cached)
+
+        probed_year_counts, probe_complete = self._rehydrate_probe_metadata(cached, current)
+        probed_hist_total = cached.get('probed_year_total')
+        try:
+            probed_hist_total = int(probed_hist_total)
+        except (TypeError, ValueError):
+            probed_hist_total = sum((probed_year_counts or {}).values())
+
+        cached_year_counts = self._normalize_year_count_map(cached.get('cached_year_counts'))
+        if not cached_year_counts:
+            cached_year_counts = self._year_count_map(citations)
+
+        year_fetch_diagnostics = self._normalize_year_fetch_diagnostics(
+            cached.get('year_fetch_diagnostics')
+        )
+
+        return {
+            'current': current,
+            'fetch_policy': fetch_policy,
+            'actual_cached': actual_cached,
+            'promoted_scholar_total': promoted_scholar_total,
+            'num_seen': num_seen,
+            'probed_year_counts': probed_year_counts,
+            'probe_complete': probe_complete,
+            'probed_hist_total': probed_hist_total,
+            'cached_year_counts': cached_year_counts,
+            'year_fetch_diagnostics': year_fetch_diagnostics,
+            'direct_fetch_diagnostics': direct_fetch_diagnostics,
+        }
+
     def _citation_status(self, pub):
         """Return (cache status, cached_data) for a publication.
         Status: 'skip_zero' | 'complete' | 'partial' | 'missing'.
@@ -3008,83 +3073,68 @@ class PaperCitationFetcher:
         cached = self._load_citation_cache(pub['title'])
         if not cached:
             return 'missing'
-        if not cached.get('complete'):
-            return 'partial'
 
-        direct_fetch_diagnostics = cached.get('direct_fetch_diagnostics') or {}
-        if direct_fetch_diagnostics.get('mode') == 'direct' and direct_fetch_diagnostics.get('underfetched'):
-            return 'partial'
-        year_fetch_diagnostics = self._normalize_year_fetch_diagnostics(
-            cached.get('year_fetch_diagnostics')
-        )
-        if any(diagnostic.get('underfetched') for diagnostic in year_fetch_diagnostics.values()):
-            return 'partial'
+        state = self._derive_citation_cache_state(pub, cached)
+        current = state['current']
+        fetch_policy = state['fetch_policy']
+        actual_cached = state['actual_cached']
+        promoted_scholar_total = state['promoted_scholar_total']
+        num_seen = state['num_seen']
+        probed_year_counts = state['probed_year_counts']
+        probe_complete = state['probe_complete']
+        probed_hist_total = state['probed_hist_total']
+        cached_year_counts = state['cached_year_counts']
+        year_fetch_diagnostics = state['year_fetch_diagnostics']
 
-        current = pub['num_citations']
-        fetch_policy = self._resolve_citation_fetch_policy(current, pub.get('year', 'N/A'))
-        actual_cached = cached.get('num_citations_cached', len(cached.get('citations', [])))
-        promoted_scholar_total = 0
-        try:
-            promoted_scholar_total = int(cached.get('num_citations_on_scholar', 0) or 0)
-        except (TypeError, ValueError):
-            promoted_scholar_total = 0
-        num_seen = cached.get('num_citations_seen')
-        try:
-            num_seen = int(num_seen) if num_seen is not None else None
-        except (TypeError, ValueError):
-            num_seen = None
-        if current <= promoted_scholar_total and actual_cached >= current:
-            return 'complete'
-        probed_year_counts = self._normalize_year_count_map(cached.get('probed_year_counts'))
-        probe_complete = cached.get('probe_complete') is True and bool(probed_year_counts)
-        probed_hist_total = cached.get('probed_year_total')
-        try:
-            probed_hist_total = int(probed_hist_total)
-        except (TypeError, ValueError):
-            probed_hist_total = sum(probed_year_counts.values())
         if probe_complete:
-            cached_year_counts = self._normalize_year_count_map(cached.get('cached_year_counts'))
-            if not cached_year_counts:
-                cached_year_counts = self._year_count_map(cached.get('citations', []))
-            cached_hist_total = sum(cached_year_counts.values())
-            if self._probed_year_counts_satisfied(cached_year_counts, probed_year_counts, year_fetch_diagnostics) and current >= probed_hist_total:
+            if (
+                self._probed_year_counts_satisfied(
+                    cached_year_counts,
+                    probed_year_counts,
+                    year_fetch_diagnostics,
+                )
+                and current >= probed_hist_total
+            ):
                 return 'complete'
             return 'partial'
 
         if num_seen is not None and not self.recheck_citations:
             if fetch_policy['mode'] == 'direct':
-                if promoted_scholar_total == current and num_seen >= current:
+                if num_seen >= current:
                     return 'complete'
             elif probed_year_counts:
-                if promoted_scholar_total == current and num_seen >= probed_hist_total:
+                if num_seen >= probed_hist_total:
                     return 'complete'
                 if self._probed_year_counts_satisfied(
-                    self._normalize_year_count_map(cached.get('cached_year_counts')) or self._year_count_map(cached.get('citations', [])),
+                    cached_year_counts,
                     probed_year_counts,
                     year_fetch_diagnostics,
                 ):
                     return 'complete'
-            elif promoted_scholar_total == current and num_seen >= current:
+            elif num_seen >= current:
                 return 'complete'
 
-        # Legacy fallback for caches without authoritative histogram metadata.
         if (
-            num_seen is not None
+            probed_year_counts
             and not self.recheck_citations
-            and actual_cached < current
-            and promoted_scholar_total < current
+            and self._probed_year_counts_satisfied(
+                cached_year_counts,
+                probed_year_counts,
+                year_fetch_diagnostics,
+            )
         ):
-            if num_seen >= current:
-                return 'complete'
+            return 'complete'
 
-        actual_cached = cached.get('num_citations_cached', len(cached.get('citations', [])))
         if self.recheck_citations:
             if actual_cached >= current:
                 return 'complete'
             return 'partial'
 
-        scholar_at_completion = cached.get('num_citations_on_scholar', 0)
-        if current <= scholar_at_completion and actual_cached >= current:
+        if (
+            current <= promoted_scholar_total
+            and actual_cached >= current
+            and (fetch_policy['mode'] == 'direct' or not probed_year_counts)
+        ):
             return 'complete'
         return 'partial'
 

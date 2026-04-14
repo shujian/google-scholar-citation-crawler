@@ -1334,3 +1334,15 @@ direct offset是用来干什么的？
     Direct fetch under-fetched (reported_total=48, yielded_total=7, seen_total=7, dedup_num=0, gap=41, termination=iterator_exhausted)
 
 ---
+
+## Message 175 [2026-04-14T00:00:00.000Z]
+
+所以我不建议再使用状态字段了，我们应该根据实际约定的计数值来控制程序的流程，你看是不是可以修改一下。
+
+---
+
+## Message 176 [2026-04-14T00:00:00.000Z]
+
+好的，请完成后续工作
+
+---
