@@ -1126,3 +1126,104 @@ Done: 1330 cached, 1331 seen, 1 dupes (Scholar: 1335)
 请更新相关材料，包括user.md, worknotes.md 如果有必要的话更新一下readme，然后git提交。
 
 ---
+
+## Message 155 [2026-04-14T00:00:00.000Z]
+
+这里也出问题了，怎么把上一篇论文的cache histogram用到下一篇论文里了：
+
+Year summary: 10 years, total=1330, years_with_citations=10, range=2017-2026 [2017:3, 2018:38, 2019:107, 2020:156, ..., 2023:213, 2024:175, 2025:177, 2026:29]
+  Refresh check: histogram_incomplete (scholar_total=1335, year_sum=1328, cached_total=1330, cached_year_sum=1330, dedup_num=1)
+  Histogram is incomplete; recording current results without escalation
+  [19:54:31] Waiting 65s before next paper... [elapsed 11h43m03s, 32 new citations, 91 pages, 2 captcha solves]
+[2/232] xxxx
+  update (990 cached, citations 963 -> 964; drop cached unyeared before refresh)
+
+      [19:55:36] Waiting 83s before request... [elapsed 11h44m08s, 32 new citations, 92 pages, 2 captcha solves]
+      Scholar year range probe: histogram incomplete (hist_total=956, scholar_total=964), using conservative start_year = 2017
+      Year histogram summary: 10 years, total=956, years_with_citations=10, range=2017-2026 [2017:10, 2018:148, 2019:175, 2020:138, ..., 2023:84, 2024:78, 2025:58, 2026:17]
+      Conservative year traversal: pub_year=2017 (pub_year fallback not needed)
+  Year-based plan: 2017-2026 (current-run completed=0)
+    Direction: oldest→newest (recheck mode, full year revalidation)
+    Probe summary: 10 years, total=956, years_with_citations=10, range=2017-2026 [2017:10, 2018:148, 2019:175, 2020:138, ..., 2023:84, 2024:78, 2025:58, 2026:17]
+    Probe totals: scholar_total=964, year_sum=956, missing_from_histogram=8
+    Cache summary: 10 years, total=1330, years_with_citations=10, range=2017-2026 [2017:3, 2018:38, 2019:107, 2020:156, ..., 2023:213, 2024:175, 2025:177, 2026:29]
+    Cache totals: cached_total=922, cached_year_sum=922, cached_unyeared=0, dedup_num=0
+    Fetch context: mode=incremental, probe_complete=False, prev_scholar=963, target=956, total_years=10
+
+---
+
+## Message 156 [2026-04-14T00:00:00.000Z]
+
+再处理一个小问题再一起提交：scholar的翻页都是以10个citation为单位的，如果当前请求返回不满10个，就不用再请求下一页了。比如下面这个对start=148的请求是很奇怪的。[23:15:26] Waiting 63s before request... [elapsed 28m46s, 0 new citations, 17 pages, 1 captcha solves]
+[926] Text Simplification without Simplified Corpora...
+[927] System description of Supervised and Unsupervised Neura...
+[928] Character vs Subword-level models in Neural Machine Tra...
+[929] D3. 4: Final report on inflection and word formation...
+[930] Neuronale Textklassifikation mittels Wissen aus der mas...
+[931] On Internal Language Representations in Deep Learning: ...
+[932] Exploring Cross-lingual Summarization and Machine Trans...
+[933] Pre-GDR TAL-” Multilinguisme, multiplicité des langues”...
+      Year 2018: retrying from position 148
+
+---
+
+## Message 157 [2026-04-14T00:00:00.000Z]
+
+你可能没理解我的意思，我们不应该发送start=2这样的请求，这跟web的翻页机制是冲突的。我们发送的请求里start就应该是10的整数倍。
+
+---
+
+## Message 158 [2026-04-14T00:00:00.000Z]
+
+如果之前抓取到148，那要resume应该从140开始吧。你觉得呢？
+
+---
+
+## Message 159 [2026-04-14T00:00:00.000Z]
+
+也不需要跳过前8条，我们已经有去重机制了，正常处理就好。
+
+---
+
+## Message 160 [2026-04-14T00:00:00.000Z]
+
+如果某页请求返回的结果不足10条，那就不用再请求下一页了。
+
+---
+
+## Message 161 [2026-04-14T00:00:00.000Z]
+
+哦，不对，如果重复抓了同样的内容，dedup的计数会有问题，那resume from 148的时候，确实应该取start=140，然后再从第9条开始继续。你能不能告诉我什么时候回resume from 148？
+
+---
+
+## Message 162 [2026-04-14T00:00:00.000Z]
+
+Year 2026: retrying from position 17 这个retrying是什么意思？
+
+---
+
+## Message 163 [2026-04-14T00:00:00.000Z]
+
+先解决之前的问题，然后这是个什么错误？ Error (attempt 3, total pages: 152, new citations: 22): 'num_citations'
+
+---
+
+## Message 164 [2026-04-14T00:00:00.000Z]
+
+我也不太理解为什么会在direct fetch的时候先尝试访问一个start=70的url   Direct fetch mode: no year probe, summary shown after fetch
+    Direct fetch target: scholar_total=120, prev_scholar=121, cached_total=114, allow_early_stop=True
+  [2026-04-14 09:58:20] Error (attempt 3, total pages: 152, new citations: 22): 'num_citations'
+
+  ==============================================================
+  Captcha / block detected. Resolve it manually:
+  1. Open this URL in your browser:
+       https://scholar.google.com/scholar?as_ylo=2026&as_yhi=2026&hl=en&as_sdt=2005&sciodt=0,5&cites=xxx&scipsc=&start=70
+
+---
+
+## Message 165 [2026-04-14T00:00:00.000Z]
+
+好的，更新吧
+
+---

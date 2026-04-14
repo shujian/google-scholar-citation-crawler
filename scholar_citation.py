@@ -53,6 +53,9 @@ MANDATORY_BREAK_MAX = 360  # 6 minutes
 # Papers with >= this many citations use year-based fetching for better resume
 YEAR_BASED_THRESHOLD = 50
 
+# Google Scholar citation pages are paginated in fixed 10-result chunks.
+SCHOLAR_PAGE_SIZE = 10
+
 # Retry: when Scholar blocks a citation fetch, retry with fresh session
 MAX_RETRIES = 3
 
@@ -1053,12 +1056,23 @@ class PaperCitationFetcher:
         }
 
     @staticmethod
+    def _page_aligned_start(index):
+        try:
+            index = int(index or 0)
+        except (TypeError, ValueError):
+            return 0
+        if index <= 0:
+            return 0
+        return (index // SCHOLAR_PAGE_SIZE) * SCHOLAR_PAGE_SIZE
+
+    @staticmethod
     def _direct_start_position(direct_resume_state):
         normalized = PaperCitationFetcher._normalize_direct_resume_state(direct_resume_state)
         if not normalized:
             return 0, 0
         next_index = normalized['next_index']
-        return (next_index // 10) * 10, next_index % 10
+        page_start = PaperCitationFetcher._page_aligned_start(next_index)
+        return page_start, next_index - page_start
 
     @staticmethod
     def _append_start_param(citedby_url, start):
@@ -1070,12 +1084,22 @@ class PaperCitationFetcher:
         return f"{citedby_url}{separator}start={start}"
 
     @staticmethod
-    def _iter_direct_citedby(citedby_url, direct_resume_state=None):
+    def _direct_request_url(citedby_url, direct_resume_state=None):
         normalized = PaperCitationFetcher._normalize_direct_resume_state(direct_resume_state)
         if not normalized:
+            return citedby_url
+        page_start, _ = PaperCitationFetcher._direct_start_position(normalized)
+        return PaperCitationFetcher._append_start_param(citedby_url, page_start)
+
+    @staticmethod
+    def _iter_direct_citedby(citedby_url, direct_resume_state=None, num_citations=0):
+        normalized = PaperCitationFetcher._normalize_direct_resume_state(direct_resume_state)
+        request_url = PaperCitationFetcher._direct_request_url(citedby_url, normalized)
+        if not normalized:
             direct_fetch_pub = {
-                'citedby_url': citedby_url,
+                'citedby_url': request_url,
                 'container_type': 'Publication',
+                'num_citations': int(num_citations or 0),
                 'filled': True,
                 'source': 'PUBLICATION_SEARCH_SNIPPET',
             }
@@ -1084,8 +1108,7 @@ class PaperCitationFetcher:
             return
 
         nav = scholarly._Scholarly__nav
-        page_start, in_page_skip = PaperCitationFetcher._direct_start_position(normalized)
-        request_url = PaperCitationFetcher._append_start_param(citedby_url, page_start)
+        _, in_page_skip = PaperCitationFetcher._direct_start_position(normalized)
         for idx, citing in enumerate(_SearchScholarIterator(nav, request_url)):
             if idx < in_page_skip:
                 continue
@@ -1859,6 +1882,7 @@ class PaperCitationFetcher:
         selective_refresh_years: optional list of years to refetch authoritatively.
         """
         old_citations = list(resume_from)
+        self._cached_year_counts = self._year_count_map(old_citations)
         fresh_citations = []
         effective_num_citations = int(num_citations or 0)
         if pub_obj is not None:
@@ -2006,6 +2030,9 @@ class PaperCitationFetcher:
         print("    Direct fetch mode: no year probe, summary shown after fetch", flush=True)
         print(f"    Direct fetch target: scholar_total={current_scholar_total()}, prev_scholar={prev_scholar_count}, "
               f"cached_total={len(old_citations)}, allow_early_stop={direct_fetch_allow_early_stop}{self._direct_resume_log_suffix(normalized_direct_resume_state)}", flush=True)
+        self._current_attempt_url = _scholar_request_url(
+            self._direct_request_url(citedby_url, normalized_direct_resume_state)
+        )
 
         old_cache_identity_keys = set()
         for citation in old_citations:
@@ -2014,7 +2041,11 @@ class PaperCitationFetcher:
 
         try:
             direct_fetch_termination_reason = 'iterator_exhausted'
-            for citing in self._iter_direct_citedby(citedby_url, normalized_direct_resume_state):
+            for citing in self._iter_direct_citedby(
+                citedby_url,
+                normalized_direct_resume_state,
+                num_citations=current_scholar_total(),
+            ):
                 direct_next_index += 1
                 info = self._extract_citation_info(citing)
                 identity_keys = self._citation_identity_keys(info)
@@ -2353,6 +2384,8 @@ class PaperCitationFetcher:
                         continue
 
                 start_index = self._partial_year_start.get(year, 0)
+                resume_page_start = self._page_aligned_start(start_index)
+                initial_in_page_skip = start_index - resume_page_start
                 resuming_partial_year = year in self._partial_year_start
                 cached_count = cached_year_counts.get(year)
                 live_count = probed_year_counts.get(year)
@@ -2362,7 +2395,13 @@ class PaperCitationFetcher:
                 self._next_refresh_at = self._total_page_count + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
 
                 if start_index > 0:
-                    print(f"      Year {year}: resuming from position {start_index} "
+                    resume_note = f"position {start_index}"
+                    if resume_page_start != start_index:
+                        resume_note += (
+                            f" via page start {resume_page_start} "
+                            f"(skip first {initial_in_page_skip})"
+                        )
+                    print(f"      Year {year}: resuming from {resume_note} "
                           f"(cached={cached_count if cached_count is not None else '?'}, "
                           f"probe={live_count if live_count is not None else '?'})", flush=True)
                 else:
@@ -2372,8 +2411,8 @@ class PaperCitationFetcher:
 
                 year_url = (f'/scholar?as_ylo={year}&as_yhi={year}&hl=en'
                             f'&as_sdt=2005&sciodt=0,5&cites={pub_id}&scipsc=')
-                if start_index > 0:
-                    year_url += f'&start={start_index}'
+                if resume_page_start > 0:
+                    year_url += f'&start={resume_page_start}'
                 print(f"      URL: https://scholar.google.com{year_url}", flush=True)
                 nav = scholarly._Scholarly__nav
 
@@ -2381,29 +2420,41 @@ class PaperCitationFetcher:
                 year_items_seen = 0
                 stop_after_current_page = False
                 year_progress_saved = False
-                existing_year_fresh = list(fresh_year_buckets.get(year, [])) if start_index > 0 else []
+                existing_year_fresh = list(old_year_buckets.get(year, [])) if start_index > 0 else []
                 year_seen_keys = {}
                 for c in existing_year_fresh:
-                    label = f"{c.get('title', '')[:50]} ({c.get('venue', 'N/A')}, {c.get('year', '?')}) [fresh]"
+                    label = f"{c.get('title', '')[:50]} ({c.get('venue', 'N/A')}, {c.get('year', '?')}) [cached]"
                     for key in self._citation_identity_keys(c):
                         year_seen_keys[key] = label
                 year_fetched_citations = list(existing_year_fresh)
 
                 while True:
-                    resume_start = start_index + year_items_seen
+                    logical_resume_index = start_index + year_items_seen
+                    request_start = self._page_aligned_start(logical_resume_index)
+                    request_in_page_skip = logical_resume_index - request_start
                     if year_items_seen > 0:
                         year_url_cur = (f'/scholar?as_ylo={year}&as_yhi={year}&hl=en'
                                         f'&as_sdt=2005&sciodt=0,5&cites={pub_id}&scipsc='
-                                        f'&start={resume_start}')
-                        print(f"      Year {year}: retrying from position {resume_start}", flush=True)
+                                        f'&start={request_start}')
+                        progress_note = f"position {logical_resume_index}"
+                        if request_start != logical_resume_index:
+                            progress_note += (
+                                f" via page start {request_start} "
+                                f"(skip first {request_in_page_skip})"
+                            )
+                        print(f"      Year {year}: continuing from {progress_note}", flush=True)
                     else:
                         year_url_cur = year_url
                     try:
                         iterator = _SearchScholarIterator(nav, year_url_cur)
                         page_save_emitted = False
+                        request_items_seen = 0
                         for citing in iterator:
                             year_items_seen += 1
+                            request_items_seen += 1
                             self._partial_year_start[year] = start_index + year_items_seen
+                            if request_items_seen <= request_in_page_skip:
+                                continue
                             info = self._extract_citation_info(citing, fallback_year=year)
                             identity_keys = self._citation_identity_keys(info)
                             matched_key = next((key for key in identity_keys if key in year_seen_keys), None)
@@ -2430,7 +2481,8 @@ class PaperCitationFetcher:
                                 save_progress(complete=False)
                                 page_save_emitted = True
                                 year_progress_saved = True
-                        if year_items_seen > 0 and page_save_emitted:
+                        final_page_items_seen = getattr(iterator, '_items_in_current_page', request_items_seen)
+                        if request_items_seen > 0 and page_save_emitted and final_page_items_seen >= SCHOLAR_PAGE_SIZE:
                             continue
                         break
                     except KeyboardInterrupt:
@@ -2439,7 +2491,7 @@ class PaperCitationFetcher:
                     except Exception as e:
                         now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                         print(f"  [{now_s}] Blocked at year {year} "
-                              f"position {resume_start}: {e}", flush=True)
+                              f"position {logical_resume_index}: {e}", flush=True)
                         save_progress(complete=False)
                         if self.interactive_captcha:
                             cur_url = (f'https://scholar.google.com{year_url_cur}'
