@@ -790,6 +790,16 @@ class PaperCitationFetcher:
             'pub_url':     p.get('url', 'N/A'),
         } for p in pubs_data.get('publications', [])}
 
+        # force mode: delete per-paper cache files for papers in the selected range
+        # so that status returns 'missing' and they are always re-fetched from scratch.
+        if self.fetch_mode == 'force':
+            end_idx = self.skip + self.limit if self.limit else len(publications)
+            for pub in publications[self.skip:end_idx]:
+                cache_path = self._citation_cache_path(pub['title'])
+                if os.path.exists(cache_path):
+                    os.remove(cache_path)
+                    print(f"  Force mode: cleared cache for '{pub['title'][:55]}'")
+
         def cache_status(pub):
             st = self._citation_status(pub)
             cached = self._load_citation_cache(pub['title']) if st != 'skip_zero' else None
