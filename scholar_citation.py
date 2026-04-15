@@ -31,108 +31,31 @@ from scholarly.publication_parser import _SearchScholarIterator
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 
-
-# ============================================================
-# Shared Utilities
-# ============================================================
-
-# Unified delay: all deliberate waits use a random value in this range
-DELAY_MIN = 45
-DELAY_MAX = 90
-
-# Proactively refresh session every N pages to avoid session-based blocking
-SESSION_REFRESH_MIN = 10   # refresh session after random 10-20 pages
-SESSION_REFRESH_MAX = 20
-
-# Mandatory long break every 8-12 pages to let Scholar's rate-limit window reset
-MANDATORY_BREAK_EVERY_MIN = 8
-MANDATORY_BREAK_EVERY_MAX = 12
-MANDATORY_BREAK_MIN = 180  # 3 minutes
-MANDATORY_BREAK_MAX = 360  # 6 minutes
-
-# Papers with >= this many citations use year-based fetching for better resume
-YEAR_BASED_THRESHOLD = 50
-
-# Google Scholar citation pages are paginated in fixed 10-result chunks.
-SCHOLAR_PAGE_SIZE = 10
-
-# Retry: when Scholar blocks a citation fetch, retry with fresh session
-MAX_RETRIES = 3
-
-
-def rand_delay(scale=1.0):
-    """Return a random delay between DELAY_MIN and DELAY_MAX seconds."""
-    return random.uniform(DELAY_MIN, DELAY_MAX) * scale
-
-
-def now_str():
-    """Return current time as [HH:MM:SS] string for log prefixes."""
-    return datetime.now().strftime('[%H:%M:%S]')
-
-
-def _scholar_request_url(pagerequest):
-    """Best-effort extraction of the target Google Scholar URL for logging."""
-    if pagerequest is None:
-        return None
-    candidate = getattr(pagerequest, 'url', None)
-    if candidate is None and isinstance(pagerequest, dict):
-        candidate = pagerequest.get('url') or pagerequest.get('URL')
-    if candidate is None:
-        candidate = pagerequest
-    if not isinstance(candidate, str):
-        candidate = str(candidate)
-    candidate = candidate.strip()
-    if not candidate:
-        return None
-    if candidate.startswith('/'):
-        return f'https://scholar.google.com{candidate}'
-    return candidate
-
-
-class TeeStream:
-    """Mirror stdout writes to both terminal and a log file."""
-    def __init__(self, *streams):
-        self.streams = streams
-
-    def write(self, data):
-        for stream in self.streams:
-            stream.write(data)
-        return len(data)
-
-    def flush(self):
-        for stream in self.streams:
-            stream.flush()
-
-    def isatty(self):
-        return any(getattr(stream, 'isatty', lambda: False)() for stream in self.streams)
-
-
-def setup_proxy():
-    """Configure proxy from environment variables.
-
-    scholarly's proxy API (ProxyGenerator/use_proxy) is NOT used: it passes
-    proxies in {'http': url} format which httpx 0.27.x doesn't recognise,
-    causing requests to go out without a proxy.  Instead we rely on httpx
-    picking up HTTPS_PROXY / HTTP_PROXY automatically (trust_env=True default).
-    """
-    proxy_url = os.environ.get('https_proxy') or os.environ.get('http_proxy')
-    if not proxy_url:
-        print("Warning: No proxy detected, connecting directly")
-        return
-    clean = proxy_url.replace('http://', '').replace('https://', '')
-    print(f"Proxy detected: {clean} (using system env proxy)")
-
-
-def extract_author_id(author_input):
-    """Extract author ID from a Google Scholar URL or bare ID string."""
-    # Try to extract from URL
-    match = re.search(r'user=([^&]+)', author_input)
-    if match:
-        return match.group(1)
-    # Treat as bare ID if it looks like one (alphanumeric + dashes/underscores)
-    if re.match(r'^[\w-]+$', author_input):
-        return author_input
-    raise ValueError(f"Cannot extract author ID from: {author_input}")
+from scholar_common import (
+    DELAY_MAX,
+    DELAY_MIN,
+    MANDATORY_BREAK_EVERY_MAX,
+    MANDATORY_BREAK_EVERY_MIN,
+    MANDATORY_BREAK_MAX,
+    MANDATORY_BREAK_MIN,
+    MAX_RETRIES,
+    SCHOLAR_PAGE_SIZE,
+    SESSION_REFRESH_MAX,
+    SESSION_REFRESH_MIN,
+    TeeStream,
+    YEAR_BASED_THRESHOLD,
+    _scholar_request_url,
+    extract_author_id,
+    now_str,
+    rand_delay,
+    setup_proxy,
+)
+from scholar_profile_io import (
+    build_profile_count_summary,
+    build_profile_payload,
+    save_profile_json as write_profile_json,
+    save_profile_xlsx as write_profile_xlsx,
+)
 
 
 # ============================================================
@@ -386,232 +309,37 @@ class AuthorProfileFetcher:
         return None
 
     def _build_profile_count_summary(self, basics):
-        """Summarize how author-level citation totals relate to the yearly histogram."""
-        cites_per_year = basics.get('cites_per_year', {}) or {}
-        year_total = sum(int(v or 0) for v in cites_per_year.values())
-        scholar_total = int(basics.get('citedby', 0) or 0)
-        gap = scholar_total - year_total
-        return {
-            'scholar_total_citations': scholar_total,
-            'year_table_total_citations': year_total,
-            'year_table_gap': gap,
-            'year_table_matches_total': gap == 0,
-            'year_table_note': (
-                'Year-table totals come from Scholar cites_per_year and may exclude '
-                'citations without usable year metadata.'
-            ),
-        }
+        return build_profile_count_summary(basics)
 
     def save_profile_json(self, basics, publications, change_history=None, fetch_time=None):
         """Save complete profile as JSON."""
-        count_summary = self._build_profile_count_summary(basics)
-        profile = {
-            'author_info': basics,
-            'publications': publications,
-            'fetch_time': fetch_time or datetime.now().isoformat(),
-            'total_publications': len(publications),
-            'total_citations': basics.get('citedby', 0),
-            'citation_count_summary': count_summary,
-            'change_history': change_history or [],
-        }
-        with open(self.profile_json, 'w', encoding='utf-8') as f:
-            json.dump(profile, f, ensure_ascii=False, indent=2)
-        print(f"Saved JSON: {self.profile_json}")
-        return profile
+        return write_profile_json(
+            self.profile_json,
+            basics,
+            publications,
+            change_history=change_history,
+            fetch_time=fetch_time,
+            datetime_module=datetime,
+            print_fn=print,
+        )
 
     def save_profile_xlsx(self, basics, publications, change_history=None, fetch_time=None):
-        """
-        Save Excel file with 3 sheets:
-          Sheet1: Author Overview
-          Sheet2: Publications (sorted by citation count)
-          Sheet3: Change History
-        """
-        count_summary = self._build_profile_count_summary(basics)
-        wb = openpyxl.Workbook()
-        self._last_profile_workbook = wb
-
-        display_fetch_time = fetch_time
-        if display_fetch_time is None:
-            now = datetime.now()
-            display_fetch_time = now.isoformat() if hasattr(now, 'isoformat') else str(now)
-
-        # ===== Sheet1: Author Overview =====
-        ws1 = wb.active
-        ws1.title = "Author Overview"
-
-        title_fill = PatternFill(start_color="2F75B6", end_color="2F75B6", fill_type="solid")
-        title_font = Font(bold=True, color="FFFFFF", size=13)
-        header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-        header_font = Font(bold=True, color="FFFFFF", size=11)
-        label_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
-        label_font = Font(bold=True, size=11)
-        center = Alignment(horizontal="center", vertical="center")
-        left = Alignment(horizontal="left", vertical="center", wrap_text=True)
-
-        ws1.column_dimensions['A'].width = 22
-        ws1.column_dimensions['B'].width = 55
-
-        row = 1
-        ws1.merge_cells(f'A{row}:B{row}')
-        c = ws1.cell(row=row, column=1, value="Google Scholar Author Overview")
-        c.fill = title_fill
-        c.font = title_font
-        c.alignment = center
-        ws1.row_dimensions[row].height = 30
-        row += 1
-
-        info_items = [
-            ("Name", basics.get('name', 'N/A')),
-            ("Affiliation", basics.get('affiliation', 'N/A')),
-            ("Research Interests", ', '.join(basics.get('interests', [])) or 'N/A'),
-            ("Scholar ID", basics.get('scholar_id', 'N/A')),
-            ("Fetch Time", display_fetch_time.replace('T', ' ')[:19]),
-        ]
-
-        for label, value in info_items:
-            lc = ws1.cell(row=row, column=1, value=label)
-            lc.fill = label_fill
-            lc.font = label_font
-            lc.alignment = center
-            vc = ws1.cell(row=row, column=2, value=value)
-            vc.alignment = left
-            ws1.row_dimensions[row].height = 22
-            row += 1
-
-        row += 1
-
-        ws1.merge_cells(f'A{row}:B{row}')
-        c = ws1.cell(row=row, column=1, value="Citation Statistics")
-        c.fill = header_fill
-        c.font = header_font
-        c.alignment = center
-        ws1.row_dimensions[row].height = 24
-        row += 1
-
-        stats_items = [
-            ("Total Citations (Scholar profile)", basics.get('citedby', 0)),
-            ("Year-table subtotal (cites_per_year)", count_summary['year_table_total_citations']),
-            ("Year-table gap vs total", count_summary['year_table_gap']),
-            (f"Citations This Year ({datetime.now().year})", basics.get('citedby_this_year', 0)),
-            ("Citations (5-year)", basics.get('citedby5y', 0)),
-            ("h-index", basics.get('hindex', 0)),
-            ("h-index (5-year)", basics.get('hindex5y', 0)),
-            ("i10-index", basics.get('i10index', 0)),
-            ("i10-index (5-year)", basics.get('i10index5y', 0)),
-            ("Total Publications", len(publications)),
-        ]
-
-        for label, value in stats_items:
-            lc = ws1.cell(row=row, column=1, value=label)
-            lc.fill = label_fill
-            lc.font = label_font
-            lc.alignment = center
-            vc = ws1.cell(row=row, column=2, value=value)
-            vc.alignment = center
-            ws1.row_dimensions[row].height = 22
-            row += 1
-
-        row += 1
-
-        ws1.merge_cells(f'A{row}:B{row}')
-        c = ws1.cell(row=row, column=1, value="Citations Per Year (Scholar cites_per_year)")
-        c.fill = header_fill
-        c.font = header_font
-        c.alignment = center
-        ws1.row_dimensions[row].height = 24
-        row += 1
-
-        ws1.merge_cells(f'A{row}:B{row}')
-        note_cell = ws1.cell(row=row, column=1, value=count_summary['year_table_note'])
-        note_cell.alignment = left
-        ws1.row_dimensions[row].height = 34
-        row += 1
-
-        cites_per_year = basics.get('cites_per_year', {})
-        sorted_years = sorted(cites_per_year.keys(), reverse=True)
-        for year in sorted_years:
-            lc = ws1.cell(row=row, column=1, value=str(year))
-            lc.alignment = center
-            vc = ws1.cell(row=row, column=2, value=cites_per_year[year])
-            vc.alignment = center
-            ws1.row_dimensions[row].height = 20
-            row += 1
-
-        # ===== Sheet2: Publications =====
-        ws2 = wb.create_sheet("Publications")
-        ws2.column_dimensions['A'].width = 6
-        ws2.column_dimensions['B'].width = 55
-        ws2.column_dimensions['C'].width = 12
-        ws2.column_dimensions['D'].width = 25
-        ws2.column_dimensions['E'].width = 12
-        ws2.column_dimensions['F'].width = 50
-
-        headers2 = ["No.", "Title", "Year", "Venue", "Citations", "Link"]
-        for col, h in enumerate(headers2, 1):
-            c = ws2.cell(row=1, column=col, value=h)
-            c.fill = header_fill
-            c.font = header_font
-            c.alignment = center
-        ws2.row_dimensions[1].height = 28
-
-        content_align = Alignment(vertical="center", wrap_text=True)
-
-        for pub in publications:
-            r = pub['no'] + 1
-            ws2.cell(row=r, column=1, value=pub['no']).alignment = center
-            ws2.cell(row=r, column=2, value=pub['title']).alignment = content_align
-            ws2.cell(row=r, column=3, value=pub['year']).alignment = center
-            ws2.cell(row=r, column=4, value=pub['venue']).alignment = content_align
-            ws2.cell(row=r, column=5, value=pub['num_citations']).alignment = center
-
-            url = pub.get('url', 'N/A')
-            link_cell = ws2.cell(row=r, column=6, value=url)
-            if url and url != 'N/A':
-                try:
-                    link_cell.hyperlink = url
-                    link_cell.font = Font(color="0563C1", underline="single")
-                except Exception:
-                    pass
-            link_cell.alignment = content_align
-            ws2.row_dimensions[r].height = 40
-
-        # ===== Sheet3: Change History =====
-        ws3 = wb.create_sheet("Change History")
-        ws3.column_dimensions['A'].width = 22
-        ws3.column_dimensions['B'].width = 14
-        ws3.column_dimensions['C'].width = 16
-        ws3.column_dimensions['D'].width = 12
-        ws3.column_dimensions['E'].width = 12
-        ws3.column_dimensions['F'].width = 14
-        ws3.column_dimensions['G'].width = 12
-        ws3.column_dimensions['H'].width = 50
-
-        headers3 = ["Fetch Time", "Total Citations", "Citations This Year", "h-index", "i10-index", "Total Papers", "New Papers", "New Paper Titles (top 3)"]
-        for col, h in enumerate(headers3, 1):
-            c = ws3.cell(row=1, column=col, value=h)
-            c.fill = header_fill
-            c.font = header_font
-            c.alignment = center
-        ws3.row_dimensions[1].height = 28
-
-        history = change_history or []
-        for i, rec in enumerate(history, 2):
-            new_titles = '; '.join(rec.get('new_papers', [])[:3])
-            if len(rec.get('new_papers', [])) > 3:
-                new_titles += f" ... (+{len(rec['new_papers'])-3})"
-
-            ws3.cell(row=i, column=1, value=rec.get('fetch_time', 'N/A')).alignment = center
-            ws3.cell(row=i, column=2, value=rec.get('citedby', 0)).alignment = center
-            ws3.cell(row=i, column=3, value=rec.get('citedby_this_year', 0)).alignment = center
-            ws3.cell(row=i, column=4, value=rec.get('hindex', 0)).alignment = center
-            ws3.cell(row=i, column=5, value=rec.get('i10index', 0)).alignment = center
-            ws3.cell(row=i, column=6, value=rec.get('total_publications', 0)).alignment = center
-            ws3.cell(row=i, column=7, value=len(rec.get('new_papers', []))).alignment = center
-            ws3.cell(row=i, column=8, value=new_titles).alignment = Alignment(vertical="center", wrap_text=True)
-            ws3.row_dimensions[i].height = 22
-
-        wb.save(self.profile_xlsx)
-        print(f"Saved Excel: {self.profile_xlsx}")
+        """Save Excel file with 3 sheets: overview, publications, and history."""
+        workbook = write_profile_xlsx(
+            self.profile_xlsx,
+            basics,
+            publications,
+            change_history=change_history,
+            fetch_time=fetch_time,
+            datetime_module=datetime,
+            openpyxl_module=openpyxl,
+            font_cls=Font,
+            pattern_fill_cls=PatternFill,
+            alignment_cls=Alignment,
+            print_fn=print,
+        )
+        self._last_profile_workbook = workbook
+        return workbook
 
     def run(self, force_refresh_pubs=False):
         """Main workflow."""
@@ -3744,24 +3472,32 @@ class PaperCitationFetcher:
         basics = profile.get('author_info', {})
         change_history = profile.get('change_history', [])
         preserved_fetch_time = profile.get('fetch_time')
-        rebuilt_profile = {
-            'author_info': basics,
-            'publications': profile_publications,
-            'fetch_time': preserved_fetch_time,
-            'total_publications': len(profile_publications),
-            'total_citations': basics.get('citedby', 0),
-            'citation_count_summary': AuthorProfileFetcher(self.author_id, self.output_dir)._build_profile_count_summary(basics),
-            'change_history': change_history,
-        }
-        profile.clear()
-        profile.update(rebuilt_profile)
-        with open(self.profile_json, 'w', encoding='utf-8') as f:
-            json.dump(profile, f, ensure_ascii=False, indent=2)
-        AuthorProfileFetcher(self.author_id, self.output_dir).save_profile_xlsx(
+        rebuilt_profile = build_profile_payload(
             basics,
             profile_publications,
             change_history=change_history,
             fetch_time=preserved_fetch_time,
+            datetime_module=datetime,
+        )
+        profile.clear()
+        profile.update(rebuilt_profile)
+        with open(self.profile_json, 'w', encoding='utf-8') as f:
+            json.dump(profile, f, ensure_ascii=False, indent=2)
+        profile_xlsx_path = os.path.join(
+            self.output_dir, f"author_{self.author_id}_profile.xlsx"
+        )
+        write_profile_xlsx(
+            profile_xlsx_path,
+            basics,
+            profile_publications,
+            change_history=change_history,
+            fetch_time=preserved_fetch_time,
+            datetime_module=datetime,
+            openpyxl_module=openpyxl,
+            font_cls=Font,
+            pattern_fill_cls=PatternFill,
+            alignment_cls=Alignment,
+            print_fn=print,
         )
         with open(self.pubs_cache, 'w', encoding='utf-8') as f:
             json.dump(pubs_data, f, ensure_ascii=False, indent=2)
