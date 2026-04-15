@@ -93,6 +93,18 @@ from crawler.citation_io import (
 
 
 from crawler.author_fetcher import AuthorProfileFetcher  # noqa: F401
+from crawler.interactive import (
+    inject_cookies_from_curl as _int_inject_cookies,
+    try_interactive_captcha as _int_try_interactive_captcha,
+    wait_proxy_switch as _int_wait_proxy_switch,
+)
+from crawler.scholarly_session import (
+    SessionContext,
+    patch_scholarly as _ss_patch_scholarly,
+    refresh_scholarly_session as _ss_refresh_scholarly_session,
+    probe_citation_start_year as _ss_probe_citation_start_year,
+)
+import crawler.citation_fetch as _cf
 
 
 # ============================================================
@@ -125,271 +137,35 @@ class PaperCitationFetcher:
         self.out_xlsx = os.path.join(output_dir, f"author_{author_id}_paper_citations.xlsx")
         os.makedirs(self.cache_dir, exist_ok=True)
 
+        # Session context shared with the scholarly patch layer
+        self._session_ctx = SessionContext(
+            author_id=author_id,
+            delay_scale=delay_scale,
+            interactive_captcha=interactive_captcha,
+            injected_cookies=self._injected_cookies,
+            injected_header_overrides=self._injected_header_overrides,
+        )
+
     def _patch_scholarly(self):
-        """
-        Monkey-patch scholarly internals for browser simulation + rate-limit safety:
-        1. Apply browser-like headers (sec-fetch-*, sec-ch-ua, referer) to httpx sessions
-        2. Patch _new_session to re-apply browser headers after session recreation (e.g. on 403)
-        3. Patch _get_page to wait 45-90s before every HTTP request
-        4. Track pagination, update Referer dynamically, take mandatory long breaks
-        5. Log year-segment switches in _citedby_long
-        """
-        nav = scholarly._Scholarly__nav
-        nav._set_retries(1)
-        original_get_page = nav._get_page
-        fetcher_self = self  # capture for all closures below
+        """Install scholarly patches via SessionContext."""
+        ctx = self._session_ctx
+        ctx.refresh_session_fn = self._refresh_scholarly_session
+        ctx.try_interactive_captcha_fn = self._try_interactive_captcha
+        ctx.wait_proxy_switch_fn = self._wait_proxy_switch
+        ctx.promote_live_count_fn = self._promote_live_citation_count
+        ctx.wait_status_fn = self._wait_status
+        ctx.format_year_count_summary_fn = self._format_year_count_summary
+        ctx.format_year_set_summary_fn = self._format_year_set_summary
+        _ss_patch_scholarly(ctx)
+        # Sync back attributes that pre-existing code accesses directly on self
+        self._curl_header_allowlist = ctx.curl_header_allowlist
+        self._last_scholar_url = ctx.last_scholar_url
+        self._total_page_count = ctx.total_page_count
+        self._next_break_at = ctx.next_break_at
+        self._next_refresh_at = ctx.next_refresh_at
+        self._current_year_segment = ctx.current_year_segment
+        self._completed_year_segments = ctx.completed_year_segments
 
-        # --- Browser headers + HTTP/2: match curl.txt reference request exactly ---
-        _BROWSER_HEADERS = {
-            'user-agent': ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-                           'AppleWebKit/537.36 (KHTML, like Gecko) '
-                           'Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0'),
-            'accept': ('text/html,application/xhtml+xml,application/xml;q=0.9,'
-                       'image/avif,image/webp,image/apng,*/*;q=0.8,'
-                       'application/signed-exchange;v=b3;q=0.7'),
-            'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6',
-            'priority': 'u=0, i',
-            'sec-ch-ua': '"Not:A-Brand";v="99", "Microsoft Edge";v="145", "Chromium";v="145"',
-            'sec-ch-ua-arch': '"arm"',
-            'sec-ch-ua-bitness': '"64"',
-            'sec-ch-ua-full-version-list': ('"Not:A-Brand";v="99.0.0.0", '
-                                            '"Microsoft Edge";v="145.0.3800.97", '
-                                            '"Chromium";v="145.0.7632.160"'),
-            'sec-ch-ua-mobile': '?0',
-            'sec-ch-ua-model': '""',
-            'sec-ch-ua-platform': '"macOS"',
-            'sec-ch-ua-platform-version': '"15.7.4"',
-            'sec-ch-ua-wow64': '?0',
-            'sec-fetch-dest': 'document',
-            'sec-fetch-mode': 'navigate',
-            'sec-fetch-site': 'same-origin',
-            'sec-fetch-user': '?1',
-            'upgrade-insecure-requests': '1',
-        }
-        _PROFILE_URL = f'https://scholar.google.com/citations?user={self.author_id}&hl=en'
-        self._curl_header_allowlist = {
-            'accept',
-            'accept-language',
-            'priority',
-            'sec-ch-ua',
-            'sec-ch-ua-arch',
-            'sec-ch-ua-bitness',
-            'sec-ch-ua-full-version-list',
-            'sec-ch-ua-mobile',
-            'sec-ch-ua-model',
-            'sec-ch-ua-platform',
-            'sec-ch-ua-platform-version',
-            'sec-ch-ua-wow64',
-        }
-        self._last_scholar_url = _PROFILE_URL  # tracks current page for Referer
-
-        def _make_http2_session():
-            """Create an httpx.Client with HTTP/2 enabled.
-            trust_env=True (httpx default) picks up HTTPS_PROXY automatically.
-            """
-            return __import__('httpx').Client(http2=True)
-
-        def _apply_browser_headers(session):
-            session.headers.update(_BROWSER_HEADERS)
-            session.headers.update(fetcher_self._injected_header_overrides)
-            session.headers['referer'] = fetcher_self._last_scholar_url
-
-        def _full_session_setup(session):
-            """Apply browser headers + injected cookies to a session."""
-            _apply_browser_headers(session)
-            for k, v in fetcher_self._injected_cookies.items():
-                session.cookies.set(k, v)   # no domain = sent to all requests
-
-        # Replace scholarly's default HTTP/1.1 sessions with HTTP/2 ones,
-        # preserving any cookies Scholar set during the profile fetch phase.
-        old_cookies = {}
-        for old_session in (nav._session1, nav._session2):
-            try:
-                old_cookies.update(dict(old_session.cookies))
-            except Exception:
-                pass
-        nav._session1 = _make_http2_session()
-        nav._session2 = _make_http2_session()
-        for session in (nav._session1, nav._session2):
-            _apply_browser_headers(session)
-            for k, v in old_cookies.items():
-                session.cookies.set(k, v)
-        print(f"  Browser headers applied (HTTP/2, Edge/145, sec-ch-ua-*, referer; "
-              f"{len(old_cookies)} profile cookies preserved)", flush=True)
-
-        # Patch _new_session: on 403 scholarly recreates the httpx client;
-        # replace it with an HTTP/2 session and re-apply full browser identity.
-        original_new_session = nav._new_session
-        fetcher_self._injected_cookies = {}   # populated by _inject_cookies_from_curl
-        fetcher_self._injected_header_overrides = {}
-        def patched_new_session(premium=True, **kwargs):
-            original_new_session(premium=premium, **kwargs)   # lets scholarly reset got_403
-            if premium:
-                nav._session1 = _make_http2_session()
-            else:
-                nav._session2 = _make_http2_session()
-            for session in (nav._session1, nav._session2):
-                _full_session_setup(session)
-        nav._new_session = patched_new_session
-
-        # Patch pm._handle_captcha2: scholarly calls this when it detects a captcha
-        # page in the response (200 OK but HTML contains captcha).  The returned
-        # session is used for the immediate retry *within the same _get_page call*,
-        # bypassing nav._session1/2.  Without this patch the retry uses a plain
-        # HTTP/1.1 session with no browser headers or injected cookies, making
-        # cookie injection completely ineffective against captcha blocks.
-        def patched_handle_captcha2(pagerequest):
-            new_session = _make_http2_session()
-            _full_session_setup(new_session)
-            # Also update nav sessions so subsequent _get_page calls use the same
-            nav._session1 = new_session
-            nav._session2 = new_session
-            return new_session
-        nav.pm1._handle_captcha2 = patched_handle_captcha2
-        nav.pm2._handle_captcha2 = patched_handle_captcha2
-
-        # --- Patch 1: _get_page pre-request delay + retry limit ---
-        # Allow exactly 1 sleep (the intentional 45-90s wait before the request).
-        # Any further sleep from scholarly's internal retry logic raises immediately
-        # so we fail fast and let the paper-level retry handle recovery.
-        MAX_SLEEPS_PER_PAGE = 1
-
-        def patched_get_page(pagerequest, premium=False):
-            sleep_count = [0]
-            original_sleep = time.sleep
-            request_url = _scholar_request_url(pagerequest)
-            if request_url:
-                fetcher_self._current_attempt_url = request_url
-            referer = None
-            for session in (nav._session1, nav._session2):
-                referer = session.headers.get('referer')
-                if referer:
-                    break
-            if request_url:
-                referer_str = f" (referer: {referer})" if referer else ""
-                print(f"      Request URL: {request_url}{referer_str}", flush=True)
-            def unified_sleep(seconds):
-                sleep_count[0] += 1
-                if sleep_count[0] > MAX_SLEEPS_PER_PAGE:
-                    time.sleep = original_sleep
-                    raise MaxTriesExceededException(
-                        f"Too many retries ({sleep_count[0]}) for single page request")
-                d = rand_delay(fetcher_self._delay_scale)
-                retry_note = f" (retry {sleep_count[0]})" if sleep_count[0] > 1 else ""
-                print(f"      {now_str()} Waiting {d:.0f}s before request{retry_note}... "
-                      f"[{fetcher_self._wait_status()}]", flush=True)
-                original_sleep(d)
-            time.sleep = unified_sleep
-            try:
-                return original_get_page(pagerequest, premium)
-            finally:
-                time.sleep = original_sleep
-
-        nav._get_page = patched_get_page
-
-        # --- Patch 2: pagination tracking + dynamic Referer + mandatory break ---
-        original_load_url = _SearchScholarIterator._load_url
-        original_init = _SearchScholarIterator.__init__
-        original_next = _SearchScholarIterator.__next__
-        self._total_page_count = 0
-        self._next_break_at = random.randint(MANDATORY_BREAK_EVERY_MIN, MANDATORY_BREAK_EVERY_MAX)
-        self._next_refresh_at = self._next_break_at + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
-
-        def patched_init(self, nav, url):
-            self._page_num = 0
-            self._items_in_current_page = 0
-            self._page_size = None
-            self._stop_after_current_page = False
-            self._finished_current_page = False
-            return original_init(self, nav, url)
-
-        def patched_next(self_iter):
-            result = original_next(self_iter)
-            self_iter._items_in_current_page = getattr(self_iter, '_items_in_current_page', 0) + 1
-            page_size = getattr(self_iter, '_page_size', None)
-            if page_size and self_iter._items_in_current_page >= page_size:
-                self_iter._finished_current_page = True
-            return result
-
-        def patched_load_url(self_iter, url):
-            self_iter._page_num = getattr(self_iter, '_page_num', 0) + 1
-            self_iter._items_in_current_page = 0
-            self_iter._finished_current_page = False
-            fetcher_self._total_page_count += 1
-            if self_iter._page_num > 1:
-                print(f"      Pagination (page {self_iter._page_num})", flush=True)
-
-            # Set Referer = previous Scholar page (mimics browser navigation chain)
-            for session in (nav._session1, nav._session2):
-                session.headers['referer'] = fetcher_self._last_scholar_url
-
-            # Mandatory long break (higher priority than soft refresh)
-            # Resets Scholar's sliding-window rate limit
-            # In interactive mode, skip session resets — the user has already
-            # injected fresh cookies; resetting would discard them.
-            if fetcher_self._total_page_count >= fetcher_self._next_break_at:
-                d = random.uniform(MANDATORY_BREAK_MIN, MANDATORY_BREAK_MAX) * fetcher_self._delay_scale
-                print(f"      {now_str()} Mandatory break after {fetcher_self._total_page_count} pages "
-                      f"({d/60:.1f} min)... [{fetcher_self._wait_status()}]", flush=True)
-                time.sleep(d)
-                fetcher_self._next_break_at = (fetcher_self._total_page_count
-                                               + random.randint(MANDATORY_BREAK_EVERY_MIN, MANDATORY_BREAK_EVERY_MAX))
-                if not fetcher_self.interactive_captcha:
-                    print(f"      {now_str()} Refreshing session after break...", flush=True)
-                    fetcher_self._refresh_scholarly_session()
-                fetcher_self._next_refresh_at = (fetcher_self._total_page_count
-                                                 + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX))
-            # Soft session refresh between breaks
-            elif fetcher_self._total_page_count >= fetcher_self._next_refresh_at:
-                if not fetcher_self.interactive_captcha:
-                    print(f"      {now_str()} Refreshing session (after {fetcher_self._total_page_count} pages)...", flush=True)
-                    fetcher_self._refresh_scholarly_session()
-                fetcher_self._next_refresh_at = (fetcher_self._total_page_count
-                                                 + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX))
-
-            # Record the URL we are about to load so _try_interactive_captcha
-            # can show it even if this request fails before _last_scholar_url
-            # is updated (e.g. captcha on the very first citation page).
-            fetcher_self._current_attempt_url = (
-                f'https://scholar.google.com{url}' if url.startswith('/') else url)
-
-            result = original_load_url(self_iter, url)
-
-            page_size = None
-            try:
-                page_size = len(getattr(self_iter, '_rows', []) or [])
-            except Exception:
-                page_size = None
-            self_iter._page_size = page_size if page_size and page_size > 0 else None
-
-            # Only update _last_scholar_url (used as Referer) on success
-            fetcher_self._last_scholar_url = fetcher_self._current_attempt_url
-
-            return result
-
-        _SearchScholarIterator.__init__ = patched_init
-        _SearchScholarIterator.__next__ = patched_next
-        _SearchScholarIterator._load_url = patched_load_url
-
-        # --- Patch 3: year-segment tracking in _citedby_long ---
-        original_citedby_long = scholarly._citedby_long
-        self._current_year_segment = None       # year being processed
-        self._completed_year_segments = set()   # years fully fetched
-
-        def patched_citedby_long(obj, years):
-            first = True
-            for y_hi, y_lo in years:
-                if y_lo in fetcher_self._completed_year_segments:
-                    print(f"      Skipping completed year {y_lo}", flush=True)
-                    continue
-                if not first:
-                    print(f"      Switching year range {y_lo}-{y_hi}", flush=True)
-                first = False
-                fetcher_self._current_year_segment = y_lo
-                yield from original_citedby_long(obj, [(y_hi, y_lo)])
-                fetcher_self._completed_year_segments.add(y_lo)
-
-        scholarly._citedby_long = patched_citedby_long
 
     @staticmethod
     def _year_count_map(citations):
@@ -425,195 +201,43 @@ class PaperCitationFetcher:
 
     @staticmethod
     def _normalize_direct_resume_state(state):
-        if not isinstance(state, dict):
-            return None
-        if state.get('mode') != 'direct':
-            return None
-        try:
-            next_index = int(state.get('next_index'))
-            source_scholar_total = int(state.get('source_scholar_total'))
-        except (TypeError, ValueError):
-            return None
-        citedby_url = state.get('citedby_url')
-        if not isinstance(citedby_url, str) or not citedby_url:
-            return None
-        if next_index < 0 or source_scholar_total < 0 or next_index > source_scholar_total:
-            return None
-        return {
-            'mode': 'direct',
-            'next_index': next_index,
-            'source_scholar_total': source_scholar_total,
-            'citedby_url': citedby_url,
-        }
-
+        return _cf._normalize_direct_resume_state(state)
     @staticmethod
     def _direct_resume_log_suffix(state):
-        normalized = PaperCitationFetcher._normalize_direct_resume_state(state)
-        if not normalized:
-            return ""
-        return f" (direct offset={normalized['next_index']})"
-
+        return _cf._direct_resume_log_suffix(state)
     @staticmethod
     def _build_direct_resume_state(next_index, scholar_total, citedby_url):
-        try:
-            next_index = int(next_index)
-            scholar_total = int(scholar_total)
-        except (TypeError, ValueError):
-            return None
-        if next_index < 0 or scholar_total < 0 or next_index > scholar_total:
-            return None
-        if not isinstance(citedby_url, str) or not citedby_url:
-            return None
-        return {
-            'mode': 'direct',
-            'next_index': next_index,
-            'source_scholar_total': scholar_total,
-            'citedby_url': citedby_url,
-        }
-
+        return _cf._build_direct_resume_state(next_index, scholar_total, citedby_url)
     @staticmethod
     def _page_aligned_start(index):
-        try:
-            index = int(index or 0)
-        except (TypeError, ValueError):
-            return 0
-        if index <= 0:
-            return 0
-        return (index // SCHOLAR_PAGE_SIZE) * SCHOLAR_PAGE_SIZE
-
+        return _cf._page_aligned_start(index)
     @staticmethod
     def _direct_start_position(direct_resume_state):
-        normalized = PaperCitationFetcher._normalize_direct_resume_state(direct_resume_state)
-        if not normalized:
-            return 0, 0
-        next_index = normalized['next_index']
-        page_start = PaperCitationFetcher._page_aligned_start(next_index)
-        return page_start, next_index - page_start
-
+        return _cf._direct_start_position(direct_resume_state)
     @staticmethod
     def _append_start_param(citedby_url, start):
-        if start <= 0:
-            return citedby_url
-        separator = '&' if '?' in citedby_url else '?'
-        if re.search(r'([?&])start=\d+', citedby_url):
-            return re.sub(r'([?&])start=\d+', lambda match: f"{match.group(1)}start={start}", citedby_url)
-        return f"{citedby_url}{separator}start={start}"
-
+        return _cf._append_start_param(citedby_url, start)
     @staticmethod
     def _direct_request_url(citedby_url, direct_resume_state=None):
-        normalized = PaperCitationFetcher._normalize_direct_resume_state(direct_resume_state)
-        if not normalized:
-            return citedby_url
-        page_start, _ = PaperCitationFetcher._direct_start_position(normalized)
-        return PaperCitationFetcher._append_start_param(citedby_url, page_start)
-
+        return _cf._direct_request_url(citedby_url, direct_resume_state)
     @staticmethod
     def _wrap_direct_citedby_iterator(iterator, in_page_skip=0):
-        class _WrappedDirectIterator:
-            def __init__(self, base_iterator, skip_count):
-                self._base_iterator = iter(base_iterator)
-                self._remaining_skip = max(0, int(skip_count or 0))
-                self._finished_current_page = False
-
-            def __iter__(self):
-                return self
-
-            def __next__(self):
-                while True:
-                    citing = next(self._base_iterator)
-                    self._finished_current_page = bool(
-                        getattr(self._base_iterator, '_finished_current_page', False)
-                    )
-                    if self._remaining_skip > 0:
-                        self._remaining_skip -= 1
-                        continue
-                    return citing
-
-        return _WrappedDirectIterator(iterator, in_page_skip)
-
-    @staticmethod
-    def _iter_direct_citedby(citedby_url, direct_resume_state=None, num_citations=0):
-        normalized = PaperCitationFetcher._normalize_direct_resume_state(direct_resume_state)
-        request_url = PaperCitationFetcher._direct_request_url(citedby_url, normalized)
-        if not normalized:
-            direct_fetch_pub = {
-                'citedby_url': request_url,
-                'container_type': 'Publication',
-                'num_citations': int(num_citations or 0),
-                'filled': True,
-                'source': 'PUBLICATION_SEARCH_SNIPPET',
-            }
-            return PaperCitationFetcher._wrap_direct_citedby_iterator(
-                scholarly.citedby(direct_fetch_pub)
-            )
-
-        nav = scholarly._Scholarly__nav
-        _, in_page_skip = PaperCitationFetcher._direct_start_position(normalized)
-        return PaperCitationFetcher._wrap_direct_citedby_iterator(
-            _SearchScholarIterator(nav, request_url),
-            in_page_skip=in_page_skip,
-        )
-
+        return _cf._wrap_direct_citedby_iterator(iterator, in_page_skip)
+    def _iter_direct_citedby(self, citedby_url, direct_resume_state=None, num_citations=0):
+        return _cf._iter_direct_citedby(citedby_url, direct_resume_state, num_citations,
+                                        fetcher=self)
     @staticmethod
     def _build_direct_fetch_diagnostics(reported_total, yielded_total, dedup_count, termination_reason):
-        try:
-            reported_total = int(reported_total or 0)
-        except (TypeError, ValueError):
-            reported_total = 0
-        try:
-            yielded_total = int(yielded_total or 0)
-        except (TypeError, ValueError):
-            yielded_total = 0
-        try:
-            dedup_count = int(dedup_count or 0)
-        except (TypeError, ValueError):
-            dedup_count = 0
-        seen_total = yielded_total + dedup_count
-        gap = max(0, reported_total - seen_total)
-        return {
-            'mode': 'direct',
-            'reported_total': reported_total,
-            'yielded_total': yielded_total,
-            'seen_total': seen_total,
-            'dedup_count': dedup_count,
-            'underfetched': seen_total < reported_total,
-            'underfetch_gap': gap,
-            'termination_reason': termination_reason or 'iterator_exhausted',
-        }
-
+        return _cf._build_direct_fetch_diagnostics(reported_total, yielded_total, dedup_count, termination_reason)
     @staticmethod
     def _direct_fetch_diagnostics(reported_total, yielded_total, dedup_count, termination_reason):
-        return PaperCitationFetcher._build_direct_fetch_diagnostics(
-            reported_total,
-            yielded_total,
-            dedup_count,
-            termination_reason,
-        )
-
+        return _cf._direct_fetch_diagnostics(reported_total, yielded_total, dedup_count, termination_reason)
     @staticmethod
     def _direct_fetch_summary_message(diagnostics):
-        return (
-            "Direct fetch summary "
-            f"(reported_total={diagnostics.get('reported_total')}, "
-            f"yielded_total={diagnostics.get('yielded_total')}, "
-            f"seen_total={diagnostics.get('seen_total')}, "
-            f"dedup_num={diagnostics.get('dedup_count')}, "
-            f"gap={diagnostics.get('underfetch_gap')}, "
-            f"termination={diagnostics.get('termination_reason')})"
-        )
-
+        return _cf._direct_fetch_summary_message(diagnostics)
     @staticmethod
     def _direct_fetch_log_message(diagnostics):
-        return (
-            "Direct fetch under-fetched "
-            f"(reported_total={diagnostics.get('reported_total')}, "
-            f"yielded_total={diagnostics.get('yielded_total')}, "
-            f"seen_total={diagnostics.get('seen_total')}, "
-            f"dedup_num={diagnostics.get('dedup_count')}, "
-            f"gap={diagnostics.get('underfetch_gap')}, "
-            f"termination={diagnostics.get('termination_reason')})"
-        )
-
+        return _cf._direct_fetch_log_message(diagnostics)
     @staticmethod
     def _effective_scholar_total(pub, cached=None):
         return int(pub.get('num_citations', 0) or 0)
@@ -901,172 +525,24 @@ class PaperCitationFetcher:
         return message
 
     @staticmethod
+    @staticmethod
     def _refresh_scholarly_session():
-        """Soft session reset: only clear the 403 flag, preserve the httpx session
-        and its accumulated cookies.  Creating a new httpx client would discard
-        cookies that Scholar uses to recognise returning (legitimate) users.
-        Browser headers are maintained via the patched _new_session; if scholarly
-        internally creates a new session on a real 403, headers are re-applied there.
-        """
-        nav = scholarly._Scholarly__nav
-        nav.got_403 = False
-        print("      (Session reset: got_403 cleared, cookies preserved)", flush=True)
+        """Soft session reset (delegated to crawler.scholarly_session)."""
+        _ss_refresh_scholarly_session()
 
     def _probe_citation_start_year(self, citedby_url, num_citations=None, pub_year=None):
-        """Fetch the base citedby URL once and determine the earliest year with
-        citations.
-
-        Primary source (most reliable): already-rendered histogram bars in the
-        page DOM, e.g. `span.gs_hist_g_a[data-year][data-count]` under
-        `#gs_res_sb_hist_wrp`.  These contain the per-year citation distribution
-        directly (`data-year="2022" data-count="2"`).
-
-        Fallbacks (less reliable):
-          1. as_ylo=X&as_yhi=X single-year links from the histogram UI
-          2. as_ylo=YYYY preset sidebar filter links (coarse fixed intervals)
-          3. Year text in visible citation snippets
-
-        Captcha / access errors are handled in-place (same interactive/proxy-switch
-        flow as the main fetch) so the caller never needs to rebuild state just
-        because a single probe request was blocked.  Returns None on total failure.
-        """
-        import re as _re
-        nav = scholarly._Scholarly__nav
-        full_url = (f'https://scholar.google.com{citedby_url}'
-                    if citedby_url.startswith('/') else citedby_url)
-        MAX_PROBE_RETRIES = 3
-        attempt = 0
-        while True:
-            attempt += 1
-            self._total_page_count += 1
-            for session in (nav._session1, nav._session2):
-                session.headers['referer'] = self._last_scholar_url
-            self._current_attempt_url = full_url
-            try:
-                soup = nav._get_soup(citedby_url)
-                self._last_scholar_url = full_url
-            except Exception as e:
-                print(f"      {now_str()} Probe blocked (attempt {attempt}): {e}", flush=True)
-                if self.interactive_captcha:
-                    solved = self._try_interactive_captcha(full_url)
-                    if solved:
-                        continue
-                if attempt >= MAX_PROBE_RETRIES:
-                    print(f"      Probe gave up after {MAX_PROBE_RETRIES} attempts, "
-                          f"falling back to pub_year heuristic", flush=True)
-                    return None
-                self._wait_proxy_switch(max_hours=24)
-                continue
-
-            try:
-                current_year = datetime.now().year
-                years = set()
-                probed_year_counts = {}
-                self._probed_year_counts = None
-                self._probed_year_count_complete = False
-
-                try:
-                    pub_year_int = int(pub_year) if pub_year and pub_year not in ('N/A', '?') else None
-                except (TypeError, ValueError):
-                    pub_year_int = None
-
-                # Primary source: full histogram dialog DOM nodes with explicit
-                # year/count. The sidebar mini-chart can be truncated to recent
-                # years only, so do NOT use it as the authoritative source.
-                for bar in soup.select('.gs_rs_hist_dialog-g_bar_wrapper .gs_hist_g_a[data-year][data-count], #gs_md_hist .gs_hist_g_a[data-year][data-count]'):
-                    try:
-                        y = int(bar.get('data-year', ''))
-                        count = int(bar.get('data-count', '0'))
-                        if 1990 <= y <= current_year:
-                            probed_year_counts[y] = count
-                            if count > 0:
-                                years.add(y)
-                    except (TypeError, ValueError):
-                        pass
-
-                # If full histogram DOM is present, validate that the summed counts
-                # match Scholar's citation total before trusting it for start-year
-                # selection or count-based year skipping.
-                if years:
-                    self._probed_year_counts = probed_year_counts
-                    hist_total = sum(probed_year_counts.values())
-                    hist_summary = self._format_year_count_summary(probed_year_counts)
-                    earliest = min(years)
-                    if num_citations is not None and hist_total >= num_citations:
-                        self._probed_year_count_complete = True
-                        if hist_total > num_citations and getattr(self, '_current_pub_for_live_promotion', None) is not None:
-                            self._promote_live_citation_count(
-                                self._current_pub_for_live_promotion,
-                                hist_total,
-                                source='year_histogram_total',
-                            )
-                        print(f"      Scholar year range probe: start_year = {earliest} "
-                              f"(from full histogram DOM, {len(years)} year values found, total={hist_total})", flush=True)
-                        print(f"      Year histogram summary: {hist_summary}", flush=True)
-                        return earliest
-
-                    conservative_start = earliest
-                    used_pub_year_fallback = False
-                    if pub_year_int is not None and pub_year_int < conservative_start:
-                        conservative_start = pub_year_int
-                        used_pub_year_fallback = True
-                    if num_citations is not None:
-                        print(f"      Scholar year range probe: histogram incomplete "
-                              f"(hist_total={hist_total}, scholar_total={num_citations}), "
-                              f"using conservative start_year = {conservative_start}", flush=True)
-                    else:
-                        print(f"      Scholar year range probe: histogram total unavailable, "
-                              f"using conservative start_year = {conservative_start}", flush=True)
-                    print(f"      Year histogram summary: {hist_summary}", flush=True)
-                    if pub_year_int is not None:
-                        fallback_note = 'pub_year fallback applied' if used_pub_year_fallback else 'pub_year fallback not needed'
-                        print(f"      Conservative year traversal: pub_year={pub_year_int} ({fallback_note})", flush=True)
-                    else:
-                        print("      Conservative year traversal: pub_year unavailable", flush=True)
-                    return conservative_start
-
-                # Fallback 1: single-year histogram links (as_ylo=X&as_yhi=X)
-                for a in soup.find_all('a', href=True):
-                    href = a['href']
-                    m_lo = _re.search(r'[?&]as_ylo=(\d{4})', href)
-                    m_hi = _re.search(r'[?&]as_yhi=(\d{4})', href)
-                    if m_lo and m_hi and m_lo.group(1) == m_hi.group(1):
-                        years.add(int(m_lo.group(1)))
-
-                # Fallback 2: as_ylo=YYYY preset sidebar filter links (coarse)
-                for a in soup.find_all('a', href=True):
-                    href = a['href']
-                    m = _re.search(r'[?&]as_ylo=(\d{4})', href)
-                    if m:
-                        years.add(int(m.group(1)))
-
-                # Fallback 3: year text in visible citation snippets
-                for el in soup.find_all(True):
-                    cls = ' '.join(el.get('class', []))
-                    if any(k in cls for k in ('gs_age', 'gs_gray', 'gs_a')):
-                        for m in _re.finditer(r'\b((?:19|20)\d{2})\b', el.get_text()):
-                            y = int(m.group(1))
-                            if 1990 <= y <= current_year:
-                                years.add(y)
-
-                if years:
-                    earliest = min(years)
-                    if pub_year_int is not None:
-                        earliest = min(earliest, pub_year_int)
-                    print(f"      Scholar year range probe: start_year = {earliest} "
-                          f"(from fallback, {len(years)} year values found)", flush=True)
-                    print(f"      Fallback year summary: {self._format_year_set_summary(years)}", flush=True)
-                    print("      Conservative year traversal: no complete histogram available", flush=True)
-                    return earliest
-                if pub_year_int is not None:
-                    print(f"      (Year range probe: no year data found on page, using pub_year {pub_year_int})", flush=True)
-                    print("      Conservative year traversal: using pub_year fallback only", flush=True)
-                    return pub_year_int
-                print(f"      (Year range probe: no year data found on page)", flush=True)
-                return None
-            except Exception as e:
-                print(f"      (Year range probe: parsing failed: {e})", flush=True)
-                return None
+        """Probe Scholar to determine the earliest citation year (delegated)."""
+        ctx = self._session_ctx
+        ctx.current_pub_for_live_promotion = getattr(self, '_current_pub_for_live_promotion', None)
+        result = _ss_probe_citation_start_year(citedby_url, ctx,
+                                               num_citations=num_citations, pub_year=pub_year)
+        # Sync mutable state back to self (existing code reads these directly)
+        self._probed_year_counts = ctx.probed_year_counts
+        self._probed_year_count_complete = ctx.probed_year_count_complete
+        self._last_scholar_url = ctx.last_scholar_url
+        self._current_attempt_url = ctx.current_attempt_url
+        self._total_page_count = ctx.total_page_count
+        return result
 
     def _elapsed_str(self):
         """Return human-readable elapsed time since run started."""
@@ -1165,840 +641,86 @@ class PaperCitationFetcher:
                                         pub_obj=None,
                                         fetch_policy=None,
                                         direct_resume_state=None):
-        """
-        Stream-fetch citations with periodic progress saves.
-        resume_from: previously saved citation list (for resume after interruption).
-        completed_years_in_current_run: list of years already fully fetched in this run (for resume).
-        partial_year_start: dict {year: start_index} for the in-progress year on last run.
-        prev_scholar_count: Scholar citation count from last completed scan (for early stop).
-        saved_dedup_count: dedup count from the last save; used as a floor so we never
-            undercount Scholar's self-duplicates when resuming or force-refreshing.
-        allow_incremental_early_stop: when True, update-mode year fetches may stop once
-            the observed Scholar increase has been recovered. Recheck/full-scan flows
-            should pass False so all remaining years are revalidated.
-        force_year_rebuild: when True, year-based fetch ignores cached year-bucket contents
-            and rebuilds fetched years from Scholar.
-        selective_refresh_years: optional list of years to refetch authoritatively.
-        """
-        old_citations = list(resume_from)
-        self._cached_year_counts = self._year_count_map(old_citations)
-        fresh_citations = []
-        effective_num_citations = int(num_citations or 0)
-        if pub_obj is not None:
-            effective_num_citations = self._effective_scholar_total(pub_obj)
-            pub_obj['num_citations'] = effective_num_citations
-        # _dedup_count tracks same-run duplicate rows observed from Scholar within the
-        # current fetch flow. Seed from cached direct diagnostics only so resumed direct
-        # fetches preserve already-seen duplicate rows from the same in-progress scan.
-        self._dedup_count = int(saved_dedup_count or 0)
-
-        # Load completed years into patch state for _citedby_long to skip
-        self._completed_year_segments = set(completed_years_in_current_run or [])
-        self._current_year_segment = None
-        # Track the page offset (start_index) for the year currently in progress.
-        # Saved to cache on exception so retry can skip already-fetched pages.
-        self._partial_year_start = dict(partial_year_start or {})
-        self._probed_year_counts = self._normalize_year_count_map(rehydrated_probed_year_counts) or None
-        self._probed_year_count_complete = bool(rehydrated_probe_complete and self._probed_year_counts)
-        self._year_fetch_diagnostics = self._normalize_year_fetch_diagnostics(
-            rehydrated_year_fetch_diagnostics
+        from crawler.fetch_context import FetchContext
+        ctx = FetchContext(
+            completed_year_segments=set(completed_years_in_current_run or []),
+            partial_year_start=dict(partial_year_start or {}),
+            dedup_count=int(saved_dedup_count or 0),
+            probed_year_counts=self._normalize_year_count_map(rehydrated_probed_year_counts) or None,
+            probed_year_count_complete=bool(rehydrated_probe_complete and rehydrated_probed_year_counts),
+            year_fetch_diagnostics=self._normalize_year_fetch_diagnostics(rehydrated_year_fetch_diagnostics) or {},
+            cached_year_counts=self._year_count_map(list(resume_from)),
         )
-
-        def current_scholar_total():
-            if pub_obj is not None:
-                return self._effective_scholar_total(pub_obj)
-            return effective_num_citations
-
-        def maybe_promote_scholar_total(live_total, source=None):
-            nonlocal effective_num_citations
-            try:
-                live_total = int(live_total)
-            except (TypeError, ValueError):
-                return current_scholar_total()
-            if pub_obj is not None:
-                effective_num_citations = self._promote_live_citation_count(pub_obj, live_total, source=source)
-            elif live_total > effective_num_citations:
-                effective_num_citations = live_total
-            return effective_num_citations
-
-        def direct_materialized_citations(complete):
-            return self._materialize_citation_cache(old_citations, fresh_citations, complete)
-
-        direct_fetch_diagnostics = None
-        normalized_direct_resume_state = self._normalize_direct_resume_state(direct_resume_state)
-        direct_next_index = normalized_direct_resume_state['next_index'] if normalized_direct_resume_state else 0
-
-        def materialized_citations(complete):
-            return direct_materialized_citations(complete)
-
-        def build_materialized_year_fetch_diagnostics(citations_to_save):
-            diagnostics = dict(self._normalize_year_fetch_diagnostics(self._year_fetch_diagnostics))
-            year_counts = self._year_count_map(citations_to_save)
-            for year, diagnostic in list(diagnostics.items()):
-                if year not in year_counts and year not in (self._probed_year_counts or {}):
-                    diagnostics.pop(year, None)
-            for year, cached_total in year_counts.items():
-                existing = diagnostics.get(year) or {}
-                scholar_total = existing.get('scholar_total')
-                if scholar_total is None:
-                    scholar_total = (self._probed_year_counts or {}).get(year, cached_total)
-                diagnostics[year] = self._build_year_fetch_diagnostics(
-                    year,
-                    scholar_total,
-                    cached_total,
-                    existing.get('dedup_count', 0),
-                    existing.get('termination_reason'),
-                )
-            return self._normalize_year_fetch_diagnostics(diagnostics)
-
-        def save_progress(complete):
-            effective_complete = complete
-            diagnostics_to_save = direct_fetch_diagnostics
-            if diagnostics_to_save and diagnostics_to_save.get('underfetched'):
-                effective_complete = False
-            citations_to_save = materialized_citations(effective_complete)
-            if not citations_to_save and old_citations:
-                citations_to_save = list(old_citations)
-            self._cached_year_counts = self._year_count_map(citations_to_save)
-            year_fetch_diagnostics_to_save = build_materialized_year_fetch_diagnostics(citations_to_save)
-            self._year_fetch_diagnostics = year_fetch_diagnostics_to_save
-            count_summary = self._build_citation_count_summary(
-                citations_to_save,
-                scholar_total=current_scholar_total(),
-                probed_year_counts=self._probed_year_counts,
-                probe_complete=self._probed_year_count_complete,
-                dedup_count=self._dedup_count,
-            )
-            with open(cache_path, 'w', encoding='utf-8') as f:
-                json.dump({
-                    'title': title,
-                    'pub_url': pub_url,
-                    'citedby_url': citedby_url,
-                    'num_citations_on_scholar': current_scholar_total(),
-                    'num_citations_cached': len(citations_to_save),
-                    'num_citations_seen': len(citations_to_save) + self._dedup_count,
-                    'dedup_count': self._dedup_count,
-                    'complete': effective_complete,
-                    'completed_years': sorted(self._completed_year_segments),
-                    'completed_years_in_current_run': sorted(self._completed_year_segments),
-                    'probe_complete': bool(self._probed_year_count_complete),
-                    'probed_year_counts': self._dump_year_count_map(
-                        self._normalize_year_count_map(self._probed_year_counts)
-                    ),
-                    'probed_year_total': count_summary['histogram_total'],
-                    'cached_year_counts': self._dump_year_count_map(self._cached_year_counts),
-                    'year_fetch_diagnostics': self._dump_year_fetch_diagnostics(year_fetch_diagnostics_to_save),
-                    'cached_unyeared_count': count_summary['cached_unyeared_count'],
-                    'citation_count_summary': {
-                        'scholar_total': count_summary['scholar_total'],
-                        'histogram_total': count_summary['histogram_total'],
-                        'cached_total': count_summary['cached_total'],
-                        'cached_year_total': count_summary['cached_year_total'],
-                        'cached_unyeared_count': count_summary['cached_unyeared_count'],
-                        'dedup_count': count_summary['dedup_count'],
-                        'unyeared_count': count_summary['unyeared_count'],
-                        'probe_complete': count_summary['probe_complete'],
-                    },
-                    'direct_fetch_diagnostics': diagnostics_to_save,
-                    'direct_resume_state': (
-                        self._build_direct_resume_state(
-                            direct_next_index,
-                            current_scholar_total(),
-                            citedby_url,
-                        )
-                        if fetch_policy['mode'] == 'direct' and not effective_complete
-                        else None
-                    ),
-                    'fetched_at': datetime.now().isoformat(),
-                    'citations': citations_to_save,
-                }, f, ensure_ascii=False, indent=2)
-
-        fetch_policy = fetch_policy or self._resolve_citation_fetch_policy(
-            current_scholar_total(),
-            pub_year,
-        )
-
-        # Year-based fetch: for papers with many citations, fetch by year
-        # so current-run completed years are tracked and resume is efficient
-        if fetch_policy['mode'] == 'year':
-            return self._fetch_by_year(
-                citedby_url, old_citations, fresh_citations, save_progress,
-                current_scholar_total(), pub_year, prev_scholar_count,
-                allow_incremental_early_stop=allow_incremental_early_stop,
-                force_year_rebuild=force_year_rebuild,
-                selective_refresh_years=selective_refresh_years,
-                year_fetch_diagnostics=self._year_fetch_diagnostics,
-            )
-
-        # Simple fetch for small citation counts
-        direct_fetch_pub = {
-            'citedby_url': citedby_url,
-            'container_type': 'Publication',
-            'num_citations': current_scholar_total(),
-            'filled': True,
-            'source': 'PUBLICATION_SEARCH_SNIPPET',
-            'bib': {
-                'title': title,
-                'pub_year': pub_year,
-            },
-        }
-        direct_fetch_allow_early_stop = (
-            not self.recheck_citations
-            and not force_year_rebuild
-        )
-        has_cached_citations = bool(old_citations)
-        scholar_increase = (
-            max(0, current_scholar_total() - int(prev_scholar_count or 0))
-            if has_cached_citations else 0
-        )
-        paper_new_citations_count = 0
-
-        print("    Direct fetch mode: no year probe, summary shown after fetch", flush=True)
-        print(f"    Direct fetch target: scholar_total={current_scholar_total()}, prev_scholar={prev_scholar_count}, "
-              f"cached_total={len(old_citations)}, allow_early_stop={direct_fetch_allow_early_stop}{self._direct_resume_log_suffix(normalized_direct_resume_state)}", flush=True)
-        self._current_attempt_url = _scholar_request_url(
-            self._direct_request_url(citedby_url, normalized_direct_resume_state)
-        )
-
-        old_cache_identity_keys = set()
-        for citation in old_citations:
-            old_cache_identity_keys.update(self._citation_identity_keys(citation))
-        fresh_seen = {}
-
-        try:
-            direct_fetch_termination_reason = 'iterator_exhausted'
-            direct_iterator = self._iter_direct_citedby(
-                citedby_url,
-                normalized_direct_resume_state,
-                num_citations=current_scholar_total(),
-            )
-            page_items_seen = 0
-            for citing in direct_iterator:
-                direct_next_index += 1
-                page_items_seen += 1
-                info = self._extract_citation_info(citing)
-                identity_keys = self._citation_identity_keys(info)
-                matched_key = next((key for key in identity_keys if key in fresh_seen), None)
-                if matched_key is not None:
-                    self._dedup_count += 1
-                    print(f"  [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
-                          f"\n          Existing: {fresh_seen[matched_key]}", flush=True)
-                else:
-                    label = f"{info['title'][:50]} ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
-                    for key in identity_keys:
-                        fresh_seen[key] = label
-                    fresh_citations.append(info)
-                    is_new_citation = not any(key in old_cache_identity_keys for key in identity_keys)
-                    if is_new_citation:
-                        self._new_citations_count += 1
-                        paper_new_citations_count += 1
-                    direct_fetch_pub['num_citations'] = current_scholar_total()
-                    yielded_total = len(fresh_citations)
-                    count = yielded_total
-
-                    print(f"  [{count}] {info['title'][:55]}...", flush=True)
-
-                if not getattr(direct_iterator, '_finished_current_page', False):
-                    continue
-
-                yielded_total = len(fresh_citations)
-                save_progress(complete=False)
-                print(f"  Progress saved ({yielded_total} citations, {self._new_citations_count} new in this run)", flush=True)
-
-                if direct_fetch_allow_early_stop and (yielded_total + self._dedup_count) >= current_scholar_total():
-                    direct_fetch_termination_reason = 'target_reached'
-                    print(f"  Direct fetch: reached target ({yielded_total + self._dedup_count} >= {current_scholar_total()} including dedup), stopping early", flush=True)
-                    break
-                if direct_fetch_allow_early_stop and scholar_increase > 0 and paper_new_citations_count >= scholar_increase:
-                    direct_fetch_termination_reason = 'scholar_increase_recovered'
-                    print(f"  Direct fetch: recovered Scholar increase ({paper_new_citations_count} >= {scholar_increase}), stopping early", flush=True)
-                    break
-                page_items_seen = 0
-            else:
-                if page_items_seen > 0:
-                    yielded_total = len(fresh_citations)
-                    if direct_fetch_allow_early_stop and (yielded_total + self._dedup_count) >= current_scholar_total():
-                        direct_fetch_termination_reason = 'target_reached'
-                        print(f"  Direct fetch: reached target ({yielded_total + self._dedup_count} >= {current_scholar_total()} including dedup), stopping early", flush=True)
-                    elif direct_fetch_allow_early_stop and scholar_increase > 0 and paper_new_citations_count >= scholar_increase:
-                        direct_fetch_termination_reason = 'scholar_increase_recovered'
-                        print(f"  Direct fetch: recovered Scholar increase ({paper_new_citations_count} >= {scholar_increase}), stopping early", flush=True)
-        except KeyboardInterrupt:
-            save_progress(complete=False)
-            raise
-
-        direct_fetch_diagnostics = self._build_direct_fetch_diagnostics(
-            reported_total=current_scholar_total(),
-            yielded_total=len(fresh_citations),
-            dedup_count=getattr(self, '_dedup_count', 0),
-            termination_reason=direct_fetch_termination_reason,
-        )
-        direct_materialized_cache = materialized_citations(complete=False)
-        direct_materialized_total = len(direct_materialized_cache)
-        direct_materialized_seen_total = direct_materialized_total + getattr(self, '_dedup_count', 0)
-        direct_summary = self._build_citation_count_summary(
-            direct_materialized_cache,
-            scholar_total=current_scholar_total(),
-            probed_year_counts=None,
-            probe_complete=False,
-            dedup_count=getattr(self, '_dedup_count', 0),
-        )
-        print("    Probe summary: none", flush=True)
-        print(f"    Probe totals: scholar_total={current_scholar_total()}, year_sum=0, missing_from_histogram=?", flush=True)
-        print(f"    Cache summary: {self._format_year_count_summary(direct_summary['cached_year_counts'])}", flush=True)
-        print(f"    Cache totals: cached_total={direct_summary['cached_total']}, cached_year_sum={direct_summary['cached_year_total']}, cached_unyeared={direct_summary['cached_unyeared_count']}, dedup_num={self._dedup_count}", flush=True)
-        print(f"    Direct fetch totals: reported_total={direct_fetch_diagnostics['reported_total']}, yielded_total={direct_fetch_diagnostics['yielded_total']}, seen_total={direct_fetch_diagnostics['seen_total']}, materialized_total={direct_materialized_total}, materialized_seen_total={direct_materialized_seen_total}", flush=True)
-        if direct_fetch_diagnostics.get('underfetched'):
-            print(f"    {self._direct_fetch_log_message(direct_fetch_diagnostics)}", flush=True)
-        save_progress(complete=True)
-        return list(fresh_citations)
-
+        result = _cf.fetch_citations_with_progress(self, ctx, citedby_url, cache_path, title,
+                                                   num_citations, pub_url, pub_year, resume_from,
+                                                   completed_years_in_current_run=completed_years_in_current_run,
+                                                   prev_scholar_count=prev_scholar_count,
+                                                   partial_year_start=partial_year_start,
+                                                   saved_dedup_count=saved_dedup_count,
+                                                   allow_incremental_early_stop=allow_incremental_early_stop,
+                                                   force_year_rebuild=force_year_rebuild,
+                                                   selective_refresh_years=selective_refresh_years,
+                                                   rehydrated_probed_year_counts=rehydrated_probed_year_counts,
+                                                   rehydrated_probe_complete=rehydrated_probe_complete,
+                                                   rehydrated_year_fetch_diagnostics=rehydrated_year_fetch_diagnostics,
+                                                   pub_obj=pub_obj,
+                                                   fetch_policy=fetch_policy,
+                                                   direct_resume_state=direct_resume_state)
+        # Sync per-paper ctx state back to self for code that reads these directly
+        self._dedup_count = ctx.dedup_count
+        self._cached_year_counts = ctx.cached_year_counts
+        self._completed_year_segments = ctx.completed_year_segments
+        self._probed_year_counts = ctx.probed_year_counts
+        self._probed_year_count_complete = ctx.probed_year_count_complete
+        self._year_fetch_diagnostics = ctx.year_fetch_diagnostics
+        return result
     @staticmethod
     def _build_year_fetch_plan(start_year, current_year, prev_scholar_count, num_citations,
-                               allow_incremental_early_stop=True):
-        is_update_mode = (
-            allow_incremental_early_stop
-            and prev_scholar_count > 0
-            and prev_scholar_count < num_citations
-        )
-        if is_update_mode:
-            return {
-                'year_range': range(current_year, start_year - 1, -1),
-                'is_update_mode': True,
-                'direction_label': 'newest→oldest',
-                'direction_reason': 'update mode, incremental early stop enabled',
-            }
-        return {
-            'year_range': range(start_year, current_year + 1),
-            'is_update_mode': False,
-            'direction_label': 'oldest→newest',
-            'direction_reason': ('recheck mode, full year revalidation'
-                                 if not allow_incremental_early_stop
-                                 else 'full scan mode'),
-        }
-
+                                    allow_incremental_early_stop=True):
+        return _cf._build_year_fetch_plan(start_year, current_year, prev_scholar_count, num_citations,
+                                         allow_incremental_early_stop=allow_incremental_early_stop)
     @staticmethod
     def _get_early_stop_status(citations_count, num_citations, paper_new_count,
-                               prev_scholar_count, allow_incremental_early_stop=True,
-                               suppress_target_reached=False,
-                               stop_after_partial_resume=False,
-                               disable_target_reached=False):
-        scholar_increase = num_citations - prev_scholar_count if prev_scholar_count > 0 else 0
-        if stop_after_partial_resume:
-            return {
-                'should_stop': True,
-                'reason': 'partial_resume_completed',
-                'message': 'Completed resumed year segment',
-                'scholar_increase': scholar_increase,
-            }
-        if citations_count >= num_citations and not suppress_target_reached and not disable_target_reached:
-            return {
-                'should_stop': True,
-                'reason': 'target_reached',
-                'message': f"Reached target ({citations_count} >= {num_citations})",
-                'scholar_increase': scholar_increase,
-            }
-        if allow_incremental_early_stop and scholar_increase > 0 and paper_new_count >= scholar_increase:
-            return {
-                'should_stop': True,
-                'reason': 'scholar_increase_recovered',
-                'message': f"Found {paper_new_count} new (Scholar increase: {scholar_increase})",
-                'scholar_increase': scholar_increase,
-            }
-        return {
-            'should_stop': False,
-            'reason': None,
-            'message': '',
-            'scholar_increase': scholar_increase,
-        }
-
+                                  prev_scholar_count, allow_incremental_early_stop=True,
+                                  suppress_target_reached=False,
+                                  stop_after_partial_resume=False,
+                                  disable_target_reached=False):
+        return _cf._get_early_stop_status(citations_count, num_citations, paper_new_count,
+                                          prev_scholar_count,
+                                          allow_incremental_early_stop=allow_incremental_early_stop,
+                                          suppress_target_reached=suppress_target_reached,
+                                          stop_after_partial_resume=stop_after_partial_resume,
+                                          disable_target_reached=disable_target_reached)
     def _fetch_by_year(self, citedby_url, old_citations, fresh_citations, save_progress,
-                        num_citations, pub_year, prev_scholar_count=0,
-                        allow_incremental_early_stop=True,
-                        force_year_rebuild=False,
-                        selective_refresh_years=None,
-                        year_fetch_diagnostics=None):
-        """
-        Fetch citations year-by-year. Skips completed years and uses
-        start_index within partially completed years for efficient resume.
-        prev_scholar_count: Scholar count from last completed scan, used for early stop.
-        allow_incremental_early_stop: controls both update-mode incremental early stop
-            and the corresponding newest→oldest fetch direction. Recheck/full-scan flows
-            should pass False to force full revalidation order.
-        force_year_rebuild: when True, fetched years replace cached year slices.
-        selective_refresh_years: optional iterable of years to revalidate.
-        """
-        import re as _re
-        m = _re.search(r"cites=([\d,]+)", citedby_url)
-        if not m:
-            raise ValueError(f"Cannot extract publication ID from citedby_url: {citedby_url}")
-        pub_id = m.group(1)
-
-        old_year_buckets = self._citation_year_buckets(old_citations)
-        old_cache_identity_keys = set()
-        for citation in old_citations:
-            old_cache_identity_keys.update(self._citation_identity_keys(citation))
-        fresh_year_buckets = self._citation_year_buckets(fresh_citations)
-        fresh_unyeared = list(fresh_year_buckets.pop(None, []))
-
-        def current_citations(complete=False):
-            if complete or force_year_rebuild:
-                refreshed_unyeared = fresh_unyeared if fresh_unyeared else None
-                return self._materialize_year_fetch_citations(
-                    old_citations,
-                    fresh_year_buckets,
-                    refreshed_unyeared=refreshed_unyeared,
-                )
-            return self._overlay_citations_by_identity(
-                old_citations,
-                fresh_unyeared + [
-                    citation
-                    for year in sorted(fresh_year_buckets.keys())
-                    for citation in fresh_year_buckets[year]
-                ],
-            )
-
-        def current_count_for_stop_and_status():
-            citations = current_citations(complete=True)
-            if effective_target:
-                return len(self._year_count_map(citations))
-            return len(citations)
-
-        year_count_map = self._year_count_map(old_citations)
-        probed_year_counts = self._normalize_year_count_map(self._probed_year_counts)
-        can_skip_by_probe_counts = getattr(self, '_probed_year_count_complete', False)
-        cached_summary = self._build_citation_count_summary(
-            old_citations,
-            scholar_total=num_citations,
-            probed_year_counts=probed_year_counts,
-            probe_complete=can_skip_by_probe_counts,
-            dedup_count=getattr(self, '_dedup_count', 0),
+                       num_citations, pub_year, prev_scholar_count=0,
+                       allow_incremental_early_stop=True,
+                       force_year_rebuild=False,
+                       selective_refresh_years=None,
+                       year_fetch_diagnostics=None):
+        from crawler.fetch_context import FetchContext
+        ctx = FetchContext(
+            completed_year_segments=self._completed_year_segments,
+            partial_year_start=self._partial_year_start,
+            dedup_count=self._dedup_count,
+            probed_year_counts=self._probed_year_counts,
+            probed_year_count_complete=self._probed_year_count_complete,
+            year_fetch_diagnostics=year_fetch_diagnostics or {},
+            cached_year_counts=self._cached_year_counts,
         )
-        cached_year_counts = self._normalize_year_count_map(getattr(self, '_cached_year_counts', None))
-        if not cached_year_counts:
-            cached_year_counts = cached_summary['cached_year_counts']
-        year_fetch_diagnostics = self._normalize_year_fetch_diagnostics(
-            year_fetch_diagnostics if year_fetch_diagnostics is not None else getattr(self, '_year_fetch_diagnostics', None)
-        )
-        self._year_fetch_diagnostics = dict(year_fetch_diagnostics)
-
-        current_year = datetime.now().year
-        selective_refresh_years = None if selective_refresh_years is None else set(selective_refresh_years)
-        explicit_refresh_years = set(selective_refresh_years or ())
-        explicit_refresh_years.update(int(year) for year in self._partial_year_start.keys())
-        if self._completed_year_segments and explicit_refresh_years:
-            start_year = min(min(self._completed_year_segments), min(explicit_refresh_years))
-            if year_count_map:
-                start_year = min(start_year, min(year_count_map.keys()))
-        else:
-            start_year = self._probe_citation_start_year(
-                citedby_url,
-                num_citations=num_citations,
-                pub_year=pub_year,
-            )
-            if start_year is None:
-                if year_count_map:
-                    start_year = min(year_count_map.keys())
-                else:
-                    try:
-                        start_year = int(pub_year) - 5 if pub_year and pub_year not in ('N/A', '?') else None
-                    except (ValueError, TypeError):
-                        start_year = None
-                    if start_year is None:
-                        start_year = current_year - 5
-            elif year_count_map:
-                cache_min = min(year_count_map.keys())
-                if cache_min < start_year:
-                    print(f"      Using cache min year {cache_min} (probe returned {start_year})", flush=True)
-                    start_year = cache_min
-
-        total_years = current_year - start_year + 1
-        skipped_years = 0
-
-        print(f"  Year-based plan: {start_year}-{current_year} "
-              f"(current-run completed={len(self._completed_year_segments)})", flush=True)
-
-        year_fetch_plan = self._build_year_fetch_plan(
-            start_year, current_year, prev_scholar_count, num_citations,
-            allow_incremental_early_stop=False,
-        )
-        year_range = year_fetch_plan['year_range']
-        print(f"    Direction: {year_fetch_plan['direction_label']} "
-              f"({year_fetch_plan['direction_reason']})", flush=True)
-
-        paper_new_count = 0
-
-        probed_year_counts = self._normalize_year_count_map(self._probed_year_counts)
-        can_skip_by_probe_counts = getattr(self, '_probed_year_count_complete', False)
-        count_summary = self._build_citation_count_summary(
-            old_citations,
-            scholar_total=num_citations,
-            probed_year_counts=probed_year_counts,
-            probe_complete=can_skip_by_probe_counts,
-            dedup_count=getattr(self, '_dedup_count', 0),
-        )
-        cached_total_citations = count_summary['cached_total']
-        cached_year_total = count_summary['cached_year_total']
-        cached_unyeared_citations = count_summary['cached_unyeared_count']
-        probed_hist_total = count_summary['histogram_total']
-        probed_missing_from_histogram = count_summary['unyeared_count']
-        histogram_authoritative = probed_hist_total > 0
-        print(f"    Probe summary: {self._format_year_count_summary(probed_year_counts)}", flush=True)
-        if num_citations is None:
-            print(f"    Probe totals: scholar_total=?, year_sum={probed_hist_total}, missing_from_histogram=?", flush=True)
-        else:
-            print(f"    Probe totals: scholar_total={num_citations}, year_sum={probed_hist_total}, missing_from_histogram={probed_missing_from_histogram}", flush=True)
-        print(f"    Cache summary: {self._format_year_count_summary(cached_year_counts)}", flush=True)
-        print(f"    Cache totals: cached_total={cached_total_citations}, cached_year_sum={cached_year_total}, cached_unyeared={cached_unyeared_citations}, dedup_num={self._dedup_count}", flush=True)
-        print(f"    {self._year_fetch_log_message(year_fetch_diagnostics)}", flush=True)
-        effective_target = probed_hist_total if histogram_authoritative else num_citations
-        print(f"    Fetch context: mode={'incremental' if allow_incremental_early_stop else 'full-recheck'}, "
-              f"probe_complete={self._probed_year_count_complete}, "
-              f"prev_scholar={prev_scholar_count}, target={effective_target}, total_years={total_years}", flush=True)
-        print(f"    Current-run completed years: {self._format_year_set_summary(self._completed_year_segments)}", flush=True)
-        print(f"    Partial resume points: {self._format_partial_year_start_summary(self._partial_year_start)}", flush=True)
-        if selective_refresh_years is None and probed_year_counts and allow_incremental_early_stop:
-            selective_refresh_years = self._selective_refresh_candidate_years(
-                cached_year_counts,
-                probed_year_counts,
-                year_range,
-                partial_year_start=self._partial_year_start,
-                probe_complete=can_skip_by_probe_counts,
-                year_fetch_diagnostics=year_fetch_diagnostics,
-            )
-        if selective_refresh_years is not None and not selective_refresh_years and self._partial_year_start:
-            selective_refresh_years = {int(year) for year in self._partial_year_start.keys()}
-        effective_refresh_years = set(selective_refresh_years or ())
-        effective_refresh_years.update(int(year) for year in self._partial_year_start.keys())
-        suppress_target_reached = (
-            can_skip_by_probe_counts
-            and bool(self._partial_year_start)
-            and cached_year_counts == probed_year_counts
-        )
-        stop_partial_resume_once_satisfied = (
-            can_skip_by_probe_counts
-            and bool(self._partial_year_start)
-            and cached_year_counts == probed_year_counts
-        )
-        suppress_final_histogram_target_stop = (
-            histogram_authoritative
-            and can_skip_by_probe_counts
-            and bool(self._partial_year_start)
-            and cached_total_citations >= effective_target
-        )
-        if selective_refresh_years is None:
-            print("    Selective refresh years: none", flush=True)
-        else:
-            print(f"    Selective refresh years: {self._format_year_set_summary(selective_refresh_years)}", flush=True)
-
-        if can_skip_by_probe_counts and self._probed_year_counts_satisfied(
-            cached_year_counts,
-            probed_year_counts,
-            year_fetch_diagnostics,
-        ) and not self._partial_year_start and not effective_refresh_years:
-            years_to_mark = [year for year in year_range if year not in self._completed_year_segments]
-            if years_to_mark:
-                self._completed_year_segments.update(years_to_mark)
-            for year in year_range:
-                live_count = probed_year_counts.get(year, 0)
-                existing_diag = year_fetch_diagnostics.get(year)
-                if live_count == 0:
-                    year_fetch_diagnostics[year] = self._build_year_fetch_diagnostics(
-                        year,
-                        0,
-                        0,
-                        0,
-                        'probe_zero_skip',
-                    )
-                    print(f"      Year {year}: skip (probe count=0, probe_complete=True)", flush=True)
-                    continue
-                if self._year_fetch_diagnostic_matches_total(existing_diag, live_count, cached_year_counts.get(year, 0)):
-                    year_fetch_diagnostics[year] = self._build_year_fetch_diagnostics(
-                        year,
-                        live_count,
-                        existing_diag.get('cached_total', cached_year_counts.get(year, 0) or 0),
-                        existing_diag.get('dedup_count', 0),
-                        'seen_total_match_skip',
-                    )
-                    print(f"      Year {year}: skip (seen total match; cached={year_fetch_diagnostics[year]['cached_total']}, seen={year_fetch_diagnostics[year]['seen_total']}, probe={live_count})", flush=True)
-                    continue
-                year_fetch_diagnostics[year] = self._build_year_fetch_diagnostics(
-                    year,
-                    live_count,
-                    cached_year_counts.get(year, 0),
-                    0,
-                    'probe_match_skip',
-                )
-                print(f"      Year {year}: skip (histogram count match; cached={cached_year_counts.get(year, 0)}, probe={live_count}, probe_complete=True)", flush=True)
-            self._year_fetch_diagnostics = dict(year_fetch_diagnostics)
-            print(f"  Year fetch skipped: histogram-authoritative match (scholar_total={num_citations}, year_sum={probed_hist_total}, cached_total={cached_total_citations}, cached_year_sum={cached_year_total}, dedup_num={self._dedup_count})", flush=True)
-            print(f"    {self._year_fetch_log_message(year_fetch_diagnostics)}", flush=True)
-            save_progress(complete=False)
-            save_progress(complete=True)
-            return current_citations(complete=True)
-
-        target_reached_by_histogram = lambda: (
-            effective_target is not None
-            and effective_target > 0
-            and current_count_for_stop_and_status() >= effective_target
-            and not suppress_final_histogram_target_stop
-        )
-
-        try:
-            for year in year_range:
-                if selective_refresh_years is not None and year not in effective_refresh_years:
-                    skipped_years += 1
-                    if force_year_rebuild:
-                        self._completed_year_segments.add(year)
-                    existing_diag = year_fetch_diagnostics.get(year)
-                    if existing_diag:
-                        year_fetch_diagnostics[year] = self._build_year_fetch_diagnostics(
-                            year,
-                            existing_diag.get('scholar_total', probed_year_counts.get(year, 0)),
-                            existing_diag.get('cached_total', cached_year_counts.get(year, 0)),
-                            existing_diag.get('dedup_count', 0),
-                            'refresh_subset_skip',
-                        )
-                        self._year_fetch_diagnostics = dict(year_fetch_diagnostics)
-                    print(f"      Year {year}: skip (not selected for refresh)", flush=True)
-                    continue
-                if year in self._completed_year_segments and year not in effective_refresh_years:
-                    skipped_years += 1
-                    existing_diag = year_fetch_diagnostics.get(year)
-                    if existing_diag:
-                        year_fetch_diagnostics[year] = self._build_year_fetch_diagnostics(
-                            year,
-                            existing_diag.get('scholar_total', probed_year_counts.get(year, 0)),
-                            existing_diag.get('cached_total', cached_year_counts.get(year, 0)),
-                            existing_diag.get('dedup_count', 0),
-                            'completed_earlier_in_run',
-                        )
-                        self._year_fetch_diagnostics = dict(year_fetch_diagnostics)
-                    print(f"      Year {year}: skip (already completed earlier in this run)", flush=True)
-                    continue
-                if can_skip_by_probe_counts and probed_year_counts.get(year) == 0:
-                    skipped_years += 1
-                    self._completed_year_segments.add(year)
-                    year_fetch_diagnostics[year] = self._build_year_fetch_diagnostics(
-                        year,
-                        0,
-                        0,
-                        0,
-                        'probe_zero_skip',
-                    )
-                    self._year_fetch_diagnostics = dict(year_fetch_diagnostics)
-                    print(f"      Year {year}: skip (probe count=0, probe_complete=True)", flush=True)
-                    save_progress(complete=False)
-                    continue
-                if can_skip_by_probe_counts and year not in self._partial_year_start:
-                    live_count = probed_year_counts.get(year)
-                    cached_count = cached_year_counts.get(year)
-                    existing_diag = year_fetch_diagnostics.get(year)
-                    if live_count is not None and self._year_fetch_diagnostic_matches_total(existing_diag, live_count, cached_count):
-                        skipped_years += 1
-                        self._completed_year_segments.add(year)
-                        year_fetch_diagnostics[year] = self._build_year_fetch_diagnostics(
-                            year,
-                            live_count,
-                            existing_diag.get('cached_total', cached_count or 0),
-                            existing_diag.get('dedup_count', 0),
-                            'seen_total_match_skip',
-                        )
-                        self._year_fetch_diagnostics = dict(year_fetch_diagnostics)
-                        print(f"      Year {year}: skip (seen total match; cached={year_fetch_diagnostics[year]['cached_total']}, seen={year_fetch_diagnostics[year]['seen_total']}, probe={live_count})", flush=True)
-                        save_progress(complete=False)
-                        continue
-                    if live_count is not None and cached_count == live_count:
-                        skipped_years += 1
-                        self._completed_year_segments.add(year)
-                        year_fetch_diagnostics[year] = self._build_year_fetch_diagnostics(
-                            year,
-                            live_count,
-                            cached_count,
-                            0,
-                            'probe_match_skip',
-                        )
-                        self._year_fetch_diagnostics = dict(year_fetch_diagnostics)
-                        print(f"      Year {year}: skip (histogram count match; cached={cached_count}, probe={live_count}, probe_complete=True)", flush=True)
-                        save_progress(complete=False)
-                        continue
-
-                start_index = self._partial_year_start.get(year, 0)
-                resume_page_start = self._page_aligned_start(start_index)
-                initial_in_page_skip = start_index - resume_page_start
-                resuming_partial_year = year in self._partial_year_start
-                cached_count = cached_year_counts.get(year)
-                live_count = probed_year_counts.get(year)
-
-                if not self.interactive_captcha:
-                    self._refresh_scholarly_session()
-                self._next_refresh_at = self._total_page_count + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
-
-                if start_index > 0:
-                    resume_note = f"position {start_index}"
-                    if resume_page_start != start_index:
-                        resume_note += (
-                            f" via page start {resume_page_start} "
-                            f"(skip first {initial_in_page_skip})"
-                        )
-                    print(f"      Year {year}: resuming from {resume_note} "
-                          f"(cached={cached_count if cached_count is not None else '?'}, "
-                          f"probe={live_count if live_count is not None else '?'})", flush=True)
-                else:
-                    print(f"      Year {year}: fetching "
-                          f"(cached={cached_count if cached_count is not None else '?'}, "
-                          f"probe={live_count if live_count is not None else '?'})", flush=True)
-
-                year_url = (f'/scholar?as_ylo={year}&as_yhi={year}&hl=en'
-                            f'&as_sdt=2005&sciodt=0,5&cites={pub_id}&scipsc=')
-                if resume_page_start > 0:
-                    year_url += f'&start={resume_page_start}'
-                print(f"      URL: https://scholar.google.com{year_url}", flush=True)
-                nav = scholarly._Scholarly__nav
-
-                year_new_count = 0
-                year_items_seen = 0
-                year_dedup_count = 0
-                year_termination_reason = 'iterator_exhausted'
-                stop_after_current_page = False
-                year_progress_saved = False
-                existing_year_fresh = list(old_year_buckets.get(year, [])) if start_index > 0 else []
-                year_seen_keys = {}
-                for c in existing_year_fresh:
-                    label = f"{c.get('title', '')[:50]} ({c.get('venue', 'N/A')}, {c.get('year', '?')}) [cached]"
-                    for key in self._citation_identity_keys(c):
-                        year_seen_keys[key] = label
-                year_fetched_citations = list(existing_year_fresh)
-
-                while True:
-                    logical_resume_index = start_index + year_items_seen
-                    request_start = self._page_aligned_start(logical_resume_index)
-                    request_in_page_skip = logical_resume_index - request_start
-                    if year_items_seen > 0:
-                        year_url_cur = (f'/scholar?as_ylo={year}&as_yhi={year}&hl=en'
-                                        f'&as_sdt=2005&sciodt=0,5&cites={pub_id}&scipsc='
-                                        f'&start={request_start}')
-                        progress_note = f"position {logical_resume_index}"
-                        if request_start != logical_resume_index:
-                            progress_note += (
-                                f" via page start {request_start} "
-                                f"(skip first {request_in_page_skip})"
-                            )
-                        print(f"      Year {year}: continuing from {progress_note}", flush=True)
-                    else:
-                        year_url_cur = year_url
-                    try:
-                        iterator = _SearchScholarIterator(nav, year_url_cur)
-                        page_save_emitted = False
-                        request_items_seen = 0
-                        for citing in iterator:
-                            year_items_seen += 1
-                            request_items_seen += 1
-                            self._partial_year_start[year] = start_index + year_items_seen
-                            if request_items_seen <= request_in_page_skip:
-                                continue
-                            info = self._extract_citation_info(citing, fallback_year=year)
-                            identity_keys = self._citation_identity_keys(info)
-                            matched_key = next((key for key in identity_keys if key in year_seen_keys), None)
-                            if matched_key is not None:
-                                self._dedup_count += 1
-                                year_dedup_count += 1
-                                print(f"  [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
-                                      f"\n          Existing: {year_seen_keys[matched_key]}", flush=True)
-                            else:
-                                label = f"{info['title'][:50]} ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
-                                for key in identity_keys:
-                                    year_seen_keys[key] = label
-                                year_fetched_citations.append(info)
-                                fresh_year_buckets[year] = list(year_fetched_citations)
-                                fresh_citations[:] = current_citations(complete=True)
-                                if not any(key in old_cache_identity_keys for key in identity_keys):
-                                    year_new_count += 1
-                                    paper_new_count += 1
-                                    self._new_citations_count += 1
-                                count = len(fresh_citations)
-
-                                print(f"  [{count}] {info['title'][:55]}...", flush=True)
-
-                            if getattr(iterator, '_finished_current_page', False) and not page_save_emitted:
-                                save_progress(complete=False)
-                                page_save_emitted = True
-                                year_progress_saved = True
-                        final_page_items_seen = getattr(iterator, '_items_in_current_page', request_items_seen)
-                        if request_items_seen > 0 and page_save_emitted and final_page_items_seen >= SCHOLAR_PAGE_SIZE:
-                            continue
-                        if 0 < final_page_items_seen < SCHOLAR_PAGE_SIZE:
-                            year_termination_reason = 'short_page_stop'
-                        break
-                    except KeyboardInterrupt:
-                        save_progress(complete=False)
-                        raise
-                    except Exception as e:
-                        now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        print(f"  [{now_s}] Blocked at year {year} "
-                              f"position {logical_resume_index}: {e}", flush=True)
-                        save_progress(complete=False)
-                        if self.interactive_captcha:
-                            cur_url = (f'https://scholar.google.com{year_url_cur}'
-                                       if year_url_cur.startswith('/') else year_url_cur)
-                            solved = self._try_interactive_captcha(cur_url)
-                            if solved:
-                                continue
-                        raise
-
-                fresh_year_buckets[year] = list(year_fetched_citations)
-                fresh_citations[:] = current_citations(complete=True)
-                self._partial_year_start.pop(year, None)
-                self._completed_year_segments.add(year)
-                live_count_for_diag = live_count if live_count is not None else len(year_fetched_citations)
-                year_fetch_diagnostics[year] = self._build_year_fetch_diagnostics(
-                    year,
-                    live_count_for_diag,
-                    len(year_fetched_citations),
-                    year_dedup_count,
-                    year_termination_reason,
-                )
-                self._year_fetch_diagnostics = dict(year_fetch_diagnostics)
-                if year_new_count > 0:
-                    print(f"      Year {year} done: {year_new_count} new citations", flush=True)
-                else:
-                    print(f"      Year {year} done: no new citations", flush=True)
-                print(
-                    f"      Year {year} compare: scholar={year_fetch_diagnostics[year]['scholar_total']}, "
-                    f"seen={year_fetch_diagnostics[year]['seen_total']}, cached={year_fetch_diagnostics[year]['cached_total']}, "
-                    f"dedup={year_fetch_diagnostics[year]['dedup_count']}, underfetched={year_fetch_diagnostics[year]['underfetched']}, "
-                    f"termination={year_fetch_diagnostics[year]['termination_reason']}",
-                    flush=True,
-                )
-                print(f"      Year {year} status: paper_total={len(current_citations(complete=True))}, paper_new={paper_new_count}, "
-                      f"pages={self._total_page_count}, skipped_years={skipped_years}", flush=True)
-                if not year_progress_saved:
-                    save_progress(complete=False)
-
-                if stop_partial_resume_once_satisfied and resuming_partial_year and live_count is not None and len(year_fetched_citations) >= live_count:
-                    year_fetch_diagnostics[year] = self._build_year_fetch_diagnostics(
-                        year,
-                        live_count,
-                        len(year_fetched_citations),
-                        year_dedup_count,
-                        'partial_resume_completed',
-                    )
-                    self._year_fetch_diagnostics = dict(year_fetch_diagnostics)
-                    print(f"  Year {year}: Completed resumed year segment, skipping remaining years after current year", flush=True)
-                    break
-
-        except KeyboardInterrupt:
-            save_progress(complete=False)
-            raise
-        except Exception:
-            save_progress(complete=False)
-            raise
-
-        fresh_citations[:] = current_citations(complete=True)
-        print(f"    {self._year_fetch_log_message(year_fetch_diagnostics)}", flush=True)
-        save_progress(complete=True)
-        return list(fresh_citations)
-
+        result = _cf.fetch_by_year(self, ctx, citedby_url, old_citations, fresh_citations, save_progress,
+                                   num_citations, pub_year, prev_scholar_count,
+                                   allow_incremental_early_stop=allow_incremental_early_stop,
+                                   force_year_rebuild=force_year_rebuild,
+                                   selective_refresh_years=selective_refresh_years,
+                                   year_fetch_diagnostics=year_fetch_diagnostics)
+        self._dedup_count = ctx.dedup_count
+        self._cached_year_counts = ctx.cached_year_counts
+        self._completed_year_segments = ctx.completed_year_segments
+        self._probed_year_counts = ctx.probed_year_counts
+        self._probed_year_count_complete = ctx.probed_year_count_complete
+        self._year_fetch_diagnostics = ctx.year_fetch_diagnostics
+        self._partial_year_start = ctx.partial_year_start
+        return result
     def _save_xlsx(self, results, metadata=None):
         _cio_save_citations_xlsx(
             self.out_xlsx,
@@ -2404,197 +1126,29 @@ class PaperCitationFetcher:
                 time.sleep(d)
 
     def _inject_cookies_from_curl(self, curl_str):
-        """Parse cookies and selected headers from a pasted cURL command.
-        Cookies are set without domain restriction so they are sent regardless of
-        which regional Scholar domain (e.g. .com.hk vs .com) is used.
-        Selected allowlisted headers are stored so patched session rebuilds can
-        reuse browser identity details from the pasted request while keeping the
-        crawler's dynamic Referer handling intact.
-        Returns the number of cookies injected, or 0 on failure.
-        """
-        m = (re.search(r"(?:-b|--cookie) '([^']+)'", curl_str) or
-             re.search(r'(?:-b|--cookie) "([^"]+)"', curl_str))
-        if not m:
-            print("  (Could not find -b/--cookie '...' string in input)", flush=True)
-            return 0
-        nav = scholarly._Scholarly__nav
-        cookies = {}
-        for pair in m.group(1).split(';'):
-            pair = pair.strip()
-            if '=' in pair:
-                k, v = pair.split('=', 1)
-                cookies[k.strip()] = v.strip()
-        if not cookies:
-            print("  (No valid cookies found in pasted input)", flush=True)
-            return 0
-
-        header_overrides = {}
-        header_matches = re.findall(r"(?:-H|--header) '([^']+)'|(?:-H|--header) \"([^\"]+)\"", curl_str)
-        for single_quoted, double_quoted in header_matches:
-            header_line = (single_quoted or double_quoted or '').strip()
-            if not header_line or ':' not in header_line:
-                continue
-            name, value = header_line.split(':', 1)
-            header_name = name.strip().lower()
-            if header_name in self._curl_header_allowlist:
-                header_overrides[header_name] = value.strip()
-
-        # Inject without domain so cookies apply to scholar.google.com AND any
-        # regional variant (e.g. scholar.google.com.hk) after 302 redirects.
-        for session in (nav._session1, nav._session2):
-            for k, v in cookies.items():
-                session.cookies.set(k, v)
-            session.headers.update(header_overrides)
-            session.headers['referer'] = self._last_scholar_url
-        # Persist for re-application after scholarly recreates sessions on 403
-        self._injected_cookies = cookies
-        self._injected_header_overrides = header_overrides
-        nav.got_403 = False
-        self._captcha_solved_count += 1
-        header_note = (f", {len(header_overrides)} allowlisted headers"
-                       if header_overrides else '')
-        print(f"  Injected {len(cookies)} cookies{header_note} (no domain restriction). "
-              f"Captcha solves: {self._captcha_solved_count}", flush=True)
-        return len(cookies)
+        """Parse cookies and selected headers from a pasted cURL command."""
+        counter = [self._captcha_solved_count]
+        result = _int_inject_cookies(
+            curl_str,
+            curl_header_allowlist=self._curl_header_allowlist,
+            last_scholar_url=self._last_scholar_url,
+            injected_cookies_ref=self._injected_cookies,
+            injected_header_overrides_ref=self._injected_header_overrides,
+            captcha_solved_count_ref=counter,
+        )
+        self._captcha_solved_count = counter[0]
+        return result
 
     def _try_interactive_captcha(self, url):
-        """Prompt user to solve captcha manually and inject resulting cookies.
-        Only called when --interactive-captcha is set.
-        Returns True if cookies were successfully injected.
-
-        Input strategy: read line by line via input(), stop automatically when
-        the last cURL line is detected (no trailing backslash).  This is
-        reliable across SSH, tmux, and local terminals — unlike sys.stdin.read()
-        which requires Ctrl+D to send EOF (unreliable in SSH/tmux).
-        """
-        sep = "  " + "=" * 62
-        print(f"\n{sep}", flush=True)
-        print(f"  Captcha / block detected. Resolve it manually:", flush=True)
-        print(f"  1. Open this URL in your browser:", flush=True)
-        print(f"       {url}", flush=True)
-        print(f"  2. Solve the captcha, then let the page load fully", flush=True)
-        print(f"  3. F12 → Network → find the Scholar request", flush=True)
-        print(f"     → right-click → Copy as cURL (bash)", flush=True)
-        print(f"  4. Paste the cURL here (cookies + selected headers reused; detected automatically after 3s silence)", flush=True)
-        print(f"     (Press Enter on blank line to skip)", flush=True)
-        print(f"{sep}", flush=True)
-        print("  > ", end='', flush=True)
-
-        import select as _sel, os as _os, re as _re
-        _ANSI = _re.compile(r'\x1b(?:\[[0-9;?]*[a-zA-Z]|[()][AB012])')
-
-        fd = sys.stdin.fileno()
-        old_attrs = None
-        try:
-            import termios as _termios
-            old_attrs = _termios.tcgetattr(fd)
-        except Exception:
-            pass
-
-        chunks = []
-        try:
-            if old_attrs is not None:
-                # Disable ICANON (line buffering) but keep ECHO so the user
-                # can see what they paste.  This prevents the pty input buffer
-                # from filling up (which would freeze SSH flow control) while
-                # still giving visual feedback.
-                new = list(old_attrs)
-                new[3] = new[3] & ~_termios.ICANON
-                new[6] = list(new[6])
-                new[6][_termios.VMIN] = 1
-                new[6][_termios.VTIME] = 0
-                _termios.tcsetattr(fd, _termios.TCSAFLUSH, new)
-
-            # Phase 1: wait indefinitely for first byte (user takes their time)
-            _sel.select([sys.stdin], [], [])
-
-            # Phase 2: drain all bytes; 3s of silence = paste is done
-            while True:
-                ready = _sel.select([sys.stdin], [], [], 3.0)[0]
-                if not ready:
-                    break
-                try:
-                    chunk = _os.read(fd, 4096)
-                except OSError:
-                    break
-                if not chunk:
-                    break
-                chunks.append(chunk.decode('utf-8', errors='replace'))
-        except KeyboardInterrupt:
-            if old_attrs is not None:
-                import termios as _t
-                _t.tcsetattr(fd, _t.TCSADRAIN, old_attrs)
-            print(flush=True)
-            return False
-        finally:
-            if old_attrs is not None:
-                import termios as _t
-                _t.tcsetattr(fd, _t.TCSADRAIN, old_attrs)
-
-        print(flush=True)   # newline after pasted content
-        raw = ''.join(chunks)
-        raw = _ANSI.sub('', raw)
-        raw = raw.replace('\r\n', '\n').replace('\r', '\n')
-
-        lines = []
-        for line in raw.split('\n'):
-            line = line.rstrip()
-            if not line.strip():
-                if lines:
-                    break   # blank line after content = user confirmed end
-                continue
-            lines.append(line)
-
-        if not lines:
-            print("  (Skipped — using automatic wait)", flush=True)
-            return False
-        print(f"  Received {len(lines)} lines. Processing...", flush=True)
-        return self._inject_cookies_from_curl('\n'.join(lines)) > 0
+        """Prompt user to solve captcha manually and inject resulting cookies."""
+        return _int_try_interactive_captcha(
+            url,
+            inject_fn=self._inject_cookies_from_curl,
+        )
 
     def _wait_proxy_switch(self, max_hours=24):
-        """Wait up to max_hours for the user to switch proxy/IP.
-        Prints a prompt and checks stdin every minute for 'ok'.
-        Prints an hourly reminder with time remaining.
-        Returns True if user confirmed, False if timed out.
-        """
-        import select as _select
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        print(f"\n  [{now}] Scholar is blocking this IP.", flush=True)
-        print(f"  Please switch your proxy/IP, then type  ok  and press Enter.", flush=True)
-        print(f"  (Program will retry automatically after {max_hours}h if no input.)",
-              flush=True)
-
-        deadline      = time.time() + max_hours * 3600
-        last_reminder = time.time()
-        CHECK_SEC     = 60    # poll stdin every minute
-        REMIND_SEC    = 3600  # hourly reminder
-
-        while time.time() < deadline:
-            # Hourly reminder
-            if time.time() - last_reminder >= REMIND_SEC:
-                remaining = (deadline - time.time()) / 3600
-                ts = datetime.now().strftime('%H:%M:%S')
-                print(f"  [{ts}] Still waiting — {remaining:.0f}h remaining. "
-                      f"Type  ok  to resume now.", flush=True)
-                last_reminder = time.time()
-
-            wait = min(CHECK_SEC, max(0, deadline - time.time()))
-            try:
-                ready = _select.select([sys.stdin], [], [], wait)[0]
-                if ready:
-                    line = sys.stdin.readline().strip().lower()
-                    if line == 'ok':
-                        ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        print(f"  [{ts}] Proxy switch confirmed. Resuming...",
-                              flush=True)
-                        return True
-            except Exception:
-                # select unavailable (Windows, piped stdin, etc.) — plain sleep
-                time.sleep(wait)
-
-        ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        print(f"  [{ts}] {max_hours}h elapsed. Resuming...", flush=True)
-        return False
+        """Wait up to max_hours for the user to switch proxy/IP."""
+        return _int_wait_proxy_switch(max_hours)
 
     def _flush_publication_count_updates(self, profile, pubs_data):
         updates = getattr(self, '_updated_publication_counts', None) or {}
