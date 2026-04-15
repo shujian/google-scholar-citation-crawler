@@ -119,7 +119,7 @@ def derive_citation_cache_state(pub, cached, year_based_threshold):
 # Citation status
 # ---------------------------------------------------------------------------
 
-def resolve_citation_status_from_state(state, recheck_citations):
+def resolve_citation_status_from_state(state):
     """
     Determine completeness from a pre-derived cache state dict.
 
@@ -152,7 +152,7 @@ def resolve_citation_status_from_state(state, recheck_citations):
             return 'complete'
         return 'partial'
 
-    if num_seen is not None and not recheck_citations:
+    if num_seen is not None:
         if fetch_policy['mode'] == 'direct':
             if num_seen >= current:
                 return 'complete'
@@ -164,13 +164,8 @@ def resolve_citation_status_from_state(state, recheck_citations):
         elif num_seen >= current:
             return 'complete'
 
-    if not recheck_citations and histogram_match_complete:
+    if histogram_match_complete:
         return 'complete'
-
-    if recheck_citations:
-        if actual_cached >= current:
-            return 'complete'
-        return 'partial'
 
     if (
         current <= promoted_scholar_total
@@ -181,7 +176,7 @@ def resolve_citation_status_from_state(state, recheck_citations):
     return 'partial'
 
 
-def citation_status(pub, cache_dir, year_based_threshold, recheck_citations):
+def citation_status(pub, cache_dir, year_based_threshold):
     """
     Return the completeness status for *pub*: 'skip_zero' | 'missing' |
     'complete' | 'partial'.
@@ -194,7 +189,7 @@ def citation_status(pub, cache_dir, year_based_threshold, recheck_citations):
     if not cached:
         return 'missing'
     state = derive_citation_cache_state(pub, cached, year_based_threshold)
-    return resolve_citation_status_from_state(state, recheck_citations)
+    return resolve_citation_status_from_state(state)
 
 
 # ---------------------------------------------------------------------------
