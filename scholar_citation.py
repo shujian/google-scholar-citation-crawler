@@ -1351,13 +1351,13 @@ def main():
             prev_pubs = prev_profile.get('total_publications', -1)
             curr_pubs = curr_profile.get('total_publications', -2)
 
-            if prev_citations == curr_citations and prev_pubs == curr_pubs and not args.recheck_citations:
+            if prev_citations == curr_citations and prev_pubs == curr_pubs and args.fetch_mode != 'force':
                 citation_fetcher = PaperCitationFetcher(
                     author_id=author_id,
                     output_dir=args.output_dir,
                     limit=args.limit,
                     skip=args.skip,
-                    recheck_citations=args.recheck_citations,
+                    fetch_mode=args.fetch_mode,
                 )
                 if not citation_fetcher.has_pending_work():
                     print("\n" + "=" * 70)
@@ -1373,7 +1373,7 @@ def main():
             output_dir=args.output_dir,
             limit=args.limit,
             skip=args.skip,
-            recheck_citations=args.recheck_citations,
+            fetch_mode=args.fetch_mode,
             interactive_captcha=args.interactive_captcha,
             delay_scale=delay_scale,
         )

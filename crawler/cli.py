@@ -26,7 +26,8 @@ examples:
   python scholar_citation.py --author "https://scholar.google.com/citations?user=AUTHOR_ID"
   python scholar_citation.py --author AUTHOR_ID --limit 3
   python scholar_citation.py --author AUTHOR_ID --skip 10 --limit 5
-  python scholar_citation.py --author AUTHOR_ID --force-refresh-citations
+  python scholar_citation.py --author AUTHOR_ID --fetch-mode rough
+  python scholar_citation.py --author AUTHOR_ID --fetch-mode force --skip 0 --limit 5
   python scholar_citation.py --author AUTHOR_ID --interactive-captcha
 '''
     )
@@ -42,11 +43,14 @@ examples:
     parser.add_argument('--force-refresh-pubs', action='store_true',
                         help='Force re-fetch the publications list from Scholar '
                              '(useful when profile updated but citations fetch was interrupted)')
-    parser.add_argument('--recheck-citations', dest='recheck_citations', action='store_true',
-                        help='Re-check citation completeness for papers in the selected range and '
-                             're-fetch only those whose cached citations are incomplete relative to Scholar')
-    parser.add_argument('--force-refresh-citations', dest='recheck_citations', action='store_true',
-                        help='Deprecated alias for --recheck-citations')
+    parser.add_argument('--fetch-mode', dest='fetch_mode',
+                        choices=['rough', 'normal', 'force'], default='normal',
+                        help='Controls citation re-fetch aggressiveness. '
+                             'rough: skip papers whose Scholar count has not changed since last fetch, '
+                             'even if the cache is incomplete. '
+                             'normal (default): fetch papers with missing or incomplete caches. '
+                             'force: delete the cache and re-fetch from scratch; '
+                             'recommended with --skip/--limit to limit scope.')
     parser.add_argument('--interactive-captcha', action='store_true',
                         help='When blocked by Scholar, pause and prompt you to paste a browser '
                              'cURL (Chrome DevTools → Copy as cURL) to inject fresh cookies and '
@@ -102,14 +106,14 @@ def _run_main(args):
             prev_pubs = prev_profile.get('total_publications', -1)
             curr_pubs = curr_profile.get('total_publications', -2)
 
-            if prev_citations == curr_citations and prev_pubs == curr_pubs and not args.recheck_citations:
+            if prev_citations == curr_citations and prev_pubs == curr_pubs and args.fetch_mode != 'force':
                 # Even if totals haven't changed, check if all citations are fully cached
                 citation_fetcher = PaperCitationFetcher(
                     author_id=author_id,
                     output_dir=args.output_dir,
                     limit=args.limit,
                     skip=args.skip,
-                    recheck_citations=args.recheck_citations,
+                    fetch_mode=args.fetch_mode,
                 )
                 if not citation_fetcher.has_pending_work():
                     print("\n" + "=" * 70)
@@ -126,7 +130,7 @@ def _run_main(args):
             output_dir=args.output_dir,
             limit=args.limit,
             skip=args.skip,
-            recheck_citations=args.recheck_citations,
+            fetch_mode=args.fetch_mode,
             interactive_captcha=args.interactive_captcha,
             delay_scale=delay_scale,
         )
