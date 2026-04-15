@@ -518,7 +518,6 @@ class PaperCitationFetcher:
         return message
 
     @staticmethod
-    @staticmethod
     def _refresh_scholarly_session():
         """Soft session reset (delegated to crawler.scholarly_session)."""
         _ss_refresh_scholarly_session()
@@ -790,8 +789,8 @@ class PaperCitationFetcher:
             'pub_url':     p.get('url', 'N/A'),
         } for p in pubs_data.get('publications', [])}
 
-        # force mode: delete per-paper cache files for papers in the selected range
-        # so that status returns 'missing' and they are always re-fetched from scratch.
+        # force mode: wipe caches before status check so every in-range paper
+        # is treated as 'missing' and starts a fresh first_fetch.
         if self.fetch_mode == 'force':
             end_idx = self.skip + self.limit if self.limit else len(publications)
             for pub in publications[self.skip:end_idx]:
@@ -874,10 +873,15 @@ class PaperCitationFetcher:
                 results[idx - 1] = {'pub': pub, 'citations': cached['citations']}
                 continue
 
-            # rough mode: skip if scholar count unchanged, even if partial
+            # rough mode: trust the cache when Scholar count is stable; avoids
+            # expensive fetches for papers that weren't cited since last run.
             if self.fetch_mode == 'rough' and cached:
                 last_known = cached.get('num_citations_on_scholar')
-                if last_known is not None and int(last_known) == num_citations:
+                try:
+                    last_known_int = int(last_known) if last_known is not None else None
+                except (TypeError, ValueError):
+                    last_known_int = None
+                if last_known_int is not None and last_known_int == num_citations:
                     print(f"[{idx}/{len(publications)}] {title[:55]}... -> skip-rough ({num_citations} unchanged)")
                     results[idx - 1] = {'pub': pub, 'citations': cached.get('citations', [])}
                     continue
