@@ -864,6 +864,14 @@ class PaperCitationFetcher:
                 results[idx - 1] = {'pub': pub, 'citations': cached['citations']}
                 continue
 
+            # rough mode: skip if scholar count unchanged, even if partial
+            if self.fetch_mode == 'rough' and cached:
+                last_known = cached.get('num_citations_on_scholar')
+                if last_known is not None and int(last_known) == num_citations:
+                    print(f"[{idx}/{len(publications)}] {title[:55]}... -> skip-rough ({num_citations} unchanged)")
+                    results[idx - 1] = {'pub': pub, 'citations': cached.get('citations', [])}
+                    continue
+
             fetch_idx += 1
             urls        = url_map.get(title, {})
             citedby_url = urls.get('citedby_url', '')
