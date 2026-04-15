@@ -417,7 +417,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
         },
     }
     direct_fetch_allow_early_stop = (
-        not fetcher.recheck_citations
+        fetcher.fetch_mode != 'force'
         and not force_year_rebuild
     )
     has_cached_citations = bool(old_citations)

@@ -114,7 +114,7 @@ import crawler.citation_fetch as _cf
 class PaperCitationFetcher:
     def __init__(self, author_id, output_dir=".",
                  limit=None, skip=0, save_every=10,
-                 recheck_citations=False,
+                 fetch_mode='normal',
                  interactive_captcha=False,
                  delay_scale=1.0):
         self.author_id = author_id
@@ -122,7 +122,7 @@ class PaperCitationFetcher:
         self.limit = limit
         self.skip = skip
         self.save_every = save_every
-        self.recheck_citations = recheck_citations
+        self.fetch_mode = fetch_mode
         self.interactive_captcha = interactive_captcha
         self._captcha_solved_count = 0
         self._delay_scale = delay_scale
@@ -454,14 +454,7 @@ class PaperCitationFetcher:
         direct_resume_note = ''
         action = f"resume ({len(resume_from)} cached, fetching remaining)"
 
-        if self.recheck_citations:
-            mode = 'recheck'
-            completed_years_in_current_run = []
-            allow_incremental_early_stop = False
-            force_year_rebuild = fetch_policy['mode'] == 'year'
-            drop_cached_unyeared = True
-            action = f"recheck ({len(resume_from)} cached, scholar={num_citations}; drop cached unyeared before refresh)"
-        elif old_scholar_known is not None and old_scholar_known != num_citations:
+        if old_scholar_known is not None and old_scholar_known != num_citations:
             mode = 'update'
             completed_years_in_current_run = []
             drop_cached_unyeared = True
@@ -747,7 +740,7 @@ class PaperCitationFetcher:
         if not cached:
             return 'missing'
         state = self._derive_citation_cache_state(pub, cached)
-        return _cio_resolve_citation_status_from_state(state, self.recheck_citations)
+        return _cio_resolve_citation_status_from_state(state)
 
     def has_pending_work(self):
         """Check if there are any papers with incomplete citation caches."""
