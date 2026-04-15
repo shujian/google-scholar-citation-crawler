@@ -12,7 +12,9 @@ from datetime import datetime
 
 from crawler.common import extract_author_id, TeeStream, setup_proxy
 from crawler.author_fetcher import AuthorProfileFetcher
-from scholar_citation import PaperCitationFetcher
+# PaperCitationFetcher is imported lazily inside _run_main() to avoid a
+# circular import: scholar_citation imports crawler.cli, and if crawler.cli
+# imported scholar_citation at module level the two would deadlock.
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -58,6 +60,7 @@ examples:
 
 def _run_main(args):
     """Execute the main crawl workflow given a parsed args namespace."""
+    from scholar_citation import PaperCitationFetcher  # lazy to avoid circular import
     author_id = extract_author_id(args.author)
 
     os.makedirs(args.output_dir, exist_ok=True)
