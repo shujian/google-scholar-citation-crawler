@@ -154,14 +154,14 @@ def resolve_citation_status_from_state(state):
 
     if num_seen is not None:
         if fetch_policy['mode'] == 'direct':
-            if num_seen >= current:
+            if num_seen == current:
                 return 'complete'
         elif probed_year_counts:
-            if num_seen >= probed_hist_total:
+            if num_seen == probed_hist_total:
                 return 'complete'
             if histogram_match_complete:
                 return 'complete'
-        elif num_seen >= current:
+        elif num_seen == current:
             return 'complete'
 
     if histogram_match_complete:

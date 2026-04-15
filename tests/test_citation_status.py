@@ -161,7 +161,7 @@ class CitationStatusTests(FetcherTestCase):
 
         self.assertEqual(status, "complete")
 
-    def test_citation_status_stays_complete_for_year_mode_when_seen_covers_total_minus_unyeared(self):
+    def test_citation_status_marks_partial_for_year_mode_when_seen_exceeds_hist_total(self):
         pub = {"title": "Paper", "num_citations": 1335, "year": "2018"}
         cached = {
             "complete": True,
@@ -188,7 +188,7 @@ class CitationStatusTests(FetcherTestCase):
         with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
             status = self.fetcher._citation_status(pub)
 
-        self.assertEqual(status, "complete")
+        self.assertEqual(status, "partial")
 
     def test_citation_status_marks_partial_when_promoted_total_exceeds_sparse_cache(self):
         pub = {"title": "Paper", "num_citations": 44}
