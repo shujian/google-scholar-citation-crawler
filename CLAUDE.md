@@ -2,7 +2,7 @@
 
 请使用中文作为主要工作语言。但是在代码和提交中使用英文。
 
-工作流程在approach.md中进行了描述。
+工作流程在 approach.md 中进行了描述。
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -11,9 +11,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Install deps: `pip install -r requirements.txt`
 - Run the CLI: `python scholar_citation.py --author YOUR_AUTHOR_ID`
 - Run a small targeted crawl: `python scholar_citation.py --author YOUR_AUTHOR_ID --skip 2 --limit 3`
-- Recheck incomplete citation caches in a selected range: `python scholar_citation.py --author YOUR_AUTHOR_ID --recheck-citations --skip 2 --limit 3`
+- Recheck incomplete citation caches: `python scholar_citation.py --author YOUR_AUTHOR_ID --recheck-citations --skip 2 --limit 3`
 - Use interactive captcha recovery: `python scholar_citation.py --author YOUR_AUTHOR_ID --interactive-captcha`
-- Speed up deliberate waits for debugging interactive mode: `python scholar_citation.py --author YOUR_AUTHOR_ID --interactive-captcha --accelerate 0.1`
+- Speed up waits for debugging: `python scholar_citation.py --author YOUR_AUTHOR_ID --interactive-captcha --accelerate 0.1`
 - Run all tests: `python -m unittest discover -s tests -p "test_*.py"`
 - Run a single test file: `python -m unittest tests.test_citation_status`
 - Run a single test: `python -m unittest tests.test_citation_status.CitationStatusTests.test_citation_status_stays_complete_when_seen_matches_current_total`
@@ -21,61 +21,144 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project structure
 
-Entry point is `scholar_citation.py`. Supporting modules live in `crawler/` (shared utilities, profile I/O, citation cache helpers, citation strategy). Tests are in `tests/` (9 focused files + shared stubs in `tests/conftest.py`).
+```
+google-scholar-citation-crawler/
+│
+├── scholar_citation.py          # CLI entry point + PaperCitationFetcher orchestrator
+│
+├── crawler/                     # All supporting modules
+│   ├── __init__.py
+│   ├── common.py                # Constants (delays, thresholds) + stateless utilities
+│   ├── fetch_context.py         # FetchContext dataclass: per-paper mutable fetch state
+│   │
+│   │   ── Author profile layer ──
+│   ├── author_fetcher.py        # AuthorProfileFetcher: fetch + cache author profile
+│   ├── profile_io.py            # Build and write profile JSON / Excel outputs
+│   │
+│   │   ── Citation data layer ──
+│   ├── citation_cache.py        # Year-count maps and fetch-diagnostics pure functions
+│   ├── citation_strategy.py     # Fetch policy, refresh strategy, reconciliation
+│   ├── citation_identity.py     # Citation dedup key and info extraction
+│   ├── citation_io.py           # Cache I/O, status derivation, citations Excel output
+│   │
+│   │   ── Fetch engine ──
+│   ├── citation_fetch.py        # fetch_citations_with_progress + fetch_by_year engine
+│   ├── scholarly_session.py     # SessionContext + scholarly monkey-patch + year probe
+│   ├── interactive.py           # cURL cookie injection, captcha prompt, proxy-switch wait
+│   │
+│   │   ── CLI ──
+│   └── cli.py                   # parse_args() + _run_main(args)
+│
+├── tests/                       # Unit tests (105 tests, no network required)
+│   ├── conftest.py              # Shared stubs (scholarly/openpyxl mocks) + FetcherTestCase
+│   ├── test_scholar_patch.py    # scholarly patch URL logging, inject_curl, parse_args
+│   ├── test_year_fetch_early.py # fetch_by_year early-stop and histogram-authoritative mode
+│   ├── test_fetch_policy.py     # Fetch policy selection, refresh strategy, effective totals
+│   ├── test_direct_fetch.py     # Direct fetch: progress save, early-stop, resume, dedup
+│   ├── test_year_fetch_main.py  # Year fetch: materialize, selective refresh, force rebuild
+│   ├── test_output.py           # save_output, flush promotion, reconciliation
+│   ├── test_citation_status.py  # _citation_status, rehydrate, diagnostics boundary tests
+│   ├── test_main_loop.py        # _run_main_loop retry, main() CLI integration
+│   └── test_profile.py          # AuthorProfileFetcher count summary and JSON/Excel output
+│
+├── test_citation_page_stop.py   # Legacy monolithic test file (kept for transition)
+├── requirements.txt             # scholarly>=1.7, openpyxl>=3.1, httpx==0.27.2
+├── README.md                    # Public-facing documentation
+├── WORK_NOTES.md                # Technical change log (for contributors)
+├── approach.md                  # Development workflow description
+└── user.md                      # Raw user message history (AI-assisted dev record)
+```
 
 ## Architecture overview
 
-The script always runs in two phases from `main()`:
-1. `AuthorProfileFetcher` fetches the author profile and publication list, writes profile outputs, and records change history.
-2. `PaperCitationFetcher` loads the saved profile/publications cache and fetches per-paper citation lists incrementally.
+The program always runs in two sequential phases from `main()`:
 
-`AuthorProfileFetcher` is responsible for:
-- resolving cache/output paths under `output/` and `output/scholar_cache/`
-- fetching author basics every run to detect citation-count changes
-- fetching or reusing the publication list
-- sorting publications by citation count descending before downstream processing
-- maintaining `change_history` inside `author_<ID>_profile.json`
-- writing both JSON and formatted Excel outputs for the author/profile phase
+**Phase 1 — Author profile** (`AuthorProfileFetcher` in `crawler/author_fetcher.py`):
+- Fetches author basic info and publication list from Google Scholar every run
+- Detects citation-count changes by comparing with the previous profile
+- Sorts publications by citation count (descending) before downstream processing
+- Maintains `change_history` inside `author_<ID>_profile.json`
+- Writes both JSON and formatted Excel outputs
 
-`PaperCitationFetcher` is responsible for:
-- reading the saved profile plus `scholar_cache/.../publications.json`
-- deciding per paper whether citation data is `missing`, `partial`, `complete`, or `skip_zero`
-- resuming from partial per-paper cache files under `scholar_cache/author_<ID>/citations/`
-- writing consolidated citation outputs to `author_<ID>_paper_citations.json` and `.xlsx`
+**Phase 2 — Paper citations** (`PaperCitationFetcher` in `scholar_citation.py`):
+- Reads the saved profile and `scholar_cache/.../publications.json`
+- Decides per paper whether citation data is `missing`, `partial`, `complete`, or `skip_zero`
+- Resumes from partial per-paper cache files under `scholar_cache/author_<ID>/citations/`
+- Writes consolidated citation outputs to `author_<ID>_paper_citations.json` and `.xlsx`
 
-The key behavior in citation fetching is incremental cache validation rather than naive refetching:
-- normal runs skip a paper when cached citation coverage is already complete relative to Scholar
-- `--recheck-citations` re-evaluates selected papers using cached-vs-current completeness logic
-- when author total citations and publication count are unchanged, the script still checks whether any paper cache is incomplete before deciding to skip citation crawling entirely
+### Citation fetch strategy
 
-For highly cited papers (`YEAR_BASED_THRESHOLD = 50`), citation fetching switches to year-by-year mode. That logic is important because it supports:
-- resume after interruption via `completed_years` and partial year offsets
-- different fetch directions for update mode vs full/recheck mode
-- early stop once enough citations have been recovered
-- reprobe of the citation year range on fresh runs, but not same-run retries
+Status is derived from **current counts and diagnostics**, not from persisted `complete` flags:
+- Normal runs skip a paper when `num_citations_seen >= scholar_total`
+- `--recheck-citations` re-evaluates papers using cached-vs-current completeness logic
+- When totals are unchanged, the script still checks whether any paper cache is incomplete
 
-The crawler heavily patches `scholarly` internals inside `PaperCitationFetcher._patch_scholarly()` instead of treating `scholarly` as a black box. That patch layer handles:
-- browser-like headers
-- HTTP/2 sessions via `httpx`
-- dynamic referer updates
-- randomized waits and mandatory long breaks
-- session refreshes
-- captcha/session recovery hooks
+Papers with `>= YEAR_BASED_THRESHOLD (50)` citations switch to year-by-year fetch mode:
+- Supports resume via `completed_years` and partial year offsets in `FetchContext`
+- Newest→oldest in update mode (early stop once increase is recovered)
+- Oldest→newest in full/recheck mode
+- Year range is determined by `probe_citation_start_year()` via the Scholar histogram DOM
 
-Interactive recovery is a first-class workflow, not an afterthought:
-- `--interactive-captcha` lets the user paste a browser “Copy as cURL” request
-- cookies are extracted from the cURL and injected into patched `scholarly` sessions
-- in interactive mode the program retries indefinitely instead of stopping after `MAX_RETRIES`
-- in non-interactive mode it falls back to a long wait loop prompting the user to switch proxy/IP and type `ok`
+### scholarly patch layer (`crawler/scholarly_session.py`)
+
+Patches `scholarly` internals rather than treating it as a black box:
+- Replaces HTTP/1.1 sessions with `httpx` HTTP/2 clients
+- Injects browser-like headers (Edge/145, sec-ch-ua-*, Referer chain)
+- Enforces randomised 45–90s waits before every request
+- Takes mandatory long breaks every 8–12 pages to reset Scholar's rate-limit window
+- Performs soft session refresh every 10–20 pages
+- Tracks year-segment switches in `_citedby_long` for resume support
+
+All patch state is held in `SessionContext`; per-paper fetch state is in `FetchContext`.
+
+### Interactive recovery (`crawler/interactive.py`)
+
+- `--interactive-captcha`: user pastes a browser "Copy as cURL"; cookies and
+  allowlisted headers are injected into the patched scholarly sessions
+- In interactive mode: retries indefinitely
+- In non-interactive mode: waits up to 24h prompting the user to switch proxy and type `ok`
+
+## Module dependency map
+
+```
+scholar_citation.py  (orchestrator + PaperCitationFetcher)
+  ├── crawler.common              (constants, utilities)
+  ├── crawler.fetch_context       (FetchContext dataclass)
+  ├── crawler.author_fetcher      ← crawler.profile_io
+  ├── crawler.profile_io          ← (no crawler deps)
+  ├── crawler.citation_cache      (pure year/diagnostics functions)
+  ├── crawler.citation_strategy   ← crawler.citation_cache
+  ├── crawler.citation_identity   (pure dedup / info extract)
+  ├── crawler.citation_io         ← crawler.citation_cache, crawler.citation_strategy
+  ├── crawler.citation_fetch      ← crawler.common, crawler.fetch_context
+  ├── crawler.scholarly_session   ← crawler.common
+  ├── crawler.interactive         (no crawler deps)
+  └── crawler.cli  [lazy import]  ← crawler.common, crawler.author_fetcher
+                                     + scholar_citation [lazy, inside _run_main]
+```
+
+No circular imports. `crawler.cli` imports `PaperCitationFetcher` lazily inside
+`_run_main()` to break the `scholar_citation ↔ crawler.cli` cycle.
 
 ## Testing notes
 
-The existing tests are narrow unit tests around CLI parsing and year-probe/resume behavior. `test_year_probe_logic.py` stubs `scholarly` and `openpyxl` modules before importing `scholar_citation`, so tests run without real network or Excel dependencies.
+Tests are in `tests/` and require no network or real Excel library (all external
+dependencies are stubbed in `tests/conftest.py`).
 
-When changing year-based fetching, resume behavior, or CLI flags, update `test_year_probe_logic.py` first instead of trying to add full integration coverage.
+- `FetcherTestCase` base class provides a fully-initialised `self.fetcher` with all
+  runtime attributes zeroed out and common method stubs in place.
+- Each test file covers one functional area; see the project structure above.
+- When changing year-based fetching, resume behavior, or CLI flags, update the
+  corresponding test file first rather than adding integration coverage.
+- The legacy `test_citation_page_stop.py` is kept as a compatibility fallback during
+  the transition period; both it and `tests/` run the same 105 tests.
 
 ## Dependencies and runtime assumptions
 
-- `httpx` is pinned to `0.27.2` for compatibility with the current `scholarly` integration.
-- Proxy handling relies on `https_proxy` / `http_proxy` environment variables; the code intentionally does not use `scholarly`’s proxy API.
-- The default output directory is `./output`, and cache correctness depends on files inside `output/scholar_cache/`.
+- `httpx==0.27.2` is pinned for compatibility with the current scholarly integration.
+- Proxy handling relies on `https_proxy` / `http_proxy` environment variables;
+  `scholarly`'s proxy API is intentionally not used (incompatible with httpx 0.27.x).
+- The default output directory is `./output`; cache correctness depends on files
+  inside `output/scholar_cache/`.
+- Current active development branch: `refactor/modularize`
+  (main branch is one refactor commit behind).
