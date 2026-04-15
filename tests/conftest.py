@@ -181,7 +181,7 @@ class FetcherTestCase(unittest.TestCase):
         self.fetcher._probed_year_counts = None
         self.fetcher._probed_year_count_complete = False
         self.fetcher.interactive_captcha = False
-        self.fetcher.recheck_citations = False
+        self.fetcher.fetch_mode = 'normal'
         self.fetcher._last_scholar_url = (
             "https://scholar.google.com/citations?user=test-author&hl=en"
         )
