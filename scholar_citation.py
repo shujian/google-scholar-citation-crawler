@@ -31,7 +31,7 @@ from scholarly.publication_parser import _SearchScholarIterator
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 
-from scholar_common import (
+from crawler.common import (
     DELAY_MAX,
     DELAY_MIN,
     MANDATORY_BREAK_EVERY_MAX,
@@ -50,13 +50,13 @@ from scholar_common import (
     rand_delay,
     setup_proxy,
 )
-from scholar_profile_io import (
+from crawler.profile_io import (
     build_profile_count_summary,
     build_profile_payload,
     save_profile_json as write_profile_json,
     save_profile_xlsx as write_profile_xlsx,
 )
-from citation.cache import (
+from crawler.citation_cache import (
     year_count_map as _cc_year_count_map,
     normalize_year_count_map as _cc_normalize_year_count_map,
     dump_year_count_map as _cc_dump_year_count_map,
@@ -68,7 +68,7 @@ from citation.cache import (
     rehydrate_probe_metadata as _cc_rehydrate_probe_metadata,
     rehydrate_year_fetch_diagnostics as _cc_rehydrate_year_fetch_diagnostics,
 )
-from citation.strategy import (
+from crawler.citation_strategy import (
     normalize_pub_year as _cs_normalize_pub_year,
     resolve_citation_fetch_policy as _cs_resolve_citation_fetch_policy,
     selective_refresh_candidate_years as _cs_selective_refresh_candidate_years,
