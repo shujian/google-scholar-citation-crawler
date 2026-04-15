@@ -796,5 +796,140 @@ class MainLoopTests(FetcherTestCase):
 
 
 
+    def test_rough_mode_skips_partial_paper_with_unchanged_scholar_count(self):
+        pub = {
+            "no": 1,
+            "title": "Partial Paper",
+            "num_citations": 5,
+            "year": "2024",
+            "venue": "V",
+        }
+        cached = {
+            "citations": [
+                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+            ],
+            "num_citations_on_scholar": 5,
+        }
+        results = []
+        fetch_called = []
+
+        def cache_status(current_pub):
+            return "partial", cached
+
+        def fake_fetch(*args, **kwargs):
+            fetch_called.append(True)
+            return []
+
+        self.fetcher.fetch_mode = 'rough'
+        with patch.object(self.fetcher, "_fetch_citations_with_progress", side_effect=fake_fetch), \
+             patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._run_main_loop(
+                publications=[pub],
+                cache_status=cache_status,
+                url_map={pub["title"]: {"citedby_url": "/scholar?cites=123", "pub_url": "u"}},
+                need_fetch=[(pub, "partial", cached)],
+                results=results,
+                fetch_idx=0,
+            )
+
+        self.assertEqual(fetch_called, [])
+        self.assertEqual(results[0]["citations"], cached["citations"])
+
+    def test_rough_mode_fetches_paper_with_missing_cache(self):
+        pub = {
+            "no": 1,
+            "title": "Missing Paper",
+            "num_citations": 5,
+            "year": "2024",
+            "venue": "V",
+        }
+        results = []
+        fetch_called = []
+
+        def cache_status(current_pub):
+            return "missing", None
+
+        final_citations = [
+            {"title": "New-A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
+        ]
+
+        def fake_fetch(*args, **kwargs):
+            fetch_called.append(True)
+            return final_citations
+
+        self.fetcher.fetch_mode = 'rough'
+        with patch.object(self.fetcher, "_resolve_refresh_strategy", return_value={
+                "mode": "first_fetch",
+                "resume_from": [],
+                "completed_years_in_current_run": [],
+                "partial_year_start": {},
+                "saved_dedup_count": 0,
+                "allow_incremental_early_stop": True,
+                "force_year_rebuild": False,
+                "selective_refresh_years": None,
+                "rehydrated_probed_year_counts": None,
+                "rehydrated_probe_complete": False,
+                "rehydrated_year_fetch_diagnostics": None,
+                "action": "first fetch",
+                "prev_scholar_count": 0,
+                "fetch_policy": {"mode": "direct", "covered_years": 1, "avg_citations_per_year": 5.0,
+                                 "pub_year": 2024, "reason": "low_average_per_year"},
+            }), \
+             patch.object(self.fetcher, "_fetch_citations_with_progress", side_effect=fake_fetch), \
+             patch("scholar_citation.rand_delay", return_value=0), \
+             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._run_main_loop(
+                publications=[pub],
+                cache_status=cache_status,
+                url_map={pub["title"]: {"citedby_url": "/scholar?cites=123", "pub_url": "u"}},
+                need_fetch=[(pub, "missing", None)],
+                results=results,
+                fetch_idx=0,
+            )
+
+        self.assertEqual(fetch_called, [True])
+        self.assertEqual(results[0]["citations"], final_citations)
+
+    def test_force_mode_deletes_cache_before_computing_statuses(self):
+        """run() in force mode deletes cache files for in-range papers before status check."""
+        pub = {
+            "no": 1,
+            "title": "Cached Paper",
+            "num_citations": 5,
+            "year": "2024",
+            "venue": "V",
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fetcher = self.sc.PaperCitationFetcher(
+                "test-author", output_dir=tmpdir, fetch_mode='force'
+            )
+            cache_path = fetcher._citation_cache_path(pub["title"])
+            with open(cache_path, 'w', encoding='utf-8') as f:
+                json.dump({"citations": [], "num_citations_on_scholar": 5}, f)
+            self.assertTrue(os.path.exists(cache_path))
+
+            profile_path = os.path.join(tmpdir, "author_test-author_profile.json")
+            with open(profile_path, 'w', encoding='utf-8') as f:
+                json.dump({"publications": [pub]}, f)
+            pubs_dir = os.path.join(tmpdir, "scholar_cache", "author_test-author")
+            os.makedirs(pubs_dir, exist_ok=True)
+            with open(os.path.join(pubs_dir, "publications.json"), 'w', encoding='utf-8') as f:
+                json.dump({"publications": [pub]}, f)
+
+            loop_saw_cache_gone = []
+
+            def fake_loop(*args, **kwargs):
+                loop_saw_cache_gone.append(not os.path.exists(cache_path))
+
+            with patch.object(fetcher, '_patch_scholarly'), \
+                 patch.object(fetcher, '_run_main_loop', side_effect=fake_loop), \
+                 patch.object(fetcher, '_save_output'), \
+                 patch("sys.stdout", new_callable=StringIO):
+                fetcher.run()
+
+            self.assertEqual(loop_saw_cache_gone, [True])
+
+
 if __name__ == '__main__':
     unittest.main()
