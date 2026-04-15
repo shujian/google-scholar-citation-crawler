@@ -56,6 +56,26 @@ from scholar_profile_io import (
     save_profile_json as write_profile_json,
     save_profile_xlsx as write_profile_xlsx,
 )
+from citation.cache import (
+    year_count_map as _cc_year_count_map,
+    normalize_year_count_map as _cc_normalize_year_count_map,
+    dump_year_count_map as _cc_dump_year_count_map,
+    build_year_fetch_diagnostics as _cc_build_year_fetch_diagnostics,
+    normalize_year_fetch_diagnostics as _cc_normalize_year_fetch_diagnostics,
+    dump_year_fetch_diagnostics as _cc_dump_year_fetch_diagnostics,
+    year_fetch_diagnostic_matches_total as _cc_year_fetch_diagnostic_matches_total,
+    probed_year_counts_satisfied as _cc_probed_year_counts_satisfied,
+    rehydrate_probe_metadata as _cc_rehydrate_probe_metadata,
+    rehydrate_year_fetch_diagnostics as _cc_rehydrate_year_fetch_diagnostics,
+)
+from citation.strategy import (
+    normalize_pub_year as _cs_normalize_pub_year,
+    resolve_citation_fetch_policy as _cs_resolve_citation_fetch_policy,
+    selective_refresh_candidate_years as _cs_selective_refresh_candidate_years,
+    build_citation_count_summary as _cs_build_citation_count_summary,
+    refresh_reconciliation_status as _cs_refresh_reconciliation_status,
+    format_year_fetch_diagnostics_summary as _cs_format_year_fetch_diagnostics_summary,
+)
 
 
 # ============================================================
@@ -706,144 +726,35 @@ class PaperCitationFetcher:
 
     @staticmethod
     def _year_count_map(citations):
-        counts = {}
-        for c in citations:
-            y = c.get('year', 'N/A')
-            if y and y != 'N/A' and y != 'NA':
-                try:
-                    year = int(y)
-                    counts[year] = counts.get(year, 0) + 1
-                except ValueError:
-                    pass
-        return counts
+        return _cc_year_count_map(citations)
 
     @staticmethod
     def _normalize_year_count_map(year_counts):
-        normalized = {}
-        for year, count in (year_counts or {}).items():
-            try:
-                y = int(year)
-                c = int(count)
-            except (TypeError, ValueError):
-                continue
-            if c < 0:
-                continue
-            normalized[y] = c
-        return normalized
+        return _cc_normalize_year_count_map(year_counts)
 
     @staticmethod
     def _dump_year_count_map(year_counts):
-        return {str(year): count for year, count in sorted(year_counts.items())}
+        return _cc_dump_year_count_map(year_counts)
 
     @staticmethod
     def _build_year_fetch_diagnostics(year, scholar_total, cached_total, dedup_count, termination_reason):
-        try:
-            year = int(year)
-            scholar_total = int(scholar_total)
-        except (TypeError, ValueError):
-            return None
-        try:
-            cached_total = int(cached_total or 0)
-        except (TypeError, ValueError):
-            cached_total = 0
-        try:
-            dedup_count = int(dedup_count or 0)
-        except (TypeError, ValueError):
-            dedup_count = 0
-        cached_total = max(0, cached_total)
-        dedup_count = max(0, dedup_count)
-        seen_total = cached_total + dedup_count
-        gap = max(0, scholar_total - seen_total)
-        return {
-            'mode': 'year',
-            'year': year,
-            'scholar_total': scholar_total,
-            'cached_total': cached_total,
-            'seen_total': seen_total,
-            'dedup_count': dedup_count,
-            'underfetched': seen_total < scholar_total,
-            'underfetch_gap': gap,
-            'termination_reason': termination_reason or 'iterator_exhausted',
-        }
+        return _cc_build_year_fetch_diagnostics(year, scholar_total, cached_total, dedup_count, termination_reason)
 
     @staticmethod
     def _normalize_year_fetch_diagnostics(year_fetch_diagnostics):
-        normalized = {}
-        for raw_year, raw_diag in (year_fetch_diagnostics or {}).items():
-            if not isinstance(raw_diag, dict):
-                continue
-            diagnostic = PaperCitationFetcher._build_year_fetch_diagnostics(
-                raw_diag.get('year', raw_year),
-                raw_diag.get('scholar_total'),
-                raw_diag.get('cached_total'),
-                raw_diag.get('dedup_count', 0),
-                raw_diag.get('termination_reason'),
-            )
-            if not diagnostic:
-                continue
-            raw_seen_total = raw_diag.get('seen_total')
-            try:
-                raw_seen_total = int(raw_seen_total)
-            except (TypeError, ValueError):
-                raw_seen_total = None
-            if raw_seen_total is not None and raw_seen_total >= diagnostic['cached_total']:
-                diagnostic['seen_total'] = raw_seen_total
-                diagnostic['dedup_count'] = raw_seen_total - diagnostic['cached_total']
-                diagnostic['underfetch_gap'] = max(0, diagnostic['scholar_total'] - raw_seen_total)
-                diagnostic['underfetched'] = raw_seen_total < diagnostic['scholar_total']
-            normalized[diagnostic['year']] = diagnostic
-        return normalized
+        return _cc_normalize_year_fetch_diagnostics(year_fetch_diagnostics)
 
     @staticmethod
     def _dump_year_fetch_diagnostics(year_fetch_diagnostics):
-        normalized = PaperCitationFetcher._normalize_year_fetch_diagnostics(year_fetch_diagnostics)
-        return {str(year): diagnostic for year, diagnostic in sorted(normalized.items())}
+        return _cc_dump_year_fetch_diagnostics(year_fetch_diagnostics)
 
     @staticmethod
     def _year_fetch_diagnostic_matches_total(diagnostic, scholar_total, cached_total=None):
-        if not isinstance(diagnostic, dict):
-            return False
-        try:
-            scholar_total = int(scholar_total)
-        except (TypeError, ValueError):
-            return False
-        try:
-            diagnostic_total = int(diagnostic.get('scholar_total'))
-            diagnostic_cached_total = int(diagnostic.get('cached_total', 0) or 0)
-            seen_total = int(diagnostic.get('seen_total', 0) or 0)
-        except (TypeError, ValueError):
-            return False
-        if cached_total is not None:
-            try:
-                cached_total = int(cached_total or 0)
-            except (TypeError, ValueError):
-                return False
-            if diagnostic_cached_total != cached_total:
-                return False
-        return (
-            diagnostic_total == scholar_total
-            and diagnostic_cached_total <= scholar_total
-            and seen_total >= scholar_total
-        )
+        return _cc_year_fetch_diagnostic_matches_total(diagnostic, scholar_total, cached_total)
 
     @staticmethod
     def _probed_year_counts_satisfied(cached_year_counts, probed_year_counts, year_fetch_diagnostics=None):
-        cached_year_counts = PaperCitationFetcher._normalize_year_count_map(cached_year_counts)
-        probed_year_counts = PaperCitationFetcher._normalize_year_count_map(probed_year_counts)
-        year_fetch_diagnostics = PaperCitationFetcher._normalize_year_fetch_diagnostics(year_fetch_diagnostics)
-        if not probed_year_counts:
-            return False
-        for year, live_total in probed_year_counts.items():
-            if cached_year_counts.get(year, 0) == live_total:
-                continue
-            if PaperCitationFetcher._year_fetch_diagnostic_matches_total(
-                year_fetch_diagnostics.get(year),
-                live_total,
-                cached_year_counts.get(year, 0),
-            ):
-                continue
-            return False
-        return True
+        return _cc_probed_year_counts_satisfied(cached_year_counts, probed_year_counts, year_fetch_diagnostics)
 
     @staticmethod
     def _normalize_direct_resume_state(state):
@@ -1137,229 +1048,57 @@ class PaperCitationFetcher:
 
     @staticmethod
     def _normalize_pub_year(pub_year, current_year):
-        if pub_year in (None, '', 'N/A', 'NA', '?'):
-            return None
-        try:
-            year = int(str(pub_year).strip())
-        except (TypeError, ValueError):
-            return None
-        if year > int(current_year):
-            return None
-        return year
+        return _cs_normalize_pub_year(pub_year, current_year)
 
     @classmethod
     def _resolve_citation_fetch_policy(cls, num_citations, pub_year, current_year=None):
-        current_year = current_year or datetime.now().year
-        total = int(num_citations or 0)
-        if total < YEAR_BASED_THRESHOLD:
-            return {
-                'mode': 'direct',
-                'covered_years': None,
-                'avg_citations_per_year': None,
-                'pub_year': cls._normalize_pub_year(pub_year, current_year),
-                'reason': 'below_year_threshold',
-            }
-
-        normalized_pub_year = cls._normalize_pub_year(pub_year, current_year)
-        if normalized_pub_year is None:
-            return {
-                'mode': 'year',
-                'covered_years': None,
-                'avg_citations_per_year': None,
-                'pub_year': None,
-                'reason': 'invalid_pub_year',
-            }
-
-        covered_years = max(1, int(current_year) - normalized_pub_year + 1)
-        avg_citations_per_year = total / covered_years
-        return {
-            'mode': 'direct' if avg_citations_per_year <= 20 else 'year',
-            'covered_years': covered_years,
-            'avg_citations_per_year': avg_citations_per_year,
-            'pub_year': normalized_pub_year,
-            'reason': 'low_average_per_year' if avg_citations_per_year <= 20 else 'high_average_per_year',
-        }
+        return _cs_resolve_citation_fetch_policy(num_citations, pub_year, YEAR_BASED_THRESHOLD, current_year)
 
     @staticmethod
     def _selective_refresh_candidate_years(cached_year_counts, probed_year_counts,
                                            year_range, partial_year_start=None,
                                            probe_complete=False,
                                            year_fetch_diagnostics=None):
-        cached_year_counts = PaperCitationFetcher._normalize_year_count_map(cached_year_counts)
-        probed_year_counts = PaperCitationFetcher._normalize_year_count_map(probed_year_counts)
-        year_fetch_diagnostics = PaperCitationFetcher._normalize_year_fetch_diagnostics(year_fetch_diagnostics)
-        partial_years = {int(year) for year in (partial_year_start or {}).keys()}
-        candidate_years = set(partial_years)
-
-        def should_refresh_year(year, live_total):
-            existing_diag = year_fetch_diagnostics.get(year)
-            if year in partial_years:
-                return True
-            if existing_diag and existing_diag.get('underfetched'):
-                return True
-            try:
-                historical_scholar_total = int(existing_diag.get('scholar_total')) if existing_diag else None
-            except (TypeError, ValueError):
-                historical_scholar_total = None
-            if historical_scholar_total is not None and historical_scholar_total != live_total:
-                return True
-            try:
-                seen_total = int(existing_diag.get('seen_total', 0) or 0) if existing_diag else None
-            except (TypeError, ValueError):
-                seen_total = None
-            if seen_total is not None and seen_total < live_total:
-                return True
-            if cached_year_counts.get(year, 0) != live_total and not PaperCitationFetcher._year_fetch_diagnostic_matches_total(
-                existing_diag,
-                live_total,
-                cached_year_counts.get(year, 0),
-            ):
-                return True
-            return False
-
-        if probe_complete:
-            candidate_years.update(
-                year for year in year_range
-                if should_refresh_year(year, probed_year_counts.get(year, 0))
-            )
-            return [year for year in year_range if year in candidate_years]
-
-        candidate_years.update(
-            year for year in year_range
-            if year in probed_year_counts and should_refresh_year(year, probed_year_counts[year])
+        return _cs_selective_refresh_candidate_years(
+            cached_year_counts, probed_year_counts, year_range,
+            partial_year_start=partial_year_start,
+            probe_complete=probe_complete,
+            year_fetch_diagnostics=year_fetch_diagnostics,
         )
-        if not candidate_years:
-            return None
-        return [year for year in year_range if year in candidate_years]
 
     @staticmethod
     def _build_citation_count_summary(citations, scholar_total=None, probed_year_counts=None,
                                       probe_complete=False, dedup_count=0):
-        cached_total = len(citations or [])
-        cached_year_counts = PaperCitationFetcher._year_count_map(citations or [])
-        cached_year_total = sum(cached_year_counts.values())
-        cached_unyeared_count = max(0, cached_total - cached_year_total)
-        normalized_probed_year_counts = PaperCitationFetcher._normalize_year_count_map(probed_year_counts)
-        histogram_total = sum(normalized_probed_year_counts.values())
-        unyeared_count = None
-        if scholar_total is not None:
-            unyeared_count = max(0, scholar_total - histogram_total)
-        return {
-            'scholar_total': scholar_total,
-            'histogram_total': histogram_total,
-            'cached_total': cached_total,
-            'cached_year_total': cached_year_total,
-            'cached_unyeared_count': cached_unyeared_count,
-            'dedup_count': int(dedup_count or 0),
-            'probe_complete': bool(probe_complete),
-            'unyeared_count': unyeared_count,
-            'cached_year_counts': cached_year_counts,
-            'probed_year_counts': normalized_probed_year_counts,
-        }
+        return _cs_build_citation_count_summary(
+            citations, scholar_total=scholar_total,
+            probed_year_counts=probed_year_counts,
+            probe_complete=probe_complete,
+            dedup_count=dedup_count,
+        )
 
     def _refresh_reconciliation_status(self, citations, num_citations,
                                        probed_year_counts=None, probe_complete=False,
                                        year_fetch_diagnostics=None):
-        count_summary = self._build_citation_count_summary(
+        return _cs_refresh_reconciliation_status(
             citations,
-            scholar_total=num_citations,
+            num_citations,
+            dedup_count=getattr(self, '_dedup_count', 0),
             probed_year_counts=probed_year_counts,
             probe_complete=probe_complete,
-            dedup_count=getattr(self, '_dedup_count', 0),
+            year_fetch_diagnostics=year_fetch_diagnostics,
         )
-        normalized_year_fetch_diagnostics = self._normalize_year_fetch_diagnostics(year_fetch_diagnostics)
-        status = {
-            'ok': False,
-            'reason': 'histogram_incomplete',
-            **count_summary,
-            'year_fetch_diagnostics': normalized_year_fetch_diagnostics,
-        }
-
-        if probe_complete:
-            if self._probed_year_counts_satisfied(
-                count_summary['cached_year_counts'],
-                count_summary['probed_year_counts'],
-                normalized_year_fetch_diagnostics,
-            ):
-                status.update({
-                    'ok': True,
-                    'reason': 'matched_complete_histogram',
-                })
-            else:
-                status.update({
-                    'reason': 'year_count_mismatch',
-                })
-            return status
-
-        if count_summary['probed_year_counts']:
-            if self._probed_year_counts_satisfied(
-                count_summary['cached_year_counts'],
-                count_summary['probed_year_counts'],
-                normalized_year_fetch_diagnostics,
-            ):
-                status.update({
-                    'ok': True,
-                    'reason': 'matched_incomplete_histogram',
-                })
-                return status
-            return status
-
-        if count_summary['cached_total'] == count_summary['scholar_total']:
-            status.update({
-                'ok': True,
-                'reason': 'count_matched_without_histogram',
-            })
-            return status
-
-        return status
 
     @staticmethod
     def _rehydrate_probe_metadata(cached, current_scholar_total):
-        normalized_counts = PaperCitationFetcher._normalize_year_count_map(
-            (cached or {}).get('probed_year_counts')
-        )
-        probe_complete = False
-        if normalized_counts:
-            cached_probe_complete = (cached or {}).get('probe_complete') is True
-            histogram_total = (cached or {}).get('probed_year_total')
-            try:
-                histogram_total = int(histogram_total)
-            except (TypeError, ValueError):
-                histogram_total = sum(normalized_counts.values())
-            if cached_probe_complete and current_scholar_total is not None and histogram_total == current_scholar_total:
-                probe_complete = True
-        return normalized_counts or None, probe_complete
+        return _cc_rehydrate_probe_metadata(cached, current_scholar_total)
 
     @staticmethod
     def _rehydrate_year_fetch_diagnostics(cached):
-        return PaperCitationFetcher._normalize_year_fetch_diagnostics(
-            (cached or {}).get('year_fetch_diagnostics')
-        ) or None
+        return _cc_rehydrate_year_fetch_diagnostics(cached)
 
     @staticmethod
     def _format_year_fetch_diagnostics_summary(year_fetch_diagnostics, limit=8):
-        diagnostics = PaperCitationFetcher._normalize_year_fetch_diagnostics(year_fetch_diagnostics)
-        if not diagnostics:
-            return 'none'
-        items = sorted(diagnostics.items())
-        display_items = items
-        if len(items) > limit:
-            head = items[: max(1, limit // 2)]
-            tail = items[-max(1, limit - len(head)) :]
-            display_items = head + [('...', None)] + tail
-        parts = []
-        for year, diagnostic in display_items:
-            if year == '...':
-                parts.append('...')
-                continue
-            parts.append(
-                f"{year}:scholar={diagnostic.get('scholar_total')},"
-                f"seen={diagnostic.get('seen_total')},"
-                f"cached={diagnostic.get('cached_total')},"
-                f"dedup={diagnostic.get('dedup_count')},"
-                f"term={diagnostic.get('termination_reason')}"
-            )
-        return f"{len(items)} years [{'; '.join(parts)}]"
+        return _cs_format_year_fetch_diagnostics_summary(year_fetch_diagnostics, limit)
 
     @staticmethod
     def _year_fetch_log_message(year_fetch_diagnostics):
