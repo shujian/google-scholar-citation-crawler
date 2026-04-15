@@ -76,356 +76,23 @@ from crawler.citation_strategy import (
     refresh_reconciliation_status as _cs_refresh_reconciliation_status,
     format_year_fetch_diagnostics_summary as _cs_format_year_fetch_diagnostics_summary,
 )
+from crawler.citation_identity import (
+    normalize_cites_id as _ci_normalize_cites_id,
+    normalize_identity_part as _ci_normalize_identity_part,
+    citation_identity_keys as _ci_citation_identity_keys,
+    citation_identity_key as _ci_citation_identity_key,
+    extract_citation_info as _ci_extract_citation_info,
+)
+from crawler.citation_io import (
+    citation_cache_path as _cio_citation_cache_path,
+    load_citation_cache as _cio_load_citation_cache,
+    derive_citation_cache_state as _cio_derive_citation_cache_state,
+    resolve_citation_status_from_state as _cio_resolve_citation_status_from_state,
+    save_citations_xlsx as _cio_save_citations_xlsx,
+)
 
 
-# ============================================================
-# Author Profile Fetcher
-# ============================================================
-
-class AuthorProfileFetcher:
-    def __init__(self, author_id, output_dir=".", delay_scale=1.0):
-        self.author_id = author_id
-        self.output_dir = output_dir
-        self.delay_scale = delay_scale
-
-        # Cache directory
-        self.cache_dir = os.path.join(output_dir, "scholar_cache", f"author_{author_id}")
-        os.makedirs(self.cache_dir, exist_ok=True)
-
-        # Cache files
-        self.basics_cache = os.path.join(self.cache_dir, "basics.json")
-        self.pubs_cache = os.path.join(self.cache_dir, "publications.json")
-
-        # Output files
-        self.profile_json = os.path.join(output_dir, f"author_{author_id}_profile.json")
-        self.profile_xlsx = os.path.join(output_dir, f"author_{author_id}_profile.xlsx")
-
-        print(f"Cache dir: {self.cache_dir}")
-        print(f"Output files: author_{author_id}_profile.json / .xlsx")
-
-    def load_basics_cache(self):
-        """Load cached basic info."""
-        if os.path.exists(self.basics_cache):
-            with open(self.basics_cache, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            print(f"Loaded basic info from cache (last: {data.get('_cached_at', 'N/A')})")
-            return data
-        return None
-
-    def save_basics_cache(self, data):
-        """Save basic info to cache."""
-        data['_cached_at'] = datetime.now().isoformat()
-        with open(self.basics_cache, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-
-    def load_pubs_cache(self):
-        """Load cached publication list."""
-        if os.path.exists(self.pubs_cache):
-            with open(self.pubs_cache, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            print(f"Loaded publications from cache ({len(data.get('publications', []))} papers, last: {data.get('_cached_at', 'N/A')})")
-            return data
-        return None
-
-    def save_pubs_cache(self, data):
-        """Save publication list to cache."""
-        data['_cached_at'] = datetime.now().isoformat()
-        with open(self.pubs_cache, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-
-    def fetch_basics(self):
-        """
-        Phase 1: Fetch author basic info + citation stats.
-        Always fetches from network (only 1 request) to detect citation changes.
-        Returns (basics_dict, fetched_from_network).
-        """
-        print("\nPhase 1: Fetching author basic info...")
-        print(f"  Author ID: {self.author_id}")
-        print("Connecting to Google Scholar...")
-
-        try:
-            author = scholarly.search_author_id(self.author_id)
-            if author is None:
-                raise ValueError("search_author_id returned None — Scholar may be rate-limiting")
-            print("Author found, filling basic info...")
-
-            d = rand_delay(self.delay_scale)
-            print(f"{now_str()} Waiting {d:.0f}s...")
-            time.sleep(d)
-
-            author_filled = scholarly.fill(author, sections=['basics', 'indices', 'counts'])
-            if author_filled is None:
-                raise ValueError("fill() returned None — Scholar may be rate-limiting")
-
-            current_year = datetime.now().year
-            cites_per_year = author_filled.get('cites_per_year', {})
-
-            basics = {
-                'name': author_filled.get('name', 'N/A'),
-                'scholar_id': self.author_id,
-                'affiliation': author_filled.get('affiliation', 'N/A'),
-                'interests': author_filled.get('interests', []),
-                'citedby': author_filled.get('citedby', 0),
-                'citedby_this_year': cites_per_year.get(current_year, 0),
-                'citedby5y': author_filled.get('citedby5y', 0),
-                'hindex': author_filled.get('hindex', 0),
-                'hindex5y': author_filled.get('hindex5y', 0),
-                'i10index': author_filled.get('i10index', 0),
-                'i10index5y': author_filled.get('i10index5y', 0),
-                'cites_per_year': {str(k): v for k, v in cites_per_year.items()},
-            }
-
-            print(f"\nAuthor: {basics['name']}")
-            print(f"  Affiliation: {basics['affiliation']}")
-            print(f"  Total citations: {basics['citedby']}")
-            print(f"  Citations this year: {basics['citedby_this_year']}")
-            print(f"  h-index: {basics['hindex']}")
-            print(f"  i10-index: {basics['i10index']}")
-
-            self.save_basics_cache(basics)
-            print("Basic info cached")
-
-            return basics, True
-
-        except (AttributeError, TypeError) as e:
-            print(f"Failed to fetch basic info: network issue or Scholar rate-limiting "
-                  f"(got unexpected None in response: {e})")
-            print("Please check your network connection or proxy and try again.")
-            return None, False
-        except Exception as e:
-            print(f"Failed to fetch basic info: {e}")
-            traceback.print_exc()
-            return None, False
-
-    def fetch_publications(self, force_refresh=False):
-        """
-        Phase 2: Fetch all publications (scholarly handles pagination).
-        """
-        if not force_refresh:
-            cached = self.load_pubs_cache()
-            if cached:
-                return cached.get('publications', [])
-
-        print("\nPhase 2: Fetching all publications (auto-pagination)...")
-        print("Connecting to Google Scholar...")
-
-        try:
-            author = scholarly.search_author_id(self.author_id)
-
-            d = rand_delay(self.delay_scale)
-            print(f"{now_str()} Waiting {d:.0f}s...")
-            time.sleep(d)
-
-            print("Fetching full publication list (may take several minutes)...")
-            author_with_pubs = scholarly.fill(author, sections=['publications'])
-
-            raw_pubs = author_with_pubs.get('publications', [])
-            print(f"Found {len(raw_pubs)} publications")
-
-            publications = []
-            for i, pub in enumerate(raw_pubs, 1):
-                bib = pub.get('bib', {})
-                pub_info = {
-                    'no': i,
-                    'title': bib.get('title', 'N/A'),
-                    'year': str(bib.get('pub_year', 'N/A')),
-                    'venue': bib.get('citation', bib.get('venue', 'N/A')),
-                    'authors': bib.get('author', 'N/A'),
-                    'num_citations': pub.get('num_citations', 0),
-                    'url': pub.get('pub_url', pub.get('eprint_url', 'N/A')),
-                    'citedby_url': pub.get('citedby_url', ''),
-                }
-                publications.append(pub_info)
-
-                if i % 20 == 0:
-                    print(f"  Processed {i}/{len(raw_pubs)} papers...")
-
-            # Sort by citation count (descending) and renumber
-            publications.sort(key=lambda x: x['num_citations'], reverse=True)
-            for i, pub in enumerate(publications, 1):
-                pub['no'] = i
-
-            pubs_data = {'publications': publications}
-            self.save_pubs_cache(pubs_data)
-            print(f"Publication list cached ({len(publications)} papers)")
-
-            return publications
-
-        except Exception as e:
-            print(f"Failed to fetch publications: {e}")
-            traceback.print_exc()
-            return []
-
-    def append_history(self, basics, publications, prev_profile=None):
-        """Append a history record with change tracking. History is stored in profile.json."""
-        history = prev_profile.get('change_history', []) if prev_profile else []
-
-        new_papers = []
-        changed_citations = []
-
-        if prev_profile:
-            prev_pubs = {p['title']: p['num_citations'] for p in prev_profile.get('publications', [])}
-            prev_titles = set(prev_pubs.keys())
-            curr_titles = set(p['title'] for p in publications)
-
-            for title in curr_titles - prev_titles:
-                new_papers.append(title)
-
-            for pub in publications:
-                title = pub['title']
-                if title in prev_pubs:
-                    old_cite = prev_pubs[title]
-                    new_cite = pub['num_citations']
-                    if new_cite != old_cite:
-                        changed_citations.append({
-                            'title': title,
-                            'old': old_cite,
-                            'new': new_cite,
-                        })
-
-        record = {
-            'fetch_time': datetime.now().isoformat(),
-            'citedby': basics.get('citedby', 0),
-            'citedby_this_year': basics.get('citedby_this_year', 0),
-            'hindex': basics.get('hindex', 0),
-            'i10index': basics.get('i10index', 0),
-            'total_publications': len(publications),
-            'new_papers': new_papers,
-            'changed_citations': changed_citations,
-        }
-
-        history.append(record)
-
-        if new_papers:
-            print(f"\nNew papers ({len(new_papers)}):")
-            for t in new_papers[:5]:
-                print(f"  + {t[:70]}")
-            if len(new_papers) > 5:
-                print(f"  ... {len(new_papers)} total")
-        if changed_citations:
-            print(f"\nCitation changes ({len(changed_citations)}):")
-            for c in changed_citations[:5]:
-                print(f"  {c['title'][:50]}... {c['old']} -> {c['new']}")
-            if len(changed_citations) > 5:
-                print(f"  ... {len(changed_citations)} total")
-        if not new_papers and not changed_citations and prev_profile:
-            print("  (No changes in this run)")
-
-        return history
-
-    def load_prev_profile(self):
-        """Load previous profile for incremental comparison."""
-        if os.path.exists(self.profile_json):
-            with open(self.profile_json, 'r', encoding='utf-8') as f:
-                profile = json.load(f)
-            # Migrate: if old history.json exists and profile has no change_history, import it
-            if 'change_history' not in profile:
-                history_json = os.path.join(self.output_dir, f"author_{self.author_id}_history.json")
-                if os.path.exists(history_json):
-                    with open(history_json, 'r', encoding='utf-8') as f:
-                        profile['change_history'] = json.load(f)
-                    print(f"Migrated history from {history_json} into profile")
-            return profile
-        return None
-
-    def _build_profile_count_summary(self, basics):
-        return build_profile_count_summary(basics)
-
-    def save_profile_json(self, basics, publications, change_history=None, fetch_time=None):
-        """Save complete profile as JSON."""
-        return write_profile_json(
-            self.profile_json,
-            basics,
-            publications,
-            change_history=change_history,
-            fetch_time=fetch_time,
-            datetime_module=datetime,
-            print_fn=print,
-        )
-
-    def save_profile_xlsx(self, basics, publications, change_history=None, fetch_time=None):
-        """Save Excel file with 3 sheets: overview, publications, and history."""
-        workbook = write_profile_xlsx(
-            self.profile_xlsx,
-            basics,
-            publications,
-            change_history=change_history,
-            fetch_time=fetch_time,
-            datetime_module=datetime,
-            openpyxl_module=openpyxl,
-            font_cls=Font,
-            pattern_fill_cls=PatternFill,
-            alignment_cls=Alignment,
-            print_fn=print,
-        )
-        self._last_profile_workbook = workbook
-        return workbook
-
-    def run(self, force_refresh_pubs=False):
-        """Main workflow."""
-        print("\n" + "=" * 70)
-        print("  Google Scholar Author Profile Fetcher")
-        print(f"  Author ID: {self.author_id}")
-        print("=" * 70)
-        print()
-
-        prev_profile = self.load_prev_profile()
-        if prev_profile:
-            prev_time = prev_profile.get('fetch_time', 'N/A')
-            print(f"Found previous profile ({prev_time}), will compare incrementally")
-        else:
-            print("No previous profile found, this is the first fetch")
-
-        # Phase 1: Basic info
-        basics, basics_fetched = self.fetch_basics()
-        if not basics:
-            print("Failed to fetch basic info, exiting")
-            return False
-
-        # Only wait between phases if we actually made network requests
-        if basics_fetched:
-            d = rand_delay(self.delay_scale)
-            print(f"\n{now_str()} Waiting {d:.0f}s before continuing...")
-            time.sleep(d)
-
-        # Phase 2: Publications
-        # Auto-refresh if total citations changed, or if forced via CLI
-        if not force_refresh_pubs and prev_profile:
-            old_citedby = prev_profile.get('total_citations', 0)
-            new_citedby = basics.get('citedby', 0)
-            if new_citedby != old_citedby:
-                print(f"\nTotal citations changed ({old_citedby} -> {new_citedby}), refreshing publications...")
-                force_refresh_pubs = True
-
-        publications = self.fetch_publications(force_refresh=force_refresh_pubs)
-
-        print(f"\nFetch complete: {len(publications)} publications")
-
-        # Incremental comparison + history
-        print("\n" + "=" * 70)
-        print("  Incremental Update Analysis")
-        print("=" * 70)
-        change_history = self.append_history(basics, publications, prev_profile)
-
-        # Save output files
-        print("\n" + "=" * 70)
-        print("  Saving Output Files")
-        print("=" * 70)
-        self.save_profile_json(basics, publications, change_history)
-        self.save_profile_xlsx(basics, publications, change_history)
-
-        print("\n" + "=" * 70)
-        print(f"  Done!")
-        print(f"  Author: {basics.get('name', 'N/A')}")
-        print(f"  Total citations: {basics.get('citedby', 0)}")
-        print(f"  Total publications: {len(publications)}")
-        print("=" * 70)
-        print(f"\nOutput files:")
-        print(f"  JSON   : {self.profile_json}")
-        print(f"  Excel  : {self.profile_xlsx}")
-        print()
-
-        return True
+from crawler.author_fetcher import AuthorProfileFetcher  # noqa: F401
 
 
 # ============================================================
@@ -1419,65 +1086,27 @@ class PaperCitationFetcher:
                 f"{self._captcha_solved_count} captcha solves")
 
     def _citation_cache_path(self, title):
-        key = hashlib.md5(title.encode('utf-8')).hexdigest()[:16]
-        return os.path.join(self.cache_dir, f"{key}.json")
+        return _cio_citation_cache_path(self.cache_dir, title)
 
     @staticmethod
     def _normalize_cites_id(cites_id):
-        if cites_id in (None, '', [], ()):
-            return None
-        if isinstance(cites_id, (list, tuple, set)):
-            parts = [str(part).strip() for part in cites_id if str(part).strip()]
-            return ','.join(parts) if parts else None
-        value = str(cites_id).strip()
-        return value or None
+        return _ci_normalize_cites_id(cites_id)
 
     @staticmethod
     def _normalize_identity_part(value):
-        if value is None:
-            return ''
-        return ' '.join(str(value).strip().lower().split())
+        return _ci_normalize_identity_part(value)
 
     @classmethod
     def _citation_identity_keys(cls, info):
-        keys = []
-        cites_id = cls._normalize_cites_id(info.get('cites_id'))
-        if cites_id:
-            keys.append(f"cites_id\t{cites_id}")
-        title = cls._normalize_identity_part(info.get('title'))
-        venue = cls._normalize_identity_part(info.get('venue'))
-        authors = cls._normalize_identity_part(info.get('authors'))
-        if venue:
-            keys.append(f"meta\t{title}\t{venue}")
-        elif authors:
-            keys.append(f"meta\t{title}\t{authors}")
-        else:
-            keys.append(f"meta\t{title}")
-        deduped = []
-        for key in keys:
-            if key not in deduped:
-                deduped.append(key)
-        return deduped
+        return _ci_citation_identity_keys(info)
 
     @classmethod
     def _citation_identity_key(cls, info):
-        return cls._citation_identity_keys(info)[0]
+        return _ci_citation_identity_key(info)
 
     @staticmethod
     def _extract_citation_info(pub, fallback_year=None):
-        bib = pub.get('bib', {})
-        authors = bib.get('author', [])
-        year = str(bib.get('pub_year', 'N/A'))
-        if str(year).strip().lower() in ('', 'n/a', 'na', '?') and fallback_year is not None:
-            year = str(fallback_year)
-        return {
-            'title':   bib.get('title', 'N/A'),
-            'authors': ', '.join(authors) if isinstance(authors, list) else str(authors),
-            'venue':   bib.get('venue', 'N/A'),
-            'year':    year,
-            'url':     pub.get('pub_url', pub.get('eprint_url', 'N/A')),
-            'cites_id': PaperCitationFetcher._normalize_cites_id(pub.get('cites_id')),
-        }
+        return _ci_extract_citation_info(pub, fallback_year)
 
     @staticmethod
     def _format_year_count_summary(year_count_map, limit=8):
@@ -2371,222 +2000,32 @@ class PaperCitationFetcher:
         return list(fresh_citations)
 
     def _save_xlsx(self, results, metadata=None):
-        wb = openpyxl.Workbook()
-        metadata = metadata or {}
-
-        hdr_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-        hdr_font = Font(bold=True, color="FFFFFF", size=11)
-        center   = Alignment(horizontal="center", vertical="center")
-        wrap     = Alignment(vertical="center", wrap_text=True)
-
-        # Sheet1: Summary
-        ws1 = wb.active
-        ws1.title = "Summary"
-        for col, (w, h) in enumerate(zip(
-            [6, 55, 12, 25, 16, 16],
-            ["No.", "Title", "Year", "Venue", "Citations (Scholar)", "Citations Collected"]
-        ), 1):
-            ws1.column_dimensions[chr(64 + col)].width = w
-            c = ws1.cell(row=1, column=col, value=h)
-            c.fill, c.font, c.alignment = hdr_fill, hdr_font, center
-        ws1.row_dimensions[1].height = 28
-
-        for i, item in enumerate(results, 2):
-            pub = item['pub']
-            ws1.cell(row=i, column=1, value=pub['no']).alignment = center
-            ws1.cell(row=i, column=2, value=pub['title']).alignment = wrap
-            ws1.cell(row=i, column=3, value=pub.get('year', 'N/A')).alignment = center
-            ws1.cell(row=i, column=4, value=pub.get('venue', 'N/A')).alignment = wrap
-            ws1.cell(row=i, column=5, value=pub['num_citations']).alignment = center
-            ws1.cell(row=i, column=6, value=len(item['citations'])).alignment = center
-            ws1.row_dimensions[i].height = 36
-
-        # Sheet2: All Citations
-        ws2 = wb.create_sheet("All Citations")
-        for col, (w, h) in enumerate(zip(
-            [45, 50, 35, 25, 10, 18, 55],
-            ["Cited Paper", "Citing Paper Title", "Authors", "Venue", "Year", "Cites ID", "Link"]
-        ), 1):
-            ws2.column_dimensions[chr(64 + col)].width = w
-            c = ws2.cell(row=1, column=col, value=h)
-            c.fill, c.font, c.alignment = hdr_fill, hdr_font, center
-        ws2.row_dimensions[1].height = 28
-
-        row = 2
-        for item in results:
-            for cite in item['citations']:
-                ws2.cell(row=row, column=1, value=item['pub']['title']).alignment = wrap
-                ws2.cell(row=row, column=2, value=cite['title']).alignment = wrap
-                ws2.cell(row=row, column=3, value=cite['authors']).alignment = wrap
-                ws2.cell(row=row, column=4, value=cite['venue']).alignment = wrap
-                ws2.cell(row=row, column=5, value=cite['year']).alignment = center
-                ws2.cell(row=row, column=6, value=cite.get('cites_id', 'N/A') or 'N/A').alignment = wrap
-                url = cite['url']
-                lc = ws2.cell(row=row, column=7, value=url)
-                if url and url != 'N/A':
-                    try:
-                        lc.hyperlink = url
-                        lc.font = Font(color="0563C1", underline="single")
-                    except Exception:
-                        pass
-                lc.alignment = wrap
-                ws2.row_dimensions[row].height = 32
-                row += 1
-
-        ws3 = wb.create_sheet("Run Metadata")
-        ws3.column_dimensions['A'].width = 26
-        ws3.column_dimensions['B'].width = 50
-        for row, (key, value) in enumerate([
-            ("Author ID", metadata.get('author_id', self.author_id)),
-            ("Fetch Time", metadata.get('fetch_time', 'N/A')),
-            ("Total Papers", metadata.get('total_papers', len(results))),
-            ("Total Citations Collected", metadata.get('total_citations_collected', sum(len(item['citations']) for item in results))),
-        ], 1):
-            label = ws3.cell(row=row, column=1, value=key)
-            label.fill, label.font, label.alignment = hdr_fill, hdr_font, center
-            ws3.cell(row=row, column=2, value=value).alignment = wrap
-
-        wb.save(self.out_xlsx)
-
-    def _load_citation_cache(self, title):
-        """Load citation cache for a paper by title."""
-        path = self._citation_cache_path(title)
-        if os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        return None
-
-    def _derive_citation_cache_state(self, pub, cached):
-        citations = cached.get('citations', []) or []
-        current = self._effective_scholar_total(pub, cached)
-        fetch_policy = self._resolve_citation_fetch_policy(current, pub.get('year', 'N/A'))
-
-        actual_cached = cached.get('num_citations_cached', len(citations))
-        try:
-            actual_cached = int(actual_cached)
-        except (TypeError, ValueError):
-            actual_cached = len(citations)
-        actual_cached = max(actual_cached, len(citations))
-
-        try:
-            promoted_scholar_total = int(cached.get('num_citations_on_scholar', 0) or 0)
-        except (TypeError, ValueError):
-            promoted_scholar_total = 0
-
-        num_seen = cached.get('num_citations_seen')
-        try:
-            num_seen = int(num_seen) if num_seen is not None else None
-        except (TypeError, ValueError):
-            num_seen = None
-
-        direct_fetch_diagnostics = cached.get('direct_fetch_diagnostics') or {}
-        if direct_fetch_diagnostics.get('mode') != 'direct':
-            direct_fetch_diagnostics = {}
-        direct_seen_total = direct_fetch_diagnostics.get('seen_total')
-        try:
-            direct_seen_total = int(direct_seen_total) if direct_seen_total is not None else None
-        except (TypeError, ValueError):
-            direct_seen_total = None
-        if num_seen is None and direct_seen_total is not None:
-            num_seen = direct_seen_total
-        if num_seen is not None:
-            num_seen = max(num_seen, actual_cached)
-
-        probed_year_counts, probe_complete = self._rehydrate_probe_metadata(cached, current)
-        probed_hist_total = cached.get('probed_year_total')
-        try:
-            probed_hist_total = int(probed_hist_total)
-        except (TypeError, ValueError):
-            probed_hist_total = sum((probed_year_counts or {}).values())
-
-        cached_year_counts = self._normalize_year_count_map(cached.get('cached_year_counts'))
-        if not cached_year_counts:
-            cached_year_counts = self._year_count_map(citations)
-
-        year_fetch_diagnostics = self._normalize_year_fetch_diagnostics(
-            cached.get('year_fetch_diagnostics')
+        _cio_save_citations_xlsx(
+            self.out_xlsx,
+            results,
+            self.author_id,
+            metadata=metadata,
+            openpyxl_module=openpyxl,
+            font_cls=Font,
+            pattern_fill_cls=PatternFill,
+            alignment_cls=Alignment,
         )
 
-        return {
-            'current': current,
-            'fetch_policy': fetch_policy,
-            'actual_cached': actual_cached,
-            'promoted_scholar_total': promoted_scholar_total,
-            'num_seen': num_seen,
-            'probed_year_counts': probed_year_counts,
-            'probe_complete': probe_complete,
-            'probed_hist_total': probed_hist_total,
-            'cached_year_counts': cached_year_counts,
-            'year_fetch_diagnostics': year_fetch_diagnostics,
-            'direct_fetch_diagnostics': direct_fetch_diagnostics,
-        }
+    def _load_citation_cache(self, title):
+        return _cio_load_citation_cache(self.cache_dir, title)
+
+    def _derive_citation_cache_state(self, pub, cached):
+        return _cio_derive_citation_cache_state(pub, cached, YEAR_BASED_THRESHOLD)
 
     def _citation_status(self, pub):
-        """Return (cache status, cached_data) for a publication.
-        Status: 'skip_zero' | 'complete' | 'partial' | 'missing'.
-        """
+        """Return cache status: 'skip_zero' | 'missing' | 'complete' | 'partial'."""
         if pub['num_citations'] == 0:
             return 'skip_zero'
         cached = self._load_citation_cache(pub['title'])
         if not cached:
             return 'missing'
-
         state = self._derive_citation_cache_state(pub, cached)
-        current = state['current']
-        fetch_policy = state['fetch_policy']
-        actual_cached = state['actual_cached']
-        promoted_scholar_total = state['promoted_scholar_total']
-        num_seen = state['num_seen']
-        probed_year_counts = state['probed_year_counts']
-        probe_complete = state['probe_complete']
-        probed_hist_total = state['probed_hist_total']
-        cached_year_counts = state['cached_year_counts']
-        year_fetch_diagnostics = state['year_fetch_diagnostics']
-
-        year_histogram_satisfied = bool(probed_year_counts) and self._probed_year_counts_satisfied(
-            cached_year_counts,
-            probed_year_counts,
-            year_fetch_diagnostics,
-        )
-        histogram_match_complete = (
-            bool(probed_year_counts)
-            and year_histogram_satisfied
-            and current >= probed_hist_total
-        )
-        probe_histogram_complete = probe_complete and histogram_match_complete
-
-        if fetch_policy['mode'] == 'year' and probe_complete:
-            if probe_histogram_complete:
-                return 'complete'
-            return 'partial'
-
-        if num_seen is not None and not self.recheck_citations:
-            if fetch_policy['mode'] == 'direct':
-                if num_seen >= current:
-                    return 'complete'
-            elif probed_year_counts:
-                if num_seen >= probed_hist_total:
-                    return 'complete'
-                if histogram_match_complete:
-                    return 'complete'
-            elif num_seen >= current:
-                return 'complete'
-
-        if not self.recheck_citations and histogram_match_complete:
-            return 'complete'
-
-        if self.recheck_citations:
-            if actual_cached >= current:
-                return 'complete'
-            return 'partial'
-
-        if (
-            current <= promoted_scholar_total
-            and actual_cached >= current
-            and (fetch_policy['mode'] == 'direct' or not probed_year_counts)
-        ):
-            return 'complete'
-        return 'partial'
+        return _cio_resolve_citation_status_from_state(state, self.recheck_citations)
 
     def has_pending_work(self):
         """Check if there are any papers with incomplete citation caches."""
@@ -3298,49 +2737,15 @@ class PaperCitationFetcher:
 # CLI Entry Point
 # ============================================================
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description='Google Scholar Citation Crawler - fetch author profiles and paper citations',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='''\
-examples:
-  python scholar_citation.py --author AUTHOR_ID
-  python scholar_citation.py --author "https://scholar.google.com/citations?user=AUTHOR_ID"
-  python scholar_citation.py --author AUTHOR_ID --limit 3
-  python scholar_citation.py --author AUTHOR_ID --skip 10 --limit 5
-  python scholar_citation.py --author AUTHOR_ID --force-refresh-citations
-  python scholar_citation.py --author AUTHOR_ID --interactive-captcha
-'''
-    )
-    parser.add_argument('--author', required=True,
-                        help='Google Scholar author ID or full profile URL')
-    parser.add_argument('--output-dir', default='./output', metavar='DIR',
-                        help='Output directory (default: ./output)')
-    parser.add_argument('--skip', type=int, default=0, metavar='M',
-                        help='Skip the first M papers in the full list (sorted by citations desc)')
-    parser.add_argument('--limit', type=int, default=None, metavar='N',
-                        help='Process exactly N papers after --skip (papers M+1 to M+N), '
-                             'regardless of whether each needs fetching')
-    parser.add_argument('--force-refresh-pubs', action='store_true',
-                        help='Force re-fetch the publications list from Scholar '
-                             '(useful when profile updated but citations fetch was interrupted)')
-    parser.add_argument('--recheck-citations', dest='recheck_citations', action='store_true',
-                        help='Re-check citation completeness for papers in the selected range and '
-                             're-fetch only those whose cached citations are incomplete relative to Scholar')
-    parser.add_argument('--force-refresh-citations', dest='recheck_citations', action='store_true',
-                        help='Deprecated alias for --recheck-citations')
-    parser.add_argument('--interactive-captcha', action='store_true',
-                        help='When blocked by Scholar, pause and prompt you to paste a browser '
-                             'cURL (Chrome DevTools → Copy as cURL) to inject fresh cookies and '
-                             'selected headers; retries indefinitely instead of giving up after '
-                             'MAX_RETRIES')
-    parser.add_argument('--accelerate', type=float, default=1.0, metavar='SCALE',
-                        help='Scale all deliberate waits by SCALE. Example: --accelerate 0.1 '
-                             'runs waits at 1/10 of the normal duration. Default: 1.0')
-    return parser.parse_args()
+from crawler.cli import parse_args  # noqa: F401
 
 
 def main():
+    """
+    CLI entry point.  Defined here (not in crawler.cli) so that tests can patch
+    scholar_citation.parse_args / setup_proxy / AuthorProfileFetcher /
+    PaperCitationFetcher and have those patches take effect.
+    """
     args = parse_args()
     author_id = extract_author_id(args.author)
 
@@ -3367,7 +2772,6 @@ def main():
         setup_proxy()
         print(f"Author ID: {author_id}")
 
-        # Always run profile first
         delay_scale = args.accelerate if args.interactive_captcha else 1.0
         fetcher = AuthorProfileFetcher(author_id, args.output_dir, delay_scale=delay_scale)
         prev_profile = fetcher.load_prev_profile()
@@ -3375,8 +2779,7 @@ def main():
         if not success:
             sys.exit(1)
 
-        # Check if citations or publication count changed since last run
-        curr_profile = fetcher.load_prev_profile()  # just saved
+        curr_profile = fetcher.load_prev_profile()
         if prev_profile and curr_profile:
             prev_citations = prev_profile.get('total_citations', prev_profile.get('author_info', {}).get('citedby', -1))
             curr_citations = curr_profile.get('total_citations', curr_profile.get('author_info', {}).get('citedby', -2))
@@ -3384,7 +2787,6 @@ def main():
             curr_pubs = curr_profile.get('total_publications', -2)
 
             if prev_citations == curr_citations and prev_pubs == curr_pubs and not args.recheck_citations:
-                # Even if totals haven't changed, check if all citations are fully cached
                 citation_fetcher = PaperCitationFetcher(
                     author_id=author_id,
                     output_dir=args.output_dir,
@@ -3401,7 +2803,6 @@ def main():
                 else:
                     print("\nNo changes in totals, but some citations are incomplete. Continuing fetch...")
 
-        # Run citation fetcher
         citation_fetcher = PaperCitationFetcher(
             author_id=author_id,
             output_dir=args.output_dir,
