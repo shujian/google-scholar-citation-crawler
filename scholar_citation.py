@@ -128,6 +128,10 @@ class PaperCitationFetcher:
         self._delay_scale = delay_scale
         self._injected_cookies = {}
         self._injected_header_overrides = {}
+        self._session_patched = False
+        self._run_start_time = time.time()
+        self._new_citations_count = 0
+        self._papers_fetched_count = 0
 
         # Paths
         self.cache_dir = os.path.join(output_dir, "scholar_cache", f"author_{author_id}", "citations")
@@ -165,6 +169,8 @@ class PaperCitationFetcher:
         self._next_refresh_at = ctx.next_refresh_at
         self._current_year_segment = ctx.current_year_segment
         self._completed_year_segments = ctx.completed_year_segments
+        self._session_patched = True
+        self._run_start_time = time.time()
 
 
     @staticmethod
@@ -763,10 +769,10 @@ class PaperCitationFetcher:
         print(f"  Author ID: {self.author_id}{limit_str}{skip_str}")
         print("=" * 70 + "\n")
 
-        self._patch_scholarly()
-        self._new_citations_count = 0  # genuinely new citations (not in cache before)
-        self._papers_fetched_count = 0  # papers that went through full fetch this run
-        self._run_start_time = time.time()  # track elapsed time
+        if not self._session_patched:
+            self._patch_scholarly()
+        self._new_citations_count = 0
+        self._papers_fetched_count = 0
 
         # Load profile
         if not os.path.exists(self.profile_json):
@@ -1342,6 +1348,20 @@ def main():
         print(f"Author ID: {author_id}")
 
         delay_scale = args.accelerate if args.interactive_captcha else 1.0
+
+        # Patch scholarly before profile fetch so both phases share the same
+        # HTTP/2 session — avoids the cold-session block on the first citation page.
+        citation_fetcher = PaperCitationFetcher(
+            author_id=author_id,
+            output_dir=args.output_dir,
+            limit=args.limit,
+            skip=args.skip,
+            fetch_mode=args.fetch_mode,
+            interactive_captcha=args.interactive_captcha,
+            delay_scale=delay_scale,
+        )
+        citation_fetcher._patch_scholarly()
+
         fetcher = AuthorProfileFetcher(author_id, args.output_dir, delay_scale=delay_scale)
         prev_profile = fetcher.load_prev_profile()
         success = fetcher.run(force_refresh_pubs=args.force_refresh_pubs)
@@ -1356,13 +1376,6 @@ def main():
             curr_pubs = curr_profile.get('total_publications', -2)
 
             if prev_citations == curr_citations and prev_pubs == curr_pubs and args.fetch_mode != 'force':
-                citation_fetcher = PaperCitationFetcher(
-                    author_id=author_id,
-                    output_dir=args.output_dir,
-                    limit=args.limit,
-                    skip=args.skip,
-                    fetch_mode=args.fetch_mode,
-                )
                 if not citation_fetcher.has_pending_work():
                     print("\n" + "=" * 70)
                     print(f"  No changes detected (citations: {curr_citations}, publications: {curr_pubs})")
@@ -1372,15 +1385,6 @@ def main():
                 else:
                     print("\nNo changes in totals, but some citations are incomplete. Continuing fetch...")
 
-        citation_fetcher = PaperCitationFetcher(
-            author_id=author_id,
-            output_dir=args.output_dir,
-            limit=args.limit,
-            skip=args.skip,
-            fetch_mode=args.fetch_mode,
-            interactive_captcha=args.interactive_captcha,
-            delay_scale=delay_scale,
-        )
         success = citation_fetcher.run()
         if not success:
             sys.exit(1)

@@ -322,6 +322,9 @@ class YearFetchMainTests(FetcherTestCase):
             def __init__(self, *args, **kwargs):
                 pass
 
+            def _patch_scholarly(self):
+                pass
+
             def run(self):
                 print("Citation fetch done")
                 return True
@@ -390,6 +393,9 @@ class YearFetchMainTests(FetcherTestCase):
 
         class FakePaperFetcher:
             def __init__(self, *args, **kwargs):
+                pass
+
+            def _patch_scholarly(self):
                 pass
 
             def has_pending_work(self):

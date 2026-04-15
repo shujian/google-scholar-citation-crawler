@@ -90,8 +90,21 @@ def _run_main(args):
         setup_proxy()
         print(f"Author ID: {author_id}")
 
-        # Always run profile first
         delay_scale = args.accelerate if args.interactive_captcha else 1.0
+
+        # Patch scholarly before profile fetch so both phases share the same
+        # HTTP/2 session — avoids the cold-session block on the first citation page.
+        citation_fetcher = PaperCitationFetcher(
+            author_id=author_id,
+            output_dir=args.output_dir,
+            limit=args.limit,
+            skip=args.skip,
+            fetch_mode=args.fetch_mode,
+            interactive_captcha=args.interactive_captcha,
+            delay_scale=delay_scale,
+        )
+        citation_fetcher._patch_scholarly()
+
         fetcher = AuthorProfileFetcher(author_id, args.output_dir, delay_scale=delay_scale)
         prev_profile = fetcher.load_prev_profile()
         success = fetcher.run(force_refresh_pubs=args.force_refresh_pubs)
@@ -107,14 +120,6 @@ def _run_main(args):
             curr_pubs = curr_profile.get('total_publications', -2)
 
             if prev_citations == curr_citations and prev_pubs == curr_pubs and args.fetch_mode != 'force':
-                # Even if totals haven't changed, check if all citations are fully cached
-                citation_fetcher = PaperCitationFetcher(
-                    author_id=author_id,
-                    output_dir=args.output_dir,
-                    limit=args.limit,
-                    skip=args.skip,
-                    fetch_mode=args.fetch_mode,
-                )
                 if not citation_fetcher.has_pending_work():
                     print("\n" + "=" * 70)
                     print(f"  No changes detected (citations: {curr_citations}, publications: {curr_pubs})")
@@ -125,15 +130,6 @@ def _run_main(args):
                     print("\nNo changes in totals, but some citations are incomplete. Continuing fetch...")
 
         # Run citation fetcher
-        citation_fetcher = PaperCitationFetcher(
-            author_id=author_id,
-            output_dir=args.output_dir,
-            limit=args.limit,
-            skip=args.skip,
-            fetch_mode=args.fetch_mode,
-            interactive_captcha=args.interactive_captcha,
-            delay_scale=delay_scale,
-        )
         success = citation_fetcher.run()
         if not success:
             sys.exit(1)
