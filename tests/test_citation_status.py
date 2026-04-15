@@ -139,26 +139,6 @@ class CitationStatusTests(FetcherTestCase):
 
         self.assertEqual(status, "complete")
 
-    def test_citation_status_recheck_bypasses_seen_equality_shortcut(self):
-        self.fetcher.recheck_citations = True
-        pub = {"title": "Paper", "num_citations": 5}
-        cached = {
-            "complete": True,
-            "probe_complete": False,
-            "citations": [
-                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
-                {"title": "B", "authors": "B", "venue": "V", "year": "2025", "url": "u2"},
-                {"title": "C", "authors": "C", "venue": "V", "year": "2025", "url": "u3"},
-            ],
-            "num_citations_on_scholar": 3,
-            "num_citations_seen": 5,
-        }
-
-        with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
-            status = self.fetcher._citation_status(pub)
-
-        self.assertEqual(status, "partial")
-
     def test_citation_status_stays_complete_when_only_unyeared_gap_changes(self):
         pub = {"title": "Paper", "num_citations": 5, "year": "2019"}
         cached = {

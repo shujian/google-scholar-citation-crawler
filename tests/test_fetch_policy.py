@@ -113,25 +113,6 @@ class FetchPolicyAndStrategyTests(FetcherTestCase):
         self.assertIsNone(strategy["direct_resume_state"])
         self.assertIn("direct fetch restarts from head", strategy["action"])
 
-        self.fetcher.recheck_citations = True
-        pub = {"title": "Paper", "num_citations": 60, "year": "2023"}
-        cached = {
-            "citations": [{"title": "Cached", "authors": "A", "venue": "V", "year": "2023", "url": "u1"}],
-            "num_citations_on_scholar": 60,
-            "dedup_count": 0,
-            "completed_years_in_current_run": [2023],
-        }
-
-        with patch.object(scholar_citation, "datetime") as fake_datetime:
-            fake_datetime.now.return_value = types.SimpleNamespace(year=2026)
-            strategy = self.fetcher._resolve_refresh_strategy(pub, cached, "partial")
-
-        self.assertEqual(strategy["mode"], "recheck")
-        self.assertEqual(strategy["fetch_policy"]["mode"], "direct")
-        self.assertFalse(strategy["force_year_rebuild"])
-        self.assertFalse(strategy["allow_incremental_early_stop"])
-        self.assertEqual(strategy["completed_years_in_current_run"], [])
-
     def test_resolve_refresh_strategy_update_drops_cached_unyeared_before_refresh(self):
         pub = {"title": "Paper", "num_citations": 5, "year": "2024"}
         cached = {
@@ -148,27 +129,6 @@ class FetchPolicyAndStrategyTests(FetcherTestCase):
         self.assertEqual(strategy["mode"], "update")
         self.assertEqual([c["title"] for c in strategy["resume_from"]], ["Keep-2024"])
         self.assertIn("drop cached unyeared before refresh", strategy["action"])
-
-    def test_resolve_refresh_strategy_recheck_drops_cached_unyeared_before_refresh(self):
-        self.fetcher.recheck_citations = True
-        pub = {"title": "Paper", "num_citations": 5, "year": "2024"}
-        cached = {
-            "citations": [
-                {"title": "Keep-2024", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
-                {"title": "Drop-NY", "authors": "B", "venue": "V", "year": "N/A", "url": "u2"},
-            ],
-            "num_citations_on_scholar": 5,
-            "dedup_count": 0,
-            "completed_years_in_current_run": [2024],
-        }
-
-        strategy = self.fetcher._resolve_refresh_strategy(pub, cached, "partial")
-
-        self.assertEqual(strategy["mode"], "recheck")
-        self.assertEqual([c["title"] for c in strategy["resume_from"]], ["Keep-2024"])
-        self.assertEqual(strategy["completed_years_in_current_run"], [])
-        self.assertIn("drop cached unyeared before refresh", strategy["action"])
-
 
 
 

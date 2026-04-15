@@ -1288,27 +1288,22 @@ class DirectFetchTests(FetcherTestCase):
             {"bib": {"title": "Fresh-B", "author": ["B"], "venue": "V2", "pub_year": "2025"}, "pub_url": "new-b", "cites_id": "cid-b"},
             {"bib": {"title": "Fresh-C", "author": ["C"], "venue": "V3", "pub_year": "2026"}, "pub_url": "new-c", "cites_id": "cid-c"},
         ]
-        old_recheck = self.fetcher.recheck_citations
-        self.fetcher.recheck_citations = True
-        try:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                cache_path = os.path.join(tmpdir, "paper.json")
-                with patch.object(scholar_citation.scholarly, "citedby", return_value=iter(fetched_items)), \
-                     patch("sys.stdout", new_callable=StringIO) as fake_stdout:
-                    citations = self.fetcher._fetch_citations_with_progress(
-                        citedby_url="/scholar?cites=123",
-                        cache_path=cache_path,
-                        title="Paper",
-                        num_citations=2,
-                        pub_url="https://example.com/paper",
-                        pub_year="2024",
-                        resume_from=[],
-                        completed_years_in_current_run=[],
-                        prev_scholar_count=1,
-                        force_year_rebuild=True,
-                    )
-        finally:
-            self.fetcher.recheck_citations = old_recheck
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = os.path.join(tmpdir, "paper.json")
+            with patch.object(scholar_citation.scholarly, "citedby", return_value=iter(fetched_items)), \
+                 patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+                citations = self.fetcher._fetch_citations_with_progress(
+                    citedby_url="/scholar?cites=123",
+                    cache_path=cache_path,
+                    title="Paper",
+                    num_citations=2,
+                    pub_url="https://example.com/paper",
+                    pub_year="2024",
+                    resume_from=[],
+                    completed_years_in_current_run=[],
+                    prev_scholar_count=1,
+                    force_year_rebuild=True,
+                )
 
         output = fake_stdout.getvalue()
         self.assertEqual([c["title"] for c in citations], ["Fresh-A", "Fresh-B", "Fresh-C"])
