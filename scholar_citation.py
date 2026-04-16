@@ -505,9 +505,6 @@ class PaperCitationFetcher:
             f"cached_total={status.get('cached_total')}, cached_year_sum={status.get('cached_year_total', '?')}, "
             f"dedup_num={status.get('dedup_count', 0)})"
         )
-        year_fetch_diagnostics = status.get('year_fetch_diagnostics')
-        if year_fetch_diagnostics:
-            message += f"; {PaperCitationFetcher._year_fetch_log_message(year_fetch_diagnostics)}"
         return message
 
     @staticmethod
@@ -518,9 +515,6 @@ class PaperCitationFetcher:
             f"cached_total={status.get('cached_total')}, cached_year_sum={status.get('cached_year_total', '?')}, "
             f"dedup_num={status.get('dedup_count', 0)})"
         )
-        year_fetch_diagnostics = status.get('year_fetch_diagnostics')
-        if year_fetch_diagnostics:
-            message += f"; {PaperCitationFetcher._year_fetch_log_message(year_fetch_diagnostics)}"
         return message
 
     @staticmethod
