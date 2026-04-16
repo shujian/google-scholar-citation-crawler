@@ -59,6 +59,7 @@ class SessionContext:
 
     # pagination / session health
     total_page_count: int = 0
+    current_paper_page_count: int = 0  # resets per paper, not per year-segment or retry
     next_break_at: int = 0
     next_refresh_at: int = 0
     last_scholar_url: str = ""
@@ -281,8 +282,9 @@ def patch_scholarly(ctx: SessionContext) -> None:
         self_iter._items_in_current_page = 0
         self_iter._finished_current_page = False
         ctx.total_page_count += 1
+        ctx.current_paper_page_count += 1
         if self_iter._page_num > 1:
-            print(f"      Pagination (page {self_iter._page_num})", flush=True)
+            print(f"      Pagination (page {ctx.current_paper_page_count})", flush=True)
 
         for session in (nav._session1, nav._session2):
             session.headers['referer'] = ctx.last_scholar_url

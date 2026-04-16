@@ -936,6 +936,7 @@ class PaperCitationFetcher:
             preserve_escalated_state_once = False
             fetch_completed = False
             post_fetch_retry_attempted = False
+            self._session_ctx.current_paper_page_count = 0
             while True:
                 attempt += 1
                 try:
