@@ -994,9 +994,6 @@ class PaperCitationFetcher:
                         year_summary = self._format_year_count_summary(year_counts)
                         unyeared_suffix = f", unyeared={unyeared}" if unyeared else ""
                         print(f"  Year summary: {year_summary}{unyeared_suffix}", flush=True)
-                    year_fetch_diagnostics = getattr(self, '_year_fetch_diagnostics', None)
-                    if year_fetch_diagnostics:
-                        print(f"  {self._year_fetch_log_message(year_fetch_diagnostics)}", flush=True)
                     latest_cache_snapshot = self._load_citation_cache(title)
                     direct_fetch_diagnostics = (latest_cache_snapshot or {}).get('direct_fetch_diagnostics') or {}
                     has_direct_fetch_summary = direct_fetch_diagnostics.get('mode') == 'direct'

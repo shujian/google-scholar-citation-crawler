@@ -337,69 +337,6 @@ class MainLoopTests(FetcherTestCase):
         self.assertEqual(results[0]["citations"], final_citations)
         self.assertEqual(self.fetcher._papers_fetched_count, 0)
 
-    def test_run_main_loop_logs_final_year_diagnostics_summary(self):
-        pub = {
-            "no": 1,
-            "title": "Big Paper",
-            "num_citations": 12,
-            "year": "2024",
-            "venue": "V",
-        }
-        cached = None
-        results = []
-        final_citations = [
-            {"title": "Y2024-A", "authors": "A", "venue": "V1", "year": "2024", "url": "u1"},
-            {"title": "Y2024-B", "authors": "B", "venue": "V1", "year": "2024", "url": "u2"},
-            {"title": "Y2025-A", "authors": "C", "venue": "V2", "year": "2025", "url": "u3"},
-        ]
-        year_fetch_diagnostics = {
-            2024: self.fetcher._build_year_fetch_diagnostics(2024, 3, 2, 1, "target_reached"),
-            2025: self.fetcher._build_year_fetch_diagnostics(2025, 1, 1, 0, "iterator_exhausted"),
-        }
-
-        def cache_status(current_pub):
-            self.assertEqual(current_pub["title"], pub["title"])
-            return "missing", cached
-
-        def fake_fetch(*args, **kwargs):
-            self.fetcher._year_fetch_diagnostics = year_fetch_diagnostics
-            return final_citations
-
-        with patch.object(self.fetcher, "_resolve_refresh_strategy", return_value={
-                "mode": "missing",
-                "resume_from": [],
-                "completed_years_in_current_run": [],
-                "partial_year_start": {},
-                "saved_dedup_count": 0,
-                "allow_incremental_early_stop": True,
-                "force_year_rebuild": False,
-                "selective_refresh_years": None,
-                "rehydrated_probed_year_counts": None,
-                "rehydrated_probe_complete": False,
-                "rehydrated_year_fetch_diagnostics": None,
-                "action": "first fetch",
-                "prev_scholar_count": 0,
-                "fetch_policy": {"mode": "year", "covered_years": 2, "avg_citations_per_year": 6, "pub_year": 2024, "reason": "high_average_per_year"},
-             }), \
-             patch.object(self.fetcher, "_fetch_citations_with_progress", side_effect=fake_fetch), \
-             patch.object(self.fetcher, "_load_citation_cache", return_value=None), \
-             patch("scholar_citation.rand_delay", return_value=0), \
-             patch("scholar_citation.time.sleep", return_value=None), \
-             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
-            self.fetcher._run_main_loop(
-                publications=[pub],
-                cache_status=cache_status,
-                url_map={pub["title"]: {"citedby_url": "/scholar?cites=123", "pub_url": "https://example.com/paper"}},
-                need_fetch=[(pub, "missing", cached)],
-                results=results,
-                fetch_idx=0,
-            )
-
-        output = fake_stdout.getvalue()
-        self.assertIn("Year fetch comparisons: 2 years\n  2024: scholar=3,seen=3,cached=2,dedup=1,term=target_reached\n  2025: scholar=1,seen=1,cached=1,dedup=0,term=iterator_exhausted", output)
-        self.assertEqual(results[0]["citations"], final_citations)
-        self.assertEqual(self.fetcher._papers_fetched_count, 0)
-
     def test_run_main_loop_retries_with_saved_cache_after_failure(self):
         pub = {
             "no": 1,
