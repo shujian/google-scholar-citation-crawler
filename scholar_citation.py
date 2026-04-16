@@ -442,18 +442,16 @@ class PaperCitationFetcher:
         rehydrated_probe_complete = False
         rehydrated_year_fetch_diagnostics = self._rehydrate_year_fetch_diagnostics(cached)
         allow_incremental_early_stop = True
-        drop_cached_unyeared = False
-        mode = 'resume'
+        mode = 'fetch'
         direct_resume_state = None
-        direct_resume_note = ''
-        action = f"resume ({len(resume_from)} cached, fetching remaining)"
-
+        # Always drop unyeared cached citations before year-based fetch:
+        # unyeared entries have no reliable year bucket to diff against probe data.
+        completed_years_in_current_run = []
+        drop_cached_unyeared = fetch_policy['mode'] == 'year'
         if old_scholar_known is not None and old_scholar_known != num_citations:
-            mode = 'update'
-            completed_years_in_current_run = []
-            drop_cached_unyeared = True
-            action = f"update ({len(resume_from)} cached, citations {old_scholar} -> {num_citations}; drop cached unyeared before refresh)"
+            action = f"fetch ({len(resume_from)} cached, citations {old_scholar} -> {num_citations}; drop unyeared)"
         else:
+            action = f"fetch ({len(resume_from)} cached; drop unyeared, recheck by year)"
             rehydrated_probed_year_counts, rehydrated_probe_complete = self._rehydrate_probe_metadata(
                 cached,
                 num_citations,

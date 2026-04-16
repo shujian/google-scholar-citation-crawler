@@ -694,13 +694,8 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
     print(f"  Year-based plan: {start_year}-{current_year} "
           f"(current-run completed={len(ctx.completed_year_segments)})", flush=True)
 
-    year_fetch_plan = _build_year_fetch_plan(
-        start_year, current_year, prev_scholar_count, num_citations,
-        allow_incremental_early_stop=False,
-    )
-    year_range = year_fetch_plan['year_range']
-    print(f"    Direction: {year_fetch_plan['direction_label']} "
-          f"({year_fetch_plan['direction_reason']})", flush=True)
+    year_range = range(start_year, current_year + 1)
+    print(f"    Direction: oldest→newest", flush=True)
 
     paper_new_count = 0
 
@@ -731,20 +726,13 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
     else:
         print(f"    Prior run diagnostics: none", flush=True)
     effective_target = probed_hist_total if histogram_authoritative else num_citations
-    if force_year_rebuild:
-        _fetch_mode_label = 'full-rebuild'
-    elif not allow_incremental_early_stop:
-        _fetch_mode_label = 'full-recheck'
-    elif prev_scholar_count:
-        _fetch_mode_label = 'update'
-    else:
-        _fetch_mode_label = 'resume'
+    _fetch_mode_label = 'full-rebuild' if force_year_rebuild else 'selective'
     print(f"    Fetch context: strategy={_fetch_mode_label}, "
           f"probe_complete={ctx.probed_year_count_complete}, "
           f"prev_scholar={prev_scholar_count}, target={effective_target}, total_years={total_years}", flush=True)
     print(f"    Current-run completed years: {fetcher._format_year_set_summary(ctx.completed_year_segments)}", flush=True)
     print(f"    Partial resume points: {fetcher._format_partial_year_start_summary(ctx.partial_year_start)}", flush=True)
-    if selective_refresh_years is None and probed_year_counts and allow_incremental_early_stop:
+    if selective_refresh_years is None and probed_year_counts and can_skip_by_probe_counts:
         selective_refresh_years = fetcher._selective_refresh_candidate_years(
             cached_year_counts,
             probed_year_counts,
