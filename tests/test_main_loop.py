@@ -155,7 +155,9 @@ class MainLoopTests(FetcherTestCase):
             )
 
         self.assertEqual(len(fetch_calls), 2)
-        self.assertEqual([c["title"] for c in fetch_calls[0]["resume_from"]], ["Cached-2024"])
+        # prev was year mode (has probed_year_counts) → unyeared NOT dropped
+        self.assertIn("Cached-2024", [c["title"] for c in fetch_calls[0]["resume_from"]])
+        self.assertIn("Cached-NY", [c["title"] for c in fetch_calls[0]["resume_from"]])
         self.assertEqual([c["title"] for c in fetch_calls[1]["resume_from"]], ["Cached-2025"])
         self.assertEqual(fetch_calls[1]["completed_years_in_current_run"], [])
         self.assertEqual(fetch_calls[1]["saved_dedup_count"], 3)

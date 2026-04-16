@@ -444,14 +444,18 @@ class PaperCitationFetcher:
         allow_incremental_early_stop = True
         mode = 'fetch'
         direct_resume_state = None
-        # Always drop unyeared cached citations before year-based fetch:
-        # unyeared entries have no reliable year bucket to diff against probe data.
         completed_years_in_current_run = []
-        drop_cached_unyeared = fetch_policy['mode'] == 'year'
+        # Drop unyeared cached citations when switching from direct to year mode:
+        # direct-mode caches may have unyeared entries that can't be diffed against
+        # per-year histogram data.
+        prev_was_direct = direct_fetch_diagnostics.get('mode') == 'direct'
+        drop_cached_unyeared = fetch_policy['mode'] == 'year' and prev_was_direct
         if old_scholar_known is not None and old_scholar_known != num_citations:
-            action = f"fetch ({len(resume_from)} cached, citations {old_scholar} -> {num_citations}; drop unyeared)"
+            unyeared_note = "; drop unyeared (was direct)" if drop_cached_unyeared else ""
+            action = f"fetch ({len(resume_from)} cached, citations {old_scholar} -> {num_citations}{unyeared_note})"
         else:
-            action = f"fetch ({len(resume_from)} cached; drop unyeared, recheck by year)"
+            unyeared_note = "; drop unyeared (was direct)" if drop_cached_unyeared else ""
+            action = f"fetch ({len(resume_from)} cached; recheck by year{unyeared_note})"
             rehydrated_probed_year_counts, rehydrated_probe_complete = self._rehydrate_probe_metadata(
                 cached,
                 num_citations,

@@ -123,6 +123,7 @@ class FetchPolicyAndStrategyTests(FetcherTestCase):
             ],
             "num_citations_on_scholar": 80,
             "dedup_count": 0,
+            "direct_fetch_diagnostics": {"mode": "direct"},
         }
 
         strategy = self.fetcher._resolve_refresh_strategy(pub, cached, "partial")
