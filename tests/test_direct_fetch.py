@@ -304,14 +304,6 @@ class DirectFetchTests(FetcherTestCase):
         self.assertIn("Probe totals: scholar_total=3, year_sum=0, missing_from_histogram=?", output)
         self.assertIn("Cache totals: cached_total=3, cached_year_sum=2, cached_unyeared=1, dedup_num=0", output)
 
-        plan = scholar_citation.PaperCitationFetcher._build_year_fetch_plan(
-            2020, 2026, 10, 12, allow_incremental_early_stop=False,
-        )
-
-        self.assertEqual(list(plan["year_range"]), list(range(2020, 2027)))
-        self.assertEqual(plan["direction_label"], "oldest→newest")
-        self.assertEqual(plan["direction_reason"], "recheck mode, full year revalidation")
-
     def test_incomplete_histogram_falls_back_to_pub_year(self):
         class FakeBar:
             def __init__(self, year, count):

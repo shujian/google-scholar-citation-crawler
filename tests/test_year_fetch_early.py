@@ -67,40 +67,6 @@ class YearFetchEarlyTests(FetcherTestCase):
         self.assertEqual(requests, [(2025, 0), (2026, 0)])
         self.assertEqual(self.fetcher._new_citations_count, 4)
         self.assertEqual(save_calls, [False, False, True])
-    def test_early_stop_status_suppresses_only_target_reached_when_requested(self):
-        self.assertTrue(
-            scholar_citation.PaperCitationFetcher._get_early_stop_status(
-                3, 3, 0, 0, allow_incremental_early_stop=False,
-            )["should_stop"]
-        )
-        self.assertFalse(
-            scholar_citation.PaperCitationFetcher._get_early_stop_status(
-                3, 3, 0, 0, allow_incremental_early_stop=False,
-                suppress_target_reached=True,
-            )["should_stop"]
-        )
-        partial = scholar_citation.PaperCitationFetcher._get_early_stop_status(
-            1, 3, 0, 0,
-            allow_incremental_early_stop=False,
-            suppress_target_reached=True,
-            stop_after_partial_resume=True,
-        )
-        self.assertTrue(partial["should_stop"])
-        self.assertEqual(partial["reason"], "partial_resume_completed")
-        disabled_target = scholar_citation.PaperCitationFetcher._get_early_stop_status(
-            3, 3, 0, 0,
-            allow_incremental_early_stop=False,
-            disable_target_reached=True,
-        )
-        self.assertFalse(disabled_target["should_stop"])
-        recovered = scholar_citation.PaperCitationFetcher._get_early_stop_status(
-            1, 3, 2, 1,
-            allow_incremental_early_stop=True,
-            suppress_target_reached=True,
-        )
-        self.assertTrue(recovered["should_stop"])
-        self.assertEqual(recovered["reason"], "scholar_increase_recovered")
-
     def test_histogram_authoritative_mode_does_not_stop_on_cached_total_match(self):
         self.fetcher._probed_year_counts = {2024: 1, 2025: 1, 2026: 1}
         self.fetcher._probed_year_count_complete = True
@@ -218,12 +184,6 @@ class YearFetchEarlyTests(FetcherTestCase):
                 allow_incremental_early_stop=False,
                 selective_refresh_years={2025, 2026},
             )
-
-        self.assertFalse(
-            scholar_citation.PaperCitationFetcher._get_early_stop_status(
-                len(citations), 12, 2, 10, allow_incremental_early_stop=False,
-            )["should_stop"]
-        )
 
         self.assertEqual(
             [c["title"] for c in citations],

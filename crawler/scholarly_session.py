@@ -458,8 +458,9 @@ def probe_citation_start_year(
                     conservative_start = pub_year_int
                     used_pub_year_fallback = True
                 if num_citations is not None:
+                    unyeared = num_citations - hist_total
                     print(f"      Scholar year range probe: histogram incomplete "
-                          f"(hist_total={hist_total}, scholar_total={num_citations}), "
+                          f"(hist_total={hist_total}, scholar_total={num_citations}, unyeared={unyeared}), "
                           f"using conservative start_year = {conservative_start}", flush=True)
                 else:
                     print(f"      Scholar year range probe: histogram total unavailable, "

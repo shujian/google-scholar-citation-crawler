@@ -612,23 +612,6 @@ class PaperCitationFetcher:
         self._probed_year_count_complete = ctx.probed_year_count_complete
         self._year_fetch_diagnostics = ctx.year_fetch_diagnostics
         return result
-    @staticmethod
-    def _build_year_fetch_plan(start_year, current_year, prev_scholar_count, num_citations,
-                                    allow_incremental_early_stop=True):
-        return _cf._build_year_fetch_plan(start_year, current_year, prev_scholar_count, num_citations,
-                                         allow_incremental_early_stop=allow_incremental_early_stop)
-    @staticmethod
-    def _get_early_stop_status(citations_count, num_citations, paper_new_count,
-                                  prev_scholar_count, allow_incremental_early_stop=True,
-                                  suppress_target_reached=False,
-                                  stop_after_partial_resume=False,
-                                  disable_target_reached=False):
-        return _cf._get_early_stop_status(citations_count, num_citations, paper_new_count,
-                                          prev_scholar_count,
-                                          allow_incremental_early_stop=allow_incremental_early_stop,
-                                          suppress_target_reached=suppress_target_reached,
-                                          stop_after_partial_resume=stop_after_partial_resume,
-                                          disable_target_reached=disable_target_reached)
     def _fetch_by_year(self, citedby_url, old_citations, fresh_citations, save_progress,
                        num_citations, pub_year, prev_scholar_count=0,
                        allow_incremental_early_stop=True,

@@ -549,39 +549,6 @@ def _build_year_fetch_plan(start_year, current_year, prev_scholar_count, num_cit
                              else 'full scan mode'),
     }
 
-def _get_early_stop_status(citations_count, num_citations, paper_new_count,
-                           prev_scholar_count, allow_incremental_early_stop=True,
-                           suppress_target_reached=False,
-                           stop_after_partial_resume=False,
-                           disable_target_reached=False):
-    scholar_increase = num_citations - prev_scholar_count if prev_scholar_count > 0 else 0
-    if stop_after_partial_resume:
-        return {
-            'should_stop': True,
-            'reason': 'partial_resume_completed',
-            'message': 'Completed resumed year segment',
-            'scholar_increase': scholar_increase,
-        }
-    if citations_count >= num_citations and not suppress_target_reached and not disable_target_reached:
-        return {
-            'should_stop': True,
-            'reason': 'target_reached',
-            'message': f"Reached target ({citations_count} >= {num_citations})",
-            'scholar_increase': scholar_increase,
-        }
-    if allow_incremental_early_stop and scholar_increase > 0 and paper_new_count >= scholar_increase:
-        return {
-            'should_stop': True,
-            'reason': 'scholar_increase_recovered',
-            'message': f"Found {paper_new_count} new (Scholar increase: {scholar_increase})",
-            'scholar_increase': scholar_increase,
-        }
-    return {
-        'should_stop': False,
-        'reason': None,
-        'message': '',
-        'scholar_increase': scholar_increase,
-    }
 
 def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, save_progress,
                     num_citations, pub_year, prev_scholar_count=0,
@@ -628,12 +595,6 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                 for citation in fresh_year_buckets[year]
             ],
         )
-
-    def current_count_for_stop_and_status():
-        citations = current_citations(complete=True)
-        if effective_target:
-            return len(fetcher._year_count_map(citations))
-        return len(citations)
 
     year_count_map = fetcher._year_count_map(old_citations)
     probed_year_counts = fetcher._normalize_year_count_map(ctx.probed_year_counts)
@@ -743,20 +704,10 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
         selective_refresh_years = {int(year) for year in ctx.partial_year_start.keys()}
     effective_refresh_years = set(selective_refresh_years or ())
     effective_refresh_years.update(int(year) for year in ctx.partial_year_start.keys())
-    suppress_target_reached = (
-        bool(probed_year_counts)
-        and bool(ctx.partial_year_start)
-        and cached_year_counts == probed_year_counts
-    )
     stop_partial_resume_once_satisfied = (
         bool(probed_year_counts)
         and bool(ctx.partial_year_start)
         and cached_year_counts == probed_year_counts
-    )
-    suppress_final_histogram_target_stop = (
-        histogram_authoritative
-        and bool(ctx.partial_year_start)
-        and cached_total_citations >= effective_target
     )
     if selective_refresh_years is None:
         print("    Selective refresh years: none", flush=True)
@@ -809,12 +760,6 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
         save_progress(complete=True)
         return current_citations(complete=True)
 
-    target_reached_by_histogram = lambda: (
-        effective_target is not None
-        and effective_target > 0
-        and current_count_for_stop_and_status() >= effective_target
-        and not suppress_final_histogram_target_stop
-    )
 
     try:
         for year in year_range:
