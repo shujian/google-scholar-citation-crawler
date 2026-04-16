@@ -671,6 +671,10 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
             num_citations=num_citations,
             pub_year=pub_year,
         )
+        # Sync probe results from _session_ctx back to the local FetchContext
+        # so subsequent logic (Probe summary, skip checks, etc.) uses fresh data.
+        ctx.probed_year_counts = fetcher._normalize_year_count_map(fetcher._probed_year_counts)
+        ctx.probed_year_count_complete = fetcher._probed_year_count_complete
         if start_year is None:
             if year_count_map:
                 start_year = min(year_count_map.keys())
