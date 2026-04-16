@@ -739,7 +739,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
         _fetch_mode_label = 'update'
     else:
         _fetch_mode_label = 'resume'
-    print(f"    Fetch context: mode={_fetch_mode_label}, "
+    print(f"    Fetch context: strategy={_fetch_mode_label}, "
           f"probe_complete={ctx.probed_year_count_complete}, "
           f"prev_scholar={prev_scholar_count}, target={effective_target}, total_years={total_years}", flush=True)
     print(f"    Current-run completed years: {fetcher._format_year_set_summary(ctx.completed_year_segments)}", flush=True)
