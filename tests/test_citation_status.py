@@ -8,6 +8,7 @@ from tests.conftest import (
 import types
 import unittest
 import scholar_citation
+from crawler.citation_strategy import refresh_reconciliation_status as _cs_refresh_reconciliation_status
 
 class CitationStatusTests(FetcherTestCase):
     def test_fetch_citations_with_progress_rehydrates_probe_metadata_for_year_resume(self):
@@ -577,9 +578,10 @@ class CitationStatusTests(FetcherTestCase):
             for idx in range(9)
         ]
 
-        status = self.fetcher._refresh_reconciliation_status(
-            citations=citations,
-            num_citations=10,
+        status = _cs_refresh_reconciliation_status(
+            citations,
+            10,
+            dedup_count=0,
             probed_year_counts={2024: 10},
             probe_complete=True,
             year_fetch_diagnostics={

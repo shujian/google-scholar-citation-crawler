@@ -73,7 +73,6 @@ from crawler.citation_strategy import (
     resolve_citation_fetch_policy as _cs_resolve_citation_fetch_policy,
     selective_refresh_candidate_years as _cs_selective_refresh_candidate_years,
     build_citation_count_summary as _cs_build_citation_count_summary,
-    refresh_reconciliation_status as _cs_refresh_reconciliation_status,
     format_year_fetch_diagnostics_summary as _cs_format_year_fetch_diagnostics_summary,
 )
 from crawler.citation_identity import (
@@ -373,17 +372,6 @@ class PaperCitationFetcher:
             dedup_count=dedup_count,
         )
 
-    def _refresh_reconciliation_status(self, citations, num_citations,
-                                       probed_year_counts=None, probe_complete=False,
-                                       year_fetch_diagnostics=None):
-        return _cs_refresh_reconciliation_status(
-            citations,
-            num_citations,
-            dedup_count=getattr(self, '_dedup_count', 0),
-            probed_year_counts=probed_year_counts,
-            probe_complete=probe_complete,
-            year_fetch_diagnostics=year_fetch_diagnostics,
-        )
 
     @staticmethod
     def _rehydrate_probe_metadata(cached, current_scholar_total):
@@ -496,26 +484,6 @@ class PaperCitationFetcher:
             'fetch_policy': fetch_policy,
             'direct_resume_state': direct_resume_state,
         }
-
-    @staticmethod
-    def _refresh_log_message(prefix, status):
-        message = (
-            f"{prefix}: {status['reason']} "
-            f"(scholar_total={status.get('scholar_total')}, year_sum={status.get('histogram_total', '?')}, "
-            f"cached_total={status.get('cached_total')}, cached_year_sum={status.get('cached_year_total', '?')}, "
-            f"dedup_num={status.get('dedup_count', 0)})"
-        )
-        return message
-
-    @staticmethod
-    def _refresh_escalation_message(status):
-        message = (
-            f"Escalating to full revalidation: {status['reason']} "
-            f"(scholar_total={status.get('scholar_total')}, year_sum={status.get('histogram_total', '?')}, "
-            f"cached_total={status.get('cached_total')}, cached_year_sum={status.get('cached_year_total', '?')}, "
-            f"dedup_num={status.get('dedup_count', 0)})"
-        )
-        return message
 
     @staticmethod
     def _refresh_scholarly_session():
@@ -927,7 +895,6 @@ class PaperCitationFetcher:
 
             citations = None
             attempt = 0
-            preserve_escalated_state_once = False
             fetch_completed = False
             post_fetch_retry_attempted = False
             self._session_ctx.current_paper_page_count = 0
@@ -938,10 +905,7 @@ class PaperCitationFetcher:
                         self._refresh_scholarly_session()
                     self._next_refresh_at = self._session_ctx.total_page_count + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
                     if attempt > 1:
-                        if preserve_escalated_state_once:
-                            preserve_escalated_state_once = False
-                            print(f"  {now_str()} Retrying escalated full revalidation with in-memory state")
-                        elif fetch_completed:
+                        if fetch_completed:
                             print(f"  {now_str()} Retrying post-fetch reconciliation with in-memory citations")
                         else:
                             # Reload citations and current-run completed years from file.
@@ -1031,61 +995,16 @@ class PaperCitationFetcher:
                     year_fetch_diagnostics = getattr(self, '_year_fetch_diagnostics', None)
                     if year_fetch_diagnostics:
                         print(f"  {self._year_fetch_log_message(year_fetch_diagnostics)}", flush=True)
-                    if citations is not None:
-                        refresh_status = self._refresh_reconciliation_status(
-                            citations,
-                            num_citations,
-                            probed_year_counts=getattr(self, '_probed_year_counts', None),
-                            probe_complete=getattr(self, '_probed_year_count_complete', False),
-                            year_fetch_diagnostics=getattr(self, '_year_fetch_diagnostics', None),
-                        )
-                        latest_cache_snapshot = self._load_citation_cache(title)
-                        direct_fetch_diagnostics = (latest_cache_snapshot or {}).get('direct_fetch_diagnostics') or {}
-                        has_direct_fetch_summary = direct_fetch_diagnostics.get('mode') == 'direct'
-                        direct_underfetched = has_direct_fetch_summary and direct_fetch_diagnostics.get('underfetched')
-                        if has_direct_fetch_summary:
-                            if direct_underfetched:
-                                print(f"  {self._direct_fetch_log_message(direct_fetch_diagnostics)}", flush=True)
-                                print("  Direct fetch under-fetched; recording current results without escalation", flush=True)
-                                break
+                    latest_cache_snapshot = self._load_citation_cache(title)
+                    direct_fetch_diagnostics = (latest_cache_snapshot or {}).get('direct_fetch_diagnostics') or {}
+                    has_direct_fetch_summary = direct_fetch_diagnostics.get('mode') == 'direct'
+                    direct_underfetched = has_direct_fetch_summary and direct_fetch_diagnostics.get('underfetched')
+                    if has_direct_fetch_summary:
+                        if direct_underfetched:
+                            print(f"  {self._direct_fetch_log_message(direct_fetch_diagnostics)}", flush=True)
+                            print("  Direct fetch under-fetched; recording current results", flush=True)
+                        else:
                             print(f"  {self._direct_fetch_summary_message(direct_fetch_diagnostics)}", flush=True)
-                        if not refresh_status['ok']:
-                            print(f"  {self._refresh_log_message('Refresh check', refresh_status)}")
-                            is_selective_refresh_attempt = bool(selective_refresh_years)
-                            is_incomplete_histogram = (
-                                refresh_status['reason'] == 'histogram_incomplete'
-                                and not refresh_status.get('probe_complete', False)
-                            )
-                            if is_selective_refresh_attempt:
-                                print("  Selective refresh reconciliation failed; recording current results without escalation", flush=True)
-                                break
-                            if is_incomplete_histogram:
-                                print("  Histogram is incomplete; recording current results without escalation", flush=True)
-                                break
-                            fetch_policy = self._resolve_citation_fetch_policy(
-                                num_citations,
-                                pub.get('year', 'N/A'),
-                            )
-                            should_escalate = (
-                                fetch_policy['mode'] == 'year'
-                                and not force_year_rebuild
-                                and refresh_status['reason'] != 'year_count_mismatch'
-                            )
-                            if should_escalate:
-                                allow_incremental_early_stop = False
-                                force_year_rebuild = True
-                                completed_years_in_current_run = []
-                                selective_refresh_years = None
-                                partial_year_start = {}
-                                rehydrated_probed_year_counts = None
-                                rehydrated_probe_complete = False
-                                fetch_completed = False
-                                post_fetch_retry_attempted = False
-                                citations = None
-                                preserve_escalated_state_once = True
-                                print(f"  {self._refresh_escalation_message(refresh_status)}")
-                                print(f"  {now_str()} Retrying escalated full revalidation with in-memory state")
-                                continue
                     break
 
                 except Exception as e:

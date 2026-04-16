@@ -249,7 +249,6 @@ class MainLoopTests(FetcherTestCase):
 
         with patch.object(self.fetcher, "_fetch_citations_with_progress", return_value=final_citations) as mock_fetch, \
              patch.object(self.fetcher, "_wait_proxy_switch", side_effect=AssertionError("should not wait for proxy switch")), \
-             patch.object(self.fetcher, "_refresh_reconciliation_status", return_value={"ok": False, "reason": "year_count_mismatch"}), \
              patch.object(scholar_citation, "datetime") as fake_datetime, \
              patch("scholar_citation.rand_delay", return_value=0), \
              patch("scholar_citation.time.sleep", return_value=None), \
@@ -274,7 +273,6 @@ class MainLoopTests(FetcherTestCase):
         self.assertFalse(mock_fetch.call_args.kwargs["force_year_rebuild"])
         self.assertNotIn("Escalating to full revalidation", log_output)
         self.assertNotIn("Retrying escalated full revalidation with in-memory state", log_output)
-        self.assertIn("Refresh check: year_count_mismatch", log_output)
         self.assertEqual(results[0]["citations"], final_citations)
 
     def test_run_main_loop_logs_final_year_summary_when_years_present(self):
@@ -382,7 +380,6 @@ class MainLoopTests(FetcherTestCase):
                 "fetch_policy": {"mode": "year", "covered_years": 2, "avg_citations_per_year": 6, "pub_year": 2024, "reason": "high_average_per_year"},
              }), \
              patch.object(self.fetcher, "_fetch_citations_with_progress", side_effect=fake_fetch), \
-             patch.object(self.fetcher, "_refresh_reconciliation_status", return_value={"ok": True, "reason": "matched_complete_histogram"}), \
              patch.object(self.fetcher, "_load_citation_cache", return_value=None), \
              patch("scholar_citation.rand_delay", return_value=0), \
              patch("scholar_citation.time.sleep", return_value=None), \
@@ -498,66 +495,6 @@ class MainLoopTests(FetcherTestCase):
         self.assertEqual(results[0]["citations"], second_result)
         self.assertEqual(self.fetcher._papers_fetched_count, 0)
 
-    def test_run_main_loop_records_histogram_incomplete_without_refetch(self):
-        pub = {
-            "no": 1,
-            "title": "Looping Paper",
-            "num_citations": 132,
-            "year": "2021",
-            "venue": "V",
-        }
-        cached = {
-            "citations": [{"title": "Cached", "authors": "A", "venue": "V", "year": "2021", "url": "u0"}],
-            "num_citations_on_scholar": 131,
-            "complete": False,
-        }
-        fetched_citations = [
-            {"title": "Fetched-2021", "authors": "A", "venue": "V", "year": "2021", "url": "u1"},
-            {"title": "Fetched-2022", "authors": "B", "venue": "V", "year": "2022", "url": "u2"},
-            {"title": "Fetched-2023", "authors": "C", "venue": "V", "year": "2023", "url": "u3"},
-        ]
-        publications = [pub]
-        results = []
-
-        def cache_status(current_pub):
-            self.assertEqual(current_pub["title"], pub["title"])
-            return "partial", cached
-
-        refresh_status = {
-            "ok": False,
-            "reason": "histogram_incomplete",
-            "probe_complete": False,
-            "scholar_total": 132,
-            "histogram_total": 0,
-            "cached_total": 3,
-            "cached_year_total": 3,
-            "dedup_count": 0,
-        }
-
-        with patch.object(self.fetcher, "_fetch_citations_with_progress", return_value=fetched_citations) as mock_fetch, \
-             patch.object(self.fetcher, "_refresh_reconciliation_status", return_value=refresh_status), \
-             patch.object(self.fetcher, "_wait_proxy_switch", return_value=None), \
-             patch.object(self.fetcher, "_load_citation_cache") as mock_load_cache, \
-             patch("scholar_citation.rand_delay", return_value=0), \
-             patch("scholar_citation.time.sleep", return_value=None), \
-             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
-            self.fetcher._run_main_loop(
-                publications=publications,
-                cache_status=cache_status,
-                url_map={pub["title"]: {"citedby_url": "/scholar?cites=123", "pub_url": "https://example.com/paper"}},
-                need_fetch=[(pub, "partial", cached)],
-                results=results,
-                fetch_idx=0,
-            )
-
-        log_output = fake_stdout.getvalue()
-        self.assertEqual(mock_fetch.call_count, 1)
-        self.assertEqual(mock_load_cache.call_count, 1)
-        self.assertNotIn("Retrying post-fetch reconciliation with in-memory citations", log_output)
-        self.assertIn("Histogram is incomplete; recording current results without escalation", log_output)
-        self.assertNotIn("Escalating to full revalidation", log_output)
-        self.assertEqual(results[0]["citations"], fetched_citations)
-
     def test_run_main_loop_records_direct_underfetch_without_escalation(self):
         pub = {
             "no": 1,
@@ -595,7 +532,6 @@ class MainLoopTests(FetcherTestCase):
             return "partial", cached
 
         with patch.object(self.fetcher, "_fetch_citations_with_progress", return_value=fetched_citations) as mock_fetch, \
-             patch.object(self.fetcher, "_refresh_reconciliation_status", return_value={"ok": True, "reason": "count_matched_without_histogram"}), \
              patch.object(self.fetcher, "_wait_proxy_switch", return_value=None), \
              patch.object(self.fetcher, "_load_citation_cache", return_value=latest_cache) as mock_load_cache, \
              patch("scholar_citation.rand_delay", return_value=0), \
@@ -614,7 +550,7 @@ class MainLoopTests(FetcherTestCase):
         self.assertEqual(mock_fetch.call_count, 1)
         mock_load_cache.assert_called_once_with(pub["title"])
         self.assertIn("Direct fetch under-fetched", log_output)
-        self.assertIn("Direct fetch under-fetched; recording current results without escalation", log_output)
+        self.assertIn("Direct fetch under-fetched; recording current results", log_output)
         self.assertNotIn("Escalating to full revalidation", log_output)
         self.assertEqual(results[0]["citations"], fetched_citations)
 
@@ -660,7 +596,6 @@ class MainLoopTests(FetcherTestCase):
                 "fetch_policy": {"mode": "direct", "covered_years": 2, "avg_citations_per_year": 6, "pub_year": 2024, "reason": "low_average_per_year"},
              }), \
              patch.object(self.fetcher, "_fetch_citations_with_progress", side_effect=fake_fetch), \
-             patch.object(self.fetcher, "_refresh_reconciliation_status", return_value={"ok": True, "reason": "count_matched_without_histogram"}), \
              patch.object(self.fetcher, "_load_citation_cache", return_value={"direct_fetch_diagnostics": direct_fetch_diagnostics}), \
              patch("scholar_citation.rand_delay", return_value=0), \
              patch("scholar_citation.time.sleep", return_value=None), \
@@ -677,124 +612,8 @@ class MainLoopTests(FetcherTestCase):
         output = fake_stdout.getvalue()
         self.assertIn("Done: 2 cached, 3 seen, 1 dupes (Scholar: 12)", output)
         self.assertIn("Direct fetch summary (reported_total=12, yielded_total=11, seen_total=12, dedup_num=1, gap=0, termination=target_reached)", output)
-        self.assertNotIn("Direct fetch under-fetched; recording current results without escalation", output)
+        self.assertNotIn("Direct fetch under-fetched; recording current results", output)
         self.assertEqual(results[0]["citations"], final_citations)
-    def test_run_main_loop_limits_post_fetch_reconciliation_retry(self):
-        pub = {
-            "no": 1,
-            "title": "Post Fetch Retry Paper",
-            "num_citations": 163,
-            "year": "2020",
-            "venue": "V",
-        }
-        cached = {
-            "citations": [{"title": "Cached", "authors": "A", "venue": "V", "year": "2020", "url": "u0"}],
-            "num_citations_on_scholar": 160,
-            "complete": False,
-        }
-        fetched_citations = [
-            {"title": "Fetched-1", "authors": "A", "venue": "V", "year": "2020", "url": "u1"},
-            {"title": "Fetched-2", "authors": "B", "venue": "V", "year": "2021", "url": "u2"},
-        ]
-        results = []
-        refresh_calls = {"count": 0}
-
-        def cache_status(current_pub):
-            self.assertEqual(current_pub["title"], pub["title"])
-            return "partial", cached
-
-        def flaky_refresh_status(*args, **kwargs):
-            refresh_calls["count"] += 1
-            raise RuntimeError(f"boom-{refresh_calls['count']}")
-
-        with patch.object(self.fetcher, "_fetch_citations_with_progress", return_value=fetched_citations) as mock_fetch, \
-             patch.object(self.fetcher, "_refresh_reconciliation_status", side_effect=flaky_refresh_status), \
-             patch.object(self.fetcher, "_wait_proxy_switch", return_value=None) as mock_wait, \
-             patch("scholar_citation.MAX_RETRIES", 2), \
-             patch("scholar_citation.rand_delay", return_value=0), \
-             patch("scholar_citation.time.sleep", return_value=None), \
-             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
-            with self.assertRaisesRegex(RuntimeError, "Post-fetch reconciliation failed after retry: RuntimeError: boom-2"):
-                self.fetcher._run_main_loop(
-                    publications=[pub],
-                    cache_status=cache_status,
-                    url_map={pub["title"]: {"citedby_url": "/scholar?cites=123", "pub_url": "https://example.com/paper"}},
-                    need_fetch=[(pub, "partial", cached)],
-                    results=results,
-                    fetch_idx=0,
-                )
-
-        log_output = fake_stdout.getvalue()
-        self.assertEqual(mock_fetch.call_count, 1)
-        self.assertEqual(refresh_calls["count"], 2)
-        self.assertEqual(log_output.count("Retrying post-fetch reconciliation with in-memory citations"), 1)
-        self.assertNotIn("Retrying post-fetch reconciliation with in-memory citations\n  Done: 2 cached, 2 seen (Scholar: 163)\n  Year summary: 2 years, total=2, years_with_citations=2, range=2020-2021 [2020:1, 2021:1]\n  [10:21:14] Retrying post-fetch reconciliation with in-memory citations", log_output)
-        mock_wait.assert_not_called()
-
-    def test_run_main_loop_records_selective_refresh_reconciliation_failure_without_escalation(self):
-        pub = {
-            "no": 1,
-            "title": "Selective Paper",
-            "num_citations": 131,
-            "year": "2021",
-            "venue": "V",
-        }
-        cached = {
-            "citations": [{"title": "Cached", "authors": "A", "venue": "V", "year": "2021", "url": "u0"}],
-            "num_citations_on_scholar": 129,
-            "complete": False,
-        }
-        fetched_citations = [
-            {"title": "Fetched-2022", "authors": "A", "venue": "V", "year": "2022", "url": "u1"},
-            {"title": "Fetched-2024", "authors": "B", "venue": "V", "year": "2024", "url": "u2"},
-        ]
-        results = []
-
-        def cache_status(current_pub):
-            self.assertEqual(current_pub["title"], pub["title"])
-            return "partial", cached
-
-        attempt_state = {
-            "mode": "update",
-            "resume_from": cached["citations"],
-            "completed_years_in_current_run": [],
-            "partial_year_start": {},
-            "saved_dedup_count": 0,
-            "allow_incremental_early_stop": True,
-            "force_year_rebuild": False,
-            "selective_refresh_years": {2022, 2024, 2026},
-            "rehydrated_probed_year_counts": {2021: 2, 2022: 10, 2023: 17, 2024: 36, 2025: 51, 2026: 14},
-            "rehydrated_probe_complete": False,
-            "rehydrated_year_fetch_diagnostics": None,
-            "action": "update",
-            "prev_scholar_count": 129,
-            "fetch_policy": {"mode": "year", "covered_years": 6, "avg_citations_per_year": 21.8, "pub_year": 2021, "reason": "high_average_per_year"},
-        }
-
-        with patch.object(self.fetcher, "_resolve_refresh_strategy", return_value=attempt_state), \
-             patch.object(self.fetcher, "_fetch_citations_with_progress", return_value=fetched_citations) as mock_fetch, \
-             patch.object(self.fetcher, "_refresh_reconciliation_status", return_value={"ok": False, "reason": "histogram_incomplete"}), \
-             patch("scholar_citation.rand_delay", return_value=0), \
-             patch("scholar_citation.time.sleep", return_value=None), \
-             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
-            self.fetcher._run_main_loop(
-                publications=[pub],
-                cache_status=cache_status,
-                url_map={pub["title"]: {"citedby_url": "/scholar?cites=123", "pub_url": "https://example.com/paper"}},
-                need_fetch=[(pub, "partial", cached)],
-                results=results,
-                fetch_idx=0,
-            )
-
-        log_output = fake_stdout.getvalue()
-        self.assertEqual(mock_fetch.call_count, 1)
-        self.assertIn("Selective refresh reconciliation failed; recording current results without escalation", log_output)
-        self.assertNotIn("Escalating to full revalidation", log_output)
-        self.assertNotIn("Retrying escalated full revalidation with in-memory state", log_output)
-        self.assertEqual(results[0]["citations"], fetched_citations)
-
-
-
 
     def test_rough_mode_skips_partial_paper_with_unchanged_scholar_count(self):
         pub = {
