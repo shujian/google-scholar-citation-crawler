@@ -941,10 +941,15 @@ class PaperCitationFetcher:
                         )
                         fetch_completed = True
                     num_citations = pub['num_citations']
-                    year_fetch_diagnostics = getattr(self, '_year_fetch_diagnostics', None)
+                    # Use per-year diagnostics for year-based fetch (authoritative, per-run).
+                    # Only use them when fetch_policy is year to avoid stale state from
+                    # a previous paper's year-based fetch polluting direct fetch totals.
+                    year_fetch_diagnostics = (
+                        getattr(self, '_year_fetch_diagnostics', None)
+                        if fetch_policy.get('mode') == 'year'
+                        else None
+                    )
                     if year_fetch_diagnostics:
-                        # For year-based fetch: sum seen/dedup from per-year diagnostics
-                        # (authoritative, per-run, no historical accumulation)
                         seen_total = sum(d.get('seen_total', 0) for d in year_fetch_diagnostics.values())
                         run_dedup = sum(d.get('dedup_count', 0) for d in year_fetch_diagnostics.values())
                     else:
@@ -965,7 +970,6 @@ class PaperCitationFetcher:
                     direct_underfetched = has_direct_fetch_summary and direct_fetch_diagnostics.get('underfetched')
                     if has_direct_fetch_summary:
                         if direct_underfetched:
-                            print(f"  {self._direct_fetch_log_message(direct_fetch_diagnostics)}", flush=True)
                             print("  Direct fetch under-fetched; recording current results", flush=True)
                         else:
                             print(f"  {self._direct_fetch_summary_message(direct_fetch_diagnostics)}", flush=True)

@@ -681,7 +681,10 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
     print(f"    Cache summary: {fetcher._format_year_count_summary(cached_year_counts)}", flush=True)
     print(f"    Cache totals: cached_total={cached_total_citations}, cached_year_sum={cached_year_total}, cached_unyeared={cached_unyeared_citations}, dedup_num={ctx.dedup_count}", flush=True)
     if year_fetch_diagnostics:
-        print(f"    Prior run diagnostics: {fetcher._format_year_fetch_diagnostics_summary(year_fetch_diagnostics)}", flush=True)
+        diag_summary = fetcher._format_year_fetch_diagnostics_summary(year_fetch_diagnostics)
+        # Indent continuation lines (per-year rows) to align with the header
+        diag_indented = diag_summary.replace("\n", "\n        ")
+        print(f"    Prior run diagnostics: {diag_indented}", flush=True)
     else:
         print(f"    Prior run diagnostics: none", flush=True)
     effective_target = probed_hist_total if histogram_authoritative else num_citations
@@ -755,7 +758,8 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
             print(f"      Year {year}: skip (histogram count match; cached={cached_year_counts.get(year, 0)}, probe={live_count})", flush=True)
         ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
         print(f"  Year fetch skipped: histogram-authoritative match (scholar_total={num_citations}, year_sum={probed_hist_total}, cached_total={cached_total_citations}, cached_year_sum={cached_year_total}, dedup_num={ctx.dedup_count})", flush=True)
-        print(f"    {fetcher._year_fetch_log_message(year_fetch_diagnostics)}", flush=True)
+        year_log = fetcher._year_fetch_log_message(year_fetch_diagnostics)
+        print(f"    {year_log.replace(chr(10), chr(10) + '        ')}", flush=True)
         save_progress(complete=False)
         save_progress(complete=True)
         return current_citations(complete=True)
@@ -1004,7 +1008,9 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
         raise
 
     fresh_citations[:] = current_citations(complete=True)
-    print(f"    {fetcher._year_fetch_log_message(year_fetch_diagnostics)}", flush=True)
+    year_log = fetcher._year_fetch_log_message(year_fetch_diagnostics)
+    year_log_indented = year_log.replace("\n", "\n        ")
+    print(f"    {year_log_indented}", flush=True)
     save_progress(complete=True)
     return list(fresh_citations)
 
