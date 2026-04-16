@@ -725,7 +725,10 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
         print(f"    Probe totals: scholar_total={num_citations}, year_sum={probed_hist_total}, missing_from_histogram={probed_missing_from_histogram}", flush=True)
     print(f"    Cache summary: {fetcher._format_year_count_summary(cached_year_counts)}", flush=True)
     print(f"    Cache totals: cached_total={cached_total_citations}, cached_year_sum={cached_year_total}, cached_unyeared={cached_unyeared_citations}, dedup_num={ctx.dedup_count}", flush=True)
-    print(f"    {fetcher._year_fetch_log_message(year_fetch_diagnostics)}", flush=True)
+    if year_fetch_diagnostics:
+        print(f"    Prior run diagnostics: {fetcher._format_year_fetch_diagnostics_summary(year_fetch_diagnostics)}", flush=True)
+    else:
+        print(f"    Prior run diagnostics: none", flush=True)
     effective_target = probed_hist_total if histogram_authoritative else num_citations
     print(f"    Fetch context: mode={'incremental' if allow_incremental_early_stop else 'full-recheck'}, "
           f"probe_complete={ctx.probed_year_count_complete}, "
