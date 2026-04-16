@@ -731,7 +731,15 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
     else:
         print(f"    Prior run diagnostics: none", flush=True)
     effective_target = probed_hist_total if histogram_authoritative else num_citations
-    print(f"    Fetch context: mode={'incremental' if allow_incremental_early_stop else 'full-recheck'}, "
+    if force_year_rebuild:
+        _fetch_mode_label = 'full-rebuild'
+    elif not allow_incremental_early_stop:
+        _fetch_mode_label = 'full-recheck'
+    elif prev_scholar_count:
+        _fetch_mode_label = 'update'
+    else:
+        _fetch_mode_label = 'resume'
+    print(f"    Fetch context: mode={_fetch_mode_label}, "
           f"probe_complete={ctx.probed_year_count_complete}, "
           f"prev_scholar={prev_scholar_count}, target={effective_target}, total_years={total_years}", flush=True)
     print(f"    Current-run completed years: {fetcher._format_year_set_summary(ctx.completed_year_segments)}", flush=True)
