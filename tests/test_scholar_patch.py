@@ -28,7 +28,8 @@ class ScholarPatchAndIdentityTests(FetcherTestCase):
         self.assertEqual(result, {"ok": True})
         self.assertEqual(seen_requests, [("/scholar?start=10&cites=123", False)])
         self.assertIn("Request URL: https://scholar.google.com/scholar?start=10&cites=123", output)
-        self.assertIn("referer: https://scholar.google.com/citations?user=test-author&hl=en", output)
+        # referer equals last_scholar_url (natural navigation) → not shown
+        self.assertNotIn("referer:", output)
 
     def test_fetch_basics_logs_profile_request_url(self):
         author_fetcher = scholar_citation.AuthorProfileFetcher("test-author", output_dir=".", delay_scale=0)

@@ -885,6 +885,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                         save_progress(complete=False)
                         continue
 
+            ctx.current_paper_page_count = 0  # reset per year in year-based mode
             start_index = ctx.partial_year_start.get(year, 0)
             resume_page_start = _page_aligned_start(start_index)
             initial_in_page_skip = start_index - resume_page_start

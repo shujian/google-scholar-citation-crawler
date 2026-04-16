@@ -228,7 +228,10 @@ def patch_scholarly(ctx: SessionContext) -> None:
             if referer:
                 break
         if request_url:
-            referer_str = f" (referer: {referer})" if referer else ""
+            # Only show referer when it differs from the last visited URL
+            # (i.e. injected externally, not the natural previous-page referer)
+            show_referer = referer and referer != ctx.last_scholar_url
+            referer_str = f" (referer: {referer})" if show_referer else ""
             print(f"      Request URL: {request_url}{referer_str}", flush=True)
 
         def unified_sleep(seconds):
