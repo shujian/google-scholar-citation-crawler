@@ -1,5 +1,9 @@
 # Work Notes: Google Scholar Citation Crawler
 
+- **2026-04-15** — 共享 HTTP/2 session 修复首次 citation 被阻断：在 `main()` / `_run_main()` 里把 `PaperCitationFetcher` 的创建和 `_patch_scholarly()` 调用提前到 `AuthorProfileFetcher.run()` 之前，两个阶段从此共用同一个 HTTP/2 session；profile 阶段的页面访问历史自然积累成 citation 阶段的 session 背景，Scholar 不再看到一个凭空声称 `sec-fetch-site: same-origin` 的全新连接；`PaperCitationFetcher.__init__` 同步初始化 `_session_patched / _run_start_time / _new_citations_count / _papers_fetched_count`，`run()` 加 guard 避免重复 patch，`_run_start_time` 计时从 patch 时开始覆盖整个运行（不再在 `run()` 里重置）；同时消除 `main()` 里原来两次创建 `PaperCitationFetcher` 的冗余，全程复用同一 instance。测试：两个 `FakePaperFetcher` 补 `_patch_scholarly` stub，106 tests OK。
+- **2026-04-15** — `--fetch-mode` 三层抓取行为控制：以 `--fetch-mode {rough,normal,force}` 替换已废弃的 `--recheck-citations` / `--force-refresh-citations`。`rough`：scholar 数量不变就跳过（即使 cache 不完整）；`normal`（默认）：现有宽标准行为，用 num_seen 判断 completeness；`force`：抓取前先删除 cache 文件，强制从头重抓，建议配合 `--skip`/`--limit` 限定范围。`citation_io.resolve_citation_status_from_state()` 移除 `recheck_citations` 参数及旧的严格判断分支；`citation_fetch.py` 的 `direct_fetch_allow_early_stop` 从 `not fetcher.recheck_citations` 改为 `fetcher.fetch_mode != 'force'`；`_resolve_refresh_strategy()` 移除 `recheck` 分支；`_run_main_loop()` 在 complete 判断后增加 rough-mode 跳过逻辑；`run()` 在 status 检查前增加 force-mode cache 删除逻辑；并修复了原有的重复 `@staticmethod` 装饰器和 rough 模式 `int(last_known)` 缺少 try/except 的问题。同步删除所有 `recheck_citations` 相关测试，新增 rough skip / rough first-fetch / force delete 三个测试；106 tests OK。
+- **2026-04-15** — `seen` 完整性条件从 `>=` 收紧为 `==`：`citation_io.resolve_citation_status_from_state()` 中三处 `num_seen >= threshold` 统一改为 `num_seen == threshold`（direct 模式对 scholar total，year 模式对 histogram total，year 无 histogram 对 scholar total）；之前 seen > threshold 的情况（如 seen=1331, hist=1328）现在判为 partial 而非 complete；对应测试期望更新，106 tests OK。
+- **2026-04-15** — 代码清理：删除 `test_citation_page_stop.py`（已被 `tests/` 下 9 个测试文件完全替代，且因 `fetch_mode` 重构已有 6 个失败）、`tmp_compare_scholar.py`（临时诊断脚本，已在 .gitignore 中）、以及 git 里已 stage 未提交的旧模块残留（`citation/__init__.py`、`citation/cache.py`、`citation/strategy.py`、`scholar_common.py`、`scholar_profile_io.py`）；删除 `author_test-author_paper_citations.json`（测试残留文件）和 `issues.md`（已解决的 bug 记录）。现存测试 106 个，全部在 `tests/` 下。
 - **2026-04-14** — 第五轮模块化重构（citation fetch 引擎拆分）：新建四个模块。`crawler/interactive.py`：把 `_inject_cookies_from_curl`、`_try_interactive_captcha`、`_wait_proxy_switch` 提取为接受参数注入的纯函数，wrapper 通过 `list[int]` mutable counter 传回 `_captcha_solved_count`。`crawler/scholarly_session.py`：定义 `SessionContext` dataclass（持有 HTTP 会话节拍控制、cookie、callback 等运行时状态），把 `_patch_scholarly`（267 行 monkey-patch 闭包）、`_refresh_scholarly_session`、`_probe_citation_start_year` 迁出；patch 闭包改为捕获 `ctx` 而非 `fetcher_self`，消除对 `PaperCitationFetcher` 实例的隐式依赖。`crawler/fetch_context.py`：定义 `FetchContext` dataclass，收录所有 per-paper 可变状态（`completed_year_segments`、`partial_year_start`、`dedup_count`、`probed_year_counts` 等），让状态流在函数参数间显式传递。`crawler/citation_fetch.py`：把 `_fetch_citations_with_progress`（302 行）、`_fetch_by_year`（487 行）及 17 个 direct-fetch 纯辅助函数迁出；迁移策略是接受 `(fetcher, ctx, ...)` 参数，per-paper 状态读写通过 `ctx`，其余方法调用通过 `fetcher`；为保持测试 patch 路径兼容，`_SearchScholarIterator` 通过 `type(fetcher).__module__` 动态查找，`_iter_direct_citedby` / `_fetch_by_year` 在 `fetch_citations_with_progress` 里通过 `fetcher.xxx(...)` 调用。`scholar_citation.py` 从 2293 行减至 1388 行，105 tests OK。
 - **2026-04-14** — 第四轮模块化重构（低风险四项）：①新建 `crawler/citation_identity.py`，收录 `normalize_cites_id`、`normalize_identity_part`、`citation_identity_keys`、`citation_identity_key`、`extract_citation_info` 五个纯函数。②新建 `crawler/citation_io.py`，收录 `citation_cache_path`、`load_citation_cache`、`derive_citation_cache_state`、`resolve_citation_status_from_state`（独立于 load 的状态判断逻辑，使 `_citation_status` 可通过 `self._load_citation_cache` 被正常 patch）、以及 `save_citations_xlsx`。③把整个 `AuthorProfileFetcher` 类移到 `crawler/author_fetcher.py`，主文件只保留单行 import。④把 `parse_args()` 和 CLI 编排逻辑迁到 `crawler/cli.py`（`_run_main`），主文件保留真实的 `main()` 函数（引用 `scholar_citation` 命名空间符号）以保持测试 patch 路径兼容。主文件从 3433 行减至 2834 行。105 tests OK。
 - **2026-04-14** — 第三轮模块化重构（统一到 crawler/ + 测试目录拆分）：把所有模块统一收入 `crawler/` 包（`scholar_common.py` → `crawler/common.py`、`scholar_profile_io.py` → `crawler/profile_io.py`、`citation/cache.py` → `crawler/citation_cache.py`、`citation/strategy.py` → `crawler/citation_strategy.py`），同时删除旧的顶层散文件和 `citation/` 目录，`scholar_citation.py` 里的 import 全部指向 `crawler.*`。另外把原 4531 行的 `test_citation_page_stop.py` 拆成 `tests/` 下的 9 个按主题划分的文件（scholar_patch、year_fetch_early、fetch_policy、direct_fetch、year_fetch_main、output、citation_status、main_loop、profile），共享 stubs 和 setUp 抽取到 `tests/conftest.py` 的 `FetcherTestCase` 基类。`python -m unittest discover -s tests -p "test_*.py"` 通过（105 tests, OK），原测试文件 `test_citation_page_stop.py` 仍并行保留作过渡兼容。
@@ -25,19 +29,40 @@
 - **2026-04-09** — 放宽 incomplete probe 在 year-based incremental update 中的用途：即使 `probe_complete=False`，只要 histogram 已经明确指出某些年份存在 deficit（`cached_year_counts[year] < probed_year_counts[year]`），`_fetch_by_year()` 也会自动把 selective refresh 缩到这些 deficit years；`probe_complete` 继续只用于 authoritative match / reconciliation 这类“是否已完全一致”的严格语义，不再作为 selective refresh 的硬门槛。同步补充 `test_citation_page_stop.py` 回归测试，覆盖 deficit-only refresh、missing probed year 不视为 0、empty-candidate fallback、partial resume 优先级，`python -m unittest test_citation_page_stop.py` 通过（47 tests, OK）。
 - **2026-04-09** — 修复 year-based refresh 的状态统计口径：`_fetch_by_year()` 在年份抓取过程中虽然已经用 year-bucket replacement 更新了 authoritative citation state，但 `Year {year} status: paper_total=...`、histogram target reached、以及 year-path partial save 仍有部分地方读取旧的 overlay 视图，导致日志里的 `paper_total` 落后于真实替换后的总数。这次统一改成在 year-based 路径下使用 authoritative materialized citations 进行状态统计与 partial save；非 year-based / small-paper 的 incomplete save 仍保留原有 overlay 语义。同步补充 `test_citation_page_stop.py` 回归测试，覆盖 year status total 与 partial save snapshot，`python -m unittest test_citation_page_stop.py` 通过（43 tests, OK）。
 
-## 项目结构
+## 项目结构（2026-04-15 更新）
 
 ```
 google-scholar-citation-crawler/
-├── scholar_citation.py       # 合并后的主脚本（profile + citations 一体化）
-├── requirements.txt          # scholarly>=1.7, openpyxl>=3.1
-├── README.md                 # 公开文档（英文）
-├── LICENSE                   # MIT
-├── .gitignore                # output/, scholar_cache/, WORK_NOTES.md, examples/run_my_author.sh
-├── WORK_NOTES.md             # 本文件（gitignored，个人笔记）
-└── examples/
-    ├── run_example.sh        # 占位示例（tracked）
-    └── run_my_author.sh      # 个人脚本（gitignored）
+├── scholar_citation.py          # CLI 入口 + PaperCitationFetcher 编排器
+├── crawler/                     # 所有支撑模块
+│   ├── __init__.py
+│   ├── common.py                # 常量 + 无状态工具函数
+│   ├── fetch_context.py         # FetchContext dataclass（per-paper 可变状态）
+│   ├── author_fetcher.py        # AuthorProfileFetcher
+│   ├── profile_io.py            # profile JSON / Excel 输出
+│   ├── citation_cache.py        # year-count / diagnostics 纯函数
+│   ├── citation_strategy.py     # fetch policy、refresh 策略、reconciliation
+│   ├── citation_identity.py     # citation 去重键与信息提取
+│   ├── citation_io.py           # cache I/O、status 推导、citations Excel 输出
+│   ├── citation_fetch.py        # fetch_citations_with_progress + fetch_by_year
+│   ├── scholarly_session.py     # SessionContext + scholarly monkey-patch + year probe
+│   ├── interactive.py           # cURL cookie 注入、captcha 提示、proxy-switch 等待
+│   └── cli.py                   # parse_args() + _run_main(args)
+├── tests/                       # 单元测试（106 个，不需要网络）
+│   ├── conftest.py
+│   ├── test_scholar_patch.py
+│   ├── test_year_fetch_early.py
+│   ├── test_fetch_policy.py
+│   ├── test_direct_fetch.py
+│   ├── test_year_fetch_main.py
+│   ├── test_output.py
+│   ├── test_citation_status.py
+│   ├── test_main_loop.py
+│   └── test_profile.py
+├── requirements.txt             # scholarly>=1.7, openpyxl>=3.1, httpx==0.27.2
+├── README.md
+├── WORK_NOTES.md                # 本文件（gitignored）
+└── docs/superpowers/            # AI 辅助开发的设计文档（gitignored）
 ```
 
 ### 输出文件
