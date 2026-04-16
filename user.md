@@ -1605,3 +1605,75 @@ Progress saved (20 citations, 19 new in this run)
 请更新相关的说明文件
 
 ---
+
+## Message 216 [2026-04-16T00:00:00.000Z]
+
+这里内容有些重复，请解释一下refresh check是干嘛的。另外，year fetch comparison不需要输出两次吧。继续
+
+---
+
+## Message 217 [2026-04-16T00:00:00.000Z]
+
+好像refresh check的作用不明显？抓取的时候就是对着scholar的数据进行核对的。是不是可以不用refresh check？你觉得呢？
+
+---
+
+## Message 218 [2026-04-16T00:00:00.000Z]
+
+全部去掉吧
+
+---
+
+## Message 219 [2026-04-16T00:00:00.000Z]
+
+为什么模型会有这样的状态，这个跟外部传入参数指定的状态好像不一致？mode=incremental
+
+---
+
+## Message 220 [2026-04-16T00:00:00.000Z]
+
+你列的这四个状态，跟我们在模型参数指定的状态好像没有对应关系？
+
+---
+
+## Message 221 [2026-04-16T00:00:00.000Z]
+
+那update和resume的具体行为是什么？跟首次抓取有什么区别？
+
+---
+
+## Message 222 [2026-04-16T00:00:00.000Z]
+
+请把resume和update合并，行为是丢弃无年份标记的cached citations，然后按照年份的probe结果和当前缓存结果决定抓取哪些年（当前年份的previous seen == previous scholar total，且 scholar total没变的不抓取）。注意，按年抓取到的引用如果其自身没有年份标记的，请标上当前的年份。
+
+---
+
+## Message 223 [2026-04-16T00:00:00.000Z]
+
+我们之前更新了策略，不再管probe_complete了。按照year probe的时候，就以有year histogram数字的年份为准，其他的citation不一致不认为是抓取问题。（放弃那些不在histogram中的引用）
+
+---
+
+## Message 224 [2026-04-16T00:00:00.000Z]
+
+不再使用probe_complete作为判断条件，只是输出提示一下用户存在这个情况就可以了。没有用的地方可以删掉了。
+
+---
+
+## Message 225 [2026-04-16T00:00:00.000Z]
+
+逐年判断的时候，主要以seen为判断标准，cached数量可能是seen-dedup。
+
+---
+
+## Message 226 [2026-04-16T00:00:00.000Z]
+
+seen、dedup应该是在抓取时候会记录的。seen=cached+dedup是应该保持的关系。请继续处理。
+
+---
+
+## Message 227 [2026-04-16T00:00:00.000Z]
+
+请更新相关文档
+
+---
