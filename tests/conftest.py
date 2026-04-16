@@ -187,7 +187,7 @@ class FetcherTestCase(unittest.TestCase):
         )
         self.fetcher._current_attempt_url = None
         self.fetcher._probe_citation_start_year = (
-            lambda citedby_url, num_citations=None, pub_year=None: 2025
+            lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2025
         )
         self.fetcher._refresh_scholarly_session = lambda: None
         self.fetcher._try_interactive_captcha = lambda url: False

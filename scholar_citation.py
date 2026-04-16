@@ -528,18 +528,28 @@ class PaperCitationFetcher:
         """Soft session reset (delegated to crawler.scholarly_session)."""
         _ss_refresh_scholarly_session()
 
-    def _probe_citation_start_year(self, citedby_url, num_citations=None, pub_year=None):
-        """Probe Scholar to determine the earliest citation year (delegated)."""
-        ctx = self._session_ctx
-        ctx.current_pub_for_live_promotion = getattr(self, '_current_pub_for_live_promotion', None)
-        result = _ss_probe_citation_start_year(citedby_url, ctx,
+    def _probe_citation_start_year(self, citedby_url, fetch_ctx=None, num_citations=None, pub_year=None):
+        """Probe Scholar to determine the earliest citation year (delegated).
+
+        If fetch_ctx is provided (a FetchContext), probe results are written
+        directly to it so callers don't need a separate sync step.
+        """
+        session_ctx = self._session_ctx
+        session_ctx.current_pub_for_live_promotion = getattr(self, '_current_pub_for_live_promotion', None)
+        result = _ss_probe_citation_start_year(citedby_url, session_ctx,
                                                num_citations=num_citations, pub_year=pub_year)
-        # Sync mutable state back to self (existing code reads these directly)
-        self._probed_year_counts = ctx.probed_year_counts
-        self._probed_year_count_complete = ctx.probed_year_count_complete
-        self._last_scholar_url = ctx.last_scholar_url
-        self._current_attempt_url = ctx.current_attempt_url
-        self._total_page_count = ctx.total_page_count
+        # Write probe results to the FetchContext when provided; also keep self._ copies
+        # for paths that don't use FetchContext directly.
+        probed_year_counts = self._normalize_year_count_map(session_ctx.probed_year_counts) or None
+        probe_complete = session_ctx.probed_year_count_complete
+        self._probed_year_counts = probed_year_counts
+        self._probed_year_count_complete = probe_complete
+        if fetch_ctx is not None:
+            fetch_ctx.probed_year_counts = probed_year_counts
+            fetch_ctx.probed_year_count_complete = probe_complete
+        self._last_scholar_url = session_ctx.last_scholar_url
+        self._current_attempt_url = session_ctx.current_attempt_url
+        self._total_page_count = session_ctx.total_page_count
         return result
 
     def _elapsed_str(self):

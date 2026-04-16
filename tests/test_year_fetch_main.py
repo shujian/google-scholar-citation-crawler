@@ -31,7 +31,7 @@ class YearFetchMainTests(FetcherTestCase):
         )
 
     def test_selective_refresh_does_not_early_stop_after_refetching_cached_citation(self):
-        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2024
+        self.fetcher._probe_citation_start_year = lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2024
         pages = {
             (2025, 0): [
                 {"bib": {"title": "Cached-2025", "author": ["A"], "venue": "V2025", "pub_year": "2025"}, "pub_url": "u-cached", "cites_id": "cid-cached"},
@@ -90,7 +90,7 @@ class YearFetchMainTests(FetcherTestCase):
         self.fetcher._probed_year_counts = {2024: 2}
         self.fetcher._probed_year_count_complete = True
         self.fetcher._cached_year_counts = {2024: 1}
-        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2024
+        self.fetcher._probe_citation_start_year = lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2024
 
         requests = []
 
@@ -147,7 +147,7 @@ class YearFetchMainTests(FetcherTestCase):
         self.fetcher._probed_year_counts = {2018: 37, 2019: 27}
         self.fetcher._probed_year_count_complete = True
         self.fetcher._cached_year_counts = {2018: 36, 2019: 27}
-        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2018
+        self.fetcher._probe_citation_start_year = lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2018
 
         old_citations = [
             {"title": f"Old-2018-{i}", "authors": "A", "venue": "V2018", "year": "2018", "url": f"u2018-{i}"}
@@ -228,7 +228,7 @@ class YearFetchMainTests(FetcherTestCase):
         self.fetcher._probed_year_counts = {2024: 2}
         self.fetcher._probed_year_count_complete = True
         self.fetcher._cached_year_counts = {2024: 1}
-        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2024
+        self.fetcher._probe_citation_start_year = lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2024
 
         old_citations = [
             {"title": "Old-2024", "authors": "A", "venue": "V2024", "year": "2024", "url": "u-old"},
@@ -420,7 +420,7 @@ class YearFetchMainTests(FetcherTestCase):
         self.assertIn("All citation caches are complete. Skipping citation fetch.", log_text)
 
     def test_year_fetch_backfills_missing_year_from_query_context(self):
-        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2024
+        self.fetcher._probe_citation_start_year = lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2024
         self.fetcher._probed_year_counts = {2024: 1}
         self.fetcher._probed_year_count_complete = True
         self.fetcher._cached_year_counts = {}
@@ -469,7 +469,7 @@ class YearFetchMainTests(FetcherTestCase):
         self.assertEqual(self.fetcher._year_count_map(citations), {2024: 1})
 
     def test_year_fetch_keeps_explicit_pub_year_from_citation(self):
-        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2024
+        self.fetcher._probe_citation_start_year = lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2024
         self.fetcher._probed_year_counts = {2024: 1}
         self.fetcher._probed_year_count_complete = True
         self.fetcher._cached_year_counts = {}

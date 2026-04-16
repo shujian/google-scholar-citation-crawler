@@ -341,7 +341,7 @@ class CitationStatusTests(FetcherTestCase):
         self.fetcher._probed_year_counts = {2024: 10}
         self.fetcher._probed_year_count_complete = True
         self.fetcher._cached_year_counts = {2024: 9}
-        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2024
+        self.fetcher._probe_citation_start_year = lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2024
 
         requests = []
         cached_citations = [

@@ -11,7 +11,7 @@ import scholar_citation
 
 class YearFetchEarlyTests(FetcherTestCase):
     def test_fetch_by_year_fetches_all_selected_years_without_early_stop(self):
-        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2025
+        self.fetcher._probe_citation_start_year = lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2025
         pages = {
             (2026, 0): [
                 {"bib": {"title": "Page1-A", "author": ["A"], "venue": "V1", "pub_year": "2026"}, "pub_url": "u1"},
@@ -106,7 +106,7 @@ class YearFetchEarlyTests(FetcherTestCase):
         self.fetcher._probed_year_count_complete = True
         self.fetcher._cached_year_counts = {2024: 0, 2025: 0, 2026: 0}
         self.fetcher._partial_year_start = {2024: 1}
-        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2024
+        self.fetcher._probe_citation_start_year = lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2024
 
         old_citations = [
             {"title": f"Old-Unyeared-{i}", "authors": "A", "venue": "V", "year": "N/A", "url": f"u-old-{i}"}
@@ -235,7 +235,7 @@ class YearFetchEarlyTests(FetcherTestCase):
     def test_fetch_by_year_uses_histogram_total_as_target_and_backfills_year(self):
         self.fetcher._probed_year_counts = {2025: 1, 2026: 1}
         self.fetcher._probed_year_count_complete = False
-        self.fetcher._probe_citation_start_year = lambda citedby_url, num_citations=None, pub_year=None: 2025
+        self.fetcher._probe_citation_start_year = lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2025
 
         requests = []
 
