@@ -397,7 +397,7 @@ class MainLoopTests(FetcherTestCase):
             )
 
         output = fake_stdout.getvalue()
-        self.assertIn("Year fetch comparisons: 2 years [2024:scholar=3,seen=3,cached=2,dedup=1,term=target_reached; 2025:scholar=1,seen=1,cached=1,dedup=0,term=iterator_exhausted]", output)
+        self.assertIn("Year fetch comparisons: 2 years\n  2024: scholar=3,seen=3,cached=2,dedup=1,term=target_reached\n  2025: scholar=1,seen=1,cached=1,dedup=0,term=iterator_exhausted", output)
         self.assertEqual(results[0]["citations"], final_citations)
         self.assertEqual(self.fetcher._papers_fetched_count, 0)
 

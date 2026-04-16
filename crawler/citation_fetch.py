@@ -1029,11 +1029,14 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
             ctx.partial_year_start.pop(year, None)
             ctx.completed_year_segments.add(year)
             live_count_for_diag = live_count if live_count is not None else len(year_fetched_citations)
+            # Accumulate dedup from any previous pass (e.g. an earlier selective refresh).
+            prev_pass_dedup = int((year_fetch_diagnostics.get(year) or {}).get('dedup_count', 0) or 0)
+            total_dedup = year_dedup_count + prev_pass_dedup
             year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
                 year,
                 live_count_for_diag,
                 len(year_fetched_citations),
-                year_dedup_count,
+                total_dedup,
                 year_termination_reason,
             )
             ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
@@ -1058,7 +1061,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                     year,
                     live_count,
                     len(year_fetched_citations),
-                    year_dedup_count,
+                    total_dedup,
                     'partial_resume_completed',
                 )
                 ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)

@@ -394,8 +394,8 @@ class PaperCitationFetcher:
         return _cc_rehydrate_year_fetch_diagnostics(cached)
 
     @staticmethod
-    def _format_year_fetch_diagnostics_summary(year_fetch_diagnostics, limit=8):
-        return _cs_format_year_fetch_diagnostics_summary(year_fetch_diagnostics, limit)
+    def _format_year_fetch_diagnostics_summary(year_fetch_diagnostics):
+        return _cs_format_year_fetch_diagnostics_summary(year_fetch_diagnostics)
 
     @staticmethod
     def _year_fetch_log_message(year_fetch_diagnostics):
@@ -583,24 +583,14 @@ class PaperCitationFetcher:
         return _ci_extract_citation_info(pub, fallback_year)
 
     @staticmethod
-    def _format_year_count_summary(year_count_map, limit=8):
+    def _format_year_count_summary(year_count_map):
         year_count_map = PaperCitationFetcher._normalize_year_count_map(year_count_map)
         if not year_count_map:
             return 'none'
         items = sorted(year_count_map.items())
         total = sum(count for _, count in items)
         nonzero = [(year, count) for year, count in items if count > 0]
-        display_items = items
-        if len(items) > limit:
-            head = items[: max(1, limit // 2)]
-            tail = items[-max(1, limit - len(head)) :]
-            display_items = head + [('...', '...')] + tail
-        parts = []
-        for year, count in display_items:
-            if year == '...':
-                parts.append('...')
-            else:
-                parts.append(f"{year}:{count}")
+        parts = [f"{year}:{count}" for year, count in items]
         return (f"{len(items)} years, total={total}, years_with_citations={len(nonzero)}, "
                 f"range={items[0][0]}-{items[-1][0]} [{', '.join(parts)}]")
 

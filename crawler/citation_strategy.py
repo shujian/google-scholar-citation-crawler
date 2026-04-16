@@ -239,27 +239,19 @@ def refresh_reconciliation_status(
 # Diagnostics formatting
 # ---------------------------------------------------------------------------
 
-def format_year_fetch_diagnostics_summary(year_fetch_diagnostics, limit=8):
-    """Return a compact human-readable summary of year_fetch_diagnostics."""
+def format_year_fetch_diagnostics_summary(year_fetch_diagnostics):
+    """Return a human-readable summary of year_fetch_diagnostics, one year per line."""
     diagnostics = normalize_year_fetch_diagnostics(year_fetch_diagnostics)
     if not diagnostics:
         return 'none'
     items = sorted(diagnostics.items())
-    display_items = items
-    if len(items) > limit:
-        head = items[: max(1, limit // 2)]
-        tail = items[-max(1, limit - len(head)):]
-        display_items = head + [('...', None)] + tail
-    parts = []
-    for year, diagnostic in display_items:
-        if year == '...':
-            parts.append('...')
-            continue
-        parts.append(
-            f"{year}:scholar={diagnostic.get('scholar_total')},"
+    lines = []
+    for year, diagnostic in items:
+        lines.append(
+            f"  {year}: scholar={diagnostic.get('scholar_total')},"
             f"seen={diagnostic.get('seen_total')},"
             f"cached={diagnostic.get('cached_total')},"
             f"dedup={diagnostic.get('dedup_count')},"
             f"term={diagnostic.get('termination_reason')}"
         )
-    return f"{len(items)} years [{'; '.join(parts)}]"
+    return f"{len(items)} years\n" + "\n".join(lines)
