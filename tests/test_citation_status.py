@@ -391,7 +391,7 @@ class CitationStatusTests(FetcherTestCase):
         output = fake_stdout.getvalue()
         self.assertEqual(requests, [])
         self.assertEqual(citations, cached_citations)
-        self.assertIn("Year 2024: skip (seen total match; cached=9, seen=10, probe=10)", output)
+        self.assertIn("Year 2024: skip (seen=10 >= probe=10)", output)
         self.assertIn("Year fetch comparisons: 1 years\n  2024: scholar=10,seen=10,cached=9,dedup=1,term=seen_total_match_skip", output)
 
     def test_selective_refresh_skips_years_matching_histogram(self):

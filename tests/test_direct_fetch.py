@@ -553,10 +553,9 @@ class DirectFetchTests(FetcherTestCase):
             )
 
         output = fake_stdout.getvalue()
-        # all years match histogram → nothing to fetch
+        # all years match histogram → fast-path skips everything
         self.assertEqual(requests, [])
-        self.assertIn("Selective refresh years:", output)
-        self.assertIn("skip (not selected for refresh)", output)
+        self.assertIn("Year fetch skipped: histogram-authoritative match", output)
 
     def test_incomplete_probe_partial_resume_still_fetches_resumed_year(self):
         self.fetcher._probed_year_counts = {2024: 1, 2025: 2}
@@ -610,10 +609,10 @@ class DirectFetchTests(FetcherTestCase):
             )
 
         output = fake_stdout.getvalue()
-        # 2024 has partial_year_start → fetch; 2025 cached==probed → skip
+        # 2024 has partial_year_start → fetch and complete; stop after partial resume
         self.assertEqual(requests, [(2024, 0)])
         self.assertIn("resuming from position 2 via page start 0 (skip first 2)", output)
-        self.assertIn("Year 2025: skip (not selected for refresh)", output)
+        self.assertIn("Completed resumed year segment", output)
 
     def test_complete_histogram_still_skips_matching_year_counts(self):
         self.fetcher._probed_year_counts = {2024: 0, 2025: 2}
@@ -668,11 +667,9 @@ class DirectFetchTests(FetcherTestCase):
         output = fake_stdout.getvalue()
         self.assertEqual(requests, [])
         self.assertEqual(citations, [])
-        self.assertIn("    Probe summary:", output)
-        self.assertIn("    Cache summary:", output)
-        self.assertIn("years_with_citations=1", output)
-        self.assertIn("skip (probe count=0, probe_complete=True)", output)
-        self.assertIn("histogram count match", output)
+        self.assertIn("Probe summary:", output)
+        self.assertIn("Cache summary:", output)
+        self.assertIn("Year fetch skipped: histogram-authoritative match", output)
 
     def test_total_count_match_skips_fetch_when_cached_citations_include_missing_years(self):
         cached_citations = [

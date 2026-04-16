@@ -727,9 +727,9 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
         print(f"    Prior run diagnostics: none", flush=True)
     effective_target = probed_hist_total if histogram_authoritative else num_citations
     _fetch_mode_label = 'full-rebuild' if force_year_rebuild else 'selective'
+    probe_note = "" if ctx.probed_year_count_complete else " (histogram may be incomplete)"
     print(f"    Fetch context: strategy={_fetch_mode_label}, "
-          f"probe_complete={ctx.probed_year_count_complete}, "
-          f"prev_scholar={prev_scholar_count}, target={effective_target}, total_years={total_years}", flush=True)
+          f"prev_scholar={prev_scholar_count}, target={effective_target}, total_years={total_years}{probe_note}", flush=True)
     print(f"    Current-run completed years: {fetcher._format_year_set_summary(ctx.completed_year_segments)}", flush=True)
     print(f"    Partial resume points: {fetcher._format_partial_year_start_summary(ctx.partial_year_start)}", flush=True)
     if selective_refresh_years is None and probed_year_counts:
@@ -746,18 +746,17 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
     effective_refresh_years = set(selective_refresh_years or ())
     effective_refresh_years.update(int(year) for year in ctx.partial_year_start.keys())
     suppress_target_reached = (
-        can_skip_by_probe_counts
+        bool(probed_year_counts)
         and bool(ctx.partial_year_start)
         and cached_year_counts == probed_year_counts
     )
     stop_partial_resume_once_satisfied = (
-        can_skip_by_probe_counts
+        bool(probed_year_counts)
         and bool(ctx.partial_year_start)
         and cached_year_counts == probed_year_counts
     )
     suppress_final_histogram_target_stop = (
         histogram_authoritative
-        and can_skip_by_probe_counts
         and bool(ctx.partial_year_start)
         and cached_total_citations >= effective_target
     )
@@ -766,7 +765,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
     else:
         print(f"    Selective refresh years: {fetcher._format_year_set_summary(selective_refresh_years)}", flush=True)
 
-    if can_skip_by_probe_counts and fetcher._probed_year_counts_satisfied(
+    if probed_year_counts and fetcher._probed_year_counts_satisfied(
         cached_year_counts,
         probed_year_counts,
         year_fetch_diagnostics,
@@ -785,7 +784,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                     0,
                     'probe_zero_skip',
                 )
-                print(f"      Year {year}: skip (probe count=0, probe_complete=True)", flush=True)
+                print(f"      Year {year}: skip (probe count=0)", flush=True)
                 continue
             if fetcher._year_fetch_diagnostic_matches_total(existing_diag, live_count, cached_year_counts.get(year, 0)):
                 year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
@@ -804,7 +803,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                 0,
                 'probe_match_skip',
             )
-            print(f"      Year {year}: skip (histogram count match; cached={cached_year_counts.get(year, 0)}, probe={live_count}, probe_complete=True)", flush=True)
+            print(f"      Year {year}: skip (histogram count match; cached={cached_year_counts.get(year, 0)}, probe={live_count})", flush=True)
         ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
         print(f"  Year fetch skipped: histogram-authoritative match (scholar_total={num_citations}, year_sum={probed_hist_total}, cached_total={cached_total_citations}, cached_year_sum={cached_year_total}, dedup_num={ctx.dedup_count})", flush=True)
         print(f"    {fetcher._year_fetch_log_message(year_fetch_diagnostics)}", flush=True)
@@ -851,52 +850,40 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                     ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
                 print(f"      Year {year}: skip (already completed earlier in this run)", flush=True)
                 continue
-            if can_skip_by_probe_counts and probed_year_counts.get(year) == 0:
-                skipped_years += 1
-                ctx.completed_year_segments.add(year)
-                year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
-                    year,
-                    0,
-                    0,
-                    0,
-                    'probe_zero_skip',
-                )
-                ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
-                print(f"      Year {year}: skip (probe count=0, probe_complete=True)", flush=True)
-                save_progress(complete=False)
-                continue
-            if can_skip_by_probe_counts and year not in ctx.partial_year_start:
+            if probed_year_counts and year not in ctx.partial_year_start:
                 live_count = probed_year_counts.get(year)
-                cached_count = cached_year_counts.get(year)
-                existing_diag = year_fetch_diagnostics.get(year)
-                if live_count is not None and fetcher._year_fetch_diagnostic_matches_total(existing_diag, live_count, cached_count):
-                    skipped_years += 1
-                    ctx.completed_year_segments.add(year)
-                    year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
-                        year,
-                        live_count,
-                        existing_diag.get('cached_total', cached_count or 0),
-                        existing_diag.get('dedup_count', 0),
-                        'seen_total_match_skip',
-                    )
-                    ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
-                    print(f"      Year {year}: skip (seen total match; cached={year_fetch_diagnostics[year]['cached_total']}, seen={year_fetch_diagnostics[year]['seen_total']}, probe={live_count})", flush=True)
-                    save_progress(complete=False)
-                    continue
-                if live_count is not None and cached_count == live_count:
-                    skipped_years += 1
-                    ctx.completed_year_segments.add(year)
-                    year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
-                        year,
-                        live_count,
-                        cached_count,
-                        0,
-                        'probe_match_skip',
-                    )
-                    ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
-                    print(f"      Year {year}: skip (histogram count match; cached={cached_count}, probe={live_count}, probe_complete=True)", flush=True)
-                    save_progress(complete=False)
-                    continue
+                if live_count is not None:
+                    if live_count == 0:
+                        skipped_years += 1
+                        ctx.completed_year_segments.add(year)
+                        year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
+                            year, 0, 0, 0, 'probe_zero_skip',
+                        )
+                        ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
+                        print(f"      Year {year}: skip (probe count=0)", flush=True)
+                        save_progress(complete=False)
+                        continue
+                    existing_diag = year_fetch_diagnostics.get(year)
+                    cached_count = cached_year_counts.get(year, 0)
+                    # seen = cached + dedup; skip if seen >= probe count
+                    seen_matches = fetcher._year_fetch_diagnostic_matches_total(existing_diag, live_count, cached_count)
+                    count_matches = (not existing_diag) and cached_count == live_count
+                    if seen_matches or count_matches:
+                        skipped_years += 1
+                        ctx.completed_year_segments.add(year)
+                        dedup = existing_diag.get('dedup_count', 0) if existing_diag else 0
+                        year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
+                            year,
+                            live_count,
+                            existing_diag.get('cached_total', cached_count) if existing_diag else cached_count,
+                            dedup,
+                            'seen_total_match_skip',
+                        )
+                        ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
+                        diag = year_fetch_diagnostics[year]
+                        print(f"      Year {year}: skip (seen={diag['seen_total']} >= probe={live_count})", flush=True)
+                        save_progress(complete=False)
+                        continue
 
             start_index = ctx.partial_year_start.get(year, 0)
             resume_page_start = _page_aligned_start(start_index)

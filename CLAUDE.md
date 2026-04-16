@@ -11,6 +11,8 @@
 
 如果用户对某项功能的实现有异议，或者发现了问题需要进一步修复，请同样在完成后以上述流程进行处理。
 
+如果对某些用户要求有异议，比如觉得要求不合理，或者实现有问题，请先跟用户确认。
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Development commands

@@ -221,7 +221,7 @@ class YearFetchMainTests(FetcherTestCase):
         self.assertEqual(save_calls, [False, False, True])
         self.assertEqual(len(citations), 37)
         self.assertIn("Year 2018 status: paper_total=37", output)
-        self.assertIn("Year 2019: skip (histogram count match; cached=27, probe=27, probe_complete=True)", output)
+        self.assertIn("Year 2019: skip (seen=27 >= probe=27)", output)
         self.assertNotIn("Reached target (64 >= 64)", output)
 
     def test_year_partial_save_uses_authoritative_replaced_totals(self):
