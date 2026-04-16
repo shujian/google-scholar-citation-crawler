@@ -556,7 +556,7 @@ class PaperCitationFetcher:
         """Return a status string for wait messages."""
         return (f"elapsed {self._elapsed_str()}, "
                 f"{self._new_citations_count} new citations, "
-                f"{self._total_page_count} pages, "
+                f"{self._session_ctx.total_page_count} pages, "
                 f"{self._captcha_solved_count} captcha solves")
 
     def _citation_cache_path(self, title):
@@ -941,7 +941,7 @@ class PaperCitationFetcher:
                 try:
                     if not self.interactive_captcha:
                         self._refresh_scholarly_session()
-                    self._next_refresh_at = self._total_page_count + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
+                    self._next_refresh_at = self._session_ctx.total_page_count + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
                     if attempt > 1:
                         if preserve_escalated_state_once:
                             preserve_escalated_state_once = False
@@ -1109,7 +1109,7 @@ class PaperCitationFetcher:
                     attempt_str = (str(attempt) if self.interactive_captcha
                                    else f"{attempt}/{MAX_RETRIES}")
                     print(f"  [{now}] Error (attempt {attempt_str}, "
-                          f"total pages: {self._total_page_count}, "
+                          f"total pages: {self._session_ctx.total_page_count}, "
                           f"new citations: {self._new_citations_count}): {e}")
                     if is_post_fetch_failure:
                         continue
@@ -1301,7 +1301,7 @@ class PaperCitationFetcher:
         print(f"\nDone! {len(final_results)}/{total_papers} papers{fetched_str}, "
               f"{total_cites} collected citation records{new_str}")
         print(f"Run summary: elapsed {self._elapsed_str()}"
-              f" | {self._total_page_count} pages accessed"
+              f" | {self._session_ctx.total_page_count} pages accessed"
               f" | {self._new_citations_count} new citations"
               f" | output total = collected per-paper citation records\n")
 
