@@ -422,10 +422,8 @@ class PaperCitationFetcher:
             }
 
         resume_from = cached.get('citations', [])
-        saved_dedup_count = cached.get('dedup_count', 0)
+        saved_dedup_count = 0  # always reset per run; dedup is not cumulative across runs
         direct_fetch_diagnostics = cached.get('direct_fetch_diagnostics') or {}
-        if direct_fetch_diagnostics.get('mode') == 'direct':
-            saved_dedup_count = direct_fetch_diagnostics.get('dedup_count', saved_dedup_count)
         old_scholar = cached.get('num_citations_on_scholar', cached.get('num_citations_cached', 0))
         try:
             old_scholar_known = int(old_scholar)
@@ -983,8 +981,16 @@ class PaperCitationFetcher:
                         )
                         fetch_completed = True
                     num_citations = pub['num_citations']
-                    seen_total = len(citations) + self._dedup_count
-                    dedup_str = f", {self._dedup_count} dupes" if self._dedup_count else ""
+                    year_fetch_diagnostics = getattr(self, '_year_fetch_diagnostics', None)
+                    if year_fetch_diagnostics:
+                        # For year-based fetch: sum seen/dedup from per-year diagnostics
+                        # (authoritative, per-run, no historical accumulation)
+                        seen_total = sum(d.get('seen_total', 0) for d in year_fetch_diagnostics.values())
+                        run_dedup = sum(d.get('dedup_count', 0) for d in year_fetch_diagnostics.values())
+                    else:
+                        run_dedup = self._dedup_count
+                        seen_total = len(citations) + run_dedup
+                    dedup_str = f", {run_dedup} dupes" if run_dedup else ""
                     print(f"  Done: {len(citations)} cached, {seen_total} seen{dedup_str} (Scholar: {num_citations})")
                     self._current_pub_for_live_promotion = None
                     year_counts = self._year_count_map(citations)
