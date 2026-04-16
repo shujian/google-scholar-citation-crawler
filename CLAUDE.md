@@ -2,7 +2,14 @@
 
 请使用中文作为主要工作语言。但是在代码和提交中使用英文。
 
-工作流程在 approach.md 中进行了描述。
+## 工作管理
+- `WORK_NOTES.md`：技术细节、架构决策、踩坑记录，供自己和贡献者参考
+- `user.md`：用户原始输入历史，展示 AI 辅助开发的完整对话轨迹
+- `README.md`：面向外部用户的功能说明，有重大功能更新时同步更新
+
+每次完成功能更新或者bug修复等任务之后，请将用户完整输入记录在user.md，讲技术细节记录在WORK_NOTES.md，并考虑README.md是否需要更新。上述事宜都处理完毕之后，提交git更新。
+
+如果用户对某项功能的实现有异议，或者发现了问题需要进一步修复，请同样在完成后以上述流程进行处理。
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 

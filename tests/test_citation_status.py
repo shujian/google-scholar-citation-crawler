@@ -394,7 +394,8 @@ class CitationStatusTests(FetcherTestCase):
         self.assertIn("Year 2024: skip (seen total match; cached=9, seen=10, probe=10)", output)
         self.assertIn("Year fetch comparisons: 1 years\n  2024: scholar=10,seen=10,cached=9,dedup=1,term=seen_total_match_skip", output)
 
-    def test_selective_refresh_uses_underfetched_year_diagnostics(self):
+    def test_selective_refresh_skips_years_matching_histogram(self):
+        # cached == probed for all years → nothing to refresh
         selected = self.fetcher._selective_refresh_candidate_years(
             cached_year_counts={2024: 10, 2025: 5},
             probed_year_counts={2024: 10, 2025: 5},
@@ -402,16 +403,12 @@ class CitationStatusTests(FetcherTestCase):
             probe_complete=False,
             year_fetch_diagnostics={
                 2025: self.fetcher._build_year_fetch_diagnostics(
-                    2025,
-                    5,
-                    4,
-                    0,
-                    "short_page_stop",
+                    2025, 5, 4, 0, "short_page_stop",
                 ),
             },
         )
 
-        self.assertEqual(selected, [2025])
+        self.assertEqual(selected, [])
 
     def test_citation_status_marks_partial_for_underfetched_year_diagnostics(self):
         pub = {"title": "Paper", "num_citations": 10, "year": "2024"}

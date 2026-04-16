@@ -732,7 +732,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
           f"prev_scholar={prev_scholar_count}, target={effective_target}, total_years={total_years}", flush=True)
     print(f"    Current-run completed years: {fetcher._format_year_set_summary(ctx.completed_year_segments)}", flush=True)
     print(f"    Partial resume points: {fetcher._format_partial_year_start_summary(ctx.partial_year_start)}", flush=True)
-    if selective_refresh_years is None and probed_year_counts and can_skip_by_probe_counts:
+    if selective_refresh_years is None and probed_year_counts:
         selective_refresh_years = fetcher._selective_refresh_candidate_years(
             cached_year_counts,
             probed_year_counts,

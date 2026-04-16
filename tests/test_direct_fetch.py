@@ -394,7 +394,8 @@ class DirectFetchTests(FetcherTestCase):
         mock_sleep.assert_not_called()
         self.assertNotIn("Probing citation year range (", output)
 
-    def test_fetch_by_year_does_not_skip_years_when_histogram_incomplete(self):
+    def test_fetch_by_year_skips_years_with_zero_histogram_count(self):
+        # probe={2024:0, 2025:2}: 2024 has zero count → skip; 2025 has deficit → fetch
         self.fetcher._probed_year_counts = {2024: 0, 2025: 2}
         self.fetcher._probed_year_count_complete = False
         self.fetcher._probe_citation_start_year = lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2024
@@ -442,11 +443,13 @@ class DirectFetchTests(FetcherTestCase):
                 allow_incremental_early_stop=False,
             )
 
-        self.assertEqual(requests, [(2024, 0), (2025, 0)])
-        self.assertEqual([c["title"] for c in citations], ["Y2024", "Y2025"])
+        # 2024 probed=0 == cached=0 → skip; 2025 probed=2 != cached=0 → fetch
+        self.assertEqual(requests, [(2025, 0)])
+        self.assertEqual([c["title"] for c in citations], ["Y2025"])
 
-    def test_incomplete_probe_fetches_all_years(self):
-        # probe_complete=False → no selective refresh, all years fetched
+    def test_incomplete_probe_uses_histogram_as_authority(self):
+        # histogram is authoritative regardless of probe_complete;
+        # only years with cached != probed are fetched
         self.fetcher._probed_year_counts = {2024: 1, 2025: 3, 2026: 2}
         self.fetcher._probed_year_count_complete = False
         self.fetcher._cached_year_counts = {2024: 1, 2025: 1, 2026: 2}
@@ -496,10 +499,11 @@ class DirectFetchTests(FetcherTestCase):
             )
 
         output = fake_stdout.getvalue()
-        self.assertEqual(requests, [(2024, 0), (2025, 0), (2026, 0)])
-        self.assertIn("Selective refresh years: none", output)
+        # 2024: 1==1 skip; 2025: 1!=3 fetch; 2026: 2==2 skip
+        self.assertEqual(requests, [(2025, 0)])
+        self.assertIn("Selective refresh years: 2025", output)
 
-    def test_incomplete_probe_with_no_deficit_years_falls_back_to_full_year_traversal(self):
+    def test_no_deficit_years_skips_all_years(self):
         self.fetcher._probed_year_counts = {2024: 1, 2025: 2}
         self.fetcher._probed_year_count_complete = False
         self.fetcher._cached_year_counts = {2024: 1, 2025: 2}
@@ -549,10 +553,10 @@ class DirectFetchTests(FetcherTestCase):
             )
 
         output = fake_stdout.getvalue()
-        self.assertEqual(requests, [(2024, 0), (2025, 0)])
-        self.assertEqual([c["title"] for c in citations], ["Y2024", "Y2025"])
-        self.assertIn("Selective refresh years: none", output)
-        self.assertNotIn("skip (not selected for refresh)", output)
+        # all years match histogram → nothing to fetch
+        self.assertEqual(requests, [])
+        self.assertIn("Selective refresh years:", output)
+        self.assertIn("skip (not selected for refresh)", output)
 
     def test_incomplete_probe_partial_resume_still_fetches_resumed_year(self):
         self.fetcher._probed_year_counts = {2024: 1, 2025: 2}
@@ -606,10 +610,10 @@ class DirectFetchTests(FetcherTestCase):
             )
 
         output = fake_stdout.getvalue()
-        # probe_complete=False → full traversal; 2024 resumes from partial position
-        self.assertEqual(requests, [(2024, 0), (2025, 0)])
+        # 2024 has partial_year_start → fetch; 2025 cached==probed → skip
+        self.assertEqual(requests, [(2024, 0)])
         self.assertIn("resuming from position 2 via page start 0 (skip first 2)", output)
-        self.assertNotIn("Year 2025: skip (not selected for refresh)", output)
+        self.assertIn("Year 2025: skip (not selected for refresh)", output)
 
     def test_complete_histogram_still_skips_matching_year_counts(self):
         self.fetcher._probed_year_counts = {2024: 0, 2025: 2}

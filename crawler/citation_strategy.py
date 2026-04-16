@@ -95,54 +95,27 @@ def selective_refresh_candidate_years(
     """
     Return the subset of year_range that needs to be re-fetched.
 
-    Returns None if no refresh is needed (empty candidate set and not
-    probe_complete), or a list of years (possibly empty) if probe_complete.
+    A year is a candidate when:
+    - it has an in-progress partial resume (partial_year_start), OR
+    - the histogram count for that year differs from the cached count.
+
+    Years not present in the histogram are skipped (treated as complete).
+    probe_complete is no longer used as a gate — any histogram data is treated
+    as authoritative.
+
+    Returns a list of candidate years (possibly empty), or None if there is
+    no histogram data at all (caller should fetch all years).
     """
     cached_year_counts = normalize_year_count_map(cached_year_counts)
     probed_year_counts = normalize_year_count_map(probed_year_counts)
-    year_fetch_diagnostics = normalize_year_fetch_diagnostics(year_fetch_diagnostics)
+    if not probed_year_counts:
+        return None
     partial_years = {int(year) for year in (partial_year_start or {}).keys()}
     candidate_years = set(partial_years)
-
-    def should_refresh_year(year, live_total):
-        existing_diag = year_fetch_diagnostics.get(year)
-        if year in partial_years:
-            return True
-        if existing_diag and existing_diag.get('underfetched'):
-            return True
-        try:
-            historical_scholar_total = int(existing_diag.get('scholar_total')) if existing_diag else None
-        except (TypeError, ValueError):
-            historical_scholar_total = None
-        if historical_scholar_total is not None and historical_scholar_total != live_total:
-            return True
-        try:
-            seen_total = int(existing_diag.get('seen_total', 0) or 0) if existing_diag else None
-        except (TypeError, ValueError):
-            seen_total = None
-        if seen_total is not None and seen_total < live_total:
-            return True
-        if cached_year_counts.get(year, 0) != live_total and not year_fetch_diagnostic_matches_total(
-            existing_diag,
-            live_total,
-            cached_year_counts.get(year, 0),
-        ):
-            return True
-        return False
-
-    if probe_complete:
-        candidate_years.update(
-            year for year in year_range
-            if should_refresh_year(year, probed_year_counts.get(year, 0))
-        )
-        return [year for year in year_range if year in candidate_years]
-
     candidate_years.update(
-        year for year in year_range
-        if year in probed_year_counts and should_refresh_year(year, probed_year_counts[year])
+        year for year in probed_year_counts
+        if cached_year_counts.get(year, 0) != probed_year_counts[year]
     )
-    if not candidate_years:
-        return None
     return [year for year in year_range if year in candidate_years]
 
 
