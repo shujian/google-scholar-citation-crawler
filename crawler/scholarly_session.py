@@ -77,13 +77,11 @@ class SessionContext:
     # per-paper state needed during probe
     probed_year_counts: Optional[dict] = None
     probed_year_count_complete: bool = False
-    current_pub_for_live_promotion: Optional[dict] = None
 
     # callbacks injected by PaperCitationFetcher so this module stays decoupled
     refresh_session_fn: object = None          # callable() -> None
     try_interactive_captcha_fn: object = None  # callable(url) -> bool
     wait_proxy_switch_fn: object = None        # callable() -> bool
-    promote_live_count_fn: object = None       # callable(pub, total, source) -> int
     wait_status_fn: object = None              # callable() -> str
     format_year_count_summary_fn: object = None  # callable(counts) -> str
     format_year_set_summary_fn: object = None    # callable(years) -> str
@@ -448,14 +446,6 @@ def probe_citation_start_year(
 
                 if num_citations is not None and hist_total >= num_citations:
                     ctx.probed_year_count_complete = True
-                    if (hist_total > num_citations
-                            and ctx.current_pub_for_live_promotion is not None
-                            and ctx.promote_live_count_fn):
-                        ctx.promote_live_count_fn(
-                            ctx.current_pub_for_live_promotion,
-                            hist_total,
-                            'year_histogram_total',
-                        )
                     print(f"      Scholar year range probe: start_year = {earliest} "
                           f"(from full histogram DOM, {len(years)} year values found, "
                           f"total={hist_total})", flush=True)

@@ -11,61 +11,6 @@ import scholar_citation
 from crawler.citation_strategy import refresh_reconciliation_status as _cs_refresh_reconciliation_status
 
 class OutputAndReconciliationTests(FetcherTestCase):
-    def test_save_output_flushes_promoted_publication_counts(self):
-        pub = {
-            "no": 1,
-            "title": "Paper One",
-            "num_citations": 1,
-            "year": "2024",
-            "venue": "Venue",
-        }
-        cache_pub = {
-            "title": "Paper One",
-            "num_citations": 1,
-            "citedby_url": "/scholar?cites=1",
-            "url": "https://example.com/paper",
-        }
-        result = {
-            "pub": dict(pub),
-            "citations": [
-                {"title": "Citing Paper", "authors": "A", "venue": "CV", "year": "2024", "url": "https://example.com/cite"}
-            ],
-        }
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            self.fetcher.profile_json = os.path.join(tmpdir, "author_test-author_profile.json")
-            self.fetcher.pubs_cache = os.path.join(tmpdir, "publications.json")
-            self.fetcher.out_json = os.path.join(tmpdir, "author_test-author_paper_citations.json")
-            self.fetcher.out_xlsx = os.path.join(tmpdir, "author_test-author_paper_citations.xlsx")
-            self.fetcher._run_start_time = 0
-            self.fetcher._updated_publication_counts = {"Paper One": 3}
-            self.fetcher._profile_data = {
-                "author_info": {"name": "Author", "citedby": 10, "cites_per_year": {"2026": 10}},
-                "publications": [dict(pub)],
-                "fetch_time": "2026-04-01T00:00:00",
-                "total_publications": 1,
-                "total_citations": 10,
-                "citation_count_summary": {},
-                "change_history": [],
-            }
-            self.fetcher._pubs_data = {"publications": [dict(cache_pub)]}
-            with open(self.fetcher.profile_json, "w", encoding="utf-8") as f:
-                json.dump(self.fetcher._profile_data, f)
-            with open(self.fetcher.pubs_cache, "w", encoding="utf-8") as f:
-                json.dump(self.fetcher._pubs_data, f)
-
-            self.fetcher._save_output([result])
-
-            with open(self.fetcher.profile_json, "r", encoding="utf-8") as f:
-                saved_profile = json.load(f)
-            with open(self.fetcher.pubs_cache, "r", encoding="utf-8") as f:
-                saved_pubs = json.load(f)
-
-        self.assertEqual(saved_profile["publications"][0]["num_citations"], 3)
-        self.assertEqual(saved_profile["publications"][0]["no"], 1)
-        self.assertEqual(saved_profile["fetch_time"], "2026-04-01T00:00:00")
-        self.assertEqual(saved_pubs["publications"][0]["num_citations"], 3)
-
     def test_save_output_writes_excel_run_metadata_from_json_payload(self):
         pub = {
             "no": 1,

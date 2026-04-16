@@ -155,7 +155,6 @@ class PaperCitationFetcher:
         ctx.refresh_session_fn = self._refresh_scholarly_session
         ctx.try_interactive_captcha_fn = self._try_interactive_captcha
         ctx.wait_proxy_switch_fn = self._wait_proxy_switch
-        ctx.promote_live_count_fn = self._promote_live_citation_count
         ctx.wait_status_fn = self._wait_status
         ctx.format_year_count_summary_fn = self._format_year_count_summary
         ctx.format_year_set_summary_fn = self._format_year_set_summary
@@ -246,24 +245,6 @@ class PaperCitationFetcher:
     @staticmethod
     def _effective_scholar_total(pub, cached=None):
         return int(pub.get('num_citations', 0) or 0)
-
-    def _promote_live_citation_count(self, pub, live_total, source=None):
-        try:
-            promoted_total = int(live_total)
-        except (TypeError, ValueError):
-            return int(pub.get('num_citations', 0) or 0)
-        current_total = int(pub.get('num_citations', 0) or 0)
-        if promoted_total <= current_total:
-            return current_total
-        pub['num_citations'] = promoted_total
-        updates = getattr(self, '_updated_publication_counts', None)
-        if updates is not None:
-            title = pub.get('title')
-            if title:
-                updates[title] = promoted_total
-        if source:
-            print(f"    Live citation count promoted: {current_total} -> {promoted_total} ({source})", flush=True)
-        return promoted_total
 
     @staticmethod
     def _resort_publications(publications):
@@ -497,7 +478,6 @@ class PaperCitationFetcher:
         directly to it so callers don't need a separate sync step.
         """
         session_ctx = self._session_ctx
-        session_ctx.current_pub_for_live_promotion = getattr(self, '_current_pub_for_live_promotion', None)
         result = _ss_probe_citation_start_year(citedby_url, session_ctx,
                                                num_citations=num_citations, pub_year=pub_year)
         # Write probe results to the FetchContext when provided; also keep self._ copies
@@ -960,7 +940,6 @@ class PaperCitationFetcher:
                                 direct_resume_state = retry_attempt_state.get('direct_resume_state')
                                 retry_suffix = self._direct_resume_log_suffix(direct_resume_state)
                                 print(f"  {now_str()} Retrying with {len(resume_from)} cached citations from previous attempt{retry_suffix}")
-                    self._current_pub_for_live_promotion = pub
                     if not fetch_completed:
                         citations = self._fetch_citations_with_progress(
                             citedby_url, cache_path, title, num_citations,
@@ -992,7 +971,6 @@ class PaperCitationFetcher:
                         seen_total = len(citations) + run_dedup
                     dedup_str = f", {run_dedup} dupes" if run_dedup else ""
                     print(f"  Done: {len(citations)} cached, {seen_total} seen{dedup_str} (Scholar: {num_citations})")
-                    self._current_pub_for_live_promotion = None
                     year_counts = self._year_count_map(citations)
                     if year_counts:
                         year_total = sum(year_counts.values())
@@ -1090,104 +1068,17 @@ class PaperCitationFetcher:
         """Wait up to max_hours for the user to switch proxy/IP."""
         return _int_wait_proxy_switch(max_hours)
 
-    def _flush_publication_count_updates(self, profile, pubs_data):
-        updates = getattr(self, '_updated_publication_counts', None) or {}
-        if not updates:
-            return
-
-        profile_publications = profile.get('publications', [])
-        cache_publications = pubs_data.get('publications', [])
-        updated_titles = set()
-        changed = False
-        for publication in profile_publications:
-            title = publication.get('title')
-            if title in updates and updates[title] > int(publication.get('num_citations', 0) or 0):
-                publication['num_citations'] = updates[title]
-                updated_titles.add(title)
-                changed = True
-        for publication in cache_publications:
-            title = publication.get('title')
-            if title in updates and updates[title] > int(publication.get('num_citations', 0) or 0):
-                publication['num_citations'] = updates[title]
-                updated_titles.add(title)
-                changed = True
-        if not changed:
-            return
-
-        for result in getattr(self, '_results_in_progress', []) or []:
-            if not result:
-                continue
-            publication = result.get('pub')
-            if not publication:
-                continue
-            title = publication.get('title')
-            if title in updated_titles and title in updates:
-                publication['num_citations'] = updates[title]
-
-        results_in_progress = getattr(self, '_results_in_progress', []) or []
-        if results_in_progress and profile_publications:
-            profile_by_title = {publication.get('title'): publication for publication in profile_publications}
-            for result in results_in_progress:
-                if not result:
-                    continue
-                publication = result.get('pub')
-                if not publication:
-                    continue
-                synced_publication = profile_by_title.get(publication.get('title'))
-                if synced_publication is not None:
-                    result['pub'] = dict(synced_publication)
-
-        self._resort_publications(profile_publications)
-        self._resort_publications(cache_publications)
-        profile['total_publications'] = len(profile_publications)
-
-        basics = profile.get('author_info', {})
-        change_history = profile.get('change_history', [])
-        preserved_fetch_time = profile.get('fetch_time')
-        rebuilt_profile = build_profile_payload(
-            basics,
-            profile_publications,
-            change_history=change_history,
-            fetch_time=preserved_fetch_time,
-            datetime_module=datetime,
-        )
-        profile.clear()
-        profile.update(rebuilt_profile)
-        with open(self.profile_json, 'w', encoding='utf-8') as f:
-            json.dump(profile, f, ensure_ascii=False, indent=2)
-        profile_xlsx_path = os.path.join(
-            self.output_dir, f"author_{self.author_id}_profile.xlsx"
-        )
-        write_profile_xlsx(
-            profile_xlsx_path,
-            basics,
-            profile_publications,
-            change_history=change_history,
-            fetch_time=preserved_fetch_time,
-            datetime_module=datetime,
-            openpyxl_module=openpyxl,
-            font_cls=Font,
-            pattern_fill_cls=PatternFill,
-            alignment_cls=Alignment,
-            print_fn=print,
-        )
-        with open(self.pubs_cache, 'w', encoding='utf-8') as f:
-            json.dump(pubs_data, f, ensure_ascii=False, indent=2)
-
     def _save_output(self, results):
         """Save citation results to JSON and Excel."""
         print("\n" + "=" * 70)
         profile = getattr(self, '_profile_data', None)
         pubs_data = getattr(self, '_pubs_data', None)
-        self._results_in_progress = results
         if profile is None and os.path.exists(self.profile_json):
             with open(self.profile_json, 'r', encoding='utf-8') as f:
                 profile = json.load(f)
         if pubs_data is None and os.path.exists(self.pubs_cache):
             with open(self.pubs_cache, 'r', encoding='utf-8') as f:
                 pubs_data = json.load(f)
-        if profile is not None and pubs_data is not None:
-            self._flush_publication_count_updates(profile, pubs_data)
         publications = profile.get('publications', []) if profile else []
         final_results = []
         for i, r in enumerate(results):

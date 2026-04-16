@@ -41,18 +41,6 @@ class FetchPolicyAndStrategyTests(FetcherTestCase):
 
         self.assertEqual(self.fetcher._effective_scholar_total(pub, cached), 109)
 
-    def test_promote_live_citation_count_keeps_upward_only_runtime_semantics(self):
-        pub = {"title": "Paper", "num_citations": 109}
-        self.fetcher._updated_publication_counts = {}
-
-        promoted = self.fetcher._promote_live_citation_count(pub, 120, source="live_probe")
-        unchanged = self.fetcher._promote_live_citation_count(pub, 118, source="live_probe")
-
-        self.assertEqual(promoted, 120)
-        self.assertEqual(unchanged, 120)
-        self.assertEqual(pub["num_citations"], 120)
-        self.assertEqual(self.fetcher._updated_publication_counts["Paper"], 120)
-
     def test_resolve_refresh_strategy_does_not_restore_direct_resume_state(self):
         pub = {"title": "Paper", "num_citations": 25, "year": "2024"}
         cached = {

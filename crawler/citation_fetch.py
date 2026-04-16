@@ -280,9 +280,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
             live_total = int(live_total)
         except (TypeError, ValueError):
             return current_scholar_total()
-        if pub_obj is not None:
-            effective_num_citations = fetcher._promote_live_citation_count(pub_obj, live_total, source=source)
-        elif live_total > effective_num_citations:
+        if live_total > effective_num_citations:
             effective_num_citations = live_total
         return effective_num_citations
 
