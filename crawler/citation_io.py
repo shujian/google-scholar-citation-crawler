@@ -216,26 +216,64 @@ def save_citations_xlsx(
     center = alignment_cls(horizontal="center", vertical="center")
     wrap = alignment_cls(vertical="center", wrap_text=True)
 
-    # Sheet1: Summary
+    # Collect all years across all papers (for per-year columns), newest first
+    all_years = set()
+    for item in results:
+        for cite in item['citations']:
+            y = cite.get('year')
+            if y and y not in ('N/A', 'NA', '', None):
+                try:
+                    all_years.add(int(y))
+                except (ValueError, TypeError):
+                    pass
+    year_cols = sorted(all_years, reverse=True)  # newest → oldest
+
+    # Sheet1: Summary with per-year citation counts
     ws1 = wb.active
     ws1.title = "Summary"
-    for col, (w, h) in enumerate(zip(
-        [6, 55, 12, 25, 16, 16],
-        ["No.", "Title", "Year", "Venue", "Citations (Scholar)", "Citations Collected"]
-    ), 1):
-        ws1.column_dimensions[chr(64 + col)].width = w
+    base_headers = ["No.", "Title", "Year", "Venue", "Citations (Scholar)", "Citations Collected", "Unyeared"]
+    base_widths  = [6,     55,      12,     25,      16,                    16,                    10]
+    all_headers = base_headers + [str(y) for y in year_cols]
+    all_widths  = base_widths  + [8] * len(year_cols)
+
+    for col, (w, h) in enumerate(zip(all_widths, all_headers), 1):
+        # Convert column number to letter(s): A-Z, AA-AZ, etc.
+        col_letter = ''
+        n = col
+        while n:
+            n, r = divmod(n - 1, 26)
+            col_letter = chr(65 + r) + col_letter
+        ws1.column_dimensions[col_letter].width = w
         c = ws1.cell(row=1, column=col, value=h)
         c.fill, c.font, c.alignment = hdr_fill, hdr_font, center
     ws1.row_dimensions[1].height = 28
 
     for i, item in enumerate(results, 2):
         pub = item['pub']
+        citations = item['citations']
+        # Build per-year counts
+        year_counts = {}
+        unyeared = 0
+        for cite in citations:
+            y = cite.get('year')
+            if y and y not in ('N/A', 'NA', '', None):
+                try:
+                    year_counts[int(y)] = year_counts.get(int(y), 0) + 1
+                except (ValueError, TypeError):
+                    unyeared += 1
+            else:
+                unyeared += 1
+
         ws1.cell(row=i, column=1, value=pub['no']).alignment = center
         ws1.cell(row=i, column=2, value=pub['title']).alignment = wrap
         ws1.cell(row=i, column=3, value=pub.get('year', 'N/A')).alignment = center
         ws1.cell(row=i, column=4, value=pub.get('venue', 'N/A')).alignment = wrap
         ws1.cell(row=i, column=5, value=pub['num_citations']).alignment = center
-        ws1.cell(row=i, column=6, value=len(item['citations'])).alignment = center
+        ws1.cell(row=i, column=6, value=len(citations)).alignment = center
+        ws1.cell(row=i, column=7, value=unyeared if unyeared else None).alignment = center
+        for j, year in enumerate(year_cols, 8):
+            count = year_counts.get(year)
+            ws1.cell(row=i, column=j, value=count if count else None).alignment = center
         ws1.row_dimensions[i].height = 36
 
     # Sheet2: All Citations
