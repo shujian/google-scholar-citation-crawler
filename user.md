@@ -1719,3 +1719,45 @@ seen、dedup应该是在抓取时候会记录的。seen=cached+dedup是应该保
 更新相关文档
 
 ---
+
+## Message 235 [2026-04-16T00:00:00.000Z]
+
+这里也不对，上次运行已经做过一次657->656了，为什么又出现了一次？这次的记录的scholar引用就应该是657了。不对，你说反了，scholar citation原来是656，上次运行抓取程序的时候已经是657了。我问的是为什么这次还会显示657，相对于上次运行，这个计数应该没有变化才对。
+
+---
+
+## Message 236 [2026-04-16T00:00:00.000Z]
+
+好的，我选3吧（删除 live citation count promotion 机制）
+
+---
+
+## Message 237 [2026-04-16T00:00:00.000Z]
+
+我记得之前有次给了明确的指令就是每次更新year-based fetch的时候先drop unyeared。你帮我查一下呢。继续完成。
+
+---
+
+## Message 238 [2026-04-17T00:00:00.000Z]
+
+Scholar year range probe: histogram incomplete 这个日志里，请在year probe的时候说明unyeared数量。在year-based fetch过程中，某一年跳过抓取条件是seen == probe count，但如果开始抓取了，不要因为seen >= probe count提前中止。对于year-based fetch，如果每一年都满足跳过抓取的条件，则这篇论文不需要重新抓取，这个时候从总数上看，应该是seen == scholar total - scholar unyeared，也就是seen = histogram total。
+
+---
+
+## Message 239 [2026-04-17T00:00:00.000Z]
+
+fast-path是指什么？
+
+---
+
+## Message 240 [2026-04-17T00:00:00.000Z]
+
+这里direct fetch最后两行总结有点重复了。在最后done计数的时候，seen应该是7不是6。最后注意调整一下 Prior run diagnostics后面内容的缩进
+
+---
+
+## Message 241 [2026-04-17T00:00:00.000Z]
+
+更新一下文档
+
+---
