@@ -285,7 +285,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
         self_iter._finished_current_page = False
         ctx.current_paper_page_count += 1
         if self_iter._page_num > 1:
-            print(f"      Pagination (page {ctx.current_paper_page_count})", flush=True)
+            print(f"      Pagination (page {self_iter._page_num})", flush=True)
 
         for session in (nav._session1, nav._session2):
             session.headers['referer'] = ctx.last_scholar_url
