@@ -342,6 +342,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
                 'num_citations_seen': len(citations_to_save) + ctx.dedup_count,
                 'dedup_count': ctx.dedup_count,
                 'complete': effective_complete,
+                'complete_fetch_attempt': complete,  # True only when fetch ran to completion (not mid-run interrupt)
                 'completed_years': sorted(ctx.completed_year_segments),
                 'completed_years_in_current_run': sorted(ctx.completed_year_segments),
                 'probe_complete': bool(ctx.probed_year_count_complete),

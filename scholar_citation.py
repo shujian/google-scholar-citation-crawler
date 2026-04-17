@@ -802,16 +802,19 @@ class PaperCitationFetcher:
                 results[idx - 1] = {'pub': pub, 'citations': cached['citations']}
                 continue
 
-            # rough mode: trust the cache when Scholar count is stable; avoids
-            # expensive fetches for papers that weren't cited since last run.
+            # rough mode: skip only when Scholar count is unchanged AND the last
+            # fetch ran to completion (complete_fetch_attempt=True).
+            # If the previous fetch was interrupted, re-fetch regardless.
             if self.fetch_mode == 'rough' and cached:
                 last_known = cached.get('num_citations_on_scholar')
                 try:
                     last_known_int = int(last_known) if last_known is not None else None
                 except (TypeError, ValueError):
                     last_known_int = None
-                if last_known_int is not None and last_known_int == num_citations:
-                    print(f"[{idx}/{len(publications)}] {title[:55]}... -> skip-rough ({num_citations} unchanged)")
+                if (last_known_int is not None
+                        and last_known_int == num_citations
+                        and cached.get('complete_fetch_attempt')):
+                    print(f"[{idx}/{len(publications)}] {title[:55]}... -> skip-rough ({num_citations} unchanged, fetch complete)")
                     results[idx - 1] = {'pub': pub, 'citations': cached.get('citations', [])}
                     continue
 

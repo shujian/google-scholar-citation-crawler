@@ -566,6 +566,7 @@ class MainLoopTests(FetcherTestCase):
                 {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
             ],
             "num_citations_on_scholar": 5,
+            "complete_fetch_attempt": True,
         }
         results = []
         fetch_called = []
