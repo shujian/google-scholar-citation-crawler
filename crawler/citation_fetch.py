@@ -960,8 +960,8 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                 f"termination={year_fetch_diagnostics[year]['termination_reason']}",
                 flush=True,
             )
-            print(f"      Year {year} status: paper_total={len(current_citations(complete=True))}, paper_new={paper_new_count}, "
-                  f"pages={fetcher._total_page_count}, skipped_years={skipped_years}", flush=True)
+            print(f"      Year {year} status: year_total={len(year_fetched_citations)}, year_new={year_new_count}, "
+                  f"pages={ctx.current_paper_page_count}, skipped_years={skipped_years}", flush=True)
             if not year_progress_saved:
                 save_progress(complete=False)
 
