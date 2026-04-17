@@ -8,7 +8,7 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 
 - **Unified Workflow**: Automatically fetches author profile, then crawls per-paper citations in one command
 - **Smart Skip**: If total citations and publication count haven't changed since the last run, citation crawling is skipped entirely
-- **Incremental Caching**: Re-fetches citation lists only when the cached result is incomplete relative to current Scholar counts; tracks seen/dedup counts so direct fetches use `seen >= scholar total` and year-based fetches use the probed year-histogram target when deciding whether a paper is already complete
+- **Incremental Caching**: Re-fetches citation lists only when the cached result is incomplete relative to current Scholar counts; tracks seen/dedup counts so direct fetches use `seen == scholar total` and year-based fetches use the probed year-histogram target when deciding whether a paper is already complete
 - **Dedup Handling**: Automatically deduplicates citations, preferring Scholar-native `cites_id` when available and falling back to metadata identity when it is not; tolerates count differences caused by Scholar duplicates
 - **Resume Support**: Interrupted fetches resume from the last checkpoint; per-year progress is saved so even mid-paper interruptions recover gracefully
 - **Year-Based Fetching**: Papers with many citations are fetched year-by-year (newest→oldest for updates, oldest→newest for first fetch/force), with early-stop when enough citations are collected
@@ -47,10 +47,10 @@ python scholar_citation.py --author YOUR_AUTHOR_ID --skip 2 --limit 3
 
 ```
 usage: scholar_citation.py [-h] --author AUTHOR [--output-dir DIR]
-                           [--limit N] [--skip N]
-                           [--force-refresh-pubs] [--recheck-citations]
-                           [--force-refresh-citations]
-                           [--interactive-captcha]
+                           [--skip M] [--limit N]
+                           [--force-refresh-pubs]
+                           [--fetch-mode {rough,normal,force}]
+                           [--interactive-captcha] [--accelerate SCALE]
 
 required:
   --author AUTHOR               Google Scholar author ID or full profile URL
@@ -61,24 +61,35 @@ optional:
   --limit N                     Process exactly N papers starting after --skip M (papers M+1 to M+N),
                                 regardless of whether each paper needs fetching
   --force-refresh-pubs          Force re-fetch publications list from Scholar
-  --recheck-citations           Re-check citation completeness in the selected paper range
-  --force-refresh-citations     Deprecated alias for --recheck-citations
+  --fetch-mode {rough,normal,force}
+                                Controls how aggressively citations are re-fetched (default: normal)
   --interactive-captcha         Enable interactive captcha bypass (see below)
+  --accelerate SCALE            Scale all deliberate waits by SCALE (e.g. 0.1 = 10x faster, for testing)
 ```
 
 ### `--skip` and `--limit`
 
-Papers are always sorted by citation count descending. `--skip M` skips the first M papers in that list. `--limit N` then processes exactly the next N papers (positions M+1 to M+N), whether or not they need fetching. This allows targeting a specific range for debugging or manual recovery.
+Papers are always sorted by citation count descending. `--skip M` skips the first M papers in that list. `--limit N` then processes exactly the next N papers (positions M+1 to M+N), whether or not they need fetching. This allows targeting a specific range for debugging or manual recovery. Both flags apply across all fetch modes.
 
-### `--recheck-citations`
+### `--fetch-mode`
 
-In normal mode, a paper is skipped if its cached citation state is already complete for the current Scholar totals. For direct fetches this means prior `seen >= scholar total`; for year-based fetches it means the cached run already covers the effective histogram target (the current probed year total, i.e. Scholar total minus current unyeared citations when the histogram is incomplete). With `--recheck-citations`, papers in the selected range are re-evaluated using cached-count vs current-Scholar-count logic, and only papers whose cached citations are incomplete relative to Scholar are fetched again. The citation year range is also re-probed on each fresh run, while same-run resume skips probe and restores directly from known progress.
+Three tiers of re-fetch aggressiveness:
 
-`--skip` and `--limit` semantics are unchanged: `--recheck-citations` only affects papers inside that selected range.
+| Mode | Behavior |
+|------|----------|
+| `rough` | Skip papers whose Scholar count has not changed since the last fetch, even if the cache is incomplete. Use when you only care about truly new citations. |
+| `normal` *(default)* | Fetch any paper whose cache is missing or incomplete, judged by the lenient `num_seen == scholar_total` standard. Same as the previous default behavior. |
+| `force` | Delete the cache and re-fetch from scratch. Recommended with `--skip`/`--limit` to limit scope and avoid accidentally clearing large amounts of cached data. |
 
-### `--force-refresh-citations` (deprecated)
+Examples:
 
-Deprecated alias for `--recheck-citations`. Kept temporarily for backward compatibility.
+```bash
+# Only fetch papers where Scholar count actually changed
+python scholar_citation.py --author YOUR_AUTHOR_ID --fetch-mode rough
+
+# Re-fetch papers 1-5 from scratch
+python scholar_citation.py --author YOUR_AUTHOR_ID --fetch-mode force --skip 0 --limit 5
+```
 
 ## Output Files
 
@@ -103,6 +114,7 @@ Google Scholar aggressively rate-limits automated requests, typically banning IP
 - **Session refresh**: Proactively soft-resets the session every 10-20 pages (clears `got_403` flag, preserves cookies)
 - **Fast failure**: Scholar library retries limited to 1 per page to fail fast and reach paper-level retry
 - **Dynamic Referer**: Each page request sets the previous page's URL as Referer
+- **Shared session across phases**: Profile and citation fetches share the same HTTP/2 session, so the first citation request has a warm session history instead of triggering a cold-connection block
 
 **Proxy support**: Set `http_proxy` / `https_proxy` environment variables. The tool automatically uses them via `httpx`'s `trust_env=True`.
 
