@@ -253,7 +253,7 @@ class YearFetchEarlyTests(FetcherTestCase):
         self.assertEqual(requests, [(2025, 0), (2026, 0)])
         self.assertEqual([c["year"] for c in citations], ["2025", "2026"])
         self.assertIn("target=2", output)
-        self.assertIn("Year 2026 status: paper_total=2", output)
+        self.assertIn("Year 2026 status: year_total=1", output)
 
 
 

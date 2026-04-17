@@ -220,7 +220,7 @@ class YearFetchMainTests(FetcherTestCase):
         self.assertEqual(requests, [(2018, 0), (2018, 10)])
         self.assertEqual(save_calls, [False, False, True])
         self.assertEqual(len(citations), 37)
-        self.assertIn("Year 2018 status: paper_total=37", output)
+        self.assertIn("Year 2018 status: year_total=10", output)
         self.assertIn("Year 2019: skip (seen=27 >= probe=27)", output)
         self.assertNotIn("Reached target (64 >= 64)", output)
 
