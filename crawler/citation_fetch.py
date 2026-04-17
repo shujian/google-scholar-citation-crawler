@@ -414,20 +414,11 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
             'pub_year': pub_year,
         },
     }
-    direct_fetch_allow_early_stop = (
-        fetcher.fetch_mode != 'force'
-        and not force_year_rebuild
-    )
-    has_cached_citations = bool(old_citations)
-    scholar_increase = (
-        max(0, current_scholar_total() - int(prev_scholar_count or 0))
-        if has_cached_citations else 0
-    )
     paper_new_citations_count = 0
 
     print("    Direct fetch mode: no year probe, summary shown after fetch", flush=True)
     print(f"    Direct fetch target: scholar_total={current_scholar_total()}, prev_scholar={prev_scholar_count}, "
-          f"cached_total={len(old_citations)}, allow_early_stop={direct_fetch_allow_early_stop}{_direct_resume_log_suffix(normalized_direct_resume_state)}", flush=True)
+          f"cached_total={len(old_citations)}{_direct_resume_log_suffix(normalized_direct_resume_state)}", flush=True)
     fetcher._current_attempt_url = _scholar_request_url(
         _direct_request_url(citedby_url, normalized_direct_resume_state)
     )
@@ -477,25 +468,10 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
             yielded_total = len(fresh_citations)
             save_progress(complete=False)
             print(f"  Progress saved ({yielded_total} citations, {fetcher._new_citations_count} new in this run)", flush=True)
-
-            if direct_fetch_allow_early_stop and (yielded_total + ctx.dedup_count) >= current_scholar_total():
-                direct_fetch_termination_reason = 'target_reached'
-                print(f"  Direct fetch: reached target ({yielded_total + ctx.dedup_count} >= {current_scholar_total()} including dedup), stopping early", flush=True)
-                break
-            if direct_fetch_allow_early_stop and scholar_increase > 0 and paper_new_citations_count >= scholar_increase:
-                direct_fetch_termination_reason = 'scholar_increase_recovered'
-                print(f"  Direct fetch: recovered Scholar increase ({paper_new_citations_count} >= {scholar_increase}), stopping early", flush=True)
-                break
             page_items_seen = 0
         else:
             if page_items_seen > 0:
                 yielded_total = len(fresh_citations)
-                if direct_fetch_allow_early_stop and (yielded_total + ctx.dedup_count) >= current_scholar_total():
-                    direct_fetch_termination_reason = 'target_reached'
-                    print(f"  Direct fetch: reached target ({yielded_total + ctx.dedup_count} >= {current_scholar_total()} including dedup), stopping early", flush=True)
-                elif direct_fetch_allow_early_stop and scholar_increase > 0 and paper_new_citations_count >= scholar_increase:
-                    direct_fetch_termination_reason = 'scholar_increase_recovered'
-                    print(f"  Direct fetch: recovered Scholar increase ({paper_new_citations_count} >= {scholar_increase}), stopping early", flush=True)
     except KeyboardInterrupt:
         save_progress(complete=False)
         raise

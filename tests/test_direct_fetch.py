@@ -299,7 +299,7 @@ class DirectFetchTests(FetcherTestCase):
         output = fake_stdout.getvalue()
         self.assertEqual(len(citations), 3)
         self.assertIn("Direct fetch mode: no year probe, summary shown after fetch", output)
-        self.assertIn("Direct fetch target: scholar_total=3, prev_scholar=0, cached_total=0, allow_early_stop=True", output)
+        self.assertIn("Direct fetch target: scholar_total=3, prev_scholar=0, cached_total=0", output)
         self.assertIn("Probe summary: none", output)
         self.assertIn("Probe totals: scholar_total=3, year_sum=0, missing_from_histogram=?", output)
         self.assertIn("Cache totals: cached_total=3, cached_year_sum=2, cached_unyeared=1, dedup_num=0", output)
@@ -893,77 +893,6 @@ class DirectFetchTests(FetcherTestCase):
             self.assertEqual(saved["citations"][0]["cites_id"], "cid-old-a")
             self.assertEqual(saved["citations"][1]["cites_id"], "cid-fresh-c")
 
-    def test_direct_fetch_early_stops_after_reaching_target_total(self):
-        fetched_items = self._paged_direct_iterator([
-            [
-                {"bib": {"title": "Cached-A", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a", "cites_id": "cid-a"},
-                {"bib": {"title": "Fresh-B", "author": ["B"], "venue": "V2", "pub_year": "2024"}, "pub_url": "new-b", "cites_id": "cid-b"},
-                {"bib": {"title": "Fresh-C", "author": ["C"], "venue": "V3", "pub_year": "2025"}, "pub_url": "new-c", "cites_id": "cid-c"},
-            ],
-            [
-                {"bib": {"title": "Fresh-D should not be reached", "author": ["D"], "venue": "V4", "pub_year": "2025"}, "pub_url": "new-d", "cites_id": "cid-d"},
-            ],
-        ])
-        old_citations = [
-            {"title": "Cached-A", "authors": "A", "venue": "V", "year": "2024", "url": "old-a", "cites_id": "cid-a"},
-        ]
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cache_path = os.path.join(tmpdir, "paper.json")
-            with patch.object(scholar_citation.scholarly, "citedby", return_value=fetched_items), \
-                 patch("sys.stdout", new_callable=StringIO) as fake_stdout:
-                citations = self.fetcher._fetch_citations_with_progress(
-                    citedby_url="/scholar?cites=123",
-                    cache_path=cache_path,
-                    title="Paper",
-                    num_citations=2,
-                    pub_url="https://example.com/paper",
-                    pub_year="2024",
-                    resume_from=old_citations,
-                    completed_years_in_current_run=[],
-                    prev_scholar_count=1,
-                )
-
-        output = fake_stdout.getvalue()
-        self.assertEqual([c["title"] for c in citations], ["Cached-A", "Fresh-B", "Fresh-C"])
-        self.assertIn("Direct fetch: reached target (3 >= 2 including dedup), stopping early", output)
-        self.assertNotIn("Fresh-D should not be reached", [c["title"] for c in citations])
-
-    def test_direct_fetch_does_not_count_overlayed_cache_toward_target(self):
-        fetched_items = [
-            {"bib": {"title": "Fresh-A", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a", "cites_id": "cid-a"},
-            {"bib": {"title": "Fresh-B", "author": ["B"], "venue": "V2", "pub_year": "2024"}, "pub_url": "new-b", "cites_id": "cid-b"},
-            {"bib": {"title": "Fresh-C", "author": ["C"], "venue": "V3", "pub_year": "2025"}, "pub_url": "new-c", "cites_id": "cid-c"},
-        ]
-        old_citations = [
-            {"title": "Old-1", "authors": "A", "venue": "V", "year": "2020", "url": "old-1", "cites_id": "old-1"},
-            {"title": "Old-2", "authors": "B", "venue": "V", "year": "2021", "url": "old-2", "cites_id": "old-2"},
-            {"title": "Old-3", "authors": "C", "venue": "V", "year": "2022", "url": "old-3", "cites_id": "old-3"},
-        ]
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cache_path = os.path.join(tmpdir, "paper.json")
-            with patch.object(scholar_citation.scholarly, "citedby", return_value=iter(fetched_items)), \
-                 patch("sys.stdout", new_callable=StringIO) as fake_stdout:
-                citations = self.fetcher._fetch_citations_with_progress(
-                    citedby_url="/scholar?cites=123",
-                    cache_path=cache_path,
-                    title="Paper",
-                    num_citations=3,
-                    pub_url="https://example.com/paper",
-                    pub_year="2024",
-                    resume_from=old_citations,
-                    completed_years_in_current_run=[],
-                    prev_scholar_count=0,
-                )
-
-        output = fake_stdout.getvalue()
-        self.assertEqual([c["title"] for c in citations], ["Fresh-A", "Fresh-B", "Fresh-C"])
-        self.assertIn("Direct fetch: reached target (3 >= 3 including dedup), stopping early", output)
-        self.assertNotIn("Direct fetch: reached target (4 >= 3)", output)
-        self.assertNotIn("Direct fetch: reached target (5 >= 3)", output)
-        self.assertNotIn("Direct fetch: reached target (6 >= 3)", output)
-
     def test_direct_fetch_first_fetch_does_not_stop_on_scholar_increase(self):
         fetched_items = [
             {"bib": {"title": "Fresh-A", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a", "cites_id": "cid-a"},
@@ -1022,81 +951,6 @@ class DirectFetchTests(FetcherTestCase):
         self.assertEqual([c["title"] for c in citations], ["Cached-A", "Fresh-B", "Fresh-C"])
         self.assertNotIn("Direct fetch: recovered Scholar increase (268 >= 18)", output)
         self.assertNotIn("Direct fetch: recovered Scholar increase", output)
-
-    def test_direct_fetch_stops_when_seen_total_reaches_target_with_dedup(self):
-        fetched_items = self._paged_direct_iterator([
-            [
-                {"bib": {"title": "Fresh-A", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a", "cites_id": "cid-a"},
-                {"bib": {"title": "Fresh-A duplicate", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a-dup", "cites_id": "cid-a"},
-                {"bib": {"title": "Fresh-B", "author": ["B"], "venue": "V2", "pub_year": "2025"}, "pub_url": "new-b", "cites_id": "cid-b"},
-            ],
-            [
-                {"bib": {"title": "Fresh-C should not be reached", "author": ["C"], "venue": "V3", "pub_year": "2026"}, "pub_url": "new-c", "cites_id": "cid-c"},
-            ],
-        ])
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cache_path = os.path.join(tmpdir, "paper.json")
-            with patch.object(scholar_citation.scholarly, "citedby", return_value=fetched_items), \
-                 patch("sys.stdout", new_callable=StringIO) as fake_stdout:
-                citations = self.fetcher._fetch_citations_with_progress(
-                    citedby_url="/scholar?cites=123",
-                    cache_path=cache_path,
-                    title="Paper",
-                    num_citations=3,
-                    pub_url="https://example.com/paper",
-                    pub_year="2024",
-                    resume_from=[],
-                    completed_years_in_current_run=[],
-                    prev_scholar_count=0,
-                )
-
-            with open(cache_path, "r", encoding="utf-8") as f:
-                saved = json.load(f)
-
-        output = fake_stdout.getvalue()
-        self.assertEqual([c["title"] for c in citations], ["Fresh-A", "Fresh-B"])
-        self.assertEqual(saved["num_citations_cached"], 2)
-        self.assertEqual(saved["num_citations_seen"], 3)
-        self.assertTrue(saved["complete"])
-        self.assertEqual(saved["direct_fetch_diagnostics"]["seen_total"], 3)
-        self.assertFalse(saved["direct_fetch_diagnostics"]["underfetched"])
-        self.assertEqual(saved["direct_fetch_diagnostics"]["dedup_count"], 1)
-        self.assertIn("Direct fetch: reached target (3 >= 3 including dedup)", output)
-
-    def test_direct_fetch_reaching_target_waits_until_page_boundary(self):
-        fetched_items = self._paged_direct_iterator([
-            [
-                {"bib": {"title": "Fresh-A", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a", "cites_id": "cid-a"},
-                {"bib": {"title": "Fresh-B", "author": ["B"], "venue": "V2", "pub_year": "2025"}, "pub_url": "new-b", "cites_id": "cid-b"},
-                {"bib": {"title": "Fresh-C", "author": ["C"], "venue": "V3", "pub_year": "2026"}, "pub_url": "new-c", "cites_id": "cid-c"},
-            ],
-            [
-                {"bib": {"title": "Fresh-D should not be reached", "author": ["D"], "venue": "V4", "pub_year": "2026"}, "pub_url": "new-d", "cites_id": "cid-d"},
-            ],
-        ])
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cache_path = os.path.join(tmpdir, "paper.json")
-            with patch.object(scholar_citation.scholarly, "citedby", return_value=fetched_items), \
-                 patch("sys.stdout", new_callable=StringIO) as fake_stdout:
-                citations = self.fetcher._fetch_citations_with_progress(
-                    citedby_url="/scholar?cites=123",
-                    cache_path=cache_path,
-                    title="Paper",
-                    num_citations=2,
-                    pub_url="https://example.com/paper",
-                    pub_year="2024",
-                    resume_from=[],
-                    completed_years_in_current_run=[],
-                    prev_scholar_count=0,
-                )
-
-        output = fake_stdout.getvalue()
-        self.assertEqual([c["title"] for c in citations], ["Fresh-A", "Fresh-B", "Fresh-C"])
-        self.assertIn("Progress saved (3 citations, 3 new in this run)", output)
-        self.assertIn("Direct fetch: reached target (3 >= 2 including dedup), stopping early", output)
-        self.assertNotIn("Fresh-D should not be reached", [c["title"] for c in citations])
 
     def test_direct_fetch_final_page_emits_single_progress_save(self):
         fetched_items = self._paged_direct_iterator([
