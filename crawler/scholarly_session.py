@@ -225,6 +225,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
             referer = session.headers.get('referer')
             if referer:
                 break
+        ctx.total_page_count += 1
         if request_url:
             # Only show referer when it differs from the last visited URL
             # (i.e. injected externally, not the natural previous-page referer)
@@ -282,7 +283,6 @@ def patch_scholarly(ctx: SessionContext) -> None:
         self_iter._page_num = getattr(self_iter, '_page_num', 0) + 1
         self_iter._items_in_current_page = 0
         self_iter._finished_current_page = False
-        ctx.total_page_count += 1
         ctx.current_paper_page_count += 1
         if self_iter._page_num > 1:
             print(f"      Pagination (page {ctx.current_paper_page_count})", flush=True)
