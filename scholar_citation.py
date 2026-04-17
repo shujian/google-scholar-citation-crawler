@@ -628,7 +628,16 @@ class PaperCitationFetcher:
             year_fetch_diagnostics=year_fetch_diagnostics or {},
             cached_year_counts=self._cached_year_counts,
         )
-        result = _cf.fetch_by_year(self, ctx, citedby_url, old_citations, fresh_citations, save_progress,
+        # Wrap save_progress to sync inner ctx's year_fetch_diagnostics to the fetcher
+        # attribute before each save.  build_materialized_year_fetch_diagnostics (defined
+        # in the outer fetch_citations_with_progress closure) reads that attribute so that
+        # per-year dedup counts from the inner ctx are not silently discarded.
+        _orig_save_progress = save_progress
+        def _synced_save_progress(complete):
+            self._live_year_fetch_diagnostics = ctx.year_fetch_diagnostics
+            _orig_save_progress(complete)
+
+        result = _cf.fetch_by_year(self, ctx, citedby_url, old_citations, fresh_citations, _synced_save_progress,
                                    num_citations, pub_year, prev_scholar_count,
                                    allow_incremental_early_stop=allow_incremental_early_stop,
                                    force_year_rebuild=force_year_rebuild,

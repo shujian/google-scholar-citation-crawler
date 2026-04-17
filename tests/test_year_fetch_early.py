@@ -318,6 +318,78 @@ class YearFetchEarlyTests(FetcherTestCase):
         self.assertEqual([c["title"] for c in citations],
                          [f"Item-{i}" for i in range(9)])
 
+    def test_save_progress_wrapper_syncs_inner_ctx_dedup_to_fetcher(self):
+        """
+        _fetch_by_year wraps save_progress so that fetcher._live_year_fetch_diagnostics
+        reflects the inner FetchContext's year_fetch_diagnostics at the moment each
+        save_progress call fires.  This ensures build_materialized_year_fetch_diagnostics
+        (inside fetch_citations_with_progress) sees the correct dedup_count rather than
+        the stale outer-ctx data.
+        """
+        self.fetcher._probe_citation_start_year = (
+            lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2025
+        )
+        self.fetcher._probed_year_counts = {2025: 2}
+        self.fetcher._probed_year_count_complete = True
+        self.fetcher._cached_year_counts = {2025: 1}
+
+        old_citations = [
+            {"title": "Cached-2025", "authors": "A", "venue": "V", "year": "2025",
+             "url": "u-cached", "cites_id": "cid-cached"},
+        ]
+
+        # Scholar returns two items, the second a duplicate of the first (same pub_url)
+        class FakeIterator:
+            def __init__(self_iter, nav, url):
+                self_iter.items = [
+                    {"bib": {"title": "New-2025",    "author": ["A"], "venue": "V",
+                             "pub_year": "2025"}, "pub_url": "u-new"},
+                    {"bib": {"title": "New-2025",    "author": ["A"], "venue": "V",
+                             "pub_year": "2025"}, "pub_url": "u-new"},  # duplicate
+                ]
+                self_iter.index = 0
+                self_iter._finished_current_page = False
+
+            def __iter__(self_iter):
+                return self_iter
+
+            def __next__(self_iter):
+                if self_iter.index >= len(self_iter.items):
+                    self_iter._finished_current_page = True
+                    raise StopIteration
+                item = self_iter.items[self_iter.index]
+                self_iter.index += 1
+                if self_iter.index >= len(self_iter.items):
+                    self_iter._finished_current_page = True
+                return item
+
+        live_diags_at_complete_save = {}
+
+        def capture_save(complete):
+            if complete:
+                live = getattr(self.fetcher, '_live_year_fetch_diagnostics', None) or {}
+                live_diags_at_complete_save.update(live)
+
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch.object(scholar_citation, "datetime") as fake_datetime:
+            fake_datetime.now.return_value = types.SimpleNamespace(year=2025)
+            self.fetcher._fetch_by_year(
+                citedby_url="/scholar?cites=123",
+                old_citations=old_citations,
+                fresh_citations=[],
+                save_progress=capture_save,
+                num_citations=2,
+                pub_year="2024",
+                prev_scholar_count=0,
+            )
+
+        diag_2025 = live_diags_at_complete_save.get(2025)
+        self.assertIsNotNone(diag_2025, "Expected live diagnostics for year 2025")
+        self.assertEqual(diag_2025.get('dedup_count'), 1,
+                         "dedup_count must be 1 at final save_progress")
+        self.assertEqual(diag_2025.get('seen_total'), 2,
+                         "seen_total must be 2 (1 cached + 1 dedup)")
+
 
 if __name__ == '__main__':
     unittest.main()

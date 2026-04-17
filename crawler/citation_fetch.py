@@ -268,6 +268,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
     ctx.year_fetch_diagnostics = fetcher._normalize_year_fetch_diagnostics(
         rehydrated_year_fetch_diagnostics
     )
+    fetcher._live_year_fetch_diagnostics = None  # reset; set by _fetch_by_year wrapper during year-based fetch
 
     def current_scholar_total():
         if pub_obj is not None:
@@ -295,7 +296,13 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
         return direct_materialized_citations(complete)
 
     def build_materialized_year_fetch_diagnostics(citations_to_save):
-        diagnostics = dict(fetcher._normalize_year_fetch_diagnostics(ctx.year_fetch_diagnostics))
+        # During year-based fetch, _fetch_by_year creates a separate inner FetchContext
+        # and syncs its year_fetch_diagnostics to fetcher._live_year_fetch_diagnostics
+        # just before calling save_progress.  Use that when available so that per-year
+        # dedup counts accumulated in the inner ctx are not lost.
+        live = getattr(fetcher, '_live_year_fetch_diagnostics', None)
+        source = live if live is not None else ctx.year_fetch_diagnostics
+        diagnostics = dict(fetcher._normalize_year_fetch_diagnostics(source))
         year_counts = fetcher._year_count_map(citations_to_save)
         for year, diagnostic in list(diagnostics.items()):
             if year not in year_counts and year not in (ctx.probed_year_counts or {}):

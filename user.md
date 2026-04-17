@@ -1777,3 +1777,13 @@ fast-path是指什么？
 （`while True` 在短页成功抓取后，iterator 尝试下一页并抛出异常，except 处理器误判为 captcha retry 重新循环。应直接 break。）
 
 ---
+
+## Message [2026-04-17] — year_fetch_diagnostics dedup 丢失
+
+这里有点不对，2025年的信息在上一次prob的时候已经是179了，并且dedup=1，现在这个记录丢失了。
+
+上一次的最终log Year fetch comparisons: 10 years [2025: scholar=179,seen=179,cached=178,dedup=1,term=short_page_stop]
+
+cached的总数是对的，2025的cached数也是对的，但是2025的状态还有dedup=1，seen=179，这个状态现在是dedup=0，seen=178不对。
+
+---
