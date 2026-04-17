@@ -1071,13 +1071,22 @@ class PaperCitationFetcher:
         final_results = []
         for i, r in enumerate(results):
             if r is not None:
-                final_results.append(r)
+                pub = r['pub']
+                cached = self._load_citation_cache(pub.get('title', '')) if pub else None
+                final_results.append({
+                    **r,
+                    'fetch_complete': bool((cached or {}).get('complete_fetch_attempt')),
+                })
             else:
                 # Load from cache if available, otherwise empty
                 pub = publications[i] if i < len(publications) else {}
                 cached = self._load_citation_cache(pub.get('title', '')) if pub else None
                 citations = cached.get('citations', []) if cached else []
-                final_results.append({'pub': pub, 'citations': citations})
+                final_results.append({
+                    'pub': pub,
+                    'citations': citations,
+                    'fetch_complete': bool((cached or {}).get('complete_fetch_attempt')),
+                })
         total_cites = sum(len(r['citations']) for r in final_results)
         output_payload = {
             'author_id': self.author_id,

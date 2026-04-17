@@ -231,8 +231,8 @@ def save_citations_xlsx(
     # Sheet1: Summary with per-year citation counts
     ws1 = wb.active
     ws1.title = "Summary"
-    base_headers = ["No.", "Title", "Year", "Venue", "Citations (Scholar)", "Citations Collected", "Unyeared"]
-    base_widths  = [6,     55,      12,     25,      16,                    16,                    10]
+    base_headers = ["No.", "Title", "Year", "Venue", "Citations (Scholar)", "Citations Collected", "Fetch Complete", "Unyeared"]
+    base_widths  = [6,     55,      12,     25,      16,                    16,                    14,               10]
     all_headers = base_headers + [str(y) for y in year_cols]
     all_widths  = base_widths  + [8] * len(year_cols)
 
@@ -270,8 +270,9 @@ def save_citations_xlsx(
         ws1.cell(row=i, column=4, value=pub.get('venue', 'N/A')).alignment = wrap
         ws1.cell(row=i, column=5, value=pub['num_citations']).alignment = center
         ws1.cell(row=i, column=6, value=len(citations)).alignment = center
-        ws1.cell(row=i, column=7, value=unyeared if unyeared else None).alignment = center
-        for j, year in enumerate(year_cols, 8):
+        ws1.cell(row=i, column=7, value='Y' if item.get('fetch_complete') else 'N').alignment = center
+        ws1.cell(row=i, column=8, value=unyeared if unyeared else None).alignment = center
+        for j, year in enumerate(year_cols, 9):
             count = year_counts.get(year)
             ws1.cell(row=i, column=j, value=count if count else None).alignment = center
         ws1.row_dimensions[i].height = 36
