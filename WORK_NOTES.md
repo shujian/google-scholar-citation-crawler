@@ -326,6 +326,7 @@ pub_obj = {
 - **2026-04-16** — `drop_cached_unyeared` 恢复为所有 year-based fetch 都 drop：之前被错误地收窄为"只有 direct→year 切换时才 drop"，但原始设计（Message 222）明确要求每次 year-based fetch 都先 drop unyeared。恢复为 `drop_cached_unyeared = fetch_policy['mode'] == 'year'`。99 tests OK。
 - **2026-04-17** — Probe 日志加 unyeared 数量；移除 year 循环内的 early-stop 死代码：①probe incomplete 日志加 `unyeared=N`（`scholar_total - hist_total`）；②`_get_early_stop_status`、`target_reached_by_histogram` lambda、`suppress_target_reached`、`suppress_final_histogram_target_stop`、`current_count_for_stop_and_status` 全部删除（year 循环从不调用 early stop，都是死代码）；`_build_year_fetch_plan` wrapper 一并删除。98 tests OK。
 - **2026-04-17** — 三处日志修复：①`Direct fetch under-fetched (...)` 详情行与上面的 `Direct fetch totals:` 重复，删掉详情行，只保留简短提示；②`Done:` 行 direct fetch 的 seen 错误使用上一篇 year-based 论文残留的 `_year_fetch_diagnostics`，现在只在 `fetch_policy['mode'] == 'year'` 时使用 diagnostics，direct fetch 始终用 `ctx.dedup_count`；③`Prior run diagnostics` 和 `Year fetch comparisons` 的续行缩进从 2 个空格改为 8 个空格，与上下文层级对齐。98 tests OK。
+- **2026-04-17** — 修复 year fetch 日志缩进不一致：`_fetch_by_year()` 内的引用条目输出 `[count]` / `[dedup]` 从 2 格缩进改为 6 格，与同级的 `Pagination`/`Request URL`/`Year N:` 等日志对齐。来自 `scholarly_session.py` 的 session 层级日志（`Pagination`、`Request URL`、`Waiting`）本就是 6 格，无需修改。对 direct fetch 内相同格式的 2 格缩进无影响（两套 print 语句独立）。94 tests OK。
 
 ---
 

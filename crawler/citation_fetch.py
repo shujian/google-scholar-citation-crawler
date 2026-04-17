@@ -893,8 +893,8 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                         if matched_key is not None:
                             ctx.dedup_count += 1
                             year_dedup_count += 1
-                            print(f"  [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
-                                  f"\n          Existing: {year_seen_keys[matched_key]}", flush=True)
+                            print(f"      [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
+                                  f"\n              Existing: {year_seen_keys[matched_key]}", flush=True)
                         else:
                             label = f"{info['title'][:50]} ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
                             for key in identity_keys:
@@ -908,7 +908,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                                 fetcher._new_citations_count += 1
                             count = len(fresh_citations)
 
-                            print(f"  [{count}] {info['title'][:55]}...", flush=True)
+                            print(f"      [{count}] {info['title'][:55]}...", flush=True)
 
                         if getattr(iterator, '_finished_current_page', False) and not page_save_emitted:
                             save_progress(complete=False)
