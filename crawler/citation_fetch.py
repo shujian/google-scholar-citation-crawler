@@ -269,6 +269,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
         rehydrated_year_fetch_diagnostics
     )
     fetcher._live_year_fetch_diagnostics = None  # reset; set by _fetch_by_year wrapper during year-based fetch
+    fetcher._live_dedup_count = None             # reset; set by _fetch_by_year wrapper during year-based fetch
 
     def current_scholar_total():
         if pub_obj is not None:
@@ -332,12 +333,15 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
         ctx.cached_year_counts = fetcher._year_count_map(citations_to_save)
         year_fetch_diagnostics_to_save = build_materialized_year_fetch_diagnostics(citations_to_save)
         ctx.year_fetch_diagnostics = year_fetch_diagnostics_to_save
+        # During year-based fetch, use inner-ctx dedup count synced by _fetch_by_year wrapper.
+        live_dedup = getattr(fetcher, '_live_dedup_count', None)
+        effective_dedup = live_dedup if live_dedup is not None else ctx.dedup_count
         count_summary = fetcher._build_citation_count_summary(
             citations_to_save,
             scholar_total=current_scholar_total(),
             probed_year_counts=ctx.probed_year_counts,
             probe_complete=ctx.probed_year_count_complete,
-            dedup_count=ctx.dedup_count,
+            dedup_count=effective_dedup,
         )
         with open(cache_path, 'w', encoding='utf-8') as f:
             json.dump({
@@ -346,8 +350,8 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
                 'citedby_url': citedby_url,
                 'num_citations_on_scholar': current_scholar_total(),
                 'num_citations_cached': len(citations_to_save),
-                'num_citations_seen': len(citations_to_save) + ctx.dedup_count,
-                'dedup_count': ctx.dedup_count,
+                'num_citations_seen': len(citations_to_save) + effective_dedup,
+                'dedup_count': effective_dedup,
                 'complete': effective_complete,
                 'complete_fetch_attempt': complete,  # True only when fetch ran to completion (not mid-run interrupt)
                 'completed_years': sorted(ctx.completed_year_segments),

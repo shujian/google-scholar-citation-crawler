@@ -635,6 +635,7 @@ class PaperCitationFetcher:
         _orig_save_progress = save_progress
         def _synced_save_progress(complete):
             self._live_year_fetch_diagnostics = ctx.year_fetch_diagnostics
+            self._live_dedup_count = ctx.dedup_count
             _orig_save_progress(complete)
 
         result = _cf.fetch_by_year(self, ctx, citedby_url, old_citations, fresh_citations, _synced_save_progress,
