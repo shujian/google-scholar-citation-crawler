@@ -881,10 +881,16 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                     iterator = _SSI(nav, year_url_cur)
                     page_save_emitted = False
                     request_items_seen = 0
+                    last_completed_page_was_short = False
                     for citing in iterator:
                         year_items_seen += 1
                         request_items_seen += 1
                         ctx.partial_year_start[year] = start_index + year_items_seen
+                        # Track whether the last completed page was short so the except
+                        # handler can skip retry when the year's data is already exhausted.
+                        if getattr(iterator, '_finished_current_page', False):
+                            _pg_sz = getattr(iterator, '_items_in_current_page', 0)
+                            last_completed_page_was_short = 0 < _pg_sz < SCHOLAR_PAGE_SIZE
                         if request_items_seen <= request_in_page_skip:
                             continue
                         info = fetcher._extract_citation_info(citing, fallback_year=year)
@@ -928,6 +934,13 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                     print(f"  [{now_s}] Blocked at year {year} "
                           f"position {logical_resume_index}: {e}", flush=True)
                     save_progress(complete=False)
+                    # If the last completed page was short (< page size), the year's data is
+                    # exhausted. The exception was the iterator trying to load a non-existent
+                    # next page. Don't retry — just end this year normally.
+                    if (last_completed_page_was_short
+                            and getattr(iterator, '_items_in_current_page', -1) == 0):
+                        year_termination_reason = 'short_page_stop'
+                        break
                     if fetcher.interactive_captcha:
                         cur_url = (f'https://scholar.google.com{year_url_cur}'
                                    if year_url_cur.startswith('/') else year_url_cur)

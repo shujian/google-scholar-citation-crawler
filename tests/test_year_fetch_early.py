@@ -255,6 +255,68 @@ class YearFetchEarlyTests(FetcherTestCase):
         self.assertIn("target=2", output)
         self.assertIn("Year 2026 status: year_total=1", output)
 
+    def test_short_page_exception_at_next_page_does_not_retry(self):
+        """
+        When the last fetched page is short (< SCHOLAR_PAGE_SIZE), an exception
+        raised by the iterator while trying to auto-paginate to the next (non-existent)
+        page should be treated as normal end-of-year, not as a captcha that needs retry.
+        The while-True loop must exit without creating a second iterator.
+        """
+        self.fetcher._probe_citation_start_year = (
+            lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2026
+        )
+
+        iterators_created = []
+
+        class FakeIterator:
+            def __init__(self_iter, nav, url):
+                iterators_created.append(url)
+                # Page at start=210: 9 items (short page)
+                self_iter.items = [
+                    {"bib": {"title": f"Item-{i}", "author": ["A"],
+                             "venue": "V", "pub_year": "2026"},
+                     "pub_url": f"u{i}"}
+                    for i in range(9)
+                ]
+                self_iter.index = 0
+                self_iter._finished_current_page = False
+                self_iter._items_in_current_page = 0
+
+            def __iter__(self_iter):
+                return self_iter
+
+            def __next__(self_iter):
+                if self_iter.index >= len(self_iter.items):
+                    # Simulate iterator trying the next page and hitting a block
+                    self_iter._items_in_current_page = 0
+                    self_iter._finished_current_page = False
+                    raise RuntimeError("Simulated block at next page")
+                item = self_iter.items[self_iter.index]
+                self_iter.index += 1
+                self_iter._items_in_current_page = self_iter.index
+                if self_iter.index >= len(self_iter.items):
+                    self_iter._finished_current_page = True
+                return item
+
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch.object(scholar_citation, "datetime") as fake_datetime:
+            fake_datetime.now.return_value = types.SimpleNamespace(year=2026)
+            citations = self.fetcher._fetch_by_year(
+                citedby_url="/scholar?cites=123",
+                old_citations=[],
+                fresh_citations=[],
+                save_progress=lambda complete: None,
+                num_citations=9,
+                pub_year="2025",
+                prev_scholar_count=0,
+            )
+
+        # Only ONE iterator should have been created (no retry loop)
+        self.assertEqual(len(iterators_created), 1,
+                         "Expected exactly one iterator; got retry loop")
+        self.assertEqual(len(citations), 9)
+        self.assertEqual([c["title"] for c in citations],
+                         [f"Item-{i}" for i in range(9)])
 
 
 if __name__ == '__main__':

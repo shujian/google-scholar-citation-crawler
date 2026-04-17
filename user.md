@@ -1769,3 +1769,11 @@ fast-path是指什么？
 （year fetch 日志中，引用条目 `[count]` 和 `[dedup]` 用了 2 格缩进，与周围的 `Pagination`/`Request URL`/`Year N:` 的 6 格缩进不一致，需要统一）
 
 ---
+
+## Message 243 [2026-04-17T00:00:00.000Z]
+
+刚刚讨论过，如果第一次抓取成功了，就应该退出循环了，为什么还在循环里面？
+
+（`while True` 在短页成功抓取后，iterator 尝试下一页并抛出异常，except 处理器误判为 captcha retry 重新循环。应直接 break。）
+
+---
