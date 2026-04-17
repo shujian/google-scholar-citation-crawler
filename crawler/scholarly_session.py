@@ -284,8 +284,13 @@ def patch_scholarly(ctx: SessionContext) -> None:
         self_iter._items_in_current_page = 0
         self_iter._finished_current_page = False
         ctx.current_paper_page_count += 1
-        if self_iter._page_num > 1:
-            print(f"      Pagination (page {self_iter._page_num})", flush=True)
+        # Derive page number from URL start= param so it matches the actual page
+        # being fetched regardless of retries or iterator resets.
+        import re as _re2
+        _start_m = _re2.search(r'[?&]start=(\d+)', url)
+        _url_page = int(_start_m.group(1)) // 10 + 1 if _start_m else 1
+        if _url_page > 1:
+            print(f"      Pagination (page {_url_page})", flush=True)
 
         for session in (nav._session1, nav._session2):
             session.headers['referer'] = ctx.last_scholar_url
