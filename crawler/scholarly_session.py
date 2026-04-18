@@ -231,7 +231,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
             # (i.e. injected externally, not the natural previous-page referer)
             show_referer = referer and referer != ctx.last_scholar_url
             referer_str = f" (referer: {referer})" if show_referer else ""
-            print(f"      Request URL: {request_url}{referer_str}", flush=True)
+            print(f"        Request URL: {request_url}{referer_str}", flush=True)
 
         def unified_sleep(seconds):
             sleep_count[0] += 1
@@ -242,7 +242,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
             d = rand_delay(ctx.delay_scale)
             retry_note = f" (retry {sleep_count[0]})" if sleep_count[0] > 1 else ""
             wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""
-            print(f"      {now_str()} Waiting {d:.0f}s before request{retry_note}... "
+            print(f"        {now_str()} Waiting {d:.0f}s before request{retry_note}... "
                   f"[{wait_str}]", flush=True)
             original_sleep(d)
 
@@ -290,7 +290,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
         _start_m = _re2.search(r'[?&]start=(\d+)', url)
         _url_page = int(_start_m.group(1)) // 10 + 1 if _start_m else 1
         if _url_page > 1:
-            print(f"      Pagination (page {_url_page})", flush=True)
+            print(f"        Pagination (page {_url_page})", flush=True)
 
         for session in (nav._session1, nav._session2):
             session.headers['referer'] = ctx.last_scholar_url
@@ -298,13 +298,13 @@ def patch_scholarly(ctx: SessionContext) -> None:
         if ctx.total_page_count >= ctx.next_break_at:
             d = random.uniform(MANDATORY_BREAK_MIN, MANDATORY_BREAK_MAX) * ctx.delay_scale
             wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""
-            print(f"      {now_str()} Mandatory break after {ctx.total_page_count} pages "
+            print(f"        {now_str()} Mandatory break after {ctx.total_page_count} pages "
                   f"({d/60:.1f} min)... [{wait_str}]", flush=True)
             time.sleep(d)
             ctx.next_break_at = (ctx.total_page_count
                                  + random.randint(MANDATORY_BREAK_EVERY_MIN, MANDATORY_BREAK_EVERY_MAX))
             if not ctx.interactive_captcha and ctx.refresh_session_fn:
-                print(f"      {now_str()} Refreshing session after break...", flush=True)
+                print(f"        {now_str()} Refreshing session after break...", flush=True)
                 ctx.refresh_session_fn()
             ctx.next_refresh_at = (ctx.total_page_count
                                    + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX))

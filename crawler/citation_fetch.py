@@ -851,7 +851,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                         f'&as_sdt=2005&sciodt=0,5&cites={pub_id}&scipsc=')
             if resume_page_start > 0:
                 year_url += f'&start={resume_page_start}'
-            print(f"      URL: https://scholar.google.com{year_url}", flush=True)
+            print(f"        URL: https://scholar.google.com{year_url}", flush=True)
             nav = scholarly._Scholarly__nav
 
             year_new_count = 0
@@ -882,7 +882,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                             f" via page start {request_start} "
                             f"(skip first {request_in_page_skip})"
                         )
-                    print(f"      Year {year}: continuing from {progress_note}", flush=True)
+                    print(f"        Year {year}: continuing from {progress_note}", flush=True)
                 else:
                     year_url_cur = year_url
                 try:
@@ -910,8 +910,8 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                         if matched_key is not None:
                             ctx.dedup_count += 1
                             year_dedup_count += 1
-                            print(f"      [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
-                                  f"\n              Existing: {year_seen_keys[matched_key]}", flush=True)
+                            print(f"          [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
+                                  f"\n                    Existing: {year_seen_keys[matched_key]}", flush=True)
                         else:
                             label = f"{info['title'][:50]} ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
                             for key in identity_keys:
@@ -925,7 +925,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                                 fetcher._new_citations_count += 1
                             count = len(fresh_citations)
 
-                            print(f"      [{count}] {info['title'][:55]}...", flush=True)
+                            print(f"          [{count}] {info['title'][:55]}...", flush=True)
 
                         if page_finished and not page_save_emitted:
                             save_progress(complete=False)
@@ -947,7 +947,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                     raise
                 except Exception as e:
                     now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    print(f"  [{now_s}] Blocked at year {year} "
+                    print(f"        [{now_s}] Blocked at year {year} "
                           f"position {logical_resume_index}: {e}", flush=True)
                     save_progress(complete=False)
                     if fetcher.interactive_captcha:
