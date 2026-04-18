@@ -1787,3 +1787,19 @@ fast-path是指什么？
 cached的总数是对的，2025的cached数也是对的，但是2025的状态还有dedup=1，seen=179，这个状态现在是dedup=0，seen=178不对。
 
 ---
+
+## Message [2026-04-18] — 检查类似多层传递问题 + 日志分层缩进 + 文档整理
+
+请再检查一下有没有类似的多层传递数据导致的问题。
+
+（检查结果：`ctx.completed_year_segments` 和 `ctx.partial_year_start` 是可变对象，共享引用无问题；`ctx.probed_year_counts` / `ctx.probed_year_count_complete` 在 year 循环内不修改无问题；`ctx.dedup_count` 存在同类问题——整数不传播，导致 JSON 的 `dedup_count` / `num_citations_seen` 偏低；已修复。）
+
+---
+
+请在整理一下相关文件。根据现在的使用和工作情况再梳理一下readme。最后一起提交git。
+
+---
+
+我们再解决一些日志的问题，请用分层缩进处理这里的内容。比如Year 2018开始之后，每页的内容多增加一层缩进。每个page开始之后，其中的10个引用也增加一层缩进。
+
+---

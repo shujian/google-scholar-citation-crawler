@@ -6,18 +6,18 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 
 ## Features
 
-- **Unified Workflow**: Automatically fetches author profile, then crawls per-paper citations in one command
+- **Unified Workflow**: Fetches author profile then crawls per-paper citations in one command
 - **Smart Skip**: If total citations and publication count haven't changed since the last run, citation crawling is skipped entirely
-- **Incremental Caching**: Re-fetches citation lists only when the cached result is incomplete relative to current Scholar counts; tracks seen/dedup counts so direct fetches use `seen == scholar total` and year-based fetches use the probed year-histogram target when deciding whether a paper is already complete
-- **Dedup Handling**: Automatically deduplicates citations, preferring Scholar-native `cites_id` when available and falling back to metadata identity when it is not; tolerates count differences caused by Scholar duplicates
-- **Resume Support**: Interrupted fetches resume from the last checkpoint; per-year progress is saved so even mid-paper interruptions recover gracefully
-- **Year-Based Fetching**: Papers with many citations are fetched year-by-year (newest→oldest for updates, oldest→newest for first fetch/force), with early-stop when enough citations are collected
-- **Anti-Ban Strategies**: Randomized delays, mandatory long breaks, browser header simulation, and HTTP/2 to reduce Scholar IP-level rate limiting
-- **Interactive Captcha Bypass**: `--interactive-captcha` mode lets you paste a browser cURL to inject real cookies and bypass captchas without restarting the program
-- **Proxy Switch Wait**: On failure, prompts you to switch proxy/IP and checks every hour for an "ok" signal to continue
-- **Change Tracking**: Records history of citation changes across runs
-- **Dual Output**: Generates both JSON and formatted Excel files
-- **Run Summary**: Prints total elapsed time, pages accessed, and new citations at the end of each run
+- **Incremental Caching**: Re-fetches only papers whose cache is incomplete; year-based papers use a per-year histogram to decide which years need refreshing
+- **Year-Based Fetching**: Papers with many citations (configurable threshold, default ≥ 50) are fetched year-by-year (oldest → newest), skipping years whose cached count already matches Scholar's histogram
+- **Dedup Handling**: Deduplicates citations using Scholar-native `cites_id` when available, falling back to `title + venue/authors` metadata; tolerates Scholar self-duplicates
+- **Resume Support**: Interrupted fetches resume from the last checkpoint; per-year progress is saved so mid-paper interruptions recover gracefully
+- **Anti-Ban Strategies**: Randomized 45–90 s delays, mandatory 3–6 min breaks every 8–12 pages, browser header simulation (Edge 145, sec-ch-ua-*, dynamic Referer), and HTTP/2
+- **Interactive Captcha Bypass**: `--interactive-captcha` lets you paste a browser cURL to inject real cookies and resume without restarting
+- **Proxy Switch Wait**: On non-interactive failure, prompts hourly to switch proxy/IP until you type `ok`
+- **Change Tracking**: Records per-run citation-count history in the profile JSON
+- **Dual Output**: JSON and formatted Excel for both author profile and citations
+- **Run Summary**: Prints elapsed time, total pages accessed, and new citations at the end of each run
 
 ## Requirements
 
@@ -28,7 +28,7 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 pip install -r requirements.txt
 ```
 
-> **Note**: `httpx` is pinned to `0.27.2` for compatibility with `scholarly 1.7.11`. Newer versions break the internal session handling.
+> **Note**: `httpx` is pinned to `0.27.2` for compatibility with `scholarly 1.7.11`. Newer versions break internal session handling.
 
 ## Quick Start
 
@@ -36,10 +36,10 @@ pip install -r requirements.txt
 # Fetch profile + citations for an author
 python scholar_citation.py --author YOUR_AUTHOR_ID
 
-# You can also use a full Google Scholar URL
+# Also accepts a full Google Scholar profile URL
 python scholar_citation.py --author "https://scholar.google.com/citations?user=YOUR_AUTHOR_ID&hl=en"
 
-# Test with a small batch (only process papers 3-5, i.e. skip 2, limit 3)
+# Process only papers 3–5 (skip 2, limit 3) — useful for testing
 python scholar_citation.py --author YOUR_AUTHOR_ID --skip 2 --limit 3
 ```
 
@@ -57,66 +57,59 @@ required:
 
 optional:
   --output-dir DIR              Output directory (default: ./output)
-  --skip M                      Skip first M papers in the full list (sorted by citations desc)
-  --limit N                     Process exactly N papers starting after --skip M (papers M+1 to M+N),
-                                regardless of whether each paper needs fetching
-  --force-refresh-pubs          Force re-fetch publications list from Scholar
+  --skip M                      Skip first M papers (sorted by citations desc)
+  --limit N                     Process exactly N papers after --skip M
+  --force-refresh-pubs          Force re-fetch of the publications list
   --fetch-mode {rough,normal,force}
-                                Controls how aggressively citations are re-fetched (default: normal)
+                                Controls re-fetch aggressiveness (default: normal)
   --interactive-captcha         Enable interactive captcha bypass (see below)
-  --accelerate SCALE            Scale all deliberate waits by SCALE (e.g. 0.1 = 10x faster, for testing)
+  --accelerate SCALE            Scale all deliberate waits (e.g. 0.1 = 10× faster)
 ```
 
 ### `--skip` and `--limit`
 
-Papers are always sorted by citation count descending. `--skip M` skips the first M papers in that list. `--limit N` then processes exactly the next N papers (positions M+1 to M+N), whether or not they need fetching. This allows targeting a specific range for debugging or manual recovery. Both flags apply across all fetch modes.
+Papers are sorted by citation count descending. `--skip M` skips the first M papers; `--limit N` then processes the next N papers (positions M+1 to M+N), regardless of whether each needs fetching. Useful for targeting a specific range for debugging or manual recovery.
 
 ### `--fetch-mode`
 
-Three tiers of re-fetch aggressiveness:
-
 | Mode | Behavior |
 |------|----------|
-| `rough` | Skip papers whose Scholar count has not changed since the last fetch, even if the cache is incomplete. Use when you only care about truly new citations. |
-| `normal` *(default)* | Fetch any paper whose cache is missing or incomplete, judged by the lenient `num_seen == scholar_total` standard. Same as the previous default behavior. |
-| `force` | Delete the cache and re-fetch from scratch. Recommended with `--skip`/`--limit` to limit scope and avoid accidentally clearing large amounts of cached data. |
-
-Examples:
+| `rough` | Skip papers whose Scholar count hasn't changed since the last fetch, even if the cache is incomplete. Use when you only care about truly new citations. |
+| `normal` *(default)* | Re-fetch any paper whose cache is missing or incomplete, using a seen-count comparison to decide completeness. |
+| `force` | Delete the cache and re-fetch from scratch. Recommended with `--skip`/`--limit` to limit scope. |
 
 ```bash
 # Only fetch papers where Scholar count actually changed
 python scholar_citation.py --author YOUR_AUTHOR_ID --fetch-mode rough
 
-# Re-fetch papers 1-5 from scratch
+# Re-fetch papers 1–5 from scratch
 python scholar_citation.py --author YOUR_AUTHOR_ID --fetch-mode force --skip 0 --limit 5
 ```
 
 ## Output Files
 
-After running, you'll find these files in the output directory:
-
 | File | Description |
 |------|-------------|
 | `author_<ID>_profile.json` | Author info, publication list, and change history |
-| `author_<ID>_profile.xlsx` | Excel with Author Overview, Publications, and Change History sheets |
+| `author_<ID>_profile.xlsx` | Excel: Author Overview, Publications, Change History |
 | `author_<ID>_paper_citations.json` | Per-paper citation lists |
-| `author_<ID>_paper_citations.xlsx` | Excel with Summary and All Citations sheets |
-| `scholar_cache/` | Incremental cache (auto-managed, not committed to git) |
+| `author_<ID>_paper_citations.xlsx` | Excel: Summary, All Citations, Run Metadata |
+| `output/logs/author_<ID>_run_<ts>.log` | Full log of each run (mirrors stdout) |
+| `scholar_cache/` | Incremental cache (auto-managed) |
 
 ## Rate Limiting & Anti-Ban Strategies
 
-Google Scholar aggressively rate-limits automated requests, typically banning IPs after 30-40 page accesses. This tool uses several layers of mitigation:
+Google Scholar aggressively rate-limits automated requests. This tool uses multiple mitigation layers:
 
-- **Slower randomized delays**: All waits between requests use randomized 45-90s delays
-- **Mandatory long breaks**: Every 8-12 pages, a 3-6 minute break is taken to let Scholar's sliding-window rate limit reset
-- **Browser header simulation**: Full `sec-fetch-*`, `sec-ch-ua-*`, `user-agent`, `accept`, `accept-language`, and `Referer` headers matching a real Edge 145 browser
-- **HTTP/2**: Requests use HTTP/2 (`httpx` with `h2`) for a more authentic browser-like TLS profile
-- **Session refresh**: Proactively soft-resets the session every 10-20 pages (clears `got_403` flag, preserves cookies)
-- **Fast failure**: Scholar library retries limited to 1 per page to fail fast and reach paper-level retry
-- **Dynamic Referer**: Each page request sets the previous page's URL as Referer
-- **Shared session across phases**: Profile and citation fetches share the same HTTP/2 session, so the first citation request has a warm session history instead of triggering a cold-connection block
+- **Randomized delays**: 45–90 s between requests
+- **Mandatory long breaks**: Every 8–12 pages, a 3–6 minute break resets Scholar's sliding-window rate limit
+- **Browser header simulation**: Full `sec-fetch-*`, `sec-ch-ua-*`, `user-agent`, `accept`, `accept-language`, and dynamic `Referer` headers matching a real Edge 145 session
+- **HTTP/2**: Requests use HTTP/2 (`httpx` with `h2`) for an authentic browser TLS profile
+- **Session refresh**: Soft-resets the session every 10–20 pages (preserves cookies, clears `got_403` flag)
+- **Shared session**: Profile and citation fetches share the same HTTP/2 session, so citation requests start with a warm session history
+- **Fast failure**: `scholarly` retries limited to 1 per page so failures reach the paper-level retry quickly
 
-**Proxy support**: Set `http_proxy` / `https_proxy` environment variables. The tool automatically uses them via `httpx`'s `trust_env=True`.
+**Proxy support**: Set `https_proxy` / `http_proxy` environment variables; `httpx`'s `trust_env=True` picks them up automatically.
 
 ```bash
 export https_proxy=http://your-proxy-host:port
@@ -125,7 +118,7 @@ python scholar_citation.py --author YOUR_AUTHOR_ID
 
 ## Interactive Captcha Bypass
 
-When Scholar shows a CAPTCHA, the `--interactive-captcha` flag lets you inject real browser cookies without restarting:
+When Scholar shows a CAPTCHA, `--interactive-captcha` lets you inject real browser cookies without restarting:
 
 ```bash
 python scholar_citation.py --author YOUR_AUTHOR_ID --interactive-captcha
@@ -137,28 +130,67 @@ When a block is detected:
 2. Open that URL in your browser (solve the CAPTCHA if needed)
 3. In Chrome/Edge DevTools → Network tab, right-click the request → **Copy as cURL**
 4. Paste the cURL into the terminal; the program detects the end automatically (last line has no `\`)
-5. Cookies are extracted and injected; the program retries
+5. Cookies and selected headers are extracted and injected; the program retries immediately
 
-In interactive mode, the program **never exits automatically** — it will keep asking you to solve captchas or switch proxies until it succeeds.
+In interactive mode, the program **never exits on failure** — it keeps prompting until you solve the captcha or switch proxies.
 
-In non-interactive mode, on failure the program waits up to 24 hours while prompting you hourly to switch your proxy/IP. Type `ok` and press Enter when you've switched, and it will immediately retry.
+In non-interactive mode, the program waits up to 24 hours, prompting hourly to switch your proxy/IP. Type `ok` and press Enter to retry immediately.
 
 ## Resume After Interruption
 
 If the script is interrupted (Ctrl+C, timeout, or error):
 
-1. Progress is saved to cache automatically (including which years have been fully fetched)
+1. Progress is saved automatically to the per-paper cache (including which years have been fully fetched)
 2. Simply re-run the same command to resume
-3. Completed papers and completed years within a paper are skipped
+3. Completed papers and completed year segments within a paper are skipped
+
+## Year-Based Fetch Details
+
+Papers with ≥ 50 average citations per year switch to year-by-year fetch mode:
+
+- **Direction**: Always oldest → newest
+- **Selective refresh**: Scholar's year histogram is probed once per paper; only years where the cached count differs from the histogram are re-fetched
+- **Skip logic**: A year is skipped if `seen_total (cached + dedup) >= probe_count` for that year; a whole paper is skipped if every year satisfies this condition (equivalent to `seen >= scholar_total − unyeared`)
+- **Resume**: `partial_year_start` records the exact item offset within the in-progress year, so a retry resumes from the correct page rather than replaying from the beginning
 
 ## Development Notes
 
 This repository includes two files that document the AI-assisted development process:
 
-- **`user.md`**: A timestamped log of all user messages from development conversations. Shows exactly how requirements evolved — from initial design to bug fixes to feature requests — entirely through natural language, without the user writing any code.
-- **`WORK_NOTES.md`**: Detailed technical notes, architecture decisions, bug fixes, and implementation details accumulated during development. Explains *why* the code is structured as it is, useful for contributors and as a record of the AI reasoning process.
+- **`user.md`**: A timestamped log of all user messages from development conversations — shows how requirements evolved entirely through natural language, with the user writing zero code.
+- **`WORK_NOTES.md`**: Detailed technical notes, architecture decisions, and bug-fix records accumulated during development.
 
 Both files are committed to git and contain no personally identifiable information.
+
+### Project Structure
+
+```
+scholar_citation.py          # CLI entry point + PaperCitationFetcher orchestrator
+crawler/
+  common.py                  # Constants and stateless utilities
+  fetch_context.py           # FetchContext dataclass (per-paper mutable state)
+  author_fetcher.py          # AuthorProfileFetcher
+  profile_io.py              # Profile JSON / Excel output
+  citation_cache.py          # Year-count and diagnostics pure functions
+  citation_strategy.py       # Fetch policy, refresh strategy, reconciliation
+  citation_identity.py       # Citation dedup key and info extraction
+  citation_io.py             # Cache I/O, status derivation, citations Excel output
+  citation_fetch.py          # fetch_citations_with_progress + fetch_by_year engine
+  scholarly_session.py       # SessionContext + scholarly monkey-patch + year probe
+  interactive.py             # cURL cookie injection, captcha prompt, proxy-switch wait
+  cli.py                     # parse_args() + _run_main()
+tests/                       # 96 unit tests, no network required
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+python -m unittest discover -s tests -p "test_*.py"
+
+# Run a single test file
+python -m unittest tests.test_year_fetch_early
+```
 
 ## License
 
