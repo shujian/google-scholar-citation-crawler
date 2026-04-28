@@ -85,6 +85,7 @@ class SessionContext:
     wait_status_fn: object = None              # callable() -> str
     format_year_count_summary_fn: object = None  # callable(counts) -> str
     format_year_set_summary_fn: object = None    # callable(years) -> str
+    first_page_prompt_fn: object = None        # callable() -> bool, fired once before first request
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +227,10 @@ def patch_scholarly(ctx: SessionContext) -> None:
             if referer:
                 break
         ctx.total_page_count += 1
+        if ctx.total_page_count == 1 and ctx.first_page_prompt_fn:
+            fn = ctx.first_page_prompt_fn
+            ctx.first_page_prompt_fn = None  # fire once only
+            fn()
         if request_url:
             # Only show referer when it differs from the last visited URL
             # (i.e. injected externally, not the natural previous-page referer)

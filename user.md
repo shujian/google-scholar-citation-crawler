@@ -1811,3 +1811,9 @@ cached的总数是对的，2025的cached数也是对的，但是2025的状态还
 我希望在日志的这里输出所有引用变化的论文（Citation changes 不再截断，全部展示）。
 
 ---
+
+## Message [2026-04-28] — Cookie 持久化
+
+我建议这样，在程序的输出目录下保存一个curl.txt，用来记录当前session的cookie，如果当前session没有cookie，在程序运行访问第一个页面的时候请求用户进行一次curl输入。
+
+---

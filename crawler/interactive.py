@@ -5,12 +5,40 @@ All public functions are pure (no class state).  PaperCitationFetcher keeps
 thin wrapper methods so existing call sites and tests don't need to change.
 """
 
+import os
 import re
 import sys
 import time
 from datetime import datetime
 
 from scholarly import scholarly
+
+
+# ---------------------------------------------------------------------------
+# Cookie file persistence
+# ---------------------------------------------------------------------------
+
+def save_curl_to_file(curl_str, path):
+    """Save a raw cURL string to *path* for reuse in future sessions."""
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(curl_str)
+    except Exception as e:
+        print(f"  (Could not save curl to {path}: {e})", flush=True)
+
+
+def load_curl_from_file(path):
+    """Return the raw cURL string saved by save_curl_to_file, or None."""
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+        return content if content else None
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        print(f"  (Could not load curl from {path}: {e})", flush=True)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -25,6 +53,7 @@ def inject_cookies_from_curl(
     injected_cookies_ref,       # dict to update in-place
     injected_header_overrides_ref,  # dict to update in-place
     captcha_solved_count_ref,   # list[int] as a mutable counter
+    curl_save_path=None,        # if set, save curl_str here after success
 ):
     """
     Parse cookies and allowlisted headers from a pasted cURL command and inject
@@ -87,7 +116,121 @@ def inject_cookies_from_curl(
         f"Captcha solves: {captcha_solved_count_ref[0]}",
         flush=True,
     )
+    if curl_save_path:
+        save_curl_to_file(curl_str, curl_save_path)
+        print(f"  Saved cookies to {curl_save_path}", flush=True)
     return len(cookies)
+
+
+# ---------------------------------------------------------------------------
+# Shared multiline input reader (used by both first-page prompt and captcha)
+# ---------------------------------------------------------------------------
+
+def _read_multiline_input(timeout_after_silence=3.0):
+    """
+    Read a multiline paste from stdin using non-canonical TTY mode.
+
+    Returns a list of non-empty lines, or [] if the user pressed Enter
+    immediately (skip) or stdin is not a TTY.
+    """
+    import select as _sel
+    import os as _os
+    import re as _re
+    _ANSI = _re.compile(r'\x1b(?:\[[0-9;?]*[a-zA-Z]|[()][AB012])')
+
+    fd = sys.stdin.fileno()
+    old_attrs = None
+    try:
+        import termios as _termios
+        old_attrs = _termios.tcgetattr(fd)
+    except Exception:
+        pass
+
+    chunks = []
+    try:
+        if old_attrs is not None:
+            new = list(old_attrs)
+            new[3] = new[3] & ~_termios.ICANON
+            new[6] = list(new[6])
+            new[6][_termios.VMIN] = 1
+            new[6][_termios.VTIME] = 0
+            _termios.tcsetattr(fd, _termios.TCSAFLUSH, new)
+
+        _sel.select([sys.stdin], [], [])
+
+        while True:
+            ready = _sel.select([sys.stdin], [], [], timeout_after_silence)[0]
+            if not ready:
+                break
+            try:
+                chunk = _os.read(fd, 4096)
+            except OSError:
+                break
+            if not chunk:
+                break
+            chunks.append(chunk.decode('utf-8', errors='replace'))
+    except KeyboardInterrupt:
+        if old_attrs is not None:
+            import termios as _t
+            _t.tcsetattr(fd, _t.TCSADRAIN, old_attrs)
+        print(flush=True)
+        return []
+    finally:
+        if old_attrs is not None:
+            import termios as _t
+            _t.tcsetattr(fd, _t.TCSADRAIN, old_attrs)
+
+    print(flush=True)
+    raw = ''.join(chunks)
+    raw = _ANSI.sub('', raw)
+    raw = raw.replace('\r\n', '\n').replace('\r', '\n')
+
+    lines = []
+    for line in raw.split('\n'):
+        line = line.rstrip()
+        if not line.strip():
+            if lines:
+                break
+            continue
+        lines.append(line)
+    return lines
+
+
+# ---------------------------------------------------------------------------
+# First-page proactive cookie prompt
+# ---------------------------------------------------------------------------
+
+def prompt_first_curl(*, inject_fn):
+    """
+    Prompt the user to paste a browser cURL before the first Scholar request.
+
+    Called automatically when no saved cookies are available.  The user can
+    press Enter immediately to skip; the program then proceeds without cookies
+    (possibly receiving fewer results from Scholar).
+
+    Returns True if cookies were successfully injected.
+    """
+    if not sys.stdin.isatty():
+        return False
+
+    sep = "  " + "=" * 62
+    print(f"\n{sep}", flush=True)
+    print(f"  No saved Scholar cookies found.", flush=True)
+    print(f"  Providing cookies may give more complete results.", flush=True)
+    print(f"  1. Open any Scholar page in your browser", flush=True)
+    print(f"  2. F12 → Network → right-click the Scholar request", flush=True)
+    print(f"     → Copy as cURL (bash)", flush=True)
+    print(f"  3. Paste here (detected automatically after 3s silence)", flush=True)
+    print(f"     Press Enter immediately to skip.", flush=True)
+    print(f"{sep}", flush=True)
+    print("  > ", end='', flush=True)
+
+    lines = _read_multiline_input()
+    if not lines:
+        print("  (Skipped — proceeding without cookies)", flush=True)
+        return False
+    print(f"  Received {len(lines)} lines. Processing...", flush=True)
+    return inject_fn('\n'.join(lines)) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -122,67 +265,7 @@ def try_interactive_captcha(url, *, inject_fn):
     print(f"{sep}", flush=True)
     print("  > ", end='', flush=True)
 
-    import select as _sel
-    import os as _os
-    import re as _re
-    _ANSI = _re.compile(r'\x1b(?:\[[0-9;?]*[a-zA-Z]|[()][AB012])')
-
-    fd = sys.stdin.fileno()
-    old_attrs = None
-    try:
-        import termios as _termios
-        old_attrs = _termios.tcgetattr(fd)
-    except Exception:
-        pass
-
-    chunks = []
-    try:
-        if old_attrs is not None:
-            new = list(old_attrs)
-            new[3] = new[3] & ~_termios.ICANON
-            new[6] = list(new[6])
-            new[6][_termios.VMIN] = 1
-            new[6][_termios.VTIME] = 0
-            _termios.tcsetattr(fd, _termios.TCSAFLUSH, new)
-
-        _sel.select([sys.stdin], [], [])
-
-        while True:
-            ready = _sel.select([sys.stdin], [], [], 3.0)[0]
-            if not ready:
-                break
-            try:
-                chunk = _os.read(fd, 4096)
-            except OSError:
-                break
-            if not chunk:
-                break
-            chunks.append(chunk.decode('utf-8', errors='replace'))
-    except KeyboardInterrupt:
-        if old_attrs is not None:
-            import termios as _t
-            _t.tcsetattr(fd, _t.TCSADRAIN, old_attrs)
-        print(flush=True)
-        return False
-    finally:
-        if old_attrs is not None:
-            import termios as _t
-            _t.tcsetattr(fd, _t.TCSADRAIN, old_attrs)
-
-    print(flush=True)
-    raw = ''.join(chunks)
-    raw = _ANSI.sub('', raw)
-    raw = raw.replace('\r\n', '\n').replace('\r', '\n')
-
-    lines = []
-    for line in raw.split('\n'):
-        line = line.rstrip()
-        if not line.strip():
-            if lines:
-                break
-            continue
-        lines.append(line)
-
+    lines = _read_multiline_input()
     if not lines:
         print("  (Skipped — using automatic wait)", flush=True)
         return False

@@ -94,6 +94,8 @@ from crawler.citation_io import (
 from crawler.author_fetcher import AuthorProfileFetcher  # noqa: F401
 from crawler.interactive import (
     inject_cookies_from_curl as _int_inject_cookies,
+    load_curl_from_file as _int_load_curl_from_file,
+    prompt_first_curl as _int_prompt_first_curl,
     try_interactive_captcha as _int_try_interactive_captcha,
     wait_proxy_switch as _int_wait_proxy_switch,
 )
@@ -138,6 +140,7 @@ class PaperCitationFetcher:
         self.profile_json = os.path.join(output_dir, f"author_{author_id}_profile.json")
         self.out_json = os.path.join(output_dir, f"author_{author_id}_paper_citations.json")
         self.out_xlsx = os.path.join(output_dir, f"author_{author_id}_paper_citations.xlsx")
+        self._curl_save_path = os.path.join(output_dir, "curl.txt")
         os.makedirs(self.cache_dir, exist_ok=True)
 
         # Session context shared with the scholarly patch layer
@@ -169,6 +172,17 @@ class PaperCitationFetcher:
         self._completed_year_segments = ctx.completed_year_segments
         self._session_patched = True
         self._run_start_time = time.time()
+
+        # Auto-load saved cookies from previous session
+        saved_curl = _int_load_curl_from_file(self._curl_save_path)
+        if saved_curl:
+            print(f"  Loading saved cookies from {self._curl_save_path}", flush=True)
+            self._inject_cookies_from_curl(saved_curl)
+        else:
+            # Prompt once on first Scholar request (only in interactive TTY sessions)
+            ctx.first_page_prompt_fn = lambda: _int_prompt_first_curl(
+                inject_fn=self._inject_cookies_from_curl,
+            )
 
 
     @staticmethod
@@ -1051,6 +1065,7 @@ class PaperCitationFetcher:
             injected_cookies_ref=self._injected_cookies,
             injected_header_overrides_ref=self._injected_header_overrides,
             captcha_solved_count_ref=counter,
+            curl_save_path=self._curl_save_path,
         )
         self._captcha_solved_count = counter[0]
         return result
