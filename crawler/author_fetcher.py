@@ -243,10 +243,8 @@ class AuthorProfileFetcher:
                 print(f"  ... {len(new_papers)} total")
         if changed_citations:
             print(f"\nCitation changes ({len(changed_citations)}):")
-            for c in changed_citations[:5]:
-                print(f"  {c['title'][:50]}... {c['old']} -> {c['new']}")
-            if len(changed_citations) > 5:
-                print(f"  ... {len(changed_citations)} total")
+            for c in changed_citations:
+                print(f"  {c['title'][:60]}... {c['old']} -> {c['new']}")
         if not new_papers and not changed_citations and prev_profile:
             print("  (No changes in this run)")
 

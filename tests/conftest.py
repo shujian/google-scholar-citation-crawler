@@ -215,6 +215,7 @@ class FetcherTestCase(unittest.TestCase):
                 self.page_index = 0
                 self.item_index = 0
                 self._finished_current_page = False
+                self._items_in_current_page = 0
 
             def __iter__(self):
                 return self
@@ -225,9 +226,11 @@ class FetcherTestCase(unittest.TestCase):
                     if self.item_index >= len(page):
                         self.page_index += 1
                         self.item_index = 0
+                        self._items_in_current_page = 0
                         continue
                     item = page[self.item_index]
                     self.item_index += 1
+                    self._items_in_current_page = self.item_index
                     self._finished_current_page = self.item_index >= len(page)
                     if self._finished_current_page:
                         self.page_index += 1

@@ -331,6 +331,7 @@ pub_obj = {
 - **2026-04-17** — 给 main 分支最后的单文件版本打标签 `single_file_version`，把 `refactor/modularize` 合并进 main 分支。
 - **2026-04-17** — 修复 `year_fetch_diagnostics` dedup_count 跨次运行丢失（双 FetchContext 问题）：`_fetch_by_year` 方法创建了独立的内部 FetchContext，而 `save_progress` 闭包读取的是外部 FetchContext。内部 ctx 里积累的 `dedup_count`（包括 `year_fetch_diagnostics` 里的逐年 dedup）不传播到外部 ctx，导致每次 `save_progress` 写入 JSON 时 dedup 均为 0；运行日志正确（读内部局部变量），但保存数据错误。修复：在 `_fetch_by_year` 方法里用 wrapper 包裹 `save_progress`，每次调用前将内部 ctx 的 `year_fetch_diagnostics` 和 `dedup_count` 同步到 `fetcher._live_year_fetch_diagnostics` / `fetcher._live_dedup_count`；`build_materialized_year_fetch_diagnostics` 和 `save_progress` 优先读这两个属性。入口处置 None 防止旧论文数据污染 direct 模式。新增回归测试 `test_save_progress_wrapper_syncs_inner_ctx_dedup_to_fetcher`。96 tests OK。
 - **2026-04-18** — 分层缩进 year-based fetch 日志：三层体系（6 格：年份边界 Year N: fetching/skip/done/compare/status；8 格：年份内页面级 URL/Pagination/Request URL/Mandatory break/Refreshing/Waiting/Blocked/continuing from；10 格：页面内引用 [N]/[dedup]）。`scholarly_session.py` 5 处、`citation_fetch.py` 5 处同步修改。96 tests OK。
+- **2026-04-28** — 修复 direct fetch "Progress saved" 连续重复输出，同时明确化日志措辞；展示全量引用变化论文。①`_WrappedDirectIterator` 新增 `_items_in_current_page` 同步（从 base iterator 同步），在 page save 时检查是否为完整页（`>= SCHOLAR_PAGE_SIZE`），只在完整页打印 "Progress saved"，短页（Scholar 偶尔返回少于 10 条的页面）静默保存，消除连续短页带来的重复日志行；②日志措辞改为 `Progress saved: N fetched this paper, M new across run`，明确两个数字分别代表本篇 fetch 数和本次 run 总新增；③`author_fetcher.py` `append_history` 里的 `Citation changes` 从最多显示 5 条改为全量展示。96 tests OK。
 
 ---
 

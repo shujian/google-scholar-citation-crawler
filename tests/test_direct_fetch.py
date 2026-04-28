@@ -953,6 +953,7 @@ class DirectFetchTests(FetcherTestCase):
         self.assertNotIn("Direct fetch: recovered Scholar increase", output)
 
     def test_direct_fetch_final_page_emits_single_progress_save(self):
+        # Short page (3 items < SCHOLAR_PAGE_SIZE=10): save silently, no print.
         fetched_items = self._paged_direct_iterator([
             [
                 {"bib": {"title": "Fresh-A", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a", "cites_id": "cid-a"},
@@ -979,7 +980,37 @@ class DirectFetchTests(FetcherTestCase):
 
         output = fake_stdout.getvalue()
         self.assertEqual([c["title"] for c in citations], ["Fresh-A", "Fresh-B", "Fresh-C"])
-        self.assertEqual(output.count("Progress saved (3 citations, 3 new in this run)"), 1)
+        # Short page → no "Progress saved" print (saved silently)
+        self.assertNotIn("Progress saved", output)
+
+        # Full page (10 items == SCHOLAR_PAGE_SIZE): exactly one print with new format.
+        page_of_10 = [
+            {"bib": {"title": f"Item-{i}", "author": ["A"], "venue": "V", "pub_year": "2024"},
+             "pub_url": f"u-{i}", "cites_id": f"cid-{i}"}
+            for i in range(10)
+        ]
+        fetched_full = self._paged_direct_iterator([page_of_10])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = os.path.join(tmpdir, "paper.json")
+            with patch.object(scholar_citation.scholarly, "citedby", return_value=fetched_full), \
+                 patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+                citations = self.fetcher._fetch_citations_with_progress(
+                    citedby_url="/scholar?cites=123",
+                    cache_path=cache_path,
+                    title="Paper",
+                    num_citations=30,
+                    pub_url="https://example.com/paper",
+                    pub_year="2024",
+                    resume_from=[],
+                    completed_years_in_current_run=[],
+                    prev_scholar_count=0,
+                )
+
+        output = fake_stdout.getvalue()
+        self.assertEqual(output.count("Progress saved:"), 1)
+        self.assertIn("10 fetched this paper", output)
+        self.assertIn("new across run", output)
 
         fetched_items = [
             {"bib": {"title": "Fresh-A", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a", "cites_id": "cid-a"},

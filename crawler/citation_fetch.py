@@ -125,6 +125,8 @@ def _wrap_direct_citedby_iterator(iterator, in_page_skip=0):
                 self._finished_current_page = bool(
                     getattr(self._base_iterator, '_finished_current_page', False)
                 )
+                self._items_in_current_page = getattr(
+                    self._base_iterator, '_items_in_current_page', 0)
                 if self._remaining_skip > 0:
                     self._remaining_skip -= 1
                     continue
@@ -479,7 +481,12 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
 
             yielded_total = len(fresh_citations)
             save_progress(complete=False)
-            print(f"  Progress saved ({yielded_total} citations, {fetcher._new_citations_count} new in this run)", flush=True)
+            # Only log "Progress saved" for full pages; short pages save silently to
+            # avoid noisy consecutive saves when Scholar returns sub-10-item pages.
+            items_on_page = getattr(direct_iterator, '_items_in_current_page', 0)
+            if items_on_page >= SCHOLAR_PAGE_SIZE:
+                print(f"  Progress saved: {yielded_total} fetched this paper, "
+                      f"{fetcher._new_citations_count} new across run", flush=True)
             page_items_seen = 0
         else:
             if page_items_seen > 0:
