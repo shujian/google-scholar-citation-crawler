@@ -87,6 +87,7 @@ class AuthorProfileFetcher:
             if author is None:
                 raise ValueError("search_author_id returned None — Scholar may be rate-limiting")
             print("Author found, filling basic info...")
+            self._author_stub = author  # cache for fetch_publications to reuse
 
             d = rand_delay(self.delay_scale)
             print(f"{now_str()} Waiting {d:.0f}s...")
@@ -149,7 +150,11 @@ class AuthorProfileFetcher:
         print("Connecting to Google Scholar...")
 
         try:
-            author = scholarly.search_author_id(self.author_id)
+            # Reuse the stub from fetch_basics if available, avoiding a redundant
+            # search_author_id request to the same profile URL.
+            author = getattr(self, '_author_stub', None)
+            if author is None:
+                author = scholarly.search_author_id(self.author_id)
 
             d = rand_delay(self.delay_scale)
             print(f"{now_str()} Waiting {d:.0f}s...")

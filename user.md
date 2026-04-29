@@ -1817,3 +1817,11 @@ cached的总数是对的，2025的cached数也是对的，但是2025的状态还
 我建议这样，在程序的输出目录下保存一个curl.txt，用来记录当前session的cookie，如果当前session没有cookie，在程序运行访问第一个页面的时候请求用户进行一次curl输入。
 
 ---
+
+## Message [2026-04-29] — 减少重复 Scholar 请求
+
+这里为什么会出现对同一个url的多次请求？在phase 2的开头还在发生。
+
+（fetch_basics 调用 search_author_id + fill，fetch_publications 又重复调用 search_author_id，同一个 URL 被请求 3 次。修复：fetch_basics 把 author stub 缓存到 self._author_stub，fetch_publications 优先复用。）
+
+---
