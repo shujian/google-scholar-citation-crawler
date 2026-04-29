@@ -711,6 +711,16 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
         print("    Selective refresh years: none", flush=True)
     else:
         print(f"    Selective refresh years: {fetcher._format_year_set_summary(selective_refresh_years)}", flush=True)
+        if selective_refresh_years and probed_year_counts:
+            reasons = []
+            for yr in sorted(selective_refresh_years):
+                probe_c = probed_year_counts.get(yr, 0)
+                cache_c = cached_year_counts.get(yr, 0)
+                if yr in (ctx.partial_year_start or {}):
+                    reasons.append(f"{yr}: partial resume")
+                else:
+                    reasons.append(f"{yr}: probe={probe_c} vs cache={cache_c}")
+            print(f"      (reasons: {', '.join(reasons)})", flush=True)
 
     if probed_year_counts and fetcher._probed_year_counts_satisfied(
         cached_year_counts,
