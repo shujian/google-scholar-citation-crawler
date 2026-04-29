@@ -71,7 +71,8 @@ class ScholarPatchAndIdentityTests(FetcherTestCase):
         output = fake_stdout.getvalue()
         self.assertTrue(fetched)
         self.assertEqual(basics["name"], "Author")
-        self.assertEqual(search_calls, ["test-author"])
+        # search_author_id is no longer called; stub is constructed locally
+        self.assertEqual(search_calls, [])
         self.assertEqual(fill_calls, [("basics", "indices", "counts")])
         self.assertIn("Request URL: https://scholar.google.com/citations?user=test-author&hl=en", output)
 

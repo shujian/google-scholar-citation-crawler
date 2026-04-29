@@ -83,19 +83,21 @@ class AuthorProfileFetcher:
         print("Connecting to Google Scholar...")
 
         try:
-            author = scholarly.search_author_id(self.author_id)
-            if author is None:
-                raise ValueError("search_author_id returned None — Scholar may be rate-limiting")
-            print("Author found, filling basic info...")
-            self._author_stub = author  # cache for fetch_publications to reuse
-
-            d = rand_delay(self.delay_scale)
-            print(f"{now_str()} Waiting {d:.0f}s...")
-            time.sleep(d)
-
+            # Build the author stub locally (no HTTP request) so that
+            # basics + indices + counts are fetched in a single network call.
+            # search_author_id() would make a redundant first request just to
+            # get a stub we can construct ourselves from the known author_id.
+            author = {
+                'container_type': 'Author',
+                'filled': [],
+                'scholar_id': self.author_id,
+                'source': 'AUTHOR_PROFILE_PAGE',
+            }
             author_filled = scholarly.fill(author, sections=['basics', 'indices', 'counts'])
             if author_filled is None:
                 raise ValueError("fill() returned None — Scholar may be rate-limiting")
+            print("Author found.")
+            self._author_stub = author_filled  # cache for fetch_publications to reuse
 
             current_year = datetime.now().year
             cites_per_year = author_filled.get('cites_per_year', {})

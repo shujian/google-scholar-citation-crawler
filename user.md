@@ -1825,3 +1825,10 @@ cached的总数是对的，2025的cached数也是对的，但是2025的状态还
 （fetch_basics 调用 search_author_id + fill，fetch_publications 又重复调用 search_author_id，同一个 URL 被请求 3 次。修复：fetch_basics 把 author stub 缓存到 self._author_stub，fetch_publications 优先复用。）
 
 ---
+
+## Message [2026-04-29] — Phase 1 重复请求 + 2020年被误选刷新
+
+Phase 1 重复请求：search_author_id + rand_delay + fill，同一 URL 请求两次，中间还加了手动等待。
+修复：不再调用 search_author_id，直接手动构造 stub（scholarly 的 get_author(id_string) 本身不发请求），一次 fill 搞定。
+
+---
