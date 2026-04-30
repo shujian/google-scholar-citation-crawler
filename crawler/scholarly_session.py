@@ -332,6 +332,8 @@ def patch_scholarly(ctx: SessionContext) -> None:
         except Exception:
             page_size = None
         self_iter._page_size = page_size if page_size and page_size > 0 else None
+        if page_size:
+            print(f"        Page items: {page_size}", flush=True)
 
         ctx.last_scholar_url = ctx.current_attempt_url
         return result
