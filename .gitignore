@@ -28,3 +28,4 @@ conversation.md
 curl.txt
 docs/
 tmp_compare_scholar.py
+.claude/

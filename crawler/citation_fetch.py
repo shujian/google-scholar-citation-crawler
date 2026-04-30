@@ -264,7 +264,12 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
     ctx.current_year_segment = None
     # Track the page offset (start_index) for the year currently in progress.
     # Saved to cache on exception so retry can skip already-fetched pages.
-    ctx.partial_year_start = dict(partial_year_start or {})
+    # Align to page boundary so old caches with non-aligned values (e.g. 101)
+    # don't cause request_in_page_skip > 0 and silently drop items.
+    ctx.partial_year_start = {
+        int(year): _page_aligned_start(idx)
+        for year, idx in (partial_year_start or {}).items()
+    }
     ctx.probed_year_counts = fetcher._normalize_year_count_map(rehydrated_probed_year_counts) or None
     ctx.probed_year_count_complete = bool(rehydrated_probe_complete and ctx.probed_year_counts)
     ctx.year_fetch_diagnostics = fetcher._normalize_year_fetch_diagnostics(
@@ -951,10 +956,9 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                             save_progress(complete=False)
                             page_save_emitted = True
                             year_progress_saved = True
-                        # Stop iterating as soon as a short page is fully processed so the
-                        # iterator never auto-paginates to a non-existent next page.
-                        if page_finished and (
-                                getattr(iterator, '_items_in_current_page', 0) < SCHOLAR_PAGE_SIZE):
+                        # Stop iterating as soon as the current page is fully processed so the
+                        # iterator never auto-paginates. Pagination is controlled by our while True loop.
+                        if page_finished:
                             break
                     final_page_items_seen = getattr(iterator, '_items_in_current_page', request_items_seen)
                     if request_items_seen > 0 and page_save_emitted and final_page_items_seen >= SCHOLAR_PAGE_SIZE:
