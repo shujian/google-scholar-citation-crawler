@@ -912,7 +912,10 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                     for citing in iterator:
                         year_items_seen += 1
                         request_items_seen += 1
-                        ctx.partial_year_start[year] = start_index + year_items_seen
+                        # Save page-aligned position so that resume never starts at a
+                        # non-aligned offset (e.g. 101) which would cause
+                        # request_in_page_skip > 0 and silently drop items.
+                        ctx.partial_year_start[year] = _page_aligned_start(start_index + year_items_seen)
                         page_finished = getattr(iterator, '_finished_current_page', False)
                         if request_items_seen <= request_in_page_skip:
                             # On a short page where all items are skipped, stop the iterator
