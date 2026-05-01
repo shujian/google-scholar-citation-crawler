@@ -89,7 +89,11 @@ from crawler.citation_io import (
     resolve_citation_status_from_state as _cio_resolve_citation_status_from_state,
     save_citations_xlsx as _cio_save_citations_xlsx,
 )
-
+from crawler.output_state import (
+    load_output_fetch_state as _os_load_output_fetch_state,
+    resolve_citation_status_from_output as _os_resolve_citation_status_from_output,
+    extract_fetch_state as _os_extract_fetch_state,
+)
 
 from crawler.author_fetcher import AuthorProfileFetcher  # noqa: F401
 from crawler.interactive import (
@@ -688,6 +692,10 @@ class PaperCitationFetcher:
         """Return cache status: 'skip_zero' | 'missing' | 'complete' | 'partial'."""
         if pub['num_citations'] == 0:
             return 'skip_zero'
+        # Prefer output file state for cross-run strategy decisions
+        output_state = getattr(self, '_output_fetch_state', {}).get(pub['title'])
+        if output_state:
+            return _os_resolve_citation_status_from_output(pub, output_state, YEAR_BASED_THRESHOLD)
         cached = self._load_citation_cache(pub['title'])
         if not cached:
             return 'missing'
@@ -741,6 +749,10 @@ class PaperCitationFetcher:
             'citedby_url': p.get('citedby_url', ''),
             'pub_url':     p.get('url', 'N/A'),
         } for p in pubs_data.get('publications', [])}
+
+        # Load previous output file state so cross-run decisions are based on
+        # the output file, not on stale per-paper cache files.
+        self._output_fetch_state = _os_load_output_fetch_state(self.out_json)
 
         # force mode: wipe caches before status check so every in-range paper
         # is treated as 'missing' and starts a fresh first_fetch.
@@ -858,7 +870,9 @@ class PaperCitationFetcher:
                 continue
 
             prev_scholar_count = 0
-            attempt_state = self._resolve_refresh_strategy(pub, cached, st, citedby_url=citedby_url)
+            output_state = getattr(self, '_output_fetch_state', {}).get(title)
+            strategy_cached = output_state if output_state else cached
+            attempt_state = self._resolve_refresh_strategy(pub, strategy_cached, st, citedby_url=citedby_url)
             if attempt_state['prev_scholar_count']:
                 prev_scholar_count = attempt_state['prev_scholar_count']
             partial_year_start = attempt_state['partial_year_start']
@@ -900,10 +914,12 @@ class PaperCitationFetcher:
                             # partial_year_start is kept from memory (in-memory only, not persisted)
                             # so same-run retries resume from the exact page where the error occurred.
                             latest_cache = self._load_citation_cache(title)
-                            if latest_cache:
+                            latest_output_state = getattr(self, '_output_fetch_state', {}).get(title)
+                            retry_strategy_cached = latest_output_state if latest_output_state else latest_cache
+                            if retry_strategy_cached:
                                 retry_attempt_state = self._resolve_refresh_strategy(
                                     pub,
-                                    latest_cache,
+                                    retry_strategy_cached,
                                     'partial',
                                     citedby_url=citedby_url,
                                 )
@@ -1098,20 +1114,26 @@ class PaperCitationFetcher:
             if r is not None:
                 pub = r['pub']
                 cached = self._load_citation_cache(pub.get('title', '')) if pub else None
-                final_results.append({
+                entry = {
                     **r,
                     'fetch_complete': bool((cached or {}).get('complete_fetch_attempt')),
-                })
+                }
+                if cached:
+                    entry['_fetch_state'] = _os_extract_fetch_state(cached)
+                final_results.append(entry)
             else:
                 # Load from cache if available, otherwise empty
                 pub = publications[i] if i < len(publications) else {}
                 cached = self._load_citation_cache(pub.get('title', '')) if pub else None
                 citations = cached.get('citations', []) if cached else []
-                final_results.append({
+                entry = {
                     'pub': pub,
                     'citations': citations,
                     'fetch_complete': bool((cached or {}).get('complete_fetch_attempt')),
-                })
+                }
+                if cached:
+                    entry['_fetch_state'] = _os_extract_fetch_state(cached)
+                final_results.append(entry)
         total_cites = sum(len(r['citations']) for r in final_results)
         output_payload = {
             'author_id': self.author_id,

@@ -93,6 +93,76 @@ class OutputAndReconciliationTests(FetcherTestCase):
         self.assertEqual(status["unyeared_count"], 2)
         self.assertEqual(status["cached_year_total"], 3)
 
+    def test_save_output_includes_fetch_state_from_cache(self):
+        pub = {
+            "no": 1,
+            "title": "Paper With Cache",
+            "num_citations": 150,
+            "year": "2020",
+            "venue": "Venue",
+        }
+        result = {
+            "pub": pub,
+            "citations": [
+                {"title": "Citing Paper", "authors": "A", "venue": "CV", "year": "2024", "url": "https://example.com/cite"}
+            ],
+        }
+        cache_content = {
+            "title": "Paper With Cache",
+            "num_citations_on_scholar": 150,
+            "num_citations_cached": 1,
+            "num_citations_seen": 1,
+            "dedup_count": 0,
+            "complete": True,
+            "complete_fetch_attempt": True,
+            "year_fetch_diagnostics": {
+                "2024": {
+                    "mode": "year", "year": 2024,
+                    "scholar_total": 50, "cached_total": 1,
+                    "seen_total": 50, "dedup_count": 0,
+                    "underfetched": False,
+                    "termination_reason": "short_page_stop",
+                }
+            },
+            "citations": result["citations"],
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.fetcher.profile_json = os.path.join(tmpdir, "author_test-author_profile.json")
+            self.fetcher.out_json = os.path.join(tmpdir, "author_test-author_paper_citations.json")
+            self.fetcher.out_xlsx = os.path.join(tmpdir, "author_test-author_paper_citations.xlsx")
+            self.fetcher._run_start_time = 0
+            with open(self.fetcher.profile_json, "w", encoding="utf-8") as f:
+                json.dump({"publications": [pub]}, f)
+            # Seed the cache so _save_output can read it
+            cache_path = self.fetcher._citation_cache_path(pub["title"])
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            with open(cache_path, "w", encoding="utf-8") as f:
+                json.dump(cache_content, f)
+
+            with patch.object(scholar_citation.openpyxl, "Workbook", return_value=scholar_citation.openpyxl.Workbook()), \
+                 patch.object(scholar_citation, "datetime") as fake_datetime:
+                fake_datetime.now.return_value = types.SimpleNamespace(
+                    isoformat=lambda: "2026-05-01T12:00:00",
+                    strftime=lambda fmt: "20260501_120000",
+                    year=2026,
+                )
+                self.fetcher._save_output([result])
+
+            with open(self.fetcher.out_json, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+
+        paper = payload["papers"][0]
+        self.assertIn("_fetch_state", paper)
+        fs = paper["_fetch_state"]
+        self.assertEqual(fs["num_citations_on_scholar"], 150)
+        self.assertTrue(fs["complete"])
+        self.assertTrue(fs["complete_fetch_attempt"])
+        self.assertIn("year_fetch_diagnostics", fs)
+        self.assertEqual(fs["year_fetch_diagnostics"]["2024"]["scholar_total"], 50)
+        # citations should NOT be duplicated inside _fetch_state
+        self.assertNotIn("citations", fs)
+
     def test_refresh_reconciliation_requests_escalation_on_histogram_mismatch(self):
         status = _cs_refresh_reconciliation_status(
             [
