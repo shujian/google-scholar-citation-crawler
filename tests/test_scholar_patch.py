@@ -93,6 +93,17 @@ class ScholarPatchAndIdentityTests(FetcherTestCase):
         self.assertEqual(info["url"], "https://example.com/cite")
         self.assertEqual(info["cites_id"], "123,456")
 
+    def test_extract_citation_info_falls_back_to_citedby_url(self):
+        # scholarly _scholar_pub does not set cites_id; only citedby_url is present.
+        info = self.fetcher._extract_citation_info(
+            {
+                "bib": {"title": "Paper", "author": ["A"], "venue": "Venue", "pub_year": "2024"},
+                "pub_url": "https://example.com/cite",
+                "citedby_url": "/scholar?cites=7890123456789012345&as_sdt=5,33&hl=en",
+            }
+        )
+        self.assertEqual(info["cites_id"], "7890123456789012345")
+
     def test_citation_identity_prefers_cites_id_with_metadata_fallback(self):
         citation = {
             "title": "Paper",

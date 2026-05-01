@@ -58,7 +58,7 @@ google-scholar-citation-crawler/
 │   │   ── CLI ──
 │   └── cli.py                   # parse_args() + _run_main(args)
 │
-├── tests/                       # Unit tests (105 tests, no network required)
+├── tests/                       # Unit tests (97 tests, no network required)
 │   ├── conftest.py              # Shared stubs (scholarly/openpyxl mocks) + FetcherTestCase
 │   ├── test_scholar_patch.py    # scholarly patch URL logging, inject_curl, parse_args
 │   ├── test_year_fetch_early.py # fetch_by_year early-stop and histogram-authoritative mode

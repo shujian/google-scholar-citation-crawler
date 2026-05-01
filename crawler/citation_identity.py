@@ -6,6 +6,21 @@ PaperCitationFetcher to normalise raw scholarly results into a stable
 identity key and a clean dict suitable for caching.
 """
 
+import re
+
+_SCHOLARPUBRE = re.compile(r'cites=([\d,]*)')
+
+
+def _extract_cites_id_from_url(url):
+    """Extract cites_id from a Google Scholar citedby_url, or None."""
+    if not url:
+        return None
+    match = _SCHOLARPUBRE.search(str(url))
+    if not match:
+        return None
+    parts = [p.strip() for p in match.group(1).split(',') if p.strip()]
+    return parts if parts else None
+
 
 def normalize_cites_id(cites_id):
     """Return a normalised string cites_id, or None if absent/empty."""
@@ -72,11 +87,14 @@ def extract_citation_info(pub, fallback_year=None):
     year = str(bib.get('pub_year', 'N/A'))
     if str(year).strip().lower() in ('', 'n/a', 'na', '?') and fallback_year is not None:
         year = str(fallback_year)
+    raw_cites_id = pub.get('cites_id')
+    if raw_cites_id in (None, '', [], ()):
+        raw_cites_id = _extract_cites_id_from_url(pub.get('citedby_url'))
     return {
         'title':    bib.get('title', 'N/A'),
         'authors':  ', '.join(authors) if isinstance(authors, list) else str(authors),
         'venue':    bib.get('venue', 'N/A'),
         'year':     year,
         'url':      pub.get('pub_url', pub.get('eprint_url', 'N/A')),
-        'cites_id': normalize_cites_id(pub.get('cites_id')),
+        'cites_id': normalize_cites_id(raw_cites_id),
     }

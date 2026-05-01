@@ -1,6 +1,14 @@
 # Work Notes: Google Scholar Citation Crawler
 
 
+## 开发环境
+
+- **Conda 环境**: `scholar` (`/Users/huangshujian/miniforge3/envs/scholar`)
+- **Python**: 3.11
+- **scholarly package**: `/Users/huangshujian/miniforge3/envs/scholar/lib/python3.11/site-packages/scholarly`
+  - 关键文件: `publication_parser.py` (PublicationParser, _SearchScholarIterator)
+  - 关键文件: `_scholarly.py` (scholarly core)
+
 ## 项目结构（2026-04-15 更新）
 
 ```
@@ -530,3 +538,33 @@ ctx.partial_year_start = {
 - 当某一年处理到一半被中断，`partial_year_start[year]` 记录已处理位置
 - 必须是**页面对齐的**（10 的倍数），否则 `request_in_page_skip > 0` 会跳过条目
 - 跨运行时永远为空 `{}`，由 while True 循环通过 `year_items_seen` 累积控制分页
+
+## 2026-05-01 — 修复 cites_id 全为 null 的问题
+
+### 问题
+
+所有缓存 citation 的 `cites_id` 都是 `null`，去重完全回退到 `title+venue`，精度降低。
+
+### 根因
+
+scholarly 的 `PublicationParser` 对两种数据来源使用不同解析方法：
+- `_citation_pub`（作者个人页面论文列表）→ 设置 `cites_id`
+- `_scholar_pub`（搜索结果/引用列表，即 `citedby()` 返回的）→ **不设置 `cites_id`**，只设置 `citedby_url`
+
+我们的 `extract_citation_info` 直接从 `pub.get('cites_id')` 读取，对于 `_scholar_pub` 来源永远得到 `None`。
+
+### 修复
+
+在 `crawler/citation_identity.py` 中：
+1. 新增 `_extract_cites_id_from_url(url)`，用正则 `cites=([\d,]*)` 从 `citedby_url` 提取 ID
+2. `extract_citation_info` 在 `pub.get('cites_id')` 为空时，自动 fallback 到 `citedby_url` 提取
+
+### 影响
+
+- 历史缓存中的 `cites_id` 仍为 `null`，但去重回退到 `title+venue` 仍然有效（只是精度稍低）
+- 新 fetch 的引用会正确携带 `cites_id`，去重更精确
+
+### 相关文件
+
+- `crawler/citation_identity.py` — 提取逻辑
+- `tests/test_scholar_patch.py` — 新增 `test_extract_citation_info_falls_back_to_citedby_url`
