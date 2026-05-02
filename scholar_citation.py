@@ -753,6 +753,20 @@ class PaperCitationFetcher:
         # Load previous output file state so cross-run decisions are based on
         # the output file, not on stale per-paper cache files.
         self._output_fetch_state = _os_load_output_fetch_state(self.out_json)
+        # Also build a {title: citations} map from the output file so that
+        # cache_status can synthesise a full cache dict when the per-paper
+        # cache file is missing but the output file still has the data.
+        self._output_citations = {}
+        if os.path.exists(self.out_json):
+            try:
+                with open(self.out_json, 'r', encoding='utf-8') as f:
+                    out_data = json.load(f)
+                for paper in out_data.get('papers', []):
+                    title = paper.get('pub', {}).get('title')
+                    if title:
+                        self._output_citations[title] = paper.get('citations', [])
+            except (json.JSONDecodeError, OSError, TypeError):
+                pass
 
         # force mode: wipe caches before status check so every in-range paper
         # is treated as 'missing' and starts a fresh first_fetch.
@@ -766,7 +780,19 @@ class PaperCitationFetcher:
 
         def cache_status(pub):
             st = self._citation_status(pub)
-            cached = self._load_citation_cache(pub['title']) if st != 'skip_zero' else None
+            if st == 'skip_zero':
+                return st, None
+            # Cross-run: always prefer output file state; ignore old cache files
+            # from previous runs.  Per-paper cache files are still written during
+            # the current run for within-run interruption recovery, but they are
+            # NOT read on a fresh program start.
+            output_state = getattr(self, '_output_fetch_state', {}).get(pub['title'])
+            if output_state:
+                synthetic = dict(output_state)
+                synthetic['citations'] = getattr(self, '_output_citations', {}).get(pub['title'], [])
+                return st, synthetic
+            # Fallback to cache file only when output state is absent.
+            cached = self._load_citation_cache(pub['title'])
             return st, cached
 
         statuses = [cache_status(p) for p in publications]
@@ -796,9 +822,9 @@ class PaperCitationFetcher:
             self._run_main_loop(publications, cache_status, url_map, need_fetch, results, fetch_idx)
         except KeyboardInterrupt:
             print(f"\n  Interrupted by user. Saving results...", flush=True)
-
-        # Always save output (normal completion, interruption, or partial results)
-        self._save_output(results)
+        finally:
+            # Always save output (normal completion, interruption, error, or partial results)
+            self._save_output(results)
         return True
 
     def _run_main_loop(self, publications, cache_status, url_map, need_fetch, results, fetch_idx):
