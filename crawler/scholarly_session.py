@@ -280,7 +280,11 @@ def patch_scholarly(ctx: SessionContext) -> None:
         result = original_next(self_iter)
         self_iter._items_in_current_page = getattr(self_iter, '_items_in_current_page', 0) + 1
         page_size = getattr(self_iter, '_page_size', None)
-        if page_size and self_iter._items_in_current_page >= page_size:
+        # Use == instead of >= so that _finished_current_page is set exactly
+        # once per page.  If _items_in_current_page ever overshoots page_size
+        # (e.g. due to an internal reload), the flag stays False and avoids
+        # a spurious mid-page save.
+        if page_size and self_iter._items_in_current_page == page_size:
             self_iter._finished_current_page = True
         return result
 

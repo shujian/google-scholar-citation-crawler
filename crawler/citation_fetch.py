@@ -492,6 +492,11 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
             if items_on_page >= SCHOLAR_PAGE_SIZE:
                 print(f"  Progress saved: {yielded_total} fetched this paper, "
                       f"{fetcher._new_citations_count} new across run", flush=True)
+            # Reset the per-page flag so that a stale True value from the
+            # underlying iterator does not trigger another save on the next
+            # element of the same page.
+            if hasattr(direct_iterator, '_finished_current_page'):
+                direct_iterator._finished_current_page = False
             page_items_seen = 0
         else:
             if page_items_seen > 0:
