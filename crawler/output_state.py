@@ -92,6 +92,10 @@ def extract_fetch_state(cached):
     Missing numeric fields are derived from the citations array when possible,
     so that legacy caches (or caches with absent fields) still produce a usable
     _fetch_state.
+
+    If the citations array is empty but the state claims citations were cached,
+    the state is inconsistent — mark it as incomplete so the next run re-fetches
+    honestly rather than trusting a stale/damaged record.
     """
     if not cached:
         return {}
@@ -110,4 +114,15 @@ def extract_fetch_state(cached):
                 state.get('num_citations_cached', 0),
                 state.get('num_citations_seen', 0),
             )
+    # Honesty check: if there are no citations but the state claims completion,
+    # the record is damaged (e.g. previous _save_output was interrupted).
+    # Reset completion flags so the next run re-fetches.
+    if (
+        len(citations) == 0
+        and state.get('num_citations_cached', 0) > 0
+    ):
+        state['complete'] = False
+        state['complete_fetch_attempt'] = False
+        state['num_citations_cached'] = 0
+        state['num_citations_seen'] = 0
     return state

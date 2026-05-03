@@ -789,14 +789,7 @@ class PaperCitationFetcher:
             output_state = getattr(self, '_output_fetch_state', {}).get(pub['title'])
             if output_state:
                 synthetic = dict(output_state)
-                citations = getattr(self, '_output_citations', {}).get(pub['title'], [])
-                # If output file lacks citations (e.g. previous run was interrupted
-                # before _save_output finished), try to recover from cache file.
-                if not citations:
-                    cached = self._load_citation_cache(pub['title'])
-                    if cached and cached.get('citations'):
-                        citations = cached['citations']
-                synthetic['citations'] = citations
+                synthetic['citations'] = getattr(self, '_output_citations', {}).get(pub['title'], [])
                 return st, synthetic
             # Fallback to cache file only when output state is absent.
             cached = self._load_citation_cache(pub['title'])
