@@ -63,10 +63,11 @@ def derive_citation_cache_state(pub, cached, year_based_threshold):
         actual_cached = len(citations)
     actual_cached = max(actual_cached, len(citations))
 
+    promoted_scholar_total = cached.get('num_citations_on_scholar')
     try:
-        promoted_scholar_total = int(cached.get('num_citations_on_scholar', 0) or 0)
+        promoted_scholar_total = int(promoted_scholar_total) if promoted_scholar_total is not None else current
     except (TypeError, ValueError):
-        promoted_scholar_total = 0
+        promoted_scholar_total = current
 
     num_seen = cached.get('num_citations_seen')
     try:
@@ -112,6 +113,7 @@ def derive_citation_cache_state(pub, cached, year_based_threshold):
         'cached_year_counts': cached_year_counts,
         'year_fetch_diagnostics': year_fetch_diag,
         'direct_fetch_diagnostics': direct_fetch_diagnostics,
+        'complete_fetch_attempt': bool(cached.get('complete_fetch_attempt')),
     }
 
 
@@ -173,6 +175,18 @@ def resolve_citation_status_from_state(state):
         and (fetch_policy['mode'] == 'direct' or not probed_year_counts)
     ):
         return 'complete'
+
+    # Legacy caches (or migrated _fetch_state missing num_citations_cached/
+    # num_citations_seen) may have actual_cached == 0.  Trust complete_fetch_attempt
+    # when Scholar count has not increased and there is no evidence of underfetch.
+    if (
+        state.get('complete_fetch_attempt')
+        and actual_cached == 0
+        and current > 0
+        and current <= promoted_scholar_total
+    ):
+        return 'complete'
+
     return 'partial'
 
 

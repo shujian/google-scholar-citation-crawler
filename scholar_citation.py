@@ -765,7 +765,7 @@ class PaperCitationFetcher:
                     title = paper.get('pub', {}).get('title')
                     if title:
                         self._output_citations[title] = paper.get('citations', [])
-            except (json.JSONDecodeError, OSError, TypeError):
+            except (json.JSONDecodeError, OSError, TypeError, AttributeError):
                 pass
 
         # force mode: wipe caches before status check so every in-range paper
@@ -809,6 +809,11 @@ class PaperCitationFetcher:
         print(f"  Zero citations (skip):     {sum(1 for s, _ in statuses if s == 'skip_zero')}")
         print(f"  Cache complete (skip):     {sum(1 for s, _ in statuses if s == 'complete')}")
         print(f"  Need fetch/resume:         {len(need_fetch)}")
+        output_state_count = len(getattr(self, '_output_fetch_state', {}))
+        if output_state_count:
+            print(f"  Output state loaded:       {output_state_count} papers")
+        else:
+            print(f"  Output state:              none (will fall back to cache files)")
         if self.skip:
             print(f"  Skipping first {self.skip} (--skip)")
         if self.limit:

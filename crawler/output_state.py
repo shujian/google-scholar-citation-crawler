@@ -56,7 +56,7 @@ def load_output_fetch_state(output_path):
     try:
         with open(output_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-    except (json.JSONDecodeError, OSError, TypeError):
+    except (json.JSONDecodeError, OSError, TypeError, AttributeError):
         return {}
     result = {}
     for paper in data.get('papers', []):
@@ -88,7 +88,26 @@ def extract_fetch_state(cached):
 
     The 'citations' array is intentionally excluded because it already lives at
     the top level of the output entry.
+
+    Missing numeric fields are derived from the citations array when possible,
+    so that legacy caches (or caches with absent fields) still produce a usable
+    _fetch_state.
     """
     if not cached:
         return {}
-    return {k: v for k, v in cached.items() if k in _FETCH_STATE_KEYS}
+    state = {k: v for k, v in cached.items() if k in _FETCH_STATE_KEYS}
+    citations = cached.get('citations', []) or []
+    if state.get('num_citations_cached') is None:
+        state['num_citations_cached'] = len(citations)
+    if state.get('num_citations_seen') is None:
+        dedup = state.get('dedup_count', 0) or 0
+        state['num_citations_seen'] = len(citations) + dedup
+    if state.get('num_citations_on_scholar') is None:
+        if state.get('complete') or state.get('complete_fetch_attempt'):
+            state['num_citations_on_scholar'] = state['num_citations_seen']
+        else:
+            state['num_citations_on_scholar'] = max(
+                state.get('num_citations_cached', 0),
+                state.get('num_citations_seen', 0),
+            )
+    return state
