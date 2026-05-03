@@ -662,6 +662,40 @@ except (TypeError, ValueError):
 - `scholar_citation.py` — `_output_citations` 构建捕获 `AttributeError`；诊断日志
 - `tests/test_output_state.py` — 新增 `test_extract_fetch_state_derives_missing_numeric_fields`、`test_resolve_citation_status_from_legacy_output_without_counters`
 
+## 2026-05-03 — 修复 skip/limit 时 _fetch_state 中 num_citations_on_scholar 不更新的问题
+
+### 问题
+
+当 profile 重新获取后，由于 `--skip`/`--limit` 等原因某些论文未被处理（既未 fetch 也未更新），这些论文的 `_fetch_state.num_citations_on_scholar` 保持旧值。下一轮运行时，策略决策基于过时的引用数，可能导致错误判断。
+
+### 修复
+
+**1. `cache_status` 更新 synthetic cache**
+
+构建 synthetic cache 时，强制用当前 profile 的 `pub['num_citations']` 覆盖 `num_citations_on_scholar`：
+```python
+current_total = pub.get('num_citations')
+if current_total is not None:
+    synthetic['num_citations_on_scholar'] = current_total
+```
+这样即使论文被跳过，后续策略决策也基于最新计数。
+
+**2. `_save_output` 重构 fetch state 来源**
+
+原逻辑：对于每个论文，`_fetch_state` 都从 `self._load_citation_cache()`（即 per-paper cache 文件）重新加载。如果 cache 文件被删除，`_fetch_state` 就丢失了。
+
+修复后：`_save_output` 使用与 `cache_status` 一致的状态来源优先级：
+1. 优先从 `self._output_fetch_state`（输出文件中的跨运行状态）获取
+2. 如果 output state 不存在，才从 cache 文件获取
+3. 用当前 profile 的 `num_citations` 更新 `num_citations_on_scholar`
+4. 用实际 citations 数组长度更新 `num_citations_cached` 和 `num_citations_seen`
+
+提取了内部辅助函数 `_build_entry(pub, citations)` 统一处理两种分支（已处理 / 被跳过）。
+
+### 相关文件
+
+- `scholar_citation.py` — `cache_status()` 更新 synthetic cache；`_save_output()` 重构 `_fetch_state` 来源逻辑
+
 ### 测试
 
 109 tests pass。

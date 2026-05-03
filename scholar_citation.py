@@ -790,6 +790,11 @@ class PaperCitationFetcher:
             if output_state:
                 synthetic = dict(output_state)
                 synthetic['citations'] = getattr(self, '_output_citations', {}).get(pub['title'], [])
+                # Always update scholar total from current profile so the state
+                # reflects the latest count even when the paper was skipped this run.
+                current_total = pub.get('num_citations')
+                if current_total is not None:
+                    synthetic['num_citations_on_scholar'] = current_total
                 return st, synthetic
             # Fallback to cache file only when output state is absent.
             cached = self._load_citation_cache(pub['title'])
@@ -1140,31 +1145,48 @@ class PaperCitationFetcher:
             with open(self.pubs_cache, 'r', encoding='utf-8') as f:
                 pubs_data = json.load(f)
         publications = profile.get('publications', []) if profile else []
+        output_fetch_state = getattr(self, '_output_fetch_state', {})
+        output_citations = getattr(self, '_output_citations', {})
+
+        def _build_entry(pub, citations):
+            """Build output entry with correct _fetch_state."""
+            title = pub.get('title', '') if pub else ''
+            # Prefer output state (cross-run), fall back to cache file (within-run)
+            state = output_fetch_state.get(title)
+            if state:
+                fetch_state = dict(state)
+            else:
+                cached = self._load_citation_cache(title) if pub else None
+                fetch_state = _os_extract_fetch_state(cached) if cached else {}
+            # Update counts from current profile and actual citations array
+            current_total = pub.get('num_citations') if pub else None
+            if current_total is not None and fetch_state:
+                fetch_state['num_citations_on_scholar'] = current_total
+                fetch_state['num_citations_cached'] = len(citations)
+                dedup = fetch_state.get('dedup_count', 0) or 0
+                fetch_state['num_citations_seen'] = len(citations) + dedup
+            return {
+                'pub': pub,
+                'citations': citations,
+                'fetch_complete': bool(fetch_state.get('complete_fetch_attempt')) if fetch_state else False,
+                **({'_fetch_state': fetch_state} if fetch_state else {}),
+            }
+
         final_results = []
         for i, r in enumerate(results):
             if r is not None:
                 pub = r['pub']
-                cached = self._load_citation_cache(pub.get('title', '')) if pub else None
-                entry = {
-                    **r,
-                    'fetch_complete': bool((cached or {}).get('complete_fetch_attempt')),
-                }
-                if cached:
-                    entry['_fetch_state'] = _os_extract_fetch_state(cached)
-                final_results.append(entry)
+                citations = r.get('citations', [])
+                final_results.append(_build_entry(pub, citations))
             else:
-                # Load from cache if available, otherwise empty
                 pub = publications[i] if i < len(publications) else {}
-                cached = self._load_citation_cache(pub.get('title', '')) if pub else None
-                citations = cached.get('citations', []) if cached else []
-                entry = {
-                    'pub': pub,
-                    'citations': citations,
-                    'fetch_complete': bool((cached or {}).get('complete_fetch_attempt')),
-                }
-                if cached:
-                    entry['_fetch_state'] = _os_extract_fetch_state(cached)
-                final_results.append(entry)
+                title = pub.get('title', '')
+                # Citations from output state if available, else cache
+                citations = output_citations.get(title, [])
+                if not citations:
+                    cached = self._load_citation_cache(title) if pub else None
+                    citations = cached.get('citations', []) if cached else []
+                final_results.append(_build_entry(pub, citations))
         total_cites = sum(len(r['citations']) for r in final_results)
         output_payload = {
             'author_id': self.author_id,
