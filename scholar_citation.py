@@ -795,6 +795,15 @@ class PaperCitationFetcher:
                 current_total = pub.get('num_citations')
                 if current_total is not None:
                     synthetic['num_citations_on_scholar'] = current_total
+                # Consistency check: if the citations array is empty but the state
+                # claims cached citations, the output file is inconsistent (likely
+                # caused by an older _save_output bug). Reset counters so the
+                # next run fetches honestly instead of trusting a damaged record.
+                if len(synthetic['citations']) == 0 and synthetic.get('num_citations_cached', 0) > 0:
+                    synthetic['num_citations_cached'] = 0
+                    synthetic['num_citations_seen'] = 0
+                    synthetic['complete'] = False
+                    synthetic['complete_fetch_attempt'] = False
                 return st, synthetic
             # Fallback to cache file only when output state is absent.
             cached = self._load_citation_cache(pub['title'])
@@ -906,9 +915,9 @@ class PaperCitationFetcher:
                 continue
 
             prev_scholar_count = 0
-            output_state = getattr(self, '_output_fetch_state', {}).get(title)
-            strategy_cached = output_state if output_state else cached
-            attempt_state = self._resolve_refresh_strategy(pub, strategy_cached, st, citedby_url=citedby_url)
+            # Use the synthetic cache from cache_status() directly; it already
+            # contains the citations array (from output state or cache file).
+            attempt_state = self._resolve_refresh_strategy(pub, cached, st, citedby_url=citedby_url)
             if attempt_state['prev_scholar_count']:
                 prev_scholar_count = attempt_state['prev_scholar_count']
             partial_year_start = attempt_state['partial_year_start']
@@ -930,6 +939,20 @@ class PaperCitationFetcher:
 
             print(f"[{idx}/{len(publications)}] {title[:55]}...")
             print(f"  {action}")
+
+            # Skip year-based fetch when all cached citations are unyeared and
+            # the previous fetch ran to completion.  Year-based diff cannot
+            # improve citations that carry no year.
+            if (fetch_policy['mode'] == 'year'
+                    and cached
+                    and cached.get('complete_fetch_attempt')
+                    and not resume_from
+                    and num_citations <= cached.get('num_citations_on_scholar', 0)):
+                all_citations = cached.get('citations', [])
+                if all_citations and not self._filter_citations_with_year(all_citations):
+                    print(f"  -> skip (all {len(all_citations)} cached citations are unyeared)")
+                    results[idx - 1] = {'pub': pub, 'citations': all_citations}
+                    continue
 
             citations = None
             attempt = 0
