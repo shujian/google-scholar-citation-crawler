@@ -363,12 +363,14 @@ class PaperCitationFetcher:
 
     @staticmethod
     def _build_citation_count_summary(citations, scholar_total=None, probed_year_counts=None,
-                                      probe_complete=False, dedup_count=0):
+                                      probe_complete=False, dedup_count=0,
+                                      year_fetch_diagnostics=None):
         return _cs_build_citation_count_summary(
             citations, scholar_total=scholar_total,
             probed_year_counts=probed_year_counts,
             probe_complete=probe_complete,
             dedup_count=dedup_count,
+            year_fetch_diagnostics=year_fetch_diagnostics,
         )
 
 
@@ -654,6 +656,8 @@ class PaperCitationFetcher:
         def _synced_save_progress(complete):
             self._live_year_fetch_diagnostics = ctx.year_fetch_diagnostics
             self._live_dedup_count = ctx.dedup_count
+            self._live_probed_year_counts = ctx.probed_year_counts
+            self._live_probe_complete = ctx.probed_year_count_complete
             _orig_save_progress(complete)
 
         result = _cf.fetch_by_year(self, ctx, citedby_url, old_citations, fresh_citations, _synced_save_progress,
@@ -1189,7 +1193,8 @@ class PaperCitationFetcher:
             if cached:
                 for key in ('year_fetch_diagnostics', 'cached_year_counts',
                             'probed_year_counts', 'probed_year_total',
-                            'probe_complete', 'dedup_count'):
+                            'probe_complete', 'dedup_count',
+                            'citation_count_summary'):
                     if key in cached:
                         fetch_state[key] = cached[key]
             # Update counts from current profile and actual citations array

@@ -124,24 +124,50 @@ def selective_refresh_candidate_years(
 # ---------------------------------------------------------------------------
 
 def build_citation_count_summary(citations, scholar_total=None, probed_year_counts=None,
-                                 probe_complete=False, dedup_count=0):
-    """Build a summary dict comparing cached citations against Scholar totals."""
+                                 probe_complete=False, dedup_count=0,
+                                 year_fetch_diagnostics=None):
+    """Build a summary dict comparing cached citations against Scholar totals.
+
+    When year_fetch_diagnostics is present all per-year totals are derived
+    from it so that the summary is always consistent with the per-year data.
+    """
     cached_total = len(citations or [])
     cached_year_counts = year_count_map(citations or [])
-    cached_year_total = sum(cached_year_counts.values())
-    cached_unyeared_count = max(0, cached_total - cached_year_total)
     normalized_probed_year_counts = normalize_year_count_map(probed_year_counts)
     histogram_total = sum(normalized_probed_year_counts.values())
     unyeared_count = None
     if scholar_total is not None:
         unyeared_count = max(0, scholar_total - histogram_total)
+
+    year_diags = normalize_year_fetch_diagnostics(year_fetch_diagnostics)
+    if year_diags:
+        # Derive all totals from per-year diagnostics so they are always
+        # consistent with the per-year data shown in Year fetch comparisons.
+        diag_scholar = sum(d.get('scholar_total', 0) for d in year_diags.values())
+        diag_cached = sum(d.get('cached_total', 0) for d in year_diags.values())
+        diag_seen = sum(d.get('seen_total', 0) for d in year_diags.values())
+        diag_dedup = sum(d.get('dedup_count', 0) for d in year_diags.values())
+        histogram_total = diag_scholar
+        if scholar_total is not None:
+            unyeared_count = max(0, scholar_total - histogram_total)
+        cached_year_total = diag_cached
+        cached_unyeared_count = max(0, cached_total - diag_cached)
+        seen_total = diag_seen
+        cached_dedup = diag_dedup
+    else:
+        cached_year_total = sum(cached_year_counts.values())
+        cached_unyeared_count = max(0, cached_total - cached_year_total)
+        seen_total = cached_total + int(dedup_count or 0)
+        cached_dedup = int(dedup_count or 0)
+
     return {
         'scholar_total': scholar_total,
         'histogram_total': histogram_total,
         'cached_total': cached_total,
         'cached_year_total': cached_year_total,
+        'seen_total': seen_total,
         'cached_unyeared_count': cached_unyeared_count,
-        'dedup_count': int(dedup_count or 0),
+        'dedup_count': cached_dedup,
         'probe_complete': bool(probe_complete),
         'unyeared_count': unyeared_count,
         'cached_year_counts': cached_year_counts,
@@ -171,6 +197,7 @@ def refresh_reconciliation_status(
         probed_year_counts=probed_year_counts,
         probe_complete=probe_complete,
         dedup_count=dedup_count,
+        year_fetch_diagnostics=year_fetch_diagnostics,
     )
     normalized_year_fetch_diagnostics = normalize_year_fetch_diagnostics(year_fetch_diagnostics)
     status = {

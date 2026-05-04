@@ -277,6 +277,8 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
     )
     fetcher._live_year_fetch_diagnostics = None  # reset; set by _fetch_by_year wrapper during year-based fetch
     fetcher._live_dedup_count = None             # reset; set by _fetch_by_year wrapper during year-based fetch
+    fetcher._live_probed_year_counts = None      # reset; set by _fetch_by_year wrapper
+    fetcher._live_probe_complete = None          # reset; set by _fetch_by_year wrapper
 
     def current_scholar_total():
         if pub_obj is not None:
@@ -315,25 +317,37 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
         for year, diagnostic in list(diagnostics.items()):
             if year not in year_counts and year not in (ctx.probed_year_counts or {}):
                 diagnostics.pop(year, None)
-        # Only update diagnostics for years that already have them;
-        # do NOT create new entries for years that were never diagnosed.
-        # This prevents sparse diagnostics from being backfilled with
-        # dedup_count=0 defaults, which would incorrectly mark those
-        # years as underfetched on the next run.
+        # Ensure every year with data has a diagnostic entry so that
+        # citation_count_summary can derive all its totals from per-year
+        # statistics.  Years that were never diagnosed get created with
+        # dedup_count=0 and termination_reason=None so the next run can
+        # distinguish them from years that were actually completed.
         for year, cached_total in year_counts.items():
             existing = diagnostics.get(year)
-            if existing is None:
-                continue
-            scholar_total = existing.get('scholar_total')
-            if scholar_total is None:
-                scholar_total = (ctx.probed_year_counts or {}).get(year, cached_total)
-            diagnostics[year] = fetcher._build_year_fetch_diagnostics(
-                year,
-                scholar_total,
-                cached_total,
-                existing.get('dedup_count', 0),
-                existing.get('termination_reason'),
-            )
+            if existing is not None:
+                scholar_total = existing.get('scholar_total')
+                if scholar_total is None:
+                    scholar_total = (ctx.probed_year_counts or {}).get(year, cached_total)
+                diagnostics[year] = fetcher._build_year_fetch_diagnostics(
+                    year,
+                    scholar_total,
+                    cached_total,
+                    existing.get('dedup_count', 0),
+                    existing.get('termination_reason'),
+                )
+            else:
+                diagnostics[year] = fetcher._build_year_fetch_diagnostics(
+                    year,
+                    (ctx.probed_year_counts or {}).get(year, cached_total),
+                    cached_total,
+                    0,
+                    None,
+                )
+        for year, probe_total in (ctx.probed_year_counts or {}).items():
+            if year not in diagnostics:
+                diagnostics[year] = fetcher._build_year_fetch_diagnostics(
+                    year, probe_total, 0, 0, None,
+                )
         return fetcher._normalize_year_fetch_diagnostics(diagnostics)
 
     def save_progress(complete):
@@ -347,15 +361,22 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
         ctx.cached_year_counts = fetcher._year_count_map(citations_to_save)
         year_fetch_diagnostics_to_save = build_materialized_year_fetch_diagnostics(citations_to_save)
         ctx.year_fetch_diagnostics = year_fetch_diagnostics_to_save
-        # During year-based fetch, use inner-ctx dedup count synced by _fetch_by_year wrapper.
+        # During year-based fetch, use inner-ctx dedup count / probe data synced
+        # by _fetch_by_year wrapper.  The outer ctx.probed_year_counts is always
+        # None because the probe runs inside the inner fetch_by_year flow.
         live_dedup = getattr(fetcher, '_live_dedup_count', None)
         effective_dedup = live_dedup if live_dedup is not None else ctx.dedup_count
+        live_probe = getattr(fetcher, '_live_probed_year_counts', None)
+        effective_probe = live_probe if live_probe is not None else ctx.probed_year_counts
+        live_probe_complete = getattr(fetcher, '_live_probe_complete', None)
+        effective_probe_complete = live_probe_complete if live_probe_complete is not None else ctx.probed_year_count_complete
         count_summary = fetcher._build_citation_count_summary(
             citations_to_save,
             scholar_total=current_scholar_total(),
-            probed_year_counts=ctx.probed_year_counts,
-            probe_complete=ctx.probed_year_count_complete,
+            probed_year_counts=effective_probe,
+            probe_complete=effective_probe_complete,
             dedup_count=effective_dedup,
+            year_fetch_diagnostics=year_fetch_diagnostics_to_save,
         )
         with open(cache_path, 'w', encoding='utf-8') as f:
             json.dump({
@@ -621,6 +642,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
         probed_year_counts=probed_year_counts,
         probe_complete=can_skip_by_probe_counts,
         dedup_count=ctx.dedup_count,
+        year_fetch_diagnostics=year_fetch_diagnostics,
     )
     cached_year_counts = fetcher._normalize_year_count_map(ctx.cached_year_counts)
     if not cached_year_counts:
@@ -681,6 +703,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
         probed_year_counts=probed_year_counts,
         probe_complete=can_skip_by_probe_counts,
         dedup_count=ctx.dedup_count,
+        year_fetch_diagnostics=year_fetch_diagnostics,
     )
     cached_total_citations = count_summary['cached_total']
     cached_year_total = count_summary['cached_year_total']

@@ -36,7 +36,6 @@ _FETCH_STATE_KEYS = frozenset([
     'probed_year_total',
     'cached_year_counts',
     'year_fetch_diagnostics',
-    'cached_unyeared_count',
     'citation_count_summary',
     'direct_fetch_diagnostics',
     'direct_resume_state',
