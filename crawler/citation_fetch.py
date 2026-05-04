@@ -900,44 +900,23 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
             year_fetched_citations = list(existing_year_fresh)
 
             while True:
-                logical_resume_index = start_index + year_items_seen
-                request_start = _page_aligned_start(logical_resume_index)
-                request_in_page_skip = logical_resume_index - request_start
-                if year_items_seen > 0:
-                    year_url_cur = (f'/scholar?as_ylo={year}&as_yhi={year}&hl=en'
-                                    f'&as_sdt=2005&sciodt=0,5&cites={pub_id}&scipsc='
-                                    f'&start={request_start}')
-                    progress_note = f"position {logical_resume_index}"
-                    if request_start != logical_resume_index:
-                        progress_note += (
-                            f" via page start {request_start} "
-                            f"(skip first {request_in_page_skip})"
-                        )
-                    print(f"        Year {year}: continuing from {progress_note}", flush=True)
-                else:
-                    year_url_cur = year_url
+                processed_in_this_run = 0
+                resume_page_start = _page_aligned_start(start_index)
+                initial_in_page_skip = start_index - resume_page_start
+                year_url_cur = (f'/scholar?as_ylo={year}&as_yhi={year}&hl=en'
+                                f'&as_sdt=2005&sciodt=0,5&cites={pub_id}&scipsc=')
+                if resume_page_start > 0:
+                    year_url_cur += f'&start={resume_page_start}'
                 try:
                     import sys as _sys
                     _SSI = getattr(_sys.modules.get(type(fetcher).__module__, None),
                                    '_SearchScholarIterator', None) or _pub_parser._SearchScholarIterator
                     iterator = _SSI(nav, year_url_cur)
-                    page_save_emitted = False
-                    request_items_seen = 0
-                    for citing in iterator:
-                        year_items_seen += 1
-                        request_items_seen += 1
-                        # Save page-aligned position so that resume never starts at a
-                        # non-aligned offset (e.g. 101) which would cause
-                        # request_in_page_skip > 0 and silently drop items.
-                        ctx.partial_year_start[year] = _page_aligned_start(start_index + year_items_seen)
-                        page_finished = getattr(iterator, '_finished_current_page', False)
-                        if request_items_seen <= request_in_page_skip:
-                            # On a short page where all items are skipped, stop the iterator
-                            # here so it doesn't auto-paginate and make a needless request.
-                            if page_finished and (
-                                    getattr(iterator, '_items_in_current_page', 0) < SCHOLAR_PAGE_SIZE):
-                                break
-                            continue
+                    wrapped = _wrap_direct_citedby_iterator(iterator, initial_in_page_skip)
+                    for citing in wrapped:
+                        processed_in_this_run += 1
+                        ctx.partial_year_start[year] = _page_aligned_start(
+                            start_index + processed_in_this_run)
                         info = fetcher._extract_citation_info(citing, fallback_year=year)
                         identity_keys = fetcher._citation_identity_keys(info)
                         matched_key = next((key for key in identity_keys if key in year_seen_keys), None)
@@ -961,28 +940,23 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
 
                             print(f"          [{count}] {info['title'][:55]}...", flush=True)
 
-                        if page_finished and not page_save_emitted:
+                        if getattr(wrapped, '_finished_current_page', False):
                             save_progress(complete=False)
-                            page_save_emitted = True
                             year_progress_saved = True
-                            _saved_count = len(year_fetched_citations)
-                            _page_item_count = getattr(iterator, '_items_in_current_page', 0)
-                            if _page_item_count >= SCHOLAR_PAGE_SIZE:
+                            items_on_page = getattr(wrapped, '_items_in_current_page', 0)
+                            if items_on_page >= SCHOLAR_PAGE_SIZE:
+                                _saved_count = len(year_fetched_citations)
                                 print(f"        Progress saved: {_saved_count} fetched for year {year}, "
                                       f"{fetcher._new_citations_count} new across run", flush=True)
-                            # Reset the flag on the underlying iterator so a stale True
-                            # value does not persist if the loop somehow continues.
-                            if hasattr(iterator, '_finished_current_page'):
-                                iterator._finished_current_page = False
-                        # Stop iterating as soon as the current page is fully processed so the
-                        # iterator never auto-paginates. Pagination is controlled by our while True loop.
-                        if page_finished:
-                            break
-                    final_page_items_seen = getattr(iterator, '_items_in_current_page', request_items_seen)
-                    if request_items_seen > 0 and page_save_emitted and final_page_items_seen >= SCHOLAR_PAGE_SIZE:
-                        continue
-                    if 0 < final_page_items_seen < SCHOLAR_PAGE_SIZE:
-                        year_termination_reason = 'short_page_stop'
+                            if hasattr(wrapped, '_finished_current_page'):
+                                wrapped._finished_current_page = False
+                            _base = getattr(wrapped, '_base_iterator', None)
+                            if _base is not None and hasattr(_base, '_finished_current_page'):
+                                _base._finished_current_page = False
+                    else:
+                        final_items = getattr(wrapped, '_items_in_current_page', 0)
+                        if 0 < final_items < SCHOLAR_PAGE_SIZE:
+                            year_termination_reason = 'short_page_stop'
                     break
                 except KeyboardInterrupt:
                     save_progress(complete=False)
@@ -990,13 +964,14 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                 except Exception as e:
                     now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     print(f"        [{now_s}] Blocked at year {year} "
-                          f"position {logical_resume_index}: {e}", flush=True)
+                          f"position {start_index + processed_in_this_run}: {e}", flush=True)
                     save_progress(complete=False)
                     if fetcher.interactive_captcha:
                         cur_url = (f'https://scholar.google.com{year_url_cur}'
                                    if year_url_cur.startswith('/') else year_url_cur)
                         solved = fetcher._try_interactive_captcha(cur_url)
                         if solved:
+                            start_index = ctx.partial_year_start.get(year, start_index)
                             continue
                     raise
 

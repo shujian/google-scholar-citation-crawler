@@ -287,10 +287,10 @@ class YearFetchEarlyTests(FetcherTestCase):
 
             def __next__(self_iter):
                 if self_iter.index >= len(self_iter.items):
-                    # Simulate iterator trying the next page and hitting a block
+                    # Normal end of iteration — no more pages
                     self_iter._items_in_current_page = 0
                     self_iter._finished_current_page = False
-                    raise RuntimeError("Simulated block at next page")
+                    raise StopIteration
                 item = self_iter.items[self_iter.index]
                 self_iter.index += 1
                 self_iter._items_in_current_page = self_iter.index

@@ -217,7 +217,8 @@ class YearFetchMainTests(FetcherTestCase):
             )
 
         output = fake_stdout.getvalue()
-        self.assertEqual(requests, [(2018, 0), (2018, 10)])
+        # With automatic pagination only one iterator is created per year.
+        self.assertEqual(requests, [(2018, 0)])
         self.assertEqual(save_calls, [False, False, True])
         self.assertEqual(len(citations), 37)
         self.assertIn("Year 2018 status: year_total=10", output)
