@@ -707,5 +707,47 @@ class CitationStatusTests(FetcherTestCase):
 
 
 
+    def test_citation_status_complete_when_num_seen_derived_from_year_diagnostics(self):
+        """When num_citations_seen is missing but year_fetch_diagnostics contains
+        seen_total for all years, derive num_seen from diagnostics and recognise
+        completeness.  This handles legacy caches that predate the
+        num_citations_seen field."""
+        pub = {"title": "Paper", "num_citations": 1347, "year": "2017"}
+        cached = {
+            "complete": True,
+            "probe_complete": False,
+            "probed_year_counts": {
+                "2018": 38, "2019": 108, "2020": 157, "2021": 218,
+                "2022": 213, "2023": 213, "2024": 176, "2025": 179, "2026": 38,
+            },
+            "probed_year_total": 1340,
+            "cached_year_counts": {
+                "2018": 38, "2019": 108, "2020": 157, "2021": 218,
+                "2022": 213, "2023": 213, "2024": 176, "2025": 178, "2026": 38,
+            },
+            "citations": [
+                {"title": f"A-{idx}", "authors": "A", "venue": "V", "year": str(2018 + idx % 9), "url": f"u{idx}"}
+                for idx in range(1339)
+            ],
+            "num_citations_on_scholar": 1347,
+            "year_fetch_diagnostics": {
+                "2018": {"year": 2018, "scholar_total": 38, "cached_total": 38, "seen_total": 38, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                "2019": {"year": 2019, "scholar_total": 108, "cached_total": 108, "seen_total": 108, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                "2020": {"year": 2020, "scholar_total": 157, "cached_total": 157, "seen_total": 157, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                "2021": {"year": 2021, "scholar_total": 218, "cached_total": 218, "seen_total": 218, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                "2022": {"year": 2022, "scholar_total": 213, "cached_total": 213, "seen_total": 213, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                "2023": {"year": 2023, "scholar_total": 213, "cached_total": 213, "seen_total": 213, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                "2024": {"year": 2024, "scholar_total": 176, "cached_total": 176, "seen_total": 176, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                "2025": {"year": 2025, "scholar_total": 179, "cached_total": 178, "seen_total": 179, "dedup_count": 1, "termination_reason": "short_page_stop"},
+                "2026": {"year": 2026, "scholar_total": 38, "cached_total": 38, "seen_total": 38, "dedup_count": 0, "termination_reason": "short_page_stop"},
+            },
+        }
+
+        with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
+            status = self.fetcher._citation_status(pub)
+
+        self.assertEqual(status, "complete")
+
+
 if __name__ == '__main__':
     unittest.main()

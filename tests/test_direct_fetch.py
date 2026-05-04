@@ -345,7 +345,7 @@ class DirectFetchTests(FetcherTestCase):
         self.assertFalse(self.fetcher._probed_year_count_complete)
         self.assertEqual(sum(self.fetcher._probed_year_counts.values()), 5)
         self.assertIn("histogram incomplete", output)
-        self.assertIn("Year histogram summary:", output)
+        self.assertNotIn("Year histogram summary:", output)
         self.assertIn("pub_year=2021 (pub_year fallback applied)", output)
 
     def test_probe_citation_start_year_no_longer_waits_before_request(self):

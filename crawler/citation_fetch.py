@@ -315,8 +315,15 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
         for year, diagnostic in list(diagnostics.items()):
             if year not in year_counts and year not in (ctx.probed_year_counts or {}):
                 diagnostics.pop(year, None)
+        # Only update diagnostics for years that already have them;
+        # do NOT create new entries for years that were never diagnosed.
+        # This prevents sparse diagnostics from being backfilled with
+        # dedup_count=0 defaults, which would incorrectly mark those
+        # years as underfetched on the next run.
         for year, cached_total in year_counts.items():
-            existing = diagnostics.get(year) or {}
+            existing = diagnostics.get(year)
+            if existing is None:
+                continue
             scholar_total = existing.get('scholar_total')
             if scholar_total is None:
                 scholar_total = (ctx.probed_year_counts or {}).get(year, cached_total)
@@ -663,7 +670,6 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
           f"(current-run completed={len(ctx.completed_year_segments)})", flush=True)
 
     year_range = range(start_year, current_year + 1)
-    print(f"    Direction: oldest→newest", flush=True)
 
     paper_new_count = 0
 
@@ -689,13 +695,6 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
         print(f"    Probe totals: scholar_total={num_citations}, year_sum={probed_hist_total}, missing_from_histogram={probed_missing_from_histogram}", flush=True)
     print(f"    Cache summary: {fetcher._format_year_count_summary(cached_year_counts)}", flush=True)
     print(f"    Cache totals: cached_total={cached_total_citations}, cached_year_sum={cached_year_total}, cached_unyeared={cached_unyeared_citations}, dedup_num={ctx.dedup_count}", flush=True)
-    if year_fetch_diagnostics:
-        diag_summary = fetcher._format_year_fetch_diagnostics_summary(year_fetch_diagnostics)
-        # Indent continuation lines (per-year rows) to align with the header
-        diag_indented = diag_summary.replace("\n", "\n        ")
-        print(f"    Prior run diagnostics: {diag_indented}", flush=True)
-    else:
-        print(f"    Prior run diagnostics: none", flush=True)
     effective_target = probed_hist_total if histogram_authoritative else num_citations
     _fetch_mode_label = 'full-rebuild' if force_year_rebuild else 'selective'
     probe_note = "" if ctx.probed_year_count_complete else " (histogram may be incomplete)"
@@ -703,6 +702,21 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
           f"prev_scholar={prev_scholar_count}, target={effective_target}, total_years={total_years}{probe_note}", flush=True)
     print(f"    Current-run completed years: {fetcher._format_year_set_summary(ctx.completed_year_segments)}", flush=True)
     print(f"    Partial resume points: {fetcher._format_partial_year_start_summary(ctx.partial_year_start)}", flush=True)
+    # Sync stale diagnostics with current probe/cache values so that
+    # year_fetch_diagnostic_matches_total can correctly recognise years
+    # that were completed in a prior run even when the cite count has grown.
+    if year_fetch_diagnostics and probed_year_counts:
+        for year, diag in list(year_fetch_diagnostics.items()):
+            current_probe = probed_year_counts.get(year)
+            current_cached = cached_year_counts.get(year)
+            if current_probe is not None and diag.get('scholar_total') != current_probe:
+                diag['scholar_total'] = current_probe
+            if current_cached is not None and diag.get('cached_total') != current_cached:
+                dedup = diag.get('dedup_count', 0)
+                diag['cached_total'] = current_cached
+                diag['seen_total'] = current_cached + max(0, dedup)
+        ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
+
     if selective_refresh_years is None and probed_year_counts:
         selective_refresh_years = fetcher._selective_refresh_candidate_years(
             cached_year_counts,
@@ -967,8 +981,18 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                           f"position {start_index + processed_in_this_run}: {e}", flush=True)
                     save_progress(complete=False)
                     if fetcher.interactive_captcha:
-                        cur_url = (f'https://scholar.google.com{year_url_cur}'
-                                   if year_url_cur.startswith('/') else year_url_cur)
+                        # year_url_cur was set for the initial page of this
+                        # iterator.  The actual blocked page is at the
+                        # position where the iterator was trying to advance
+                        # to, not the one we originally constructed.
+                        blocked_pos = start_index + processed_in_this_run
+                        blocked_page = _page_aligned_start(blocked_pos)
+                        cur_url = (f'https://scholar.google.com/scholar?'
+                                   f'as_ylo={year}&as_yhi={year}&hl=en'
+                                   f'&as_sdt=2005&sciodt=0,5'
+                                   f'&cites={pub_id}&scipsc=')
+                        if blocked_page > 0:
+                            cur_url += f'&start={blocked_page}'
                         solved = fetcher._try_interactive_captcha(cur_url)
                         if solved:
                             start_index = ctx.partial_year_start.get(year, start_index)

@@ -699,3 +699,55 @@ if current_total is not None:
 ### 测试
 
 109 tests pass。
+
+## 2026-05-05 — 日志去重 + 修复状态判断
+
+### 日志去重
+
+删除了三处重复/冗余的日志输出：
+
+1. **`Year histogram summary`**（`scholarly_session.py`）：probe 阶段打印后，`fetch_by_year` 中 `Probe summary` 又打印了相同的 `probed_year_counts`。删除了 probe 阶段的打印。
+
+2. **`Prior run diagnostics`**（`citation_fetch.py`）：fetch 开始前打印逐年诊断，结束时 `Year fetch comparisons` 再次打印几乎相同的内容。删除了开始前的打印，保留结束时的最终状态。
+
+3. **`Direction: oldest→newest`**（`citation_fetch.py`）：现已不再有反向抓取（newest→oldest），方向始终是 oldest→newest，无需打印。
+
+### `num_citations_seen` 缺失时的 fallback（`citation_io.py`）
+
+**问题**：旧版缓存可能没有 `num_citations_seen` 字段。`derive_citation_cache_state()` 在无法获取该值时 `num_seen = None`，导致后续完整性检查全部失效，已完成的论文被误判为 `partial`。
+
+**修复**：当 `num_citations_seen` 缺失时，从 `year_fetch_diagnostics` 中各年份 `seen_total` 求和来推导 `num_seen`。
+
+### `resolve_citation_status_from_state` off-by-1 defense-in-depth（`citation_io.py`）
+
+当 `probe_complete=True` 但 `probe_histogram_complete=False`（个别年份 cached ≠ probe）时，额外检查 `num_seen >= probed_hist_total`。避免因单个年份的小差异（如 178 vs 179）直接返回 `partial`。
+
+### `year_fetch_diagnostics` 过时导致不必要重新抓取（`citation_fetch.py`）
+
+**问题**：当某年份的引用数在两次运行之间增长（如 scholar 从 88 增长到 93），`year_fetch_diagnostics` 中保存的 `scholar_total` 和 `cached_total` 仍是旧值。`year_fetch_diagnostic_matches_total` 因为 `cached_total` 不匹配而返回 False，导致已完成的年份被重新抓取。
+
+**修复 1**：`build_materialized_year_fetch_diagnostics` 不再为没有现有 diagnostic 的年份创建新条目。避免用 `dedup_count=0` 的默认值回填，导致 `seen_total < scholar_total` 的误判。
+
+**修复 2**：在 `fetch_by_year` 开始前，用当前 probe 和 cache 数据更新过时的 diagnostics：
+- `scholar_total` 更新为当前 probe 值
+- `cached_total` 更新为当前 cache 值
+- `seen_total` 重新计算为 `cached_total + dedup_count`（保留旧的 dedup 计数作为下限）
+
+### captcha URL 显示错误（`citation_fetch.py`）
+
+**问题**：自动翻页时 `_SearchScholarIterator` 内部加载下一页（`start=160`）被阻止，但异常处理中给用户显示的 URL 是迭代器创建时的初始 URL（`start=90`），而不是实际被阻止的页面。
+
+**修复**：根据 `start_index + processed_in_this_run` 计算出实际被阻止的 page start 位置，重新构造 URL。
+
+### 相关文件
+
+- `crawler/scholarly_session.py` — 删除 `Year histogram summary` 打印
+- `crawler/citation_fetch.py` — 删除 `Prior run diagnostics` 和 `Direction` 打印；修复 `build_materialized_year_fetch_diagnostics`；同步过时 diagnostics；修复 captcha URL
+- `crawler/citation_io.py` — `num_seen` 从 diagnostics fallback；`resolve_citation_status_from_state` off-by-1 检查
+- `crawler/citation_cache.py` — 保留 `probed_year_counts_satisfied` 不变
+- `tests/test_direct_fetch.py` — 更新断言
+- `tests/test_citation_status.py` — 新增 `test_citation_status_complete_when_num_seen_derived_from_year_diagnostics`
+
+### 测试
+
+110 tests pass。

@@ -155,7 +155,7 @@ def probed_year_counts_satisfied(cached_year_counts, probed_year_counts, year_fe
         if cached_year_counts.get(year, 0) == live_total:
             continue
         if year_fetch_diagnostic_matches_total(
-            year_fetch_diagnostics.get(year),
+            year_fetch_diagnostics.get(year) if year_fetch_diagnostics else None,
             live_total,
             cached_year_counts.get(year, 0),
         ):

@@ -471,7 +471,6 @@ def probe_citation_start_year(
                     print(f"      Scholar year range probe: start_year = {earliest} "
                           f"(from full histogram DOM, {len(years)} year values found, "
                           f"total={hist_total})", flush=True)
-                    print(f"      Year histogram summary: {hist_summary}", flush=True)
                     return earliest
 
                 conservative_start = earliest
@@ -487,7 +486,6 @@ def probe_citation_start_year(
                 else:
                     print(f"      Scholar year range probe: histogram total unavailable, "
                           f"using conservative start_year = {conservative_start}", flush=True)
-                print(f"      Year histogram summary: {hist_summary}", flush=True)
                 if pub_year_int is not None:
                     fallback_note = ('pub_year fallback applied' if used_pub_year_fallback
                                      else 'pub_year fallback not needed')

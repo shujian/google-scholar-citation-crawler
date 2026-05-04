@@ -85,6 +85,12 @@ def derive_citation_cache_state(pub, cached, year_based_threshold):
         direct_seen_total = None
     if num_seen is None and direct_seen_total is not None:
         num_seen = direct_seen_total
+    if num_seen is None:
+        year_diag = normalize_year_fetch_diagnostics(cached.get('year_fetch_diagnostics'))
+        if year_diag:
+            year_seen_sum = sum(d.get('seen_total', 0) for d in year_diag.values())
+            if year_seen_sum > 0:
+                num_seen = year_seen_sum
     if num_seen is not None:
         num_seen = max(num_seen, actual_cached)
 
@@ -151,6 +157,8 @@ def resolve_citation_status_from_state(state):
 
     if fetch_policy['mode'] == 'year' and probe_complete:
         if probe_histogram_complete:
+            return 'complete'
+        if num_seen is not None and num_seen >= probed_hist_total:
             return 'complete'
         return 'partial'
 
