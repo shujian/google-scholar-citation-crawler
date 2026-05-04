@@ -965,6 +965,15 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                             save_progress(complete=False)
                             page_save_emitted = True
                             year_progress_saved = True
+                            _saved_count = len(year_fetched_citations)
+                            _page_item_count = getattr(iterator, '_items_in_current_page', 0)
+                            if _page_item_count >= SCHOLAR_PAGE_SIZE:
+                                print(f"        Progress saved: {_saved_count} fetched for year {year}, "
+                                      f"{fetcher._new_citations_count} new across run", flush=True)
+                            # Reset the flag on the underlying iterator so a stale True
+                            # value does not persist if the loop somehow continues.
+                            if hasattr(iterator, '_finished_current_page'):
+                                iterator._finished_current_page = False
                         # Stop iterating as soon as the current page is fully processed so the
                         # iterator never auto-paginates. Pagination is controlled by our while True loop.
                         if page_finished:
