@@ -90,7 +90,7 @@ class OutputAndReconciliationTests(FetcherTestCase):
         self.assertTrue(status["ok"])
         self.assertEqual(status["reason"], "matched_complete_histogram")
         self.assertEqual(status["histogram_total"], 3)
-        self.assertEqual(status["unyeared_count"], 2)
+        self.assertEqual(status["scholar_unyeared_count"], 2)
         self.assertEqual(status["cached_year_total"], 3)
 
     def test_save_output_includes_fetch_state_from_cache(self):
@@ -277,7 +277,7 @@ class OutputAndReconciliationTests(FetcherTestCase):
         )
 
         self.assertEqual(legacy_counts, {2024: 1, 2025: 2})
-        self.assertFalse(legacy_complete)
+        self.assertTrue(legacy_complete)
         self.assertEqual(stale_counts, {2024: 1, 2025: 2})
         self.assertFalse(stale_complete)
 

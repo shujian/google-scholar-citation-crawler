@@ -170,7 +170,9 @@ def probed_year_counts_satisfied(cached_year_counts, probed_year_counts, year_fe
 
 def rehydrate_probe_metadata(cached, current_scholar_total):
     """
-    Load probed_year_counts and probe_complete from a cached dict.
+    Load probed_year_counts and derive probe_complete from the cached data.
+    probe_complete is True iff the histogram total equals the scholar total
+    (all year-assignable citations are accounted for in the histogram).
     Returns (normalized_counts_or_None, probe_complete_bool).
     """
     normalized_counts = normalize_year_count_map(
@@ -178,13 +180,12 @@ def rehydrate_probe_metadata(cached, current_scholar_total):
     )
     probe_complete = False
     if normalized_counts:
-        cached_probe_complete = (cached or {}).get('probe_complete') is True
         histogram_total = (cached or {}).get('probed_year_total')
         try:
             histogram_total = int(histogram_total)
         except (TypeError, ValueError):
             histogram_total = sum(normalized_counts.values())
-        if cached_probe_complete and current_scholar_total is not None and histogram_total == current_scholar_total:
+        if current_scholar_total is not None and histogram_total == current_scholar_total:
             probe_complete = True
     return normalized_counts or None, probe_complete
 

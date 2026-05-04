@@ -63,7 +63,10 @@ class CitationStatusTests(FetcherTestCase):
             with open(cache_path, "r", encoding="utf-8") as f:
                 saved = json.load(f)
             self.assertEqual(saved["probed_year_counts"], {"2024": 1, "2025": 1})
-            self.assertTrue(saved["probe_complete"])
+            self.assertEqual(
+                saved["citation_count_summary"]["scholar_total"],
+                saved["citation_count_summary"]["histogram_total"],
+            )
             self.assertEqual(saved["completed_years_in_current_run"], [2024])
             self.assertEqual(saved["probed_year_total"], 2)
             self.assertEqual(saved["cached_unyeared_count"], 0)

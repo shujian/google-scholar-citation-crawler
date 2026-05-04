@@ -1193,8 +1193,7 @@ class PaperCitationFetcher:
             if cached:
                 for key in ('year_fetch_diagnostics', 'cached_year_counts',
                             'probed_year_counts', 'probed_year_total',
-                            'probe_complete', 'dedup_count',
-                            'citation_count_summary'):
+                            'dedup_count', 'citation_count_summary'):
                     if key in cached:
                         fetch_state[key] = cached[key]
             # Update counts from current profile and actual citations array

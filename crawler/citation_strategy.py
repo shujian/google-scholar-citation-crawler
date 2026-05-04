@@ -168,8 +168,7 @@ def build_citation_count_summary(citations, scholar_total=None, probed_year_coun
         'seen_total': seen_total,
         'cached_unyeared_count': cached_unyeared_count,
         'dedup_count': cached_dedup,
-        'probe_complete': bool(probe_complete),
-        'unyeared_count': unyeared_count,
+        'scholar_unyeared_count': unyeared_count,
         'cached_year_counts': cached_year_counts,
         'probed_year_counts': normalized_probed_year_counts,
     }

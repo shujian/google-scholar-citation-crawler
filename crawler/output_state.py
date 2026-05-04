@@ -31,7 +31,6 @@ _FETCH_STATE_KEYS = frozenset([
     'complete_fetch_attempt',
     'completed_years',
     'completed_years_in_current_run',
-    'probe_complete',
     'probed_year_counts',
     'probed_year_total',
     'cached_year_counts',

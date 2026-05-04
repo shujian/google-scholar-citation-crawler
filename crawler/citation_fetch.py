@@ -391,7 +391,6 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
                 'complete_fetch_attempt': complete,  # True only when fetch ran to completion (not mid-run interrupt)
                 'completed_years': sorted(ctx.completed_year_segments),
                 'completed_years_in_current_run': sorted(ctx.completed_year_segments),
-                'probe_complete': bool(ctx.probed_year_count_complete),
                 'probed_year_counts': fetcher._dump_year_count_map(
                     fetcher._normalize_year_count_map(ctx.probed_year_counts)
                 ),
@@ -404,10 +403,10 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
                     'histogram_total': count_summary['histogram_total'],
                     'cached_total': count_summary['cached_total'],
                     'cached_year_total': count_summary['cached_year_total'],
+                    'seen_total': count_summary['seen_total'],
                     'cached_unyeared_count': count_summary['cached_unyeared_count'],
                     'dedup_count': count_summary['dedup_count'],
-                    'unyeared_count': count_summary['unyeared_count'],
-                    'probe_complete': count_summary['probe_complete'],
+                    'scholar_unyeared_count': count_summary['scholar_unyeared_count'],
                 },
                 'direct_fetch_diagnostics': diagnostics_to_save,
                 'direct_resume_state': (
@@ -709,7 +708,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
     cached_year_total = count_summary['cached_year_total']
     cached_unyeared_citations = count_summary['cached_unyeared_count']
     probed_hist_total = count_summary['histogram_total']
-    probed_missing_from_histogram = count_summary['unyeared_count']
+    probed_missing_from_histogram = count_summary['scholar_unyeared_count']
     histogram_authoritative = probed_hist_total > 0
     print(f"    Probe summary: {fetcher._format_year_count_summary(probed_year_counts)}", flush=True)
     if num_citations is None:

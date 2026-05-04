@@ -36,7 +36,6 @@ def migrate_one_file(json_path):
 
         year_diags = state.get("year_fetch_diagnostics")
         probed = normalize_year_count_map(state.get("probed_year_counts"))
-        probe_complete = bool(state.get("probe_complete"))
         dedup = state.get("dedup_count", 0) or 0
         scholar = state.get("num_citations_on_scholar")
         citations = paper.get("citations", [])
@@ -45,7 +44,7 @@ def migrate_one_file(json_path):
             citations,
             scholar_total=scholar,
             probed_year_counts=probed,
-            probe_complete=probe_complete,
+            probe_complete=False,
             dedup_count=dedup,
             year_fetch_diagnostics=year_diags,
         )
@@ -55,8 +54,8 @@ def migrate_one_file(json_path):
         old_summary = state.get("citation_count_summary", {})
         if old_summary != new_summary:
             state["citation_count_summary"] = new_summary
-            # Remove stale top-level cached_unyeared_count (it lives in summary now)
-            state.pop("cached_unyeared_count", None)
+            state.pop("cached_unyeared_count", None)  # lives in summary now
+            state.pop("probe_complete", None)          # derived: scholar==histogram
             updated += 1
 
     if updated:
