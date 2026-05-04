@@ -1181,6 +1181,17 @@ class PaperCitationFetcher:
             else:
                 cached = self._load_citation_cache(title) if pub else None
                 fetch_state = _os_extract_fetch_state(cached) if cached else {}
+            # For papers that were processed this run, the cache file has
+            # fresh year_fetch_diagnostics / probed_year_counts.  Merge
+            # them into the output state so the next run starts from
+            # current data instead of stale snapshots.
+            cached = self._load_citation_cache(title) if pub else None
+            if cached:
+                for key in ('year_fetch_diagnostics', 'cached_year_counts',
+                            'probed_year_counts', 'probed_year_total',
+                            'probe_complete', 'dedup_count'):
+                    if key in cached:
+                        fetch_state[key] = cached[key]
             # Update counts from current profile and actual citations array
             current_total = pub.get('num_citations') if pub else None
             if current_total is not None and fetch_state:

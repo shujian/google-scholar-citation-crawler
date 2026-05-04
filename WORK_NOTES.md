@@ -745,8 +745,15 @@ if current_total is not None:
 - `crawler/citation_fetch.py` — 删除 `Prior run diagnostics` 和 `Direction` 打印；修复 `build_materialized_year_fetch_diagnostics`；同步过时 diagnostics；修复 captcha URL
 - `crawler/citation_io.py` — `num_seen` 从 diagnostics fallback；`resolve_citation_status_from_state` off-by-1 检查
 - `crawler/citation_cache.py` — 保留 `probed_year_counts_satisfied` 不变
+- `scholar_citation.py` — `_save_output._build_entry` 从 cache 文件合并 fresh `year_fetch_diagnostics` 等字段到 output state
 - `tests/test_direct_fetch.py` — 更新断言
 - `tests/test_citation_status.py` — 新增 `test_citation_status_complete_when_num_seen_derived_from_year_diagnostics`
+
+### 输出文件 `year_fetch_diagnostics` 不更新的修复
+
+**问题**：`_save_output` 的 `_build_entry` 对已有 output state 的论文直接复制旧的 `year_fetch_diagnostics`，从不更新。虽然 fetch 期间有 sync 代码补救当前运行，但下次运行又要从相同的过时数据重新开始。
+
+**修复**：`_build_entry` 现在从当前运行的 cache 文件中合并最新值（`year_fetch_diagnostics`、`cached_year_counts`、`probed_year_counts`、`probed_year_total`、`probe_complete`、`dedup_count`）。
 
 ### 测试
 
