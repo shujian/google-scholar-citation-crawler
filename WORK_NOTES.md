@@ -758,3 +758,18 @@ if current_total is not None:
 ### 测试
 
 110 tests pass。
+
+### `citation_count_summary` 汇总值从 per-year diagnostics 推导
+
+**问题**：JSON 输出文件的 `citation_count_summary` 中，`histogram_total=0`（因为外层 `ctx.probed_year_counts=None`），`unyeared_count=1347`（因 histogram=0 导致计算出错），缺少 `seen_total`，`cached_unyeared_count` 在顶层和 summary 内重复。
+
+**修复**：
+1. `_synced_save_progress` 增加 `_live_probed_year_counts` / `_live_probe_complete` 同步，解决 `histogram_total=0`
+2. `build_citation_count_summary` 新增 `year_fetch_diagnostics` 参数，当 diagnostics 可用时所有汇总值（`histogram_total`、`seen_total`、`cached_year_total`、`dedup_count`）从 per-year 数据累加得到（`scholar_total` 除外，来自页面）
+3. 新增 `seen_total` 字段（per-year `seen_total` 累加）
+4. 从 `_FETCH_STATE_KEYS` 移除 `cached_unyeared_count`（消除重复）
+5. `build_materialized_year_fetch_diagnostics` 恢复为所有年份创建条目，`citation_count_summary` 才能获得完整 totals
+
+### 迁移脚本
+
+`fix_output_fetch_state.py` — 读取现有 output JSON，按新逻辑重建 `citation_count_summary`。
