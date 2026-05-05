@@ -804,10 +804,11 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
             live_count = probed_year_counts.get(year, 0)
             existing_diag = year_fetch_diagnostics.get(year)
             if live_count == 0:
+                actual_cached = cached_year_counts.get(year, 0)
                 year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
                     year,
                     0,
-                    0,
+                    actual_cached,
                     0,
                     'probe_zero_skip',
                 )
@@ -878,8 +879,9 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                     if live_count == 0:
                         skipped_years += 1
                         ctx.completed_year_segments.add(year)
+                        actual_cached = cached_year_counts.get(year, 0)
                         year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
-                            year, 0, 0, 0, 'probe_zero_skip',
+                            year, 0, actual_cached, 0, 'probe_zero_skip',
                         )
                         ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
                         print(f"      Year {year}: skip (probe count=0)", flush=True)
