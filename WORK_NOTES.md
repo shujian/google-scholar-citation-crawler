@@ -27,6 +27,13 @@
 - **within-run resume 修复**: direct 模式重试时从缓存文件读取 `direct_resume_state`，而非从 `_resolve_refresh_strategy`（始终返回 None）
 - **probe_zero_skip 修复**: 使用实际 cached 数量而非强制 0
 
+## 2026-05-05: 简化 complete/partial 判断逻辑
+
+- **Year mode**: `year_fetch_diagnostics.summary.histogram_total <= seen_total` → complete
+- **Direct mode**: `direct_fetch_diagnostics.summary.scholar_total <= seen_total` → complete
+- 旧版缓存兼容：无 summary 时从 per-year diagnostics 推导 histogram_total / seen_total
+- 移除复杂的多条件分支（probe_complete、histogram_match_complete 等），不再需要 `rehydrate_probe_metadata`、`probed_year_counts_satisfied` 等辅助函数
+
 ## 开发环境
 
 - **Conda 环境**: `scholar` (`/Users/huangshujian/miniforge3/envs/scholar`)
