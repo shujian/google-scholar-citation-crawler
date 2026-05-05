@@ -1103,7 +1103,7 @@ class DirectFetchTests(FetcherTestCase):
 
         output = fake_stdout.getvalue()
         self.assertIn("Cache totals: cached_total=7", output)
-        self.assertIn("Direct fetch totals: scholar_total=48, cached_total=3, seen_total=3, materialized_total=7, materialized_seen_total=7", output)
+        self.assertIn("Direct fetch totals: scholar_total=48, new=3, total_cached=7, seen_total=3", output)
 
     def test_direct_fetch_recheck_does_not_early_stop(self):
         fetched_items = [

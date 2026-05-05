@@ -580,7 +580,9 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
     print(f"    Cache summary: {fetcher._format_year_count_summary(cached_year_map)}", flush=True)
     print(f"    Cache totals: cached_total={direct_materialized_total}, cached_year_sum={cached_year_sum}, cached_unyeared={direct_materialized_total - cached_year_sum}, dedup_num={ctx.dedup_count}", flush=True)
     s = direct_fetch_diagnostics.get('summary', direct_fetch_diagnostics)
-    print(f"    Direct fetch totals: scholar_total={s['scholar_total']}, cached_total={s['cached_total']}, seen_total={s['seen_total']}, materialized_total={direct_materialized_total}, materialized_seen_total={direct_materialized_seen_total}", flush=True)
+    new_count = len(fresh_citations)
+    total_count = direct_materialized_total
+    print(f"    Direct fetch totals: scholar_total={s['scholar_total']}, new={new_count}, total_cached={total_count}, seen_total={s['seen_total']}", flush=True)
     if _direct_fetch_is_underfetched(direct_fetch_diagnostics):
         print(f"    {_direct_fetch_log_message(direct_fetch_diagnostics)}", flush=True)
     save_progress(complete=True)
