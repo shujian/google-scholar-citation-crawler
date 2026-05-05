@@ -18,6 +18,15 @@
 - **`complete` / `complete_fetch_attempt`**: 保留。`complete_fetch_attempt` 表示抓取是否运行完成（未中断），`complete` 表示是否完整获取（direct 模式 underfetched 时为 false）。两者语义不同，用于状态判断
 - **`fetch_complete`**: 保留。顶层便利字段，供 Excel 输出使用
 
+## 2026-05-05: 字段重命名 & 策略简化
+
+- **`scholar_total` → `histogram_count`**: year_fetch_diagnostics 每一年条目中，Scholar histogram 值重命名为 `histogram_count`（所有年的和 = `histogram_total`）
+- **direct_fetch_diagnostics 重构**: 所有字段移入 `summary` 子字段（`reported_total` → `scholar_total`，`yielded_total` → `cached_total`）；direct 模式论文现在也生成 `year_fetch_diagnostics`（从缓存引用数据）
+- **direct→year 过渡**: 缓存中没有 year_fetch_diagnostics 时，从缓存引用数据合成年度诊断，使 year fetch 路径知道哪些年份已覆盖
+- **简化 fetch policy**: 仅用引用数阈值判断（<50 → direct，≥50 → year），移除 avg_citations_per_year 规则
+- **within-run resume 修复**: direct 模式重试时从缓存文件读取 `direct_resume_state`，而非从 `_resolve_refresh_strategy`（始终返回 None）
+- **probe_zero_skip 修复**: 使用实际 cached 数量而非强制 0
+
 ## 开发环境
 
 - **Conda 环境**: `scholar` (`/Users/huangshujian/miniforge3/envs/scholar`)
