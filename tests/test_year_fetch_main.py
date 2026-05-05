@@ -30,7 +30,7 @@ class YearFetchMainTests(FetcherTestCase):
             ["Keep-2023", "New-2024-A", "New-2024-B", "Keep-NY"],
         )
 
-    def test_selective_refresh_does_not_early_stop_after_refetching_cached_citation(self):
+    def test_all_years_in_range_are_processed_individually(self):
         self.fetcher._probe_citation_start_year = lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2024
         pages = {
             (2025, 0): [
@@ -79,69 +79,10 @@ class YearFetchMainTests(FetcherTestCase):
                 num_citations=2,
                 pub_year="2025",
                 prev_scholar_count=1,
-                selective_refresh_years={2024, 2025},
             )
 
-        self.assertEqual(requests, [(2024, 0), (2025, 0)])
+        self.assertEqual(requests, [(2024, 0), (2025, 0), (2026, 0)])
         self.assertEqual([c["title"] for c in citations], ["New-2024", "Cached-2025"])
-        self.assertEqual(self.fetcher._new_citations_count, 1)
-
-        self.fetcher._completed_year_segments = {2024}
-        self.fetcher._probed_year_counts = {2024: 2}
-        self.fetcher._probed_year_count_complete = True
-        self.fetcher._cached_year_counts = {2024: 1}
-        self.fetcher._probe_citation_start_year = lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2024
-
-        requests = []
-
-        class FakeIterator:
-            def __init__(self, nav, url):
-                start = 0
-                if "start=" in url:
-                    start = int(url.split("start=")[1].split("&")[0])
-                requests.append(url)
-                self.items = ([{
-                    "bib": {"title": "Fetched-2024", "author": ["A"], "venue": "V2024", "pub_year": "2024"},
-                    "pub_url": "u2024",
-                }] if start == 0 else [])
-                self.index = 0
-                self._finished_current_page = False
-
-            def __iter__(self):
-                return self
-
-            def __next__(self):
-                if self.index >= len(self.items):
-                    self._finished_current_page = True
-                    raise StopIteration
-                item = self.items[self.index]
-                self.index += 1
-                if self.index >= len(self.items):
-                    self._finished_current_page = True
-                return item
-
-        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
-             patch.object(scholar_citation, "datetime") as fake_datetime, \
-             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
-            fake_datetime.now.return_value = types.SimpleNamespace(year=2024)
-            citations = self.fetcher._fetch_by_year(
-                citedby_url="/scholar?cites=123",
-                old_citations=[{"title": "Old-2024", "authors": "A", "venue": "V", "year": "2024", "url": "u-old"}],
-                fresh_citations=[],
-                save_progress=lambda complete: None,
-                num_citations=2,
-                pub_year="2024",
-                prev_scholar_count=0,
-                allow_incremental_early_stop=False,
-                selective_refresh_years={2024},
-            )
-
-        output = fake_stdout.getvalue()
-        self.assertEqual(len(requests), 1)
-        self.assertEqual([c["title"] for c in citations], ["Fetched-2024"])
-        self.assertIn("Selective refresh years: 2024", output)
-        self.assertIn("Year 2024: fetching", output)
-        self.assertNotIn("skip (already completed earlier in this run)", output)
 
     def test_force_year_rebuild_uses_replaced_year_totals_for_status_and_stop(self):
         self.fetcher._probed_year_counts = {2018: 37, 2019: 27}
@@ -224,74 +165,6 @@ class YearFetchMainTests(FetcherTestCase):
         self.assertIn("Year 2018 status: year_total=10", output)
         self.assertIn("Year 2019: skip (seen=27 >= probe=27)", output)
         self.assertNotIn("Reached target (64 >= 64)", output)
-
-    def test_year_partial_save_uses_authoritative_replaced_totals(self):
-        self.fetcher._probed_year_counts = {2024: 2}
-        self.fetcher._probed_year_count_complete = True
-        self.fetcher._cached_year_counts = {2024: 1}
-        self.fetcher._probe_citation_start_year = lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2024
-
-        old_citations = [
-            {"title": "Old-2024", "authors": "A", "venue": "V2024", "year": "2024", "url": "u-old"},
-            {"title": "Keep-2023", "authors": "B", "venue": "V2023", "year": "2023", "url": "u-keep"},
-        ]
-        partial_snapshots = []
-
-        class FakeIterator:
-            def __init__(self, nav, url):
-                start = 0
-                if "start=" in url:
-                    start = int(url.split("start=")[1].split("&")[0])
-                self.items = ([
-                    {
-                        "bib": {"title": "Fresh-2024-A", "author": ["A"], "venue": "V2024", "pub_year": "2024"},
-                        "pub_url": "u-fresh-a",
-                    },
-                    {
-                        "bib": {"title": "Fresh-2024-B", "author": ["C"], "venue": "V2024", "pub_year": "2024"},
-                        "pub_url": "u-fresh-b",
-                    },
-                ] if start == 0 else [])
-                self.index = 0
-                self._finished_current_page = False
-
-            def __iter__(self):
-                return self
-
-            def __next__(self):
-                if self.index >= len(self.items):
-                    self._finished_current_page = True
-                    raise StopIteration
-                item = self.items[self.index]
-                self.index += 1
-                if self.index >= len(self.items):
-                    self._finished_current_page = True
-                return item
-
-        fresh_citations = []
-
-        def fake_save_progress(complete):
-            partial_snapshots.append((complete, [c["title"] for c in fresh_citations]))
-
-        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
-             patch.object(scholar_citation, "datetime") as fake_datetime:
-            fake_datetime.now.return_value = types.SimpleNamespace(year=2024)
-            citations = self.fetcher._fetch_by_year(
-                citedby_url="/scholar?cites=123",
-                old_citations=old_citations,
-                fresh_citations=fresh_citations,
-                save_progress=fake_save_progress,
-                num_citations=3,
-                pub_year="2024",
-                prev_scholar_count=1,
-                allow_incremental_early_stop=False,
-                force_year_rebuild=True,
-                selective_refresh_years={2024},
-            )
-
-        self.assertEqual([c["title"] for c in citations], ["Keep-2023", "Fresh-2024-A", "Fresh-2024-B"])
-        self.assertEqual(partial_snapshots[0], (False, ["Keep-2023", "Fresh-2024-A", "Fresh-2024-B"]))
-        self.assertEqual(partial_snapshots[-1], (True, ["Keep-2023", "Fresh-2024-A", "Fresh-2024-B"]))
 
     def test_main_mirrors_stdout_to_timestamped_log_file(self):
         fake_args = types.SimpleNamespace(
@@ -517,8 +390,6 @@ class YearFetchMainTests(FetcherTestCase):
         self.assertEqual(len(citations), 1)
         self.assertEqual(citations[0]["year"], "2023")
         self.assertEqual(self.fetcher._year_count_map(citations), {2023: 1})
-
-
 
 if __name__ == '__main__':
     unittest.main()

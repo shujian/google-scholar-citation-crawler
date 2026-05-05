@@ -67,130 +67,6 @@ class YearFetchEarlyTests(FetcherTestCase):
         self.assertEqual(requests, [(2025, 0), (2026, 0)])
         self.assertEqual(self.fetcher._new_citations_count, 4)
         self.assertEqual(save_calls, [False, False, True])
-    def test_histogram_authoritative_mode_does_not_stop_on_cached_total_match(self):
-        self.fetcher._probed_year_counts = {2024: 1, 2025: 1, 2026: 1}
-        self.fetcher._probed_year_count_complete = True
-        self.fetcher._cached_year_counts = {2024: 0, 2025: 0, 2026: 0}
-        self.fetcher._partial_year_start = {2024: 1}
-        self.fetcher._probe_citation_start_year = lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2024
-
-        old_citations = [
-            {"title": f"Old-Unyeared-{i}", "authors": "A", "venue": "V", "year": "N/A", "url": f"u-old-{i}"}
-            for i in range(3)
-        ]
-        requests = []
-
-        class FakeIterator:
-            def __init__(self, nav, url):
-                start = 0
-                if "start=" in url:
-                    start = int(url.split("start=")[1].split("&")[0])
-                year = int(url.split("as_ylo=")[1].split("&")[0])
-                requests.append((year, start))
-                self.items = ([{
-                    "bib": {"title": f"Fetched-{year}", "author": ["A"], "venue": f"V{year}", "pub_year": str(year)},
-                    "pub_url": f"u{year}",
-                }] if start == 0 else [])
-                self.index = 0
-                self._finished_current_page = False
-
-            def __iter__(self):
-                return self
-
-            def __next__(self):
-                if self.index >= len(self.items):
-                    self._finished_current_page = True
-                    raise StopIteration
-                item = self.items[self.index]
-                self.index += 1
-                if self.index >= len(self.items):
-                    self._finished_current_page = True
-                return item
-
-        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
-             patch.object(scholar_citation, "datetime") as fake_datetime, \
-             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
-            fake_datetime.now.return_value = types.SimpleNamespace(year=2026)
-            citations = self.fetcher._fetch_by_year(
-                citedby_url="/scholar?cites=123",
-                old_citations=old_citations,
-                fresh_citations=[],
-                save_progress=lambda complete: None,
-                num_citations=3,
-                pub_year="2024",
-                prev_scholar_count=3,
-                allow_incremental_early_stop=False,
-            )
-
-        output = fake_stdout.getvalue()
-        self.assertEqual(requests, [(2024, 0), (2025, 0), (2026, 0)])
-        self.assertEqual(self.fetcher._year_count_map(citations), {2025: 1, 2026: 1})
-        self.assertIn("resuming from position 1 via page start 0 (skip first 1)", output)
-        self.assertNotIn("Reached target (3 >= 3)", output)
-
-        pages = {
-            (2026, 0): [
-                {"bib": {"title": "Page1-A", "author": ["A"], "venue": "V1", "pub_year": "2026"}, "pub_url": "u1"},
-                {"bib": {"title": "Page1-B", "author": ["B"], "venue": "V2", "pub_year": "2026"}, "pub_url": "u2"},
-            ],
-            (2026, 10): [
-                {"bib": {"title": "Page2-A", "author": ["C"], "venue": "V3", "pub_year": "2026"}, "pub_url": "u3"},
-            ],
-            (2025, 0): [
-                {"bib": {"title": "OldYear-A", "author": ["D"], "venue": "V4", "pub_year": "2025"}, "pub_url": "u4"},
-            ],
-        }
-        requests = []
-        self.fetcher._new_citations_count = 0
-
-        class FakeIterator:
-            def __init__(self, nav, url):
-                start = 0
-                if "start=" in url:
-                    start = int(url.split("start=")[1].split("&")[0])
-                year = int(url.split("as_ylo=")[1].split("&")[0])
-                if year == 2026 and start == 0:
-                    self.items = list(pages[(2026, 0)])
-                elif year == 2026 and start == 10:
-                    self.items = list(pages[(2026, 10)])
-                else:
-                    self.items = list(pages.get((year, start), []))
-                self.index = 0
-                self._finished_current_page = False
-                requests.append((year, start))
-
-            def __iter__(self):
-                return self
-
-            def __next__(self):
-                if self.index >= len(self.items):
-                    self._finished_current_page = True
-                    raise StopIteration
-                item = self.items[self.index]
-                self.index += 1
-                if self.index >= len(self.items):
-                    self._finished_current_page = True
-                return item
-
-        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator):
-            citations = self.fetcher._fetch_by_year(
-                citedby_url="/scholar?cites=123",
-                old_citations=[],
-                fresh_citations=[],
-                save_progress=lambda complete: None,
-                num_citations=12,
-                pub_year="2025",
-                prev_scholar_count=10,
-                allow_incremental_early_stop=False,
-                selective_refresh_years={2025, 2026},
-            )
-
-        self.assertEqual(
-            [c["title"] for c in citations],
-            ["OldYear-A", "Page1-A", "Page1-B"],
-        )
-        self.assertEqual(requests, [(2025, 0), (2026, 0)])
-        self.assertEqual(self.fetcher._new_citations_count, 3)
 
     def test_fetch_by_year_uses_histogram_total_as_target_and_backfills_year(self):
         self.fetcher._probed_year_counts = {2025: 1, 2026: 1}
@@ -389,7 +265,6 @@ class YearFetchEarlyTests(FetcherTestCase):
                          "dedup_count must be 1 at final save_progress")
         self.assertEqual(diag_2025.get('seen_total'), 2,
                          "seen_total must be 2 (1 cached + 1 dedup)")
-
 
 if __name__ == '__main__':
     unittest.main()
