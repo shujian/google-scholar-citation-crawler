@@ -1246,6 +1246,7 @@ class PaperCitationFetcher:
             cached = self._load_citation_cache(title) if pub else None
             if cached:
                 for key in ('fetch_strategy', 'year_fetch_diagnostics',
+                            'direct_fetch_diagnostics',
                             'cached_year_counts', 'probed_year_counts',
                             'dedup_count'):
                     if key in cached:
@@ -1257,6 +1258,15 @@ class PaperCitationFetcher:
                 fetch_state['num_citations_cached'] = len(citations)
                 dedup = fetch_state.get('dedup_count', 0) or 0
                 fetch_state['num_citations_seen'] = len(citations) + dedup
+                # Also sync the nested diagnostics summaries so they stay
+                # consistent with the top-level counts.
+                for diag_key in ('year_fetch_diagnostics', 'direct_fetch_diagnostics'):
+                    diag = fetch_state.get(diag_key)
+                    if isinstance(diag, dict) and 'summary' in diag:
+                        diag['summary']['scholar_total'] = current_total
+                        diag['summary']['cached_total'] = len(citations)
+                        diag['summary']['seen_total'] = fetch_state['num_citations_seen']
+                        diag['summary']['dedup_count'] = dedup
             return {
                 'pub': pub,
                 'citations': citations,
