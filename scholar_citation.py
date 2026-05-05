@@ -1061,7 +1061,10 @@ class PaperCitationFetcher:
                                 selective_refresh_years = retry_attempt_state['selective_refresh_years']
                                 saved_dedup_count = retry_attempt_state['saved_dedup_count']
                                 partial_year_start = retry_attempt_state['partial_year_start']
-                                direct_resume_state = retry_attempt_state.get('direct_resume_state')
+                                # Within-run resume: read the saved position from
+                                # the cache file (written by save_progress), not from
+                                # _resolve_refresh_strategy which always returns None.
+                                direct_resume_state = latest_cache.get('direct_resume_state') if latest_cache else None
                                 retry_suffix = self._direct_resume_log_suffix(direct_resume_state)
                                 print(f"  {now_str()} Retrying with {len(resume_from)} cached citations from previous attempt{retry_suffix}")
                     if not fetch_completed:

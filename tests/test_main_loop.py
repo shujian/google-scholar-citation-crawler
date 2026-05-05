@@ -231,9 +231,10 @@ class MainLoopTests(FetcherTestCase):
         self.assertIsNone(fetch_calls[0]["direct_resume_state"])
         self.assertEqual(fetch_calls[1]["resume_from"], latest_cache["citations"])
         self.assertEqual(fetch_calls[1]["saved_dedup_count"], 0)
-        self.assertIsNone(fetch_calls[1]["direct_resume_state"])
+        # Within-run resume now reads direct_resume_state from the saved cache
+        self.assertEqual(fetch_calls[1]["direct_resume_state"], latest_cache["direct_resume_state"])
         self.assertIn("Retrying with 1 cached citations from previous attempt", log_output)
-        self.assertNotIn("direct offset=13", log_output)
+        self.assertIn("direct offset=13", log_output)
 
         pub = {
             "no": 1,
