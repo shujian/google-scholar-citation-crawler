@@ -1929,6 +1929,72 @@ scholar_total也应该保留，因为fetch_mode的rough好像要比较之前的s
 
 ---
 
+## Message [2026-05-05] — 日志去重
+
+请分析一下这段日志，我觉得内容有些重复了。
+
+（用户提供了 year-based fetch 日志，指出 Year histogram summary、Prior run diagnostics 等内容重复出现）
+
+---
+
+## Message [2026-05-05] — 论文跳过逻辑
+
+另外我想确认一下，这篇论文的引用在上一个run和这个run之间并没有更新，上一个run应该也完整的采集了信息（事实上每个year都skip了）。为什么我们会进入这么详细的分析阶段？难道不是应该直接跳过这个论文吗？
+
+---
+
+## Message [2026-05-05] — 进一步简化
+
+我觉得就不要管prior的诊断了吧？不需要保存和输出他们。记住上次获取的seen和dedup即可。实际上dedup也可以只作为参考。关键是上一次seen了多少。
+
+scholar_total也应该保留，因为fetch_mode的rough好像要比较之前的scholar total和当前有没有变。cached_total是可以从数据中计算出来的。这些数据还是有意义的。暂时不简化了吧。但是请检查一下这些数据都是最新状态，且不会被错误修改或者删除。
+
+---
+
+## Message [2026-05-05] — 汇总字段优化
+
+把unyeared_count改为scholar_unyeared_count，这个值应该是由scholar_total - histogram_total计算得到的，不建议单独保存。probe_complete应该是判断scholar_total和histogram_total是否相等，不应该单独存一个状态。这三个值在抓取具体citation条目前（probe histogram的时候）就应该得到了，不知道那个时候是否保存在其他变量里了？建议合并。在抓取结束时候可以看一下逐年获取的histogram total跟probe之后的结果是否一致。
+
+不对，这是个汇总结果，seen_total应该由每一年的seen累加得到。其他各项也应该是这样。我觉得就不应该出现没有存在于每年统计数据中的值。每年的scholar count总合就应该是histogram total。scholar_total是页面获取到的引用数（确实这个不是从年累加的，这是个例外）。
+
+probed_year_total是不是没什么用了？我还发现fetch_state的记录里面，direct fetch有一些None标识，year被放在了每个年份的mode里，是否应该统一在fetch_state中用一个fetch_strategy来记录一下，strategy包括direct和year两种。
+
+---
+
+## Message [2026-05-05] — 日志汇总优化
+
+对于year的fetch，在开始抓取和结束的时候都输出了相关汇总信息，但注意这个汇总信息里也应该包含histogram total （这个值和scholar total的差值是unyeared count），只有histogram total可以跟seen total比对。
+
+---
+
+## Message [2026-05-05] — action标签不一致
+
+[14/232] Towards making the most of context in neural machine tr...
+  fetch (114 cached; recheck by year)
+    Direct fetch mode: no year probe, summary shown after fetch
+    Direct fetch target: scholar_total=115, prev_scholar=115, cached_total=114
+在一开始输出的时候，请输出更具体的信息，包括scholar total、prev scholar total等，这些信息其实是用来判断是否要对这个论文的仅用做进一步抓取的。现在输出的信息太少了。另外，这里为什么会输出recheck by year？然后后面有说是direct fetch mode？这两者是不是不一致了？
+
+在direct fetch 情况下，scholar total跟prev scholar都是115，为什么还要重新抓取？是不是逻辑上有点问题？帮我检查确认一下这里的判断标准。
+
+---
+
+## Message [2026-05-05] — 清理冗余字段
+
+帮我确认一下这些状态的作用，如果没什么用就去掉吧："underfetched": false, "underfetch_gap": 0, 这两个是year_fetch_diagnostics里每一年都有的。completed_years_in_current_run这个是当前run的信息，按说不应该在结束之后被保存。
+
+请清理一下当前output目录下的结果文件，保持与上述更新一致。
+
+---
+
+## Message [2026-05-05] — 修复缺失字段
+
+为什么我会发现有个fetch state里没有fetch strategy？看上去应该是direct模型的结果。这在输出的32056-32075行。
+
+那也请恢复一下year_fetch_diagnostics，以便和当前代码保持一致。
+
+---
+
 ## Message [2026-05-05]
 
 这里有问题，为什么cache是92，但是prior run是88？是不是没有更新？另外，虽然probe93，cached 92，但是seen是93，有一个dedup，所以这里仍然不应该方式重新获取吧。  Year histogram summary: 5 years, total=675, years_with_citations=5, range=2022-2026 [2022:2, 2023:37, 2024:222, 2025:321, 2026:93]

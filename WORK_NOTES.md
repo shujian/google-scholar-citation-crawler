@@ -773,3 +773,36 @@ if current_total is not None:
 ### 迁移脚本
 
 `fix_output_fetch_state.py` — 读取现有 output JSON，按新逻辑重建 `citation_count_summary`。
+
+### `probe_complete` 从相等性推导 + `unyeared_count` 重命名
+
+**原则**：不保存可推导的值。
+
+- `probe_complete` 不再保存到 cache/output。`rehydrate_probe_metadata` 改为推导：`scholar_total == histogram_total`
+- `unyeared_count` → `scholar_unyeared_count`
+- 从 `_FETCH_STATE_KEYS` 移除 `probe_complete`
+
+### `fetch_strategy` 统一标记 + 移除 `probed_year_total`
+
+- 新增 `fetch_strategy: "year"` / `"direct"` 到 `_fetch_state` 顶层
+- 移除 per-year `mode: "year"` 和 `direct_fetch_diagnostics.mode: "direct"`（冗余）
+- 移除 `probed_year_total`（与 `citation_count_summary.histogram_total` 冗余）
+- `rehydrate_probe_metadata` 从 `citation_count_summary.histogram_total` 读取备选
+
+### 日志汇总优化
+
+- 开始汇总 "Cache totals" 新增 `seen_total`，方便与 `histogram_total` 对比
+- 结束汇总 "Done:" 新增 `histogram` 和 `unyeared`：
+  `Done: X cached, Y seen, Z dupes (histogram: H, scholar: S, unyeared: U)`
+- action 标签修正：direct 模式不再错误显示 "recheck by year"
+- action 行增加 `seen` 和 `scholar` 变化信息
+
+### 移除 `underfetched`/`underfetch_gap`/`completed_years_in_current_run`
+
+- `underfetched`/`underfetch_gap` 从 year diagnostics 移除（衍生值，日志打印时即时计算）
+- `completed_years_in_current_run` 从 output JSON 移除（与 `completed_years` 重复，仅同 run 内有用）
+
+### 迁移脚本增强
+
+- 为缺失 `year_fetch_diagnostics` 的旧 year 模式论文，从 `probed_year_counts` + `cached_year_counts` 重建
+- 自动推导 `fetch_strategy`：有 probe 数据 → year，否则 → direct
