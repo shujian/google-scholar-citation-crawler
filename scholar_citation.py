@@ -825,15 +825,17 @@ class PaperCitationFetcher:
                 current_total = pub.get('num_citations')
                 if current_total is not None:
                     synthetic['num_citations_on_scholar'] = current_total
-                # Consistency check: if the citations array is empty but the state
-                # claims cached citations, the output file is inconsistent (likely
-                # caused by an older _save_output bug). Reset counters so the
-                # next run fetches honestly instead of trusting a damaged record.
-                if len(synthetic['citations']) == 0 and synthetic.get('num_citations_cached', 0) > 0:
-                    synthetic['num_citations_cached'] = 0
-                    synthetic['num_citations_seen'] = 0
-                    synthetic['complete'] = False
-                    synthetic['complete_fetch_attempt'] = False
+                # Consistency check: if the citations array is empty but the
+                # diagnostics summary claims cached citations, the output file
+                # is inconsistent.  Reset completion flags so the next run
+                # fetches honestly.
+                if len(synthetic['citations']) == 0:
+                    for diag_key in ('year_fetch_diagnostics', 'direct_fetch_diagnostics'):
+                        diag = synthetic.get(diag_key) or {}
+                        summary = diag.get('summary') or {}
+                        if summary.get('cached_total', 0) > 0:
+                            synthetic['complete_fetch_attempt'] = False
+                            break
                 return st, synthetic
             # Fallback to cache file only when output state is absent.
             cached = self._load_citation_cache(pub['title'])
@@ -1247,25 +1249,23 @@ class PaperCitationFetcher:
             if cached:
                 for key in ('fetch_strategy', 'year_fetch_diagnostics',
                             'direct_fetch_diagnostics',
-                            'cached_year_counts', 'probed_year_counts',
-                            'dedup_count'):
+                            'cached_year_counts'):
                     if key in cached:
                         fetch_state[key] = cached[key]
-            # Update counts from current profile and actual citations array
+            # Update scholar total from current profile (the only top-level
+            # counter that cannot be derived from diagnostics).
             current_total = pub.get('num_citations') if pub else None
             if current_total is not None and fetch_state:
                 fetch_state['num_citations_on_scholar'] = current_total
-                fetch_state['num_citations_cached'] = len(citations)
-                dedup = fetch_state.get('dedup_count', 0) or 0
-                fetch_state['num_citations_seen'] = len(citations) + dedup
-                # Also sync the nested diagnostics summaries so they stay
-                # consistent with the top-level counts.
+                # Keep diagnostics summaries in sync with actual citations.
+                dedup = (cached or {}).get('dedup_count', 0) or 0
+                seen_total = len(citations) + dedup
                 for diag_key in ('year_fetch_diagnostics', 'direct_fetch_diagnostics'):
                     diag = fetch_state.get(diag_key)
                     if isinstance(diag, dict) and 'summary' in diag:
                         diag['summary']['scholar_total'] = current_total
                         diag['summary']['cached_total'] = len(citations)
-                        diag['summary']['seen_total'] = fetch_state['num_citations_seen']
+                        diag['summary']['seen_total'] = seen_total
                         diag['summary']['dedup_count'] = dedup
             return {
                 'pub': pub,

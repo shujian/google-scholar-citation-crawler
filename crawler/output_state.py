@@ -25,13 +25,7 @@ _FETCH_STATE_KEYS = frozenset([
     'citedby_url',
     'fetch_strategy',
     'num_citations_on_scholar',
-    'num_citations_cached',
-    'num_citations_seen',
-    'dedup_count',
-    'complete',
     'complete_fetch_attempt',
-    'completed_years',
-    'probed_year_counts',
     'cached_year_counts',
     'year_fetch_diagnostics',
     'direct_fetch_diagnostics',
@@ -96,28 +90,17 @@ def extract_fetch_state(cached):
         return {}
     state = {k: v for k, v in cached.items() if k in _FETCH_STATE_KEYS}
     citations = cached.get('citations', []) or []
-    if state.get('num_citations_cached') is None:
-        state['num_citations_cached'] = len(citations)
-    if state.get('num_citations_seen') is None:
-        dedup = state.get('dedup_count', 0) or 0
-        state['num_citations_seen'] = len(citations) + dedup
     if state.get('num_citations_on_scholar') is None:
-        if state.get('complete') or state.get('complete_fetch_attempt'):
-            state['num_citations_on_scholar'] = state['num_citations_seen']
+        # Derive from diagnostics summary if available
+        yfd = (cached.get('year_fetch_diagnostics') or {})
+        year_summary = yfd.get('summary') or {}
+        dfd = (cached.get('direct_fetch_diagnostics') or {})
+        direct_summary = dfd.get('summary') or {}
+        seen = year_summary.get('seen_total') or direct_summary.get('seen_total')
+        if seen is not None:
+            state['num_citations_on_scholar'] = seen
+        elif state.get('complete_fetch_attempt'):
+            state['num_citations_on_scholar'] = len(citations)
         else:
-            state['num_citations_on_scholar'] = max(
-                state.get('num_citations_cached', 0),
-                state.get('num_citations_seen', 0),
-            )
-    # Honesty check: if there are no citations but the state claims completion,
-    # the record is damaged (e.g. previous _save_output was interrupted).
-    # Reset completion flags so the next run re-fetches.
-    if (
-        len(citations) == 0
-        and state.get('num_citations_cached', 0) > 0
-    ):
-        state['complete'] = False
-        state['complete_fetch_attempt'] = False
-        state['num_citations_cached'] = 0
-        state['num_citations_seen'] = 0
+            state['num_citations_on_scholar'] = len(citations)
     return state

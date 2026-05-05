@@ -185,20 +185,6 @@ class OutputStateTests(FetcherTestCase):
         status = self.fetcher._citation_status(pub)
         self.assertEqual(status, "complete")
 
-    def test_extract_fetch_state_derives_missing_numeric_fields(self):
-        """Legacy caches missing num_citations_cached/seen/on_scholar get derived."""
-        cached = {
-            "title": "Legacy",
-            "complete": True,
-            "complete_fetch_attempt": True,
-            "citations": [{"title": "A"}, {"title": "B"}],
-            "dedup_count": 3,
-        }
-        state = extract_fetch_state(cached)
-        self.assertEqual(state["num_citations_cached"], 2)
-        self.assertEqual(state["num_citations_seen"], 5)
-        self.assertEqual(state["num_citations_on_scholar"], 5)
-
 if __name__ == '__main__':
     unittest.main()
 

@@ -110,19 +110,23 @@ class OutputAndReconciliationTests(FetcherTestCase):
         cache_content = {
             "title": "Paper With Cache",
             "num_citations_on_scholar": 150,
-            "num_citations_cached": 1,
-            "num_citations_seen": 1,
-            "dedup_count": 0,
-            "complete": True,
             "complete_fetch_attempt": True,
+            "fetch_strategy": "year",
             "year_fetch_diagnostics": {
                 "2024": {
-                    "mode": "year", "year": 2024,
-                    "scholar_total": 50, "cached_total": 1,
+                    "year": 2024,
+                    "histogram_count": 50, "cached_total": 1,
                     "seen_total": 50, "dedup_count": 0,
-                    "underfetched": False,
                     "termination_reason": "short_page_stop",
-                }
+                },
+                "summary": {
+                    "histogram_total": 50,
+                    "scholar_total": 150,
+                    "cached_total": 1,
+                    "cached_year_total": 1,
+                    "seen_total": 50,
+                    "dedup_count": 0,
+                },
             },
             "citations": result["citations"],
         }
@@ -156,10 +160,10 @@ class OutputAndReconciliationTests(FetcherTestCase):
         self.assertIn("_fetch_state", paper)
         fs = paper["_fetch_state"]
         self.assertEqual(fs["num_citations_on_scholar"], 150)
-        self.assertTrue(fs["complete"])
         self.assertTrue(fs["complete_fetch_attempt"])
         self.assertIn("year_fetch_diagnostics", fs)
-        self.assertEqual(fs["year_fetch_diagnostics"]["2024"]["scholar_total"], 50)
+        self.assertEqual(fs["year_fetch_diagnostics"]["2024"]["histogram_count"], 50)
+        self.assertIn("summary", fs["year_fetch_diagnostics"])
         # citations should NOT be duplicated inside _fetch_state
         self.assertNotIn("citations", fs)
 

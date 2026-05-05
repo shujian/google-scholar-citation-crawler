@@ -128,6 +128,13 @@ def migrate_one_file(json_path, cache_dir):
         state.pop('probe_complete', None)
         state.pop('cached_unyeared_count', None)
         state.pop('citation_count_summary', None)
+        # Remove fields now derived from diagnostics summaries
+        state.pop('num_citations_cached', None)
+        state.pop('num_citations_seen', None)
+        state.pop('dedup_count', None)
+        state.pop('complete', None)
+        state.pop('completed_years', None)
+        state.pop('probed_year_counts', None)
         # Rename scholar_total → histogram_count in year_fetch_diagnostics entries
         yfd = state.get('year_fetch_diagnostics')
         if isinstance(yfd, dict):
