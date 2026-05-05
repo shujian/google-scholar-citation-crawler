@@ -1063,6 +1063,16 @@ class DirectFetchTests(FetcherTestCase):
                 "underfetched": True,
                 "underfetch_gap": 95,
                 "termination_reason": "iterator_exhausted",
+                "summary": {
+                    "scholar_total": 98,
+                    "histogram_total": 0,
+                    "cached_total": 3,
+                    "cached_year_total": 3,
+                    "seen_total": 3,
+                    "cached_unyeared_count": 0,
+                    "dedup_count": 0,
+                    "scholar_unyeared_count": 98,
+                },
             },
         )
         self.assertIn("Direct fetch under-fetched", output)
@@ -1157,7 +1167,7 @@ class DirectFetchTests(FetcherTestCase):
             with open(cache_path, "r", encoding="utf-8") as f:
                 saved = json.load(f)
             self.assertEqual(saved["num_citations_on_scholar"], 2)
-            self.assertEqual(saved["citation_count_summary"]["scholar_total"], 2)
+            self.assertEqual(saved["direct_fetch_diagnostics"]["summary"]["scholar_total"], 2)
 
         citations = [
             {"title": "Old-2024-A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},

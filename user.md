@@ -2056,3 +2056,32 @@ Request URL: https://scholar.google.com/scholar?start=160&hl=en&as_sdt=2005&scio
 - 109 tests pass
 
 ---
+
+## Message [2026-05-05 A]
+
+> 帮我检查一下为什么一些最近的citation抓取没有保存cites_id。他们的结果是这样的：{"title": "Bewertung von Sprachmodellen...", "cites_id": null}
+> scholarly在conda的一个scholar环境中，请把这个记录下来，以防后续再忘记。
+
+根因分析：scholarly 的 `_scholar_pub()` 方法（用于 _SearchScholarIterator 解析 citedby 结果）从不设置 `cites_id` 字段，只设置 `citedby_url`（仅在引用有 "Cited by N" 链接时）。对于 0 被引论文，没有 citedby_url，导致 `cites_id: null`。该问题影响 73.7% 的引用（6018/8162）。
+
+修复：在 `extract_citation_info()` 新增三级回退：
+1. `pub['cites_id']` (直接字段)
+2. `pub['citedby_url']` (解析 `cites=` 参数)
+3. `pub['url_scholarbib']` (解析 `info:CID:scholar.google.com` 提取 `cid`)
+
+`url_scholarbib` 由 scholarly 通过 `data-cid` HTML 属性构建，每个引用结果都有，因此新抓取不会再出现 null。已有缓存数据不受影响（从未保存 url_scholarbib）。
+
+## Message [2026-05-05 B]
+
+> 请把输出文件中的citation_count_summary命名为summary，并变成year_fetch_diagnostics的一个下属字段。未来进行相关判断的时候，如果是year mode，使用year_fetch_diagnostics中的summary进行判断，如果是direct mode，采用direct_fetch_diagnostics中的信息进行判断。我已经发现direc mode的抓取采用citation_count_summary进行判断的情况，这是个bug要修正。
+> 做完之后帮我更新一下现在输出文件中的citation_count_summary，保持跟刚刚的更新一致。
+
+重构完成：
+- `citation_count_summary` → `summary`，嵌套在 `year_fetch_diagnostics` (year mode) 或 `direct_fetch_diagnostics` (direct mode) 下
+- `save_progress` 按 `fetch_policy.mode` 决定嵌套位置；direct mode 不再生成 year_fetch_diagnostics
+- `rehydrate_probe_metadata` 从 `year_fetch_diagnostics.summary` 读取 `histogram_total`
+- `_FETCH_STATE_KEYS` 移除 `citation_count_summary`
+- `fix_output_fetch_state.py` 已更新并运行，迁移了 193/232 篇论文的输出文件
+- 所有 117 个测试通过
+
+---

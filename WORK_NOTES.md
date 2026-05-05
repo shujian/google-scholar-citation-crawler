@@ -1,6 +1,16 @@
 # Work Notes: Google Scholar Citation Crawler
 
 
+## 2026-05-05: summary 嵌套 & cites_id fallback 修复
+
+- `citation_count_summary` 重命名为 `summary`，作为 `year_fetch_diagnostics`（year 模式）或 `direct_fetch_diagnostics`（direct 模式）的嵌套子字段
+- `save_progress` 现在按 `fetch_policy.mode` 决定将 summary 嵌入哪个 diagnostics 对象
+- `rehydrate_probe_metadata` 的 `histogram_total` 回退逻辑改为读取 `year_fetch_diagnostics.summary.histogram_total`
+- `_FETCH_STATE_KEYS` 移除 `citation_count_summary`
+- 直接模式不再构建独立的 `citation_count_summary`，日志信息改用局部计算
+- **cites_id fallback**: scholarly 的 `_scholar_pub()` 方法不设置 `cites_id`（仅设置 `citedby_url`），导致 73.7% 的引用缺 `cites_id`。新增三级回退：`cites_id` → `citedby_url` 解析 → `url_scholarbib` 解析（提取 `cid`）
+- `fix_output_fetch_state.py` 已更新，可将旧 JSON 文件中的 `citation_count_summary` 迁移到 `year_fetch_diagnostics.summary` 或 `direct_fetch_diagnostics.summary`
+
 ## 开发环境
 
 - **Conda 环境**: `scholar` (`/Users/huangshujian/miniforge3/envs/scholar`)

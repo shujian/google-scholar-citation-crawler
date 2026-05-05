@@ -11,6 +11,9 @@ import re
 _SCHOLARPUBRE = re.compile(r'cites=([\d,]*)')
 
 
+_SCHOLARBIB_CID_RE = re.compile(r'info:([^:]+):scholar\.google\.com')
+
+
 def _extract_cites_id_from_url(url):
     """Extract cites_id from a Google Scholar citedby_url, or None."""
     if not url:
@@ -20,6 +23,16 @@ def _extract_cites_id_from_url(url):
         return None
     parts = [p.strip() for p in match.group(1).split(',') if p.strip()]
     return parts if parts else None
+
+
+def _extract_cid_from_scholarbib(url):
+    """Extract Google Scholar cluster ID (cid) from url_scholarbib, or None."""
+    if not url:
+        return None
+    match = _SCHOLARBIB_CID_RE.search(str(url))
+    if not match:
+        return None
+    return match.group(1).strip()
 
 
 def normalize_cites_id(cites_id):
@@ -90,6 +103,8 @@ def extract_citation_info(pub, fallback_year=None):
     raw_cites_id = pub.get('cites_id')
     if raw_cites_id in (None, '', [], ()):
         raw_cites_id = _extract_cites_id_from_url(pub.get('citedby_url'))
+    if raw_cites_id in (None, '', [], ()):
+        raw_cites_id = _extract_cid_from_scholarbib(pub.get('url_scholarbib'))
     return {
         'title':    bib.get('title', 'N/A'),
         'authors':  ', '.join(authors) if isinstance(authors, list) else str(authors),

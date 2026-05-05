@@ -33,7 +33,7 @@ class CitationStatusTests(FetcherTestCase):
                 self.assertEqual(year_fetch_diagnostics[2024]["seen_total"], 1)
                 self.assertEqual(year_fetch_diagnostics[2024]["termination_reason"], "probe_match_skip")
                 save_progress(complete=False)
-                return list(old_citations)
+                return []
 
             with patch.object(self.fetcher, "_fetch_by_year", side_effect=fake_fetch_by_year):
                 citations = self.fetcher._fetch_citations_with_progress(
@@ -57,24 +57,21 @@ class CitationStatusTests(FetcherTestCase):
                             "probe_match_skip",
                         ),
                     },
+                    fetch_policy={"mode": "year"},
                 )
 
             self.assertEqual(citations, [])
             with open(cache_path, "r", encoding="utf-8") as f:
                 saved = json.load(f)
             self.assertEqual(saved["probed_year_counts"], {"2024": 1, "2025": 1})
-            self.assertEqual(
-                saved["citation_count_summary"]["scholar_total"],
-                saved["citation_count_summary"]["histogram_total"],
-            )
+            summary = saved["year_fetch_diagnostics"]["summary"]
+            self.assertEqual(summary["scholar_total"], summary["histogram_total"])
             self.assertEqual(saved["completed_years"], [2024])
-            self.assertEqual(saved["probed_year_total"], 2)
-            self.assertEqual(saved["cached_unyeared_count"], 0)
-            self.assertEqual(saved["citation_count_summary"]["scholar_total"], 2)
-            self.assertEqual(saved["citation_count_summary"]["histogram_total"], 2)
-            self.assertEqual(saved["citation_count_summary"]["cached_total"], 2)
-            self.assertEqual(saved["citation_count_summary"]["cached_year_total"], 2)
-            self.assertEqual(saved["citation_count_summary"]["dedup_count"], 0)
+            self.assertEqual(summary["histogram_total"], 2)
+            self.assertEqual(summary["scholar_total"], 2)
+            self.assertEqual(summary["cached_total"], 2)
+            self.assertEqual(summary["cached_year_total"], 2)
+            self.assertEqual(summary["dedup_count"], 0)
 
     def test_citation_status_stays_complete_when_seen_matches_current_total(self):
         pub = {"title": "Paper", "num_citations": 5, "year": "2024"}
@@ -749,6 +746,61 @@ class CitationStatusTests(FetcherTestCase):
             status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "complete")
+
+
+from crawler.citation_identity import extract_citation_info, _extract_cid_from_scholarbib
+
+
+class CitationIdentityTests(unittest.TestCase):
+    """Tests for citation_identity.py functions."""
+
+    def test_extract_cid_from_scholarbib_returns_cluster_id(self):
+        url = '/scholar?q=info:K8ZpoI6hZNoJ:scholar.google.com/&output=cite&scirp=0&hl=en'
+        self.assertEqual(_extract_cid_from_scholarbib(url), 'K8ZpoI6hZNoJ')
+
+    def test_extract_cid_from_scholarbib_returns_none_for_empty(self):
+        self.assertIsNone(_extract_cid_from_scholarbib(None))
+        self.assertIsNone(_extract_cid_from_scholarbib(''))
+
+    def test_extract_cid_from_scholarbib_returns_none_for_non_scholarbib_url(self):
+        self.assertIsNone(_extract_cid_from_scholarbib('https://example.com/paper'))
+
+    def test_extract_citation_info_falls_back_to_url_scholarbib_when_no_citedby_url(self):
+        pub = {
+            'bib': {'title': 'Test', 'author': ['A'], 'venue': 'V', 'pub_year': '2025'},
+            'url_scholarbib': '/scholar?q=info:CLUSTER123:scholar.google.com/&output=cite&scirp=0&hl=en',
+            'pub_url': 'http://example.com',
+        }
+        info = extract_citation_info(pub)
+        self.assertEqual(info['cites_id'], 'CLUSTER123')
+
+    def test_extract_citation_info_prefers_citedby_url_over_url_scholarbib(self):
+        pub = {
+            'bib': {'title': 'Test', 'author': ['A'], 'venue': 'V', 'pub_year': '2025'},
+            'citedby_url': '/scholar?cites=99999&as_sdt=5,33',
+            'url_scholarbib': '/scholar?q=info:SHOULD_NOT_USE:scholar.google.com/&output=cite&scirp=0&hl=en',
+            'pub_url': 'http://example.com',
+        }
+        info = extract_citation_info(pub)
+        self.assertEqual(info['cites_id'], '99999')
+
+    def test_extract_citation_info_prefers_direct_cites_id(self):
+        pub = {
+            'bib': {'title': 'Test', 'author': ['A'], 'venue': 'V', 'pub_year': '2025'},
+            'cites_id': 'direct_id',
+            'citedby_url': '/scholar?cites=should_not&as_sdt=5,33',
+            'url_scholarbib': '/scholar?q=info:NO:scholar.google.com/&output=cite&scirp=0&hl=en',
+        }
+        info = extract_citation_info(pub)
+        self.assertEqual(info['cites_id'], 'direct_id')
+
+    def test_extract_citation_info_returns_none_when_all_sources_missing(self):
+        pub = {
+            'bib': {'title': 'Test', 'author': ['A'], 'venue': 'V', 'pub_year': '2025'},
+            'pub_url': 'http://example.com',
+        }
+        info = extract_citation_info(pub)
+        self.assertIsNone(info['cites_id'])
 
 
 if __name__ == '__main__':

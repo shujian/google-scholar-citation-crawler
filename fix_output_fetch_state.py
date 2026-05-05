@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Sync output JSON _fetch_state with per-paper cache files and rebuild
-citation_count_summary from per-year diagnostics.
+summary (formerly citation_count_summary) from per-year diagnostics,
+nesting it inside year_fetch_diagnostics or direct_fetch_diagnostics.
 
 Usage:
   python fix_output_fetch_state.py [output_dir]
@@ -91,7 +92,10 @@ def migrate_one_file(json_path, cache_dir):
             state['year_fetch_diagnostics'] = yfd
             merged = True
 
-        # 3. Rebuild citation_count_summary from current state
+        # 3. Rebuild summary (formerly citation_count_summary) and nest it
+        # inside year_fetch_diagnostics (year mode) or direct_fetch_diagnostics
+        # (direct mode) so callers always find it alongside the diagnostics it
+        # belongs to.
         year_diags = state.get("year_fetch_diagnostics")
         dedup = state.get("dedup_count", 0) or 0
         scholar = state.get("num_citations_on_scholar")
@@ -123,6 +127,7 @@ def migrate_one_file(json_path, cache_dir):
         state.pop('probed_year_total', None)
         state.pop('probe_complete', None)
         state.pop('cached_unyeared_count', None)
+        state.pop('citation_count_summary', None)
         # Remove mode from direct_fetch_diagnostics (redundant with fetch_strategy)
         dfd = state.get('direct_fetch_diagnostics')
         if isinstance(dfd, dict):
@@ -137,10 +142,26 @@ def migrate_one_file(json_path, cache_dir):
                     diag.pop('underfetch_gap', None)
         state.pop('completed_years_in_current_run', None)
 
-        old_summary = state.get("citation_count_summary", {})
-        if old_summary != new_summary:
-            state["citation_count_summary"] = new_summary
-            merged = True
+        # Nest summary in the appropriate diagnostics object
+        strategy = state.get('fetch_strategy')
+        if strategy == 'year':
+            yfd = state.setdefault('year_fetch_diagnostics', {})
+            if isinstance(yfd, dict) and yfd.get('summary') != new_summary:
+                yfd['summary'] = new_summary
+                merged = True
+                # Also remove stale summary from direct_fetch_diagnostics
+                dfd = state.get('direct_fetch_diagnostics')
+                if isinstance(dfd, dict):
+                    dfd.pop('summary', None)
+        elif strategy == 'direct':
+            dfd = state.setdefault('direct_fetch_diagnostics', {})
+            if isinstance(dfd, dict) and dfd.get('summary') != new_summary:
+                dfd['summary'] = new_summary
+                merged = True
+                # Also remove stale summary from year_fetch_diagnostics
+                yfd = state.get('year_fetch_diagnostics')
+                if isinstance(yfd, dict):
+                    yfd.pop('summary', None)
 
         # 4. Set fetch_complete at paper level from _fetch_state
         if state.get('complete_fetch_attempt') or state.get('complete'):

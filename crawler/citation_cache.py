@@ -180,9 +180,10 @@ def rehydrate_probe_metadata(cached, current_scholar_total):
         except (TypeError, ValueError):
             histogram_total = None
         if histogram_total is None:
-            ccs = (cached or {}).get('citation_count_summary') or {}
+            year_diag = normalize_year_fetch_diagnostics((cached or {}).get('year_fetch_diagnostics'))
+            summary = (year_diag or {}).get('summary') or {}
             try:
-                histogram_total = int(ccs.get('histogram_total'))
+                histogram_total = int(summary.get('histogram_total'))
             except (TypeError, ValueError):
                 histogram_total = None
         if histogram_total is None:
