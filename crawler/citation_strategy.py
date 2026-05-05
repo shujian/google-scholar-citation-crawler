@@ -143,7 +143,7 @@ def build_citation_count_summary(citations, scholar_total=None, probed_year_coun
     if year_diags:
         # Derive all totals from per-year diagnostics so they are always
         # consistent with the per-year data shown in Year fetch comparisons.
-        diag_scholar = sum(d.get('scholar_total', 0) for d in year_diags.values())
+        diag_scholar = sum(d.get('histogram_count', d.get('scholar_total', 0)) for d in year_diags.values())
         diag_cached = sum(d.get('cached_total', 0) for d in year_diags.values())
         diag_seen = sum(d.get('seen_total', 0) for d in year_diags.values())
         diag_dedup = sum(d.get('dedup_count', 0) for d in year_diags.values())
@@ -247,7 +247,7 @@ def format_year_fetch_diagnostics_summary(year_fetch_diagnostics):
     lines = []
     for year, diagnostic in items:
         lines.append(
-            f"  {year}: scholar={diagnostic.get('scholar_total')},"
+            f"  {year}: histogram={diagnostic.get('histogram_count', diagnostic.get('scholar_total'))},"
             f"seen={diagnostic.get('seen_total')},"
             f"cached={diagnostic.get('cached_total')},"
             f"dedup={diagnostic.get('dedup_count')},"

@@ -83,7 +83,7 @@ def migrate_one_file(json_path, cache_dir):
                 c = cached_yc.get(year, 0)
                 yfd[str(year)] = {
                     'year': year,
-                    'scholar_total': s,
+                    'histogram_count': s,
                     'cached_total': c,
                     'seen_total': c,
                     'dedup_count': 0,
@@ -128,8 +128,36 @@ def migrate_one_file(json_path, cache_dir):
         state.pop('probe_complete', None)
         state.pop('cached_unyeared_count', None)
         state.pop('citation_count_summary', None)
-        # Remove derived fields from direct_fetch_diagnostics
+        # Rename scholar_total → histogram_count in year_fetch_diagnostics entries
+        yfd = state.get('year_fetch_diagnostics')
+        if isinstance(yfd, dict):
+            for key, diag in list(yfd.items()):
+                if isinstance(diag, dict) and 'scholar_total' in diag and 'histogram_count' not in diag:
+                    diag['histogram_count'] = diag.pop('scholar_total')
+                    merged = True
+                if isinstance(diag, dict):
+                    diag.pop('mode', None)
+                    diag.pop('underfetched', None)
+                    diag.pop('underfetch_gap', None)
+        # Restructure direct_fetch_diagnostics: move flat fields into summary,
+        # renaming reported_total → scholar_total, yielded_total → cached_total
         dfd = state.get('direct_fetch_diagnostics')
+        if isinstance(dfd, dict):
+            flat_keys = ('reported_total', 'yielded_total', 'seen_total', 'dedup_count', 'termination_reason')
+            if any(k in dfd for k in flat_keys):
+                existing_summary = dfd.get('summary', {})
+                if 'reported_total' in dfd:
+                    existing_summary.setdefault('scholar_total', dfd.pop('reported_total'))
+                if 'yielded_total' in dfd:
+                    existing_summary.setdefault('cached_total', dfd.pop('yielded_total'))
+                if 'seen_total' in dfd:
+                    existing_summary.setdefault('seen_total', dfd.pop('seen_total'))
+                if 'dedup_count' in dfd:
+                    existing_summary.setdefault('dedup_count', dfd.pop('dedup_count'))
+                if 'termination_reason' in dfd:
+                    existing_summary.setdefault('termination_reason', dfd.pop('termination_reason'))
+                dfd['summary'] = existing_summary
+                merged = True
         if isinstance(dfd, dict):
             dfd.pop('mode', None)
             dfd.pop('underfetched', None)
@@ -137,36 +165,29 @@ def migrate_one_file(json_path, cache_dir):
         # Remove direct_resume_state entirely (cross-run resume is not supported;
         # it belongs in per-paper cache files for within-run resume only)
         state.pop('direct_resume_state', None)
-        # Remove mode / underfetched / underfetch_gap from year_fetch_diagnostics entries
-        yfd = state.get('year_fetch_diagnostics')
-        if isinstance(yfd, dict):
-            for diag in yfd.values():
-                if isinstance(diag, dict):
-                    diag.pop('mode', None)
-                    diag.pop('underfetched', None)
-                    diag.pop('underfetch_gap', None)
         state.pop('completed_years_in_current_run', None)
 
-        # Nest summary in the appropriate diagnostics object
-        strategy = state.get('fetch_strategy')
-        if strategy == 'year':
-            yfd = state.setdefault('year_fetch_diagnostics', {})
-            if isinstance(yfd, dict) and yfd.get('summary') != new_summary:
-                yfd['summary'] = new_summary
+        # Nest summary in the appropriate diagnostics object.
+        # For year mode: summary goes under year_fetch_diagnostics.
+        # For direct mode: summary also goes under year_fetch_diagnostics
+        # (generated from cached data), and direct_fetch_diagnostics carries
+        # its own summary with direct-specific fields.
+        strategy = state.get('fetch_strategy', 'direct')
+        yfd = state.setdefault('year_fetch_diagnostics', {})
+        if isinstance(yfd, dict) and yfd.get('summary') != new_summary:
+            yfd['summary'] = new_summary
+            merged = True
+        if strategy == 'direct':
+            dfd = state.get('direct_fetch_diagnostics')
+            if isinstance(dfd, dict) and dfd.get('summary'):
+                # Update the direct summary with latest scholar_total etc.
+                dfd['summary'].update({
+                    'scholar_total': new_summary.get('scholar_total'),
+                    'cached_total': new_summary.get('cached_total'),
+                    'seen_total': new_summary.get('seen_total'),
+                    'dedup_count': new_summary.get('dedup_count'),
+                })
                 merged = True
-                # Also remove stale summary from direct_fetch_diagnostics
-                dfd = state.get('direct_fetch_diagnostics')
-                if isinstance(dfd, dict):
-                    dfd.pop('summary', None)
-        elif strategy == 'direct':
-            dfd = state.setdefault('direct_fetch_diagnostics', {})
-            if isinstance(dfd, dict) and dfd.get('summary') != new_summary:
-                dfd['summary'] = new_summary
-                merged = True
-                # Also remove stale summary from year_fetch_diagnostics
-                yfd = state.get('year_fetch_diagnostics')
-                if isinstance(yfd, dict):
-                    yfd.pop('summary', None)
 
         # 4. Set fetch_complete at paper level from _fetch_state
         if state.get('complete_fetch_attempt') or state.get('complete'):

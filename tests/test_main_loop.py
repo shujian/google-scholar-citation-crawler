@@ -453,14 +453,13 @@ class MainLoopTests(FetcherTestCase):
         ]
         latest_cache = {
             "direct_fetch_diagnostics": {
-                "mode": "direct",
-                "reported_total": 98,
-                "yielded_total": 77,
-                "seen_total": 77,
-                "dedup_count": 0,
-                "underfetched": True,
-                "underfetch_gap": 21,
-                "termination_reason": "target_reached",
+                "summary": {
+                    "scholar_total": 98,
+                    "cached_total": 77,
+                    "seen_total": 77,
+                    "dedup_count": 0,
+                    "termination_reason": "target_reached",
+                },
             }
         }
         results = []
@@ -549,7 +548,7 @@ class MainLoopTests(FetcherTestCase):
 
         output = fake_stdout.getvalue()
         self.assertIn("Done: 2 cached, 3 seen, 1 dupes (Scholar: 12)", output)
-        self.assertIn("Direct fetch summary (reported_total=12, yielded_total=11, seen_total=12, dedup_num=1, gap=0, termination=target_reached)", output)
+        self.assertIn("Direct fetch summary (scholar_total=12, cached_total=11, seen_total=12, dedup_num=1, gap=0, termination=target_reached)", output)
         self.assertNotIn("Direct fetch under-fetched; recording current results", output)
         self.assertEqual(results[0]["citations"], final_citations)
 

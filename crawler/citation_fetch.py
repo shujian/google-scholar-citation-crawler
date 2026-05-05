@@ -163,64 +163,70 @@ def _iter_direct_citedby(citedby_url, direct_resume_state=None, num_citations=0,
         in_page_skip=in_page_skip,
     )
 
-def _build_direct_fetch_diagnostics(reported_total, yielded_total, dedup_count, termination_reason):
+def _build_direct_fetch_diagnostics(scholar_total, cached_total, dedup_count, termination_reason):
     try:
-        reported_total = int(reported_total or 0)
+        scholar_total = int(scholar_total or 0)
     except (TypeError, ValueError):
-        reported_total = 0
+        scholar_total = 0
     try:
-        yielded_total = int(yielded_total or 0)
+        cached_total = int(cached_total or 0)
     except (TypeError, ValueError):
-        yielded_total = 0
+        cached_total = 0
     try:
         dedup_count = int(dedup_count or 0)
     except (TypeError, ValueError):
         dedup_count = 0
-    seen_total = yielded_total + dedup_count
+    seen_total = cached_total + dedup_count
     return {
-        'reported_total': reported_total,
-        'yielded_total': yielded_total,
-        'seen_total': seen_total,
-        'dedup_count': dedup_count,
-        'termination_reason': termination_reason or 'iterator_exhausted',
+        'summary': {
+            'scholar_total': scholar_total,
+            'cached_total': cached_total,
+            'seen_total': seen_total,
+            'dedup_count': dedup_count,
+            'termination_reason': termination_reason or 'iterator_exhausted',
+        },
     }
 
-def _direct_fetch_diagnostics(reported_total, yielded_total, dedup_count, termination_reason):
+def _direct_fetch_diagnostics(scholar_total, cached_total, dedup_count, termination_reason):
     return _build_direct_fetch_diagnostics(
-        reported_total,
-        yielded_total,
+        scholar_total,
+        cached_total,
         dedup_count,
         termination_reason,
     )
 
 def _direct_fetch_gap(diagnostics):
-    """Compute the under-fetch gap from already-available diagnostics fields."""
-    return max(0, (diagnostics.get('reported_total') or 0) - (diagnostics.get('seen_total') or 0))
+    """Compute the under-fetch gap from the summary sub-dict."""
+    s = diagnostics.get('summary', diagnostics)
+    return max(0, (s.get('scholar_total') or 0) - (s.get('seen_total') or 0))
 
 def _direct_fetch_is_underfetched(diagnostics):
     """Return True when the direct fetch did not retrieve all expected citations."""
-    return (diagnostics.get('seen_total') or 0) < (diagnostics.get('reported_total') or 0)
+    s = diagnostics.get('summary', diagnostics)
+    return (s.get('seen_total') or 0) < (s.get('scholar_total') or 0)
 
 def _direct_fetch_summary_message(diagnostics):
+    s = diagnostics.get('summary', diagnostics)
     return (
         "Direct fetch summary "
-        f"(reported_total={diagnostics.get('reported_total')}, "
-        f"yielded_total={diagnostics.get('yielded_total')}, "
-        f"seen_total={diagnostics.get('seen_total')}, "
-        f"dedup_num={diagnostics.get('dedup_count')}, "
+        f"(scholar_total={s.get('scholar_total')}, "
+        f"cached_total={s.get('cached_total')}, "
+        f"seen_total={s.get('seen_total')}, "
+        f"dedup_num={s.get('dedup_count')}, "
         f"gap={_direct_fetch_gap(diagnostics)}, "
-        f"termination={diagnostics.get('termination_reason')})"
+        f"termination={s.get('termination_reason')})"
     )
 
 def _direct_fetch_log_message(diagnostics):
+    s = diagnostics.get('summary', diagnostics)
     return (
         "Direct fetch under-fetched "
-        f"(reported_total={diagnostics.get('reported_total')}, "
-        f"yielded_total={diagnostics.get('yielded_total')}, "
-        f"seen_total={diagnostics.get('seen_total')}, "
-        f"dedup_num={diagnostics.get('dedup_count')}, "
+        f"(scholar_total={s.get('scholar_total')}, "
+        f"cached_total={s.get('cached_total')}, "
+        f"seen_total={s.get('seen_total')}, "
+        f"dedup_num={s.get('dedup_count')}, "
         f"gap={_direct_fetch_gap(diagnostics)}, "
-        f"termination={diagnostics.get('termination_reason')})"
+        f"termination={s.get('termination_reason')})"
     )
 
 def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
@@ -329,12 +335,12 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
         for year, cached_total in year_counts.items():
             existing = diagnostics.get(year)
             if existing is not None:
-                scholar_total = existing.get('scholar_total')
-                if scholar_total is None:
-                    scholar_total = (ctx.probed_year_counts or {}).get(year, cached_total)
+                histogram_count = existing.get('histogram_count', existing.get('scholar_total'))
+                if histogram_count is None:
+                    histogram_count = (ctx.probed_year_counts or {}).get(year, cached_total)
                 diagnostics[year] = fetcher._build_year_fetch_diagnostics(
                     year,
-                    scholar_total,
+                    histogram_count,
                     cached_total,
                     existing.get('dedup_count', 0),
                     existing.get('termination_reason'),
@@ -364,10 +370,9 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
             citations_to_save = list(old_citations)
         ctx.cached_year_counts = fetcher._year_count_map(citations_to_save)
         is_year_mode = fetch_policy.get('mode') == 'year' if fetch_policy else False
-        year_fetch_diagnostics_to_save = (
-            build_materialized_year_fetch_diagnostics(citations_to_save)
-            if is_year_mode else {}
-        )
+        # Always build year diagnostics from cached citations so every paper
+        # has per-year entries and a summary, even direct-mode papers.
+        year_fetch_diagnostics_to_save = build_materialized_year_fetch_diagnostics(citations_to_save)
         ctx.year_fetch_diagnostics = year_fetch_diagnostics_to_save
         # During year-based fetch, use inner-ctx dedup count / probe data synced
         # by _fetch_by_year wrapper.  The outer ctx.probed_year_counts is always
@@ -399,13 +404,13 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
             'dedup_count': count_summary['dedup_count'],
             'scholar_unyeared_count': count_summary['scholar_unyeared_count'],
         }
-        if is_year_mode:
-            diag_with_summary = fetcher._dump_year_fetch_diagnostics(year_fetch_diagnostics_to_save)
-            diag_with_summary['summary'] = summary
-        else:
-            diag_with_summary = {}
+        diag_with_summary = fetcher._dump_year_fetch_diagnostics(year_fetch_diagnostics_to_save)
+        diag_with_summary['summary'] = summary
         if diagnostics_to_save:
-            diagnostics_to_save['summary'] = summary
+            # Merge save_progress summary into the diagnostics summary so
+            # termination_reason and run-specific totals are preserved.
+            existing = diagnostics_to_save.setdefault('summary', {})
+            existing.update(summary)
         cache_data = {
             'title': title,
             'pub_url': pub_url,
@@ -423,7 +428,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
             'cached_year_counts': fetcher._dump_year_count_map(ctx.cached_year_counts),
             'fetch_strategy': (
                 'year' if is_year_mode else
-                'direct' if diagnostics_to_save and diagnostics_to_save.get('reported_total') is not None else
+                'direct' if diagnostics_to_save and (diagnostics_to_save.get('summary') or {}).get('scholar_total') is not None else
                 None
             ),
             'year_fetch_diagnostics': diag_with_summary,
@@ -560,8 +565,8 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
         raise
 
     direct_fetch_diagnostics = _build_direct_fetch_diagnostics(
-        reported_total=current_scholar_total(),
-        yielded_total=len(fresh_citations),
+        scholar_total=current_scholar_total(),
+        cached_total=len(fresh_citations),
         dedup_count=ctx.dedup_count,
         termination_reason=direct_fetch_termination_reason,
     )
@@ -574,7 +579,8 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
     print(f"    Probe totals: scholar_total={current_scholar_total()}, year_sum=0, missing_from_histogram=?", flush=True)
     print(f"    Cache summary: {fetcher._format_year_count_summary(cached_year_map)}", flush=True)
     print(f"    Cache totals: cached_total={direct_materialized_total}, cached_year_sum={cached_year_sum}, cached_unyeared={direct_materialized_total - cached_year_sum}, dedup_num={ctx.dedup_count}", flush=True)
-    print(f"    Direct fetch totals: reported_total={direct_fetch_diagnostics['reported_total']}, yielded_total={direct_fetch_diagnostics['yielded_total']}, seen_total={direct_fetch_diagnostics['seen_total']}, materialized_total={direct_materialized_total}, materialized_seen_total={direct_materialized_seen_total}", flush=True)
+    s = direct_fetch_diagnostics.get('summary', direct_fetch_diagnostics)
+    print(f"    Direct fetch totals: scholar_total={s['scholar_total']}, cached_total={s['cached_total']}, seen_total={s['seen_total']}, materialized_total={direct_materialized_total}, materialized_seen_total={direct_materialized_seen_total}", flush=True)
     if _direct_fetch_is_underfetched(direct_fetch_diagnostics):
         print(f"    {_direct_fetch_log_message(direct_fetch_diagnostics)}", flush=True)
     save_progress(complete=True)
@@ -743,8 +749,8 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
         for year, diag in list(year_fetch_diagnostics.items()):
             current_probe = probed_year_counts.get(year)
             current_cached = cached_year_counts.get(year)
-            if current_probe is not None and diag.get('scholar_total') != current_probe:
-                diag['scholar_total'] = current_probe
+            if current_probe is not None and diag.get('histogram_count', diag.get('scholar_total')) != current_probe:
+                diag['histogram_count'] = current_probe
             if current_cached is not None and diag.get('cached_total') != current_cached:
                 dedup = diag.get('dedup_count', 0)
                 diag['cached_total'] = current_cached
@@ -842,7 +848,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                 if existing_diag:
                     year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
                         year,
-                        existing_diag.get('scholar_total', probed_year_counts.get(year, 0)),
+                        existing_diag.get('histogram_count', existing_diag.get('scholar_total', probed_year_counts.get(year, 0))),
                         existing_diag.get('cached_total', cached_year_counts.get(year, 0)),
                         existing_diag.get('dedup_count', 0),
                         'refresh_subset_skip',
@@ -856,7 +862,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                 if existing_diag:
                     year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
                         year,
-                        existing_diag.get('scholar_total', probed_year_counts.get(year, 0)),
+                        existing_diag.get('histogram_count', existing_diag.get('scholar_total', probed_year_counts.get(year, 0))),
                         existing_diag.get('cached_total', cached_year_counts.get(year, 0)),
                         existing_diag.get('dedup_count', 0),
                         'completed_earlier_in_run',
@@ -1051,9 +1057,9 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
             else:
                 print(f"      Year {year} done: no new citations", flush=True)
             diag = year_fetch_diagnostics[year]
-            underfetched = diag['seen_total'] < diag['scholar_total']
+            underfetched = diag['seen_total'] < diag.get('histogram_count', diag.get('scholar_total', 0))
             print(
-                f"      Year {year} compare: scholar={diag['scholar_total']}, "
+                f"      Year {year} compare: histogram={diag.get('histogram_count', diag.get('scholar_total'))}, "
                 f"seen={diag['seen_total']}, cached={diag['cached_total']}, "
                 f"dedup={diag['dedup_count']}, underfetched={underfetched}, "
                 f"termination={diag['termination_reason']}",

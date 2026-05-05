@@ -1056,20 +1056,16 @@ class DirectFetchTests(FetcherTestCase):
         self.assertEqual(
             saved["direct_fetch_diagnostics"],
             {
-                "reported_total": 98,
-                "yielded_total": 3,
-                "seen_total": 3,
-                "dedup_count": 0,
-                "termination_reason": "iterator_exhausted",
                 "summary": {
                     "scholar_total": 98,
-                    "histogram_total": 0,
+                    "histogram_total": 3,
                     "cached_total": 3,
                     "cached_year_total": 3,
                     "seen_total": 3,
                     "cached_unyeared_count": 0,
                     "dedup_count": 0,
-                    "scholar_unyeared_count": 98,
+                    "scholar_unyeared_count": 95,
+                    "termination_reason": "iterator_exhausted",
                 },
             },
         )
@@ -1107,7 +1103,7 @@ class DirectFetchTests(FetcherTestCase):
 
         output = fake_stdout.getvalue()
         self.assertIn("Cache totals: cached_total=7", output)
-        self.assertIn("Direct fetch totals: reported_total=48, yielded_total=3, seen_total=3, materialized_total=7, materialized_seen_total=7", output)
+        self.assertIn("Direct fetch totals: scholar_total=48, cached_total=3, seen_total=3, materialized_total=7, materialized_seen_total=7", output)
 
     def test_direct_fetch_recheck_does_not_early_stop(self):
         fetched_items = [

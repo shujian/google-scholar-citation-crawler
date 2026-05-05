@@ -49,11 +49,11 @@ def dump_year_count_map(year_counts):
 # Year fetch diagnostics helpers
 # ---------------------------------------------------------------------------
 
-def build_year_fetch_diagnostics(year, scholar_total, cached_total, dedup_count, termination_reason):
+def build_year_fetch_diagnostics(year, histogram_count, cached_total, dedup_count, termination_reason):
     """Build a single-year diagnostics dict from raw fetch results."""
     try:
         year = int(year)
-        scholar_total = int(scholar_total)
+        histogram_count = int(histogram_count)
     except (TypeError, ValueError):
         return None
     try:
@@ -69,7 +69,7 @@ def build_year_fetch_diagnostics(year, scholar_total, cached_total, dedup_count,
     seen_total = cached_total + dedup_count
     return {
         'year': year,
-        'scholar_total': scholar_total,
+        'histogram_count': histogram_count,
         'cached_total': cached_total,
         'seen_total': seen_total,
         'dedup_count': dedup_count,
@@ -85,7 +85,7 @@ def normalize_year_fetch_diagnostics(year_fetch_diagnostics):
             continue
         diagnostic = build_year_fetch_diagnostics(
             raw_diag.get('year', raw_year),
-            raw_diag.get('scholar_total'),
+            raw_diag.get('histogram_count', raw_diag.get('scholar_total')),
             raw_diag.get('cached_total'),
             raw_diag.get('dedup_count', 0),
             raw_diag.get('termination_reason'),
@@ -110,16 +110,16 @@ def dump_year_fetch_diagnostics(year_fetch_diagnostics):
     return {str(year): diagnostic for year, diagnostic in sorted(normalized.items())}
 
 
-def year_fetch_diagnostic_matches_total(diagnostic, scholar_total, cached_total=None):
+def year_fetch_diagnostic_matches_total(diagnostic, histogram_count, cached_total=None):
     """Return True iff a single-year diagnostic proves the year is fully fetched."""
     if not isinstance(diagnostic, dict):
         return False
     try:
-        scholar_total = int(scholar_total)
+        histogram_count = int(histogram_count)
     except (TypeError, ValueError):
         return False
     try:
-        diagnostic_total = int(diagnostic.get('scholar_total'))
+        diagnostic_total = int(diagnostic.get('histogram_count', diagnostic.get('scholar_total')))
         diagnostic_cached_total = int(diagnostic.get('cached_total', 0) or 0)
         seen_total = int(diagnostic.get('seen_total', 0) or 0)
     except (TypeError, ValueError):
@@ -132,9 +132,9 @@ def year_fetch_diagnostic_matches_total(diagnostic, scholar_total, cached_total=
         if diagnostic_cached_total != cached_total:
             return False
     return (
-        diagnostic_total == scholar_total
-        and diagnostic_cached_total <= scholar_total
-        and seen_total >= scholar_total
+        diagnostic_total == histogram_count
+        and diagnostic_cached_total <= histogram_count
+        and seen_total >= histogram_count
     )
 
 

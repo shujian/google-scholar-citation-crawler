@@ -202,8 +202,8 @@ class PaperCitationFetcher:
         return _cc_dump_year_count_map(year_counts)
 
     @staticmethod
-    def _build_year_fetch_diagnostics(year, scholar_total, cached_total, dedup_count, termination_reason):
-        return _cc_build_year_fetch_diagnostics(year, scholar_total, cached_total, dedup_count, termination_reason)
+    def _build_year_fetch_diagnostics(year, histogram_count, cached_total, dedup_count, termination_reason):
+        return _cc_build_year_fetch_diagnostics(year, histogram_count, cached_total, dedup_count, termination_reason)
 
     @staticmethod
     def _normalize_year_fetch_diagnostics(year_fetch_diagnostics):
@@ -214,8 +214,8 @@ class PaperCitationFetcher:
         return _cc_dump_year_fetch_diagnostics(year_fetch_diagnostics)
 
     @staticmethod
-    def _year_fetch_diagnostic_matches_total(diagnostic, scholar_total, cached_total=None):
-        return _cc_year_fetch_diagnostic_matches_total(diagnostic, scholar_total, cached_total)
+    def _year_fetch_diagnostic_matches_total(diagnostic, histogram_count, cached_total=None):
+        return _cc_year_fetch_diagnostic_matches_total(diagnostic, histogram_count, cached_total)
 
     @staticmethod
     def _probed_year_counts_satisfied(cached_year_counts, probed_year_counts, year_fetch_diagnostics=None):
@@ -249,11 +249,11 @@ class PaperCitationFetcher:
         return _cf._iter_direct_citedby(citedby_url, direct_resume_state, num_citations,
                                         fetcher=self)
     @staticmethod
-    def _build_direct_fetch_diagnostics(reported_total, yielded_total, dedup_count, termination_reason):
-        return _cf._build_direct_fetch_diagnostics(reported_total, yielded_total, dedup_count, termination_reason)
+    def _build_direct_fetch_diagnostics(scholar_total, cached_total, dedup_count, termination_reason):
+        return _cf._build_direct_fetch_diagnostics(scholar_total, cached_total, dedup_count, termination_reason)
     @staticmethod
-    def _direct_fetch_diagnostics(reported_total, yielded_total, dedup_count, termination_reason):
-        return _cf._direct_fetch_diagnostics(reported_total, yielded_total, dedup_count, termination_reason)
+    def _direct_fetch_diagnostics(scholar_total, cached_total, dedup_count, termination_reason):
+        return _cf._direct_fetch_diagnostics(scholar_total, cached_total, dedup_count, termination_reason)
     @staticmethod
     def _direct_fetch_summary_message(diagnostics):
         return _cf._direct_fetch_summary_message(diagnostics)
@@ -1076,7 +1076,7 @@ class PaperCitationFetcher:
                         seen_total = len(citations) + run_dedup
                     dedup_str = f", {run_dedup} dupes" if run_dedup else ""
                     histogram_total = sum(
-                        d.get('scholar_total', 0)
+                        d.get('histogram_count', d.get('scholar_total', 0))
                         for d in (year_fetch_diagnostics or {}).values()
                     ) if year_fetch_diagnostics else 0
                     if histogram_total > 0:
@@ -1095,10 +1095,11 @@ class PaperCitationFetcher:
                         print(f"  Year summary: {year_summary}{unyeared_suffix}", flush=True)
                     latest_cache_snapshot = self._load_citation_cache(title)
                     direct_fetch_diagnostics = (latest_cache_snapshot or {}).get('direct_fetch_diagnostics') or {}
-                    has_direct_fetch_summary = direct_fetch_diagnostics.get('reported_total') is not None
+                    direct_summary = direct_fetch_diagnostics.get('summary') or {}
+                    has_direct_fetch_summary = direct_summary.get('scholar_total') is not None
                     direct_underfetched = (
                         has_direct_fetch_summary
-                        and (direct_fetch_diagnostics.get('seen_total') or 0) < direct_fetch_diagnostics['reported_total']
+                        and (direct_summary.get('seen_total') or 0) < direct_summary['scholar_total']
                     )
                     if has_direct_fetch_summary:
                         if direct_underfetched:

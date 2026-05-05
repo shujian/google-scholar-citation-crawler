@@ -29,7 +29,7 @@ class CitationStatusTests(FetcherTestCase):
                 self.assertEqual(self.fetcher._probed_year_counts, {2024: 1, 2025: 1})
                 self.assertTrue(self.fetcher._probed_year_count_complete)
                 self.assertEqual(self.fetcher._cached_year_counts, {2024: 1, 2025: 1})
-                self.assertEqual(year_fetch_diagnostics[2024]["scholar_total"], 1)
+                self.assertEqual(year_fetch_diagnostics[2024]["histogram_count"], 1)
                 self.assertEqual(year_fetch_diagnostics[2024]["seen_total"], 1)
                 self.assertEqual(year_fetch_diagnostics[2024]["termination_reason"], "probe_match_skip")
                 save_progress(complete=False)
@@ -327,14 +327,14 @@ class CitationStatusTests(FetcherTestCase):
     def test_year_fetch_diagnostics_treat_seen_total_as_completion_boundary(self):
         diagnostics = self.fetcher._build_year_fetch_diagnostics(
             year=2024,
-            scholar_total=10,
+            histogram_count=10,
             cached_total=9,
             dedup_count=1,
             termination_reason="target_reached",
         )
 
         self.assertEqual(diagnostics["seen_total"], 10)
-        self.assertFalse(diagnostics["seen_total"] < diagnostics["scholar_total"])
+        self.assertFalse(diagnostics["seen_total"] < diagnostics["histogram_count"])
         self.assertEqual(diagnostics["termination_reason"], "target_reached")
 
     def test_fetch_by_year_skips_when_seen_total_covers_probe_total(self):
@@ -392,7 +392,7 @@ class CitationStatusTests(FetcherTestCase):
         self.assertEqual(citations, cached_citations)
         self.assertIn("Year 2024: skip (seen=10 >= probe=10)", output)
         self.assertIn("Year fetch comparisons: 1 years", output)
-        self.assertIn("2024: scholar=10,seen=10,cached=9,dedup=1,term=seen_total_match_skip", output)
+        self.assertIn("2024: histogram=10,seen=10,cached=9,dedup=1,term=seen_total_match_skip", output)
 
     def test_selective_refresh_skips_years_matching_histogram(self):
         # cached == probed for all years → nothing to refresh
@@ -623,14 +623,15 @@ class CitationStatusTests(FetcherTestCase):
 
     def test_direct_fetch_diagnostics_treat_seen_total_as_completion_boundary(self):
         diagnostics = self.fetcher._direct_fetch_diagnostics(
-            reported_total=10,
-            yielded_total=9,
+            scholar_total=10,
+            cached_total=9,
             dedup_count=1,
             termination_reason="target_reached",
         )
 
-        self.assertEqual(diagnostics["seen_total"], 10)
-        self.assertEqual(diagnostics["reported_total"], 10)
+        s = diagnostics['summary']
+        self.assertEqual(s["seen_total"], 10)
+        self.assertEqual(s["scholar_total"], 10)
         # underfetched / underfetch_gap are derivable and no longer stored
 
         pub = {
