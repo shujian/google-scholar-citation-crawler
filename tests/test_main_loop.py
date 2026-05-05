@@ -84,9 +84,11 @@ class MainLoopTests(FetcherTestCase):
             )
 
         self.assertEqual(len(fetch_calls), 2)
-        self.assertIsNone(fetch_calls[0]["rehydrated_year_fetch_diagnostics"])
-        self.assertEqual(fetch_calls[1]["rehydrated_year_fetch_diagnostics"][2024]["termination_reason"], "probe_match_skip")
-        self.assertEqual(fetch_calls[1]["rehydrated_year_fetch_diagnostics"][2024]["seen_total"], 1)
+        # direct→year: first call synthesises from cached citations (year 2024)
+        self.assertEqual(fetch_calls[0]["rehydrated_year_fetch_diagnostics"][2024]["histogram_count"], 1)
+        # retry: year diagnostics are preserved through the retry logic
+        self.assertIsNotNone(fetch_calls[1]["rehydrated_year_fetch_diagnostics"])
+        self.assertIn(2024, fetch_calls[1]["rehydrated_year_fetch_diagnostics"])
         pub = {
             "no": 1,
             "title": "Big Paper",
@@ -162,7 +164,8 @@ class MainLoopTests(FetcherTestCase):
         self.assertEqual(fetch_calls[1]["saved_dedup_count"], 0)
         self.assertEqual(fetch_calls[1]["rehydrated_probed_year_counts"], None)
         self.assertFalse(fetch_calls[1]["rehydrated_probe_complete"])
-        self.assertIsNone(fetch_calls[1]["rehydrated_year_fetch_diagnostics"])
+        # direct→year transition: synthesised from latest_cache citations
+        self.assertEqual(fetch_calls[1]["rehydrated_year_fetch_diagnostics"][2025]["histogram_count"], 1)
     def test_run_main_loop_retry_does_not_restore_direct_resume_state(self):
         pub = {
             "no": 1,
@@ -413,7 +416,8 @@ class MainLoopTests(FetcherTestCase):
         self.assertEqual(fetch_calls[0]["prev_scholar_count"], 75)
         self.assertEqual(fetch_calls[0]["resume_from"], cached["citations"])
         self.assertEqual(fetch_calls[0]["completed_years_in_current_run"], [])
-        self.assertIsNone(fetch_calls[0]["rehydrated_year_fetch_diagnostics"])
+        # direct→year transition: synthesised from cached citations
+        self.assertEqual(fetch_calls[0]["rehydrated_year_fetch_diagnostics"][2024]["histogram_count"], 1)
 
         self.assertTrue(fetch_calls[1]["allow_incremental_early_stop"])
         self.assertFalse(fetch_calls[1]["force_year_rebuild"])
@@ -424,7 +428,8 @@ class MainLoopTests(FetcherTestCase):
         self.assertEqual(fetch_calls[1]["saved_dedup_count"], 0)
         self.assertIsNone(fetch_calls[1]["rehydrated_probed_year_counts"])
         self.assertFalse(fetch_calls[1]["rehydrated_probe_complete"])
-        self.assertIsNone(fetch_calls[1]["rehydrated_year_fetch_diagnostics"])
+        # direct→year transition: synthesised from stale_retry_cache citations
+        self.assertEqual(fetch_calls[1]["rehydrated_year_fetch_diagnostics"][2024]["histogram_count"], 1)
         self.assertEqual(mock_load_cache.call_count, 2)
         self.assertIn("Retrying with 1 cached citations from previous attempt", log_output)
         self.assertNotIn("Escalating to full revalidation", log_output)

@@ -440,6 +440,19 @@ class PaperCitationFetcher:
         rehydrated_probed_year_counts = None
         rehydrated_probe_complete = False
         rehydrated_year_fetch_diagnostics = self._rehydrate_year_fetch_diagnostics(cached)
+        # When transitioning from direct to year mode the cache has no year
+        # diagnostics yet.  Synthesise per-year entries from the cached
+        # citations so the year fetch path knows which years are already
+        # covered and only probes / fetches what is missing.
+        if fetch_policy['mode'] == 'year' and not rehydrated_year_fetch_diagnostics and resume_from:
+            year_counts = self._year_count_map(resume_from)
+            if year_counts:
+                synthesized = {}
+                for year, count in sorted(year_counts.items()):
+                    synthesized[year] = self._build_year_fetch_diagnostics(
+                        year, count, count, 0, 'direct_to_year_migration',
+                    )
+                rehydrated_year_fetch_diagnostics = self._normalize_year_fetch_diagnostics(synthesized)
         allow_incremental_early_stop = True
         mode = 'fetch'
         direct_resume_state = None
@@ -1012,7 +1025,12 @@ class PaperCitationFetcher:
                                     completed_years_in_current_run = []
                                     rehydrated_probed_year_counts = None
                                     rehydrated_probe_complete = False
-                                    rehydrated_year_fetch_diagnostics = None
+                                    # Keep synthesised year diagnostics from the
+                                    # retry strategy call (e.g. direct→year transition)
+                                    # rather than discarding them.
+                                    rehydrated_year_fetch_diagnostics = (
+                                        retry_attempt_state.get('rehydrated_year_fetch_diagnostics')
+                                    )
                                 else:
                                     if rehydrated_probed_year_counts is not None or rehydrated_probe_complete:
                                         completed_years_in_current_run = latest_cache.get(
@@ -1023,7 +1041,13 @@ class PaperCitationFetcher:
                                             latest_cache,
                                             num_citations,
                                         )
-                                        rehydrated_year_fetch_diagnostics = self._rehydrate_year_fetch_diagnostics(latest_cache)
+                                        # Prefer the attempt-state diagnostics (which may
+                                        # include synthesised entries for direct→year
+                                        # transitions) over a bare re-read from cache.
+                                        rehydrated_year_fetch_diagnostics = (
+                                            retry_attempt_state['rehydrated_year_fetch_diagnostics']
+                                            or self._rehydrate_year_fetch_diagnostics(latest_cache)
+                                        )
                                     else:
                                         completed_years_in_current_run = retry_attempt_state['completed_years_in_current_run']
                                         rehydrated_probed_year_counts = retry_attempt_state['rehydrated_probed_year_counts']

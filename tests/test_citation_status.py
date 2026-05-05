@@ -697,13 +697,15 @@ class CitationStatusTests(FetcherTestCase):
         self.assertEqual(len(fetch_calls), 2)
         self.assertEqual(fetch_calls[0]["rehydrated_probed_year_counts"], {2024: 1})
         self.assertFalse(fetch_calls[0]["rehydrated_probe_complete"])
-        self.assertIsNone(fetch_calls[0]["rehydrated_year_fetch_diagnostics"])
+        # direct→year transition: synthesised from cached citations
+        self.assertEqual(fetch_calls[0]["rehydrated_year_fetch_diagnostics"][2024]["histogram_count"], 1)
         self.assertEqual(fetch_calls[1]["resume_from"], latest_cache["citations"])
         self.assertEqual(fetch_calls[1]["completed_years_in_current_run"], [2024, 2025])
         self.assertEqual(fetch_calls[1]["saved_dedup_count"], 0)
         self.assertEqual(fetch_calls[1]["rehydrated_probed_year_counts"], {2024: 1, 2025: 79})
         self.assertTrue(fetch_calls[1]["rehydrated_probe_complete"])
-        self.assertIsNone(fetch_calls[1]["rehydrated_year_fetch_diagnostics"])
+        # direct→year transition: synthesised from latest_cache citations
+        self.assertEqual(fetch_calls[1]["rehydrated_year_fetch_diagnostics"][2024]["histogram_count"], 1)
 
 
 
