@@ -134,9 +134,9 @@ def migrate_one_file(json_path, cache_dir):
             dfd.pop('mode', None)
             dfd.pop('underfetched', None)
             dfd.pop('underfetch_gap', None)
-        # Remove null direct_resume_state
-        if state.get('direct_resume_state') is None:
-            state.pop('direct_resume_state', None)
+        # Remove direct_resume_state entirely (cross-run resume is not supported;
+        # it belongs in per-paper cache files for within-run resume only)
+        state.pop('direct_resume_state', None)
         # Remove mode / underfetched / underfetch_gap from year_fetch_diagnostics entries
         yfd = state.get('year_fetch_diagnostics')
         if isinstance(yfd, dict):

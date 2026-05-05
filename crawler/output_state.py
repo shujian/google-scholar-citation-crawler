@@ -35,7 +35,6 @@ _FETCH_STATE_KEYS = frozenset([
     'cached_year_counts',
     'year_fetch_diagnostics',
     'direct_fetch_diagnostics',
-    'direct_resume_state',
     'fetched_at',
 ])
 
