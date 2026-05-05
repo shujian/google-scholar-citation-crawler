@@ -519,8 +519,8 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
             matched_key = next((key for key in identity_keys if key in fresh_seen), None)
             if matched_key is not None:
                 ctx.dedup_count += 1
-                print(f"  [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
-                      f"\n          Existing: {fresh_seen[matched_key]}", flush=True)
+                print(f"    [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
+                      f"\n            Existing: {fresh_seen[matched_key]}", flush=True)
             else:
                 label = f"{info['title'][:50]} ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
                 for key in identity_keys:
@@ -534,7 +534,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
                 yielded_total = len(fresh_citations)
                 count = yielded_total
 
-                print(f"  [{count}] {info['title'][:55]}...", flush=True)
+                print(f"    [{count}] {info['title'][:55]}...", flush=True)
 
             if not getattr(direct_iterator, '_finished_current_page', False):
                 continue
@@ -545,7 +545,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
             # avoid noisy consecutive saves when Scholar returns sub-10-item pages.
             items_on_page = getattr(direct_iterator, '_items_in_current_page', 0)
             if items_on_page >= SCHOLAR_PAGE_SIZE:
-                print(f"  Progress saved: {yielded_total} fetched this paper, "
+                print(f"    Progress saved: {yielded_total} fetched this paper, "
                       f"{fetcher._new_citations_count} new across run", flush=True)
             # Reset the per-page flag on both the wrapper and the underlying
             # iterator.  The underlying _SearchScholarIterator's flag is copied
