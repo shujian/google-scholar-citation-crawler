@@ -128,11 +128,16 @@ def migrate_one_file(json_path, cache_dir):
         state.pop('probe_complete', None)
         state.pop('cached_unyeared_count', None)
         state.pop('citation_count_summary', None)
-        # Remove mode from direct_fetch_diagnostics (redundant with fetch_strategy)
+        # Remove derived fields from direct_fetch_diagnostics
         dfd = state.get('direct_fetch_diagnostics')
         if isinstance(dfd, dict):
             dfd.pop('mode', None)
-        # Remove mode from year_fetch_diagnostics entries
+            dfd.pop('underfetched', None)
+            dfd.pop('underfetch_gap', None)
+        # Remove null direct_resume_state
+        if state.get('direct_resume_state') is None:
+            state.pop('direct_resume_state', None)
+        # Remove mode / underfetched / underfetch_gap from year_fetch_diagnostics entries
         yfd = state.get('year_fetch_diagnostics')
         if isinstance(yfd, dict):
             for diag in yfd.values():

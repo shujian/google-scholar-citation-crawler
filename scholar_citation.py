@@ -1096,7 +1096,10 @@ class PaperCitationFetcher:
                     latest_cache_snapshot = self._load_citation_cache(title)
                     direct_fetch_diagnostics = (latest_cache_snapshot or {}).get('direct_fetch_diagnostics') or {}
                     has_direct_fetch_summary = direct_fetch_diagnostics.get('reported_total') is not None
-                    direct_underfetched = has_direct_fetch_summary and direct_fetch_diagnostics.get('underfetched')
+                    direct_underfetched = (
+                        has_direct_fetch_summary
+                        and (direct_fetch_diagnostics.get('seen_total') or 0) < direct_fetch_diagnostics['reported_total']
+                    )
                     if has_direct_fetch_summary:
                         if direct_underfetched:
                             print("  Direct fetch under-fetched; recording current results", flush=True)

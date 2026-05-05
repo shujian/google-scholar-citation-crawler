@@ -11,6 +11,13 @@
 - **cites_id fallback**: scholarly 的 `_scholar_pub()` 方法不设置 `cites_id`（仅设置 `citedby_url`），导致 73.7% 的引用缺 `cites_id`。新增三级回退：`cites_id` → `citedby_url` 解析 → `url_scholarbib` 解析（提取 `cid`）
 - `fix_output_fetch_state.py` 已更新，可将旧 JSON 文件中的 `citation_count_summary` 迁移到 `year_fetch_diagnostics.summary` 或 `direct_fetch_diagnostics.summary`
 
+## 2026-05-05: 冗余字段清理
+
+- **`underfetched` / `underfetch_gap`**: 从 `direct_fetch_diagnostics` 中移除（= `seen_total < reported_total` 和 `reported_total - seen_total`），改为通过 `_direct_fetch_is_underfetched()` / `_direct_fetch_gap()` 按需计算
+- **`direct_resume_state: null`**: 不再保存（`save_progress` 仅在非 null 时写入，`fix_output_fetch_state.py` 清理已有 null 值）
+- **`complete` / `complete_fetch_attempt`**: 保留。`complete_fetch_attempt` 表示抓取是否运行完成（未中断），`complete` 表示是否完整获取（direct 模式 underfetched 时为 false）。两者语义不同，用于状态判断
+- **`fetch_complete`**: 保留。顶层便利字段，供 Excel 输出使用
+
 ## 开发环境
 
 - **Conda 环境**: `scholar` (`/Users/huangshujian/miniforge3/envs/scholar`)

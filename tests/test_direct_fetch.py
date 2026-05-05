@@ -126,7 +126,7 @@ class DirectFetchTests(FetcherTestCase):
         with open(cache_path, "r", encoding="utf-8") as f:
             saved = json.load(f)
 
-        self.assertIsNone(saved["direct_resume_state"])
+        self.assertNotIn("direct_resume_state", saved)
 
     def test_fetch_citations_with_progress_direct_mode_passes_num_citations_to_scholarly(self):
         self.fetcher.save_every = 100
@@ -1060,8 +1060,6 @@ class DirectFetchTests(FetcherTestCase):
                 "yielded_total": 3,
                 "seen_total": 3,
                 "dedup_count": 0,
-                "underfetched": True,
-                "underfetch_gap": 95,
                 "termination_reason": "iterator_exhausted",
                 "summary": {
                     "scholar_total": 98,

@@ -630,8 +630,8 @@ class CitationStatusTests(FetcherTestCase):
         )
 
         self.assertEqual(diagnostics["seen_total"], 10)
-        self.assertFalse(diagnostics["underfetched"])
-        self.assertEqual(diagnostics["underfetch_gap"], 0)
+        self.assertEqual(diagnostics["reported_total"], 10)
+        # underfetched / underfetch_gap are derivable and no longer stored
 
         pub = {
             "no": 1,

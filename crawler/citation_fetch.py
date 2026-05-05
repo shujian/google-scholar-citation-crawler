@@ -177,14 +177,11 @@ def _build_direct_fetch_diagnostics(reported_total, yielded_total, dedup_count, 
     except (TypeError, ValueError):
         dedup_count = 0
     seen_total = yielded_total + dedup_count
-    gap = max(0, reported_total - seen_total)
     return {
         'reported_total': reported_total,
         'yielded_total': yielded_total,
         'seen_total': seen_total,
         'dedup_count': dedup_count,
-        'underfetched': seen_total < reported_total,
-        'underfetch_gap': gap,
         'termination_reason': termination_reason or 'iterator_exhausted',
     }
 
@@ -196,6 +193,14 @@ def _direct_fetch_diagnostics(reported_total, yielded_total, dedup_count, termin
         termination_reason,
     )
 
+def _direct_fetch_gap(diagnostics):
+    """Compute the under-fetch gap from already-available diagnostics fields."""
+    return max(0, (diagnostics.get('reported_total') or 0) - (diagnostics.get('seen_total') or 0))
+
+def _direct_fetch_is_underfetched(diagnostics):
+    """Return True when the direct fetch did not retrieve all expected citations."""
+    return (diagnostics.get('seen_total') or 0) < (diagnostics.get('reported_total') or 0)
+
 def _direct_fetch_summary_message(diagnostics):
     return (
         "Direct fetch summary "
@@ -203,7 +208,7 @@ def _direct_fetch_summary_message(diagnostics):
         f"yielded_total={diagnostics.get('yielded_total')}, "
         f"seen_total={diagnostics.get('seen_total')}, "
         f"dedup_num={diagnostics.get('dedup_count')}, "
-        f"gap={diagnostics.get('underfetch_gap')}, "
+        f"gap={_direct_fetch_gap(diagnostics)}, "
         f"termination={diagnostics.get('termination_reason')})"
     )
 
@@ -214,7 +219,7 @@ def _direct_fetch_log_message(diagnostics):
         f"yielded_total={diagnostics.get('yielded_total')}, "
         f"seen_total={diagnostics.get('seen_total')}, "
         f"dedup_num={diagnostics.get('dedup_count')}, "
-        f"gap={diagnostics.get('underfetch_gap')}, "
+        f"gap={_direct_fetch_gap(diagnostics)}, "
         f"termination={diagnostics.get('termination_reason')})"
     )
 
@@ -352,7 +357,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
     def save_progress(complete):
         effective_complete = complete
         diagnostics_to_save = direct_fetch_diagnostics
-        if diagnostics_to_save and diagnostics_to_save.get('underfetched'):
+        if diagnostics_to_save and _direct_fetch_is_underfetched(diagnostics_to_save):
             effective_complete = False
         citations_to_save = materialized_citations(effective_complete)
         if not citations_to_save and old_citations:
@@ -401,41 +406,44 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
             diag_with_summary = {}
         if diagnostics_to_save:
             diagnostics_to_save['summary'] = summary
+        cache_data = {
+            'title': title,
+            'pub_url': pub_url,
+            'citedby_url': citedby_url,
+            'num_citations_on_scholar': current_scholar_total(),
+            'num_citations_cached': len(citations_to_save),
+            'num_citations_seen': len(citations_to_save) + effective_dedup,
+            'dedup_count': effective_dedup,
+            'complete': effective_complete,
+            'complete_fetch_attempt': complete,
+            'completed_years': sorted(ctx.completed_year_segments),
+            'probed_year_counts': fetcher._dump_year_count_map(
+                fetcher._normalize_year_count_map(ctx.probed_year_counts)
+            ),
+            'cached_year_counts': fetcher._dump_year_count_map(ctx.cached_year_counts),
+            'fetch_strategy': (
+                'year' if is_year_mode else
+                'direct' if diagnostics_to_save and diagnostics_to_save.get('reported_total') is not None else
+                None
+            ),
+            'year_fetch_diagnostics': diag_with_summary,
+            'direct_fetch_diagnostics': diagnostics_to_save,
+            'fetched_at': datetime.now().isoformat(),
+            'citations': citations_to_save,
+        }
+        direct_resume = (
+            _build_direct_resume_state(
+                direct_next_index,
+                current_scholar_total(),
+                citedby_url,
+            )
+            if fetch_policy['mode'] == 'direct' and not effective_complete
+            else None
+        )
+        if direct_resume is not None:
+            cache_data['direct_resume_state'] = direct_resume
         with open(cache_path, 'w', encoding='utf-8') as f:
-            json.dump({
-                'title': title,
-                'pub_url': pub_url,
-                'citedby_url': citedby_url,
-                'num_citations_on_scholar': current_scholar_total(),
-                'num_citations_cached': len(citations_to_save),
-                'num_citations_seen': len(citations_to_save) + effective_dedup,
-                'dedup_count': effective_dedup,
-                'complete': effective_complete,
-                'complete_fetch_attempt': complete,
-                'completed_years': sorted(ctx.completed_year_segments),
-                'probed_year_counts': fetcher._dump_year_count_map(
-                    fetcher._normalize_year_count_map(ctx.probed_year_counts)
-                ),
-                'cached_year_counts': fetcher._dump_year_count_map(ctx.cached_year_counts),
-                'fetch_strategy': (
-                    'year' if is_year_mode else
-                    'direct' if diagnostics_to_save and diagnostics_to_save.get('reported_total') is not None else
-                    None
-                ),
-                'year_fetch_diagnostics': diag_with_summary,
-                'direct_fetch_diagnostics': diagnostics_to_save,
-                'direct_resume_state': (
-                    _build_direct_resume_state(
-                        direct_next_index,
-                        current_scholar_total(),
-                        citedby_url,
-                    )
-                    if fetch_policy['mode'] == 'direct' and not effective_complete
-                    else None
-                ),
-                'fetched_at': datetime.now().isoformat(),
-                'citations': citations_to_save,
-            }, f, ensure_ascii=False, indent=2)
+            json.dump(cache_data, f, ensure_ascii=False, indent=2)
 
     fetch_policy = fetch_policy or fetcher._resolve_citation_fetch_policy(
         current_scholar_total(),
@@ -567,7 +575,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
     print(f"    Cache summary: {fetcher._format_year_count_summary(cached_year_map)}", flush=True)
     print(f"    Cache totals: cached_total={direct_materialized_total}, cached_year_sum={cached_year_sum}, cached_unyeared={direct_materialized_total - cached_year_sum}, dedup_num={ctx.dedup_count}", flush=True)
     print(f"    Direct fetch totals: reported_total={direct_fetch_diagnostics['reported_total']}, yielded_total={direct_fetch_diagnostics['yielded_total']}, seen_total={direct_fetch_diagnostics['seen_total']}, materialized_total={direct_materialized_total}, materialized_seen_total={direct_materialized_seen_total}", flush=True)
-    if direct_fetch_diagnostics.get('underfetched'):
+    if _direct_fetch_is_underfetched(direct_fetch_diagnostics):
         print(f"    {_direct_fetch_log_message(direct_fetch_diagnostics)}", flush=True)
     save_progress(complete=True)
     return list(fresh_citations)
