@@ -77,7 +77,6 @@ class CitationStatusTests(FetcherTestCase):
         pub = {"title": "Paper", "num_citations": 5, "year": "2024"}
         cached = {
             "complete": True,
-            "probe_complete": False,
             "citations": [
                 {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
                 {"title": "B", "authors": "B", "venue": "V", "year": "2025", "url": "u2"},
@@ -85,6 +84,15 @@ class CitationStatusTests(FetcherTestCase):
             ],
             "num_citations_on_scholar": 3,
             "num_citations_seen": 5,
+            "direct_fetch_diagnostics": {
+                "summary": {
+                    "scholar_total": 3,
+                    "cached_total": 5,
+                    "seen_total": 5,
+                    "dedup_count": 0,
+                    "termination_reason": "short_page_stop",
+                },
+            },
         }
 
         with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
@@ -96,7 +104,6 @@ class CitationStatusTests(FetcherTestCase):
         pub = {"title": "Paper", "num_citations": 5, "year": "2024"}
         cached = {
             "complete": True,
-            "probe_complete": False,
             "citations": [
                 {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
                 {"title": "B", "authors": "B", "venue": "V", "year": "2025", "url": "u2"},
@@ -104,6 +111,15 @@ class CitationStatusTests(FetcherTestCase):
             ],
             "num_citations_on_scholar": 5,
             "num_citations_seen": 5,
+            "direct_fetch_diagnostics": {
+                "summary": {
+                    "scholar_total": 5,
+                    "cached_total": 5,
+                    "seen_total": 5,
+                    "dedup_count": 0,
+                    "termination_reason": "short_page_stop",
+                },
+            },
         }
 
         with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
@@ -111,11 +127,9 @@ class CitationStatusTests(FetcherTestCase):
 
         self.assertEqual(status, "complete")
 
-    def test_citation_status_ignores_direct_bad_flags_when_seen_reaches_current_total(self):
+    def test_citation_status_complete_when_direct_summary_seen_reaches_scholar_total(self):
         pub = {"title": "Paper", "num_citations": 48, "year": "2024"}
         cached = {
-            "complete": False,
-            "probe_complete": False,
             "citations": [
                 {"title": f"A-{idx}", "authors": "A", "venue": "V", "year": "2024", "url": f"u{idx}"}
                 for idx in range(48)
@@ -124,14 +138,13 @@ class CitationStatusTests(FetcherTestCase):
             "num_citations_cached": 48,
             "num_citations_seen": 48,
             "direct_fetch_diagnostics": {
-                "mode": "direct",
-                "reported_total": 48,
-                "yielded_total": 7,
-                "seen_total": 7,
-                "dedup_count": 0,
-                "underfetched": True,
-                "underfetch_gap": 41,
-                "termination_reason": "iterator_exhausted",
+                "summary": {
+                    "scholar_total": 48,
+                    "cached_total": 48,
+                    "seen_total": 48,
+                    "dedup_count": 0,
+                    "termination_reason": "short_page_stop",
+                },
             },
         }
 
@@ -227,25 +240,6 @@ class CitationStatusTests(FetcherTestCase):
             status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "partial")
-
-    def test_citation_status_legacy_cache_seen_shortcut_without_diagnostics(self):
-        pub = {"title": "Paper", "num_citations": 5, "year": "2024"}
-        cached = {
-            "complete": False,
-            "probe_complete": False,
-            "citations": [
-                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
-                {"title": "B", "authors": "B", "venue": "V", "year": "2025", "url": "u2"},
-                {"title": "C", "authors": "C", "venue": "V", "year": "2025", "url": "u3"},
-            ],
-            "num_citations_on_scholar": 3,
-            "num_citations_seen": 5,
-        }
-
-        with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
-            status = self.fetcher._citation_status(pub)
-
-        self.assertEqual(status, "complete")
 
     def test_citation_status_marks_partial_for_year_mode_when_seen_below_total_minus_unyeared(self):
         pub = {"title": "Paper", "num_citations": 1335, "year": "2018"}
@@ -444,29 +438,21 @@ class CitationStatusTests(FetcherTestCase):
 
         self.assertEqual(status, "partial")
 
-    def test_citation_status_ignores_year_bad_flags_when_histogram_is_satisfied(self):
+    def test_citation_status_complete_when_direct_summary_seen_equals_scholar_total(self):
         pub = {"title": "Paper", "num_citations": 10, "year": "2024"}
         cached = {
-            "complete": False,
-            "probe_complete": True,
-            "probed_year_counts": {"2024": 10},
-            "cached_year_counts": {"2024": 9},
             "citations": [
                 {"title": f"A-{idx}", "authors": "A", "venue": "V", "year": "2024", "url": f"u{idx}"}
                 for idx in range(9)
             ],
             "num_citations_on_scholar": 10,
             "num_citations_seen": 10,
-            "year_fetch_diagnostics": {
-                "2024": {
-                    "mode": "year",
-                    "year": 2024,
+            "direct_fetch_diagnostics": {
+                "summary": {
                     "scholar_total": 10,
                     "cached_total": 9,
                     "seen_total": 10,
                     "dedup_count": 1,
-                    "underfetched": True,
-                    "underfetch_gap": 1,
                     "termination_reason": "target_reached",
                 },
             },
@@ -477,95 +463,35 @@ class CitationStatusTests(FetcherTestCase):
 
         self.assertEqual(status, "complete")
 
-    def test_citation_status_uses_current_profile_total_instead_of_cached_high_watermark(self):
+    def test_citation_status_year_complete_when_seen_covers_histogram_total(self):
         pub = {"title": "Paper", "num_citations": 109, "year": "2020"}
         cached = {
-            "complete": True,
-            "probe_complete": False,
             "citations": [
-                {"title": f"A-{idx}", "authors": "A", "venue": "V", "year": "2020", "url": f"u{idx}"}
-                for idx in range(109)
-            ],
-            "num_citations_on_scholar": 120,
-            "num_citations_cached": 109,
-            "num_citations_seen": 109,
-        }
-
-        with patch.object(self.fetcher, "_load_citation_cache", return_value=cached), \
-             patch.object(scholar_citation, "datetime") as fake_datetime:
-            fake_datetime.now.return_value = types.SimpleNamespace(year=2026)
-            status = self.fetcher._citation_status(pub)
-
-        self.assertEqual(status, "complete")
-
-    def test_citation_status_prefers_current_direct_policy_over_stale_year_probe_state(self):
-        pub = {"title": "Paper", "num_citations": 109, "year": "2020"}
-        cached = {
-            "complete": True,
-            "probe_complete": True,
-            "probed_year_counts": {
-                "2020": 5,
-                "2021": 15,
-                "2022": 23,
-                "2023": 24,
-                "2024": 17,
-                "2025": 24,
-                "2026": 1,
-            },
-            "cached_year_counts": {
-                "2020": 5,
-                "2021": 14,
-                "2022": 21,
-                "2023": 24,
-                "2024": 17,
-                "2025": 23,
-                "2026": 1,
-            },
-            "citations": [
-                {"title": "Cached", "authors": "A", "venue": "V", "year": "2020", "url": "u1"},
+                {"title": f"A-{idx}", "authors": "A", "venue": "V", "year": str(2020 + idx % 7), "url": f"u{idx}"}
+                for idx in range(105)
             ],
             "num_citations_on_scholar": 109,
             "num_citations_seen": 109,
             "year_fetch_diagnostics": {
-                "2021": {
-                    "mode": "year",
-                    "year": 2021,
-                    "scholar_total": 15,
-                    "cached_total": 14,
-                    "seen_total": 14,
-                    "dedup_count": 0,
-                    "underfetched": True,
-                    "underfetch_gap": 1,
-                    "termination_reason": "short_page_stop",
-                },
-                "2022": {
-                    "mode": "year",
-                    "year": 2022,
-                    "scholar_total": 23,
-                    "cached_total": 21,
-                    "seen_total": 21,
-                    "dedup_count": 0,
-                    "underfetched": True,
-                    "underfetch_gap": 2,
-                    "termination_reason": "short_page_stop",
-                },
-                "2025": {
-                    "mode": "year",
-                    "year": 2025,
-                    "scholar_total": 24,
-                    "cached_total": 23,
-                    "seen_total": 23,
-                    "dedup_count": 0,
-                    "underfetched": True,
-                    "underfetch_gap": 1,
-                    "termination_reason": "short_page_stop",
+                "2020": {"year": 2020, "histogram_count": 5, "cached_total": 5, "seen_total": 5, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                "2021": {"year": 2021, "histogram_count": 15, "cached_total": 14, "seen_total": 14, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                "2022": {"year": 2022, "histogram_count": 23, "cached_total": 21, "seen_total": 21, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                "2023": {"year": 2023, "histogram_count": 24, "cached_total": 24, "seen_total": 24, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                "2024": {"year": 2024, "histogram_count": 17, "cached_total": 17, "seen_total": 17, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                "2025": {"year": 2025, "histogram_count": 24, "cached_total": 23, "seen_total": 23, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                "2026": {"year": 2026, "histogram_count": 1, "cached_total": 1, "seen_total": 1, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                "summary": {
+                    "histogram_total": 109,
+                    "scholar_total": 109,
+                    "cached_total": 105,
+                    "cached_year_total": 105,
+                    "seen_total": 109,
+                    "dedup_count": 4,
                 },
             },
         }
 
-        with patch.object(self.fetcher, "_load_citation_cache", return_value=cached), \
-             patch.object(scholar_citation, "datetime") as fake_datetime:
-            fake_datetime.now.return_value = types.SimpleNamespace(year=2026)
+        with patch.object(self.fetcher, "_load_citation_cache", return_value=cached):
             status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "complete")

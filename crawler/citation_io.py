@@ -56,8 +56,11 @@ def derive_citation_cache_state(pub, cached, year_based_threshold):
 
     # Extract summary from diagnostics to get the target and seen values
     # that were recorded at the end of the last fetch.
-    year_diag = normalize_year_fetch_diagnostics(cached.get('year_fetch_diagnostics'))
-    year_summary = (year_diag or {}).get('summary') or {}
+    # The summary is stored alongside per-year entries (at the "summary" key)
+    # and must be extracted before normalization which filters non-year keys.
+    raw_year_diag = cached.get('year_fetch_diagnostics') or {}
+    year_summary = raw_year_diag.get('summary') or {}
+    year_diag = normalize_year_fetch_diagnostics(raw_year_diag)
     year_histogram_total = year_summary.get('histogram_total')
     year_seen_total = year_summary.get('seen_total')
 
@@ -129,16 +132,6 @@ def resolve_citation_status_from_state(state):
         target = state.get('direct_scholar_total')
         if target is not None and num_seen is not None:
             return 'complete' if num_seen >= target else 'partial'
-
-    # No diagnostics summary yet (e.g. first fetch not done): fall back to
-    # comparing seen against the current page total.
-    current = state['current']
-    if num_seen is not None and num_seen >= current:
-        return 'complete'
-
-    # Legacy caches where complete_fetch_attempt is the only signal.
-    if state.get('complete_fetch_attempt') and current > 0:
-        return 'complete'
 
     return 'partial'
 

@@ -84,7 +84,15 @@ class OutputStateTests(FetcherTestCase):
             "num_citations_seen": 10,
             "complete": True,
             "complete_fetch_attempt": True,
-            "direct_fetch_diagnostics": {"mode": "direct", "seen_total": 10, "dedup_count": 0, "termination_reason": "page_end"},
+            "direct_fetch_diagnostics": {
+                "summary": {
+                    "scholar_total": 10,
+                    "cached_total": 10,
+                    "seen_total": 10,
+                    "dedup_count": 0,
+                    "termination_reason": "page_end",
+                },
+            },
         }
         self.assertEqual(
             resolve_citation_status_from_output(pub, state, year_based_threshold=50),
@@ -133,7 +141,16 @@ class OutputStateTests(FetcherTestCase):
                 "num_citations_seen": 100,
                 "complete": True,
                 "complete_fetch_attempt": True,
-                "direct_fetch_diagnostics": {"mode": "direct", "seen_total": 100, "dedup_count": 0, "termination_reason": "page_end"},
+                "year_fetch_diagnostics": {
+                    "summary": {
+                        "histogram_total": 100,
+                        "scholar_total": 100,
+                        "cached_total": 100,
+                        "cached_year_total": 100,
+                        "seen_total": 100,
+                        "dedup_count": 0,
+                    },
+                },
             }
         }
         status = self.fetcher._citation_status(pub)
@@ -154,7 +171,15 @@ class OutputStateTests(FetcherTestCase):
                 "num_citations_seen": 10,
                 "complete": True,
                 "complete_fetch_attempt": True,
-                "direct_fetch_diagnostics": {"mode": "direct", "seen_total": 10, "dedup_count": 0, "termination_reason": "page_end"},
+                "direct_fetch_diagnostics": {
+                    "summary": {
+                        "scholar_total": 10,
+                        "cached_total": 10,
+                        "seen_total": 10,
+                        "dedup_count": 0,
+                        "termination_reason": "page_end",
+                    },
+                },
                 "citations": [{"title": "Cite"}],
             }, f)
         status = self.fetcher._citation_status(pub)
@@ -173,20 +198,6 @@ class OutputStateTests(FetcherTestCase):
         self.assertEqual(state["num_citations_cached"], 2)
         self.assertEqual(state["num_citations_seen"], 5)
         self.assertEqual(state["num_citations_on_scholar"], 5)
-
-    def test_resolve_citation_status_from_legacy_output_without_counters(self):
-        """Output state with only complete_fetch_attempt and no counters is still complete."""
-        pub = {"num_citations": 10, "year": "2024"}
-        state = {
-            "complete": True,
-            "complete_fetch_attempt": True,
-            # Missing num_citations_cached, num_citations_seen, num_citations_on_scholar
-        }
-        self.assertEqual(
-            resolve_citation_status_from_output(pub, state, year_based_threshold=50),
-            "complete",
-        )
-
 
 if __name__ == '__main__':
     unittest.main()
