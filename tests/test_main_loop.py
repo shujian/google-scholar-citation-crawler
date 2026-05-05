@@ -273,7 +273,7 @@ class MainLoopTests(FetcherTestCase):
 
         log_output = fake_stdout.getvalue()
         self.assertEqual(mock_fetch.call_count, 1)
-        self.assertEqual(mock_fetch.call_args.kwargs["fetch_policy"]["mode"], "direct")
+        self.assertEqual(mock_fetch.call_args.kwargs["fetch_policy"]["mode"], "year")
         self.assertFalse(mock_fetch.call_args.kwargs["force_year_rebuild"])
         self.assertNotIn("Escalating to full revalidation", log_output)
         self.assertNotIn("Retrying escalated full revalidation with in-memory state", log_output)
@@ -314,7 +314,7 @@ class MainLoopTests(FetcherTestCase):
                 "rehydrated_year_fetch_diagnostics": None,
                 "action": "first fetch",
                 "prev_scholar_count": 0,
-                "fetch_policy": {"mode": "direct", "covered_years": 2, "avg_citations_per_year": 1.5, "pub_year": 2024, "reason": "low_average_per_year"},
+                "fetch_policy": {"mode": "direct", "pub_year": 2024, "reason": "low_average_per_year"},
              }), \
              patch.object(self.fetcher, "_fetch_citations_with_progress", return_value=final_citations), \
              patch("scholar_citation.rand_delay", return_value=0), \
@@ -535,7 +535,7 @@ class MainLoopTests(FetcherTestCase):
                 "rehydrated_year_fetch_diagnostics": None,
                 "action": "first fetch",
                 "prev_scholar_count": 0,
-                "fetch_policy": {"mode": "direct", "covered_years": 2, "avg_citations_per_year": 6, "pub_year": 2024, "reason": "low_average_per_year"},
+                "fetch_policy": {"mode": "direct", "pub_year": 2024, "reason": "low_average_per_year"},
              }), \
              patch.object(self.fetcher, "_fetch_citations_with_progress", side_effect=fake_fetch), \
              patch.object(self.fetcher, "_load_citation_cache", return_value={"direct_fetch_diagnostics": direct_fetch_diagnostics}), \
@@ -634,7 +634,7 @@ class MainLoopTests(FetcherTestCase):
                 "rehydrated_year_fetch_diagnostics": None,
                 "action": "first fetch",
                 "prev_scholar_count": 0,
-                "fetch_policy": {"mode": "direct", "covered_years": 1, "avg_citations_per_year": 5.0,
+                "fetch_policy": {"mode": "direct", "avg_citations_per_year": 5.0,
                                  "pub_year": 2024, "reason": "low_average_per_year"},
             }), \
              patch.object(self.fetcher, "_fetch_citations_with_progress", side_effect=fake_fetch), \

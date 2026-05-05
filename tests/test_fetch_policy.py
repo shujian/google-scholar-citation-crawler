@@ -15,11 +15,9 @@ class FetchPolicyAndStrategyTests(FetcherTestCase):
             fake_datetime.now.return_value = types.SimpleNamespace(year=2026)
             policy = self.fetcher._resolve_citation_fetch_policy(60, "2023")
 
-        self.assertEqual(policy["mode"], "direct")
+        self.assertEqual(policy["mode"], "year")
         self.assertEqual(policy["pub_year"], 2023)
-        self.assertEqual(policy["covered_years"], 4)
-        self.assertEqual(policy["avg_citations_per_year"], 15)
-        self.assertEqual(policy["reason"], "low_average_per_year")
+        self.assertEqual(policy["reason"], "at_or_above_year_threshold")
 
     def test_fetch_policy_keeps_year_mode_for_recent_high_total_paper(self):
         with patch.object(scholar_citation, "datetime") as fake_datetime:
@@ -28,9 +26,7 @@ class FetchPolicyAndStrategyTests(FetcherTestCase):
 
         self.assertEqual(policy["mode"], "year")
         self.assertEqual(policy["pub_year"], 2026)
-        self.assertEqual(policy["covered_years"], 1)
-        self.assertEqual(policy["avg_citations_per_year"], 60)
-        self.assertEqual(policy["reason"], "high_average_per_year")
+        self.assertEqual(policy["reason"], "at_or_above_year_threshold")
 
     def test_effective_scholar_total_ignores_historical_cache_high_watermark(self):
         pub = {"title": "Paper", "num_citations": 109, "year": "2020"}

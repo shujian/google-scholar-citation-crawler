@@ -45,38 +45,21 @@ def resolve_citation_fetch_policy(num_citations, pub_year, year_based_threshold,
     """
     Decide whether to use 'direct' or 'year' fetch mode for a paper.
 
-    Returns a dict with keys: mode, covered_years, avg_citations_per_year,
-    pub_year, reason.
+    Returns a dict with keys: mode, pub_year, reason.
     """
     current_year = current_year or datetime.now().year
     total = int(num_citations or 0)
     if total < year_based_threshold:
         return {
             'mode': 'direct',
-            'covered_years': None,
-            'avg_citations_per_year': None,
             'pub_year': normalize_pub_year(pub_year, current_year),
             'reason': 'below_year_threshold',
         }
 
-    normalized_pub_year = normalize_pub_year(pub_year, current_year)
-    if normalized_pub_year is None:
-        return {
-            'mode': 'year',
-            'covered_years': None,
-            'avg_citations_per_year': None,
-            'pub_year': None,
-            'reason': 'invalid_pub_year',
-        }
-
-    covered_years = max(1, int(current_year) - normalized_pub_year + 1)
-    avg_citations_per_year = total / covered_years
     return {
-        'mode': 'direct' if avg_citations_per_year <= 20 else 'year',
-        'covered_years': covered_years,
-        'avg_citations_per_year': avg_citations_per_year,
-        'pub_year': normalized_pub_year,
-        'reason': 'low_average_per_year' if avg_citations_per_year <= 20 else 'high_average_per_year',
+        'mode': 'year',
+        'pub_year': normalize_pub_year(pub_year, current_year),
+        'reason': 'at_or_above_year_threshold',
     }
 
 
