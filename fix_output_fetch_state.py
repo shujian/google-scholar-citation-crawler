@@ -70,9 +70,29 @@ def migrate_one_file(json_path, cache_dir):
             state['num_citations_seen'] = len(citations) + (dedup or 0)
             state['cached_year_counts'] = year_count_map(citations)
 
+        # 2b. Rebuild year_fetch_diagnostics from probed/cached counts if missing
+        yfd = state.get('year_fetch_diagnostics')
+        probed = normalize_year_count_map(state.get("probed_year_counts"))
+        cached_yc = state.get('cached_year_counts') or year_count_map(citations)
+        if (not yfd) and probed and cached_yc:
+            yfd = {}
+            all_years = set(probed.keys()) | set(cached_yc.keys())
+            for year in sorted(all_years):
+                s = probed.get(year, cached_yc.get(year, 0))
+                c = cached_yc.get(year, 0)
+                yfd[str(year)] = {
+                    'year': year,
+                    'scholar_total': s,
+                    'cached_total': c,
+                    'seen_total': c,
+                    'dedup_count': 0,
+                    'termination_reason': 'short_page_stop',
+                }
+            state['year_fetch_diagnostics'] = yfd
+            merged = True
+
         # 3. Rebuild citation_count_summary from current state
         year_diags = state.get("year_fetch_diagnostics")
-        probed = normalize_year_count_map(state.get("probed_year_counts"))
         dedup = state.get("dedup_count", 0) or 0
         scholar = state.get("num_citations_on_scholar")
 
@@ -94,9 +114,9 @@ def migrate_one_file(json_path, cache_dir):
             state['num_citations_seen'] = new_summary['seen_total']
         # Infer fetch_strategy from available data
         if not state.get('fetch_strategy'):
-            if state.get('year_fetch_diagnostics'):
+            if state.get('year_fetch_diagnostics') or state.get('probed_year_counts'):
                 state['fetch_strategy'] = 'year'
-            elif state.get('direct_fetch_diagnostics', {}).get('reported_total') is not None:
+            else:
                 state['fetch_strategy'] = 'direct'
 
         # Remove legacy fields
