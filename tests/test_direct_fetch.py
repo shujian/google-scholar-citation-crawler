@@ -1056,7 +1056,6 @@ class DirectFetchTests(FetcherTestCase):
         self.assertEqual(
             saved["direct_fetch_diagnostics"],
             {
-                "mode": "direct",
                 "reported_total": 98,
                 "yielded_total": 3,
                 "seen_total": 3,

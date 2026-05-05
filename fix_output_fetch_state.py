@@ -21,9 +21,9 @@ from crawler.citation_cache import normalize_year_count_map, year_count_map
 
 
 CACHE_KEYS = [
-    'num_citations_seen', 'dedup_count', 'cached_year_counts',
-    'year_fetch_diagnostics', 'probed_year_counts', 'probed_year_total',
-    'probe_complete', 'complete', 'complete_fetch_attempt',
+    'fetch_strategy', 'num_citations_seen', 'dedup_count',
+    'cached_year_counts', 'year_fetch_diagnostics',
+    'probed_year_counts', 'complete', 'complete_fetch_attempt',
     'completed_years', 'completed_years_in_current_run',
     'num_citations_on_scholar', 'num_citations_cached',
 ]
@@ -92,14 +92,32 @@ def migrate_one_file(json_path, cache_dir):
             state['dedup_count'] = new_summary['dedup_count']
         if new_summary.get('seen_total'):
             state['num_citations_seen'] = new_summary['seen_total']
+        # Infer fetch_strategy from available data
+        if not state.get('fetch_strategy'):
+            if state.get('year_fetch_diagnostics'):
+                state['fetch_strategy'] = 'year'
+            elif state.get('direct_fetch_diagnostics', {}).get('reported_total') is not None:
+                state['fetch_strategy'] = 'direct'
+
+        # Remove legacy fields
+        state.pop('probed_year_total', None)
+        state.pop('probe_complete', None)
+        state.pop('cached_unyeared_count', None)
+        # Remove mode from direct_fetch_diagnostics (redundant with fetch_strategy)
+        dfd = state.get('direct_fetch_diagnostics')
+        if isinstance(dfd, dict):
+            dfd.pop('mode', None)
+        # Remove mode from year_fetch_diagnostics entries
+        yfd = state.get('year_fetch_diagnostics')
+        if isinstance(yfd, dict):
+            for diag in yfd.values():
+                if isinstance(diag, dict):
+                    diag.pop('mode', None)
 
         old_summary = state.get("citation_count_summary", {})
         if old_summary != new_summary:
             state["citation_count_summary"] = new_summary
             merged = True
-
-        state.pop("cached_unyeared_count", None)
-        state.pop("probe_complete", None)
 
         # 4. Set fetch_complete at paper level from _fetch_state
         if state.get('complete_fetch_attempt') or state.get('complete'):

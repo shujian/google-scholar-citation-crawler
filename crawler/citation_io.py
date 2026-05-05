@@ -76,7 +76,7 @@ def derive_citation_cache_state(pub, cached, year_based_threshold):
         num_seen = None
 
     direct_fetch_diagnostics = cached.get('direct_fetch_diagnostics') or {}
-    if direct_fetch_diagnostics.get('mode') != 'direct':
+    if direct_fetch_diagnostics.get('reported_total') is None:
         direct_fetch_diagnostics = {}
     direct_seen_total = direct_fetch_diagnostics.get('seen_total')
     try:

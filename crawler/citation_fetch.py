@@ -179,7 +179,6 @@ def _build_direct_fetch_diagnostics(reported_total, yielded_total, dedup_count, 
     seen_total = yielded_total + dedup_count
     gap = max(0, reported_total - seen_total)
     return {
-        'mode': 'direct',
         'reported_total': reported_total,
         'yielded_total': yielded_total,
         'seen_total': seen_total,
@@ -396,6 +395,11 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
                 ),
                 'probed_year_total': count_summary['histogram_total'],
                 'cached_year_counts': fetcher._dump_year_count_map(ctx.cached_year_counts),
+                'fetch_strategy': (
+                    'year' if year_fetch_diagnostics_to_save else
+                    'direct' if diagnostics_to_save and diagnostics_to_save.get('reported_total') is not None else
+                    None
+                ),
                 'year_fetch_diagnostics': fetcher._dump_year_fetch_diagnostics(year_fetch_diagnostics_to_save),
                 'cached_unyeared_count': count_summary['cached_unyeared_count'],
                 'citation_count_summary': {

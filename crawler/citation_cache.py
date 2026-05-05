@@ -69,7 +69,6 @@ def build_year_fetch_diagnostics(year, scholar_total, cached_total, dedup_count,
     seen_total = cached_total + dedup_count
     gap = max(0, scholar_total - seen_total)
     return {
-        'mode': 'year',
         'year': year,
         'scholar_total': scholar_total,
         'cached_total': cached_total,
@@ -184,6 +183,14 @@ def rehydrate_probe_metadata(cached, current_scholar_total):
         try:
             histogram_total = int(histogram_total)
         except (TypeError, ValueError):
+            histogram_total = None
+        if histogram_total is None:
+            ccs = (cached or {}).get('citation_count_summary') or {}
+            try:
+                histogram_total = int(ccs.get('histogram_total'))
+            except (TypeError, ValueError):
+                histogram_total = None
+        if histogram_total is None:
             histogram_total = sum(normalized_counts.values())
         if current_scholar_total is not None and histogram_total == current_scholar_total:
             probe_complete = True

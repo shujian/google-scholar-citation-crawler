@@ -1072,7 +1072,7 @@ class PaperCitationFetcher:
                         print(f"  Year summary: {year_summary}{unyeared_suffix}", flush=True)
                     latest_cache_snapshot = self._load_citation_cache(title)
                     direct_fetch_diagnostics = (latest_cache_snapshot or {}).get('direct_fetch_diagnostics') or {}
-                    has_direct_fetch_summary = direct_fetch_diagnostics.get('mode') == 'direct'
+                    has_direct_fetch_summary = direct_fetch_diagnostics.get('reported_total') is not None
                     direct_underfetched = has_direct_fetch_summary and direct_fetch_diagnostics.get('underfetched')
                     if has_direct_fetch_summary:
                         if direct_underfetched:
@@ -1191,8 +1191,8 @@ class PaperCitationFetcher:
             # current data instead of stale snapshots.
             cached = self._load_citation_cache(title) if pub else None
             if cached:
-                for key in ('year_fetch_diagnostics', 'cached_year_counts',
-                            'probed_year_counts', 'probed_year_total',
+                for key in ('fetch_strategy', 'year_fetch_diagnostics',
+                            'cached_year_counts', 'probed_year_counts',
                             'dedup_count', 'citation_count_summary'):
                     if key in cached:
                         fetch_state[key] = cached[key]
