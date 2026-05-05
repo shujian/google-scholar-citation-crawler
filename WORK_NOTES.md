@@ -11,6 +11,16 @@
 - **cites_id fallback**: scholarly 的 `_scholar_pub()` 方法不设置 `cites_id`（仅设置 `citedby_url`），导致 73.7% 的引用缺 `cites_id`。新增三级回退：`cites_id` → `citedby_url` 解析 → `url_scholarbib` 解析（提取 `cid`）
 - `fix_output_fetch_state.py` 已更新，可将旧 JSON 文件中的 `citation_count_summary` 迁移到 `year_fetch_diagnostics.summary` 或 `direct_fetch_diagnostics.summary`
 
+## 2026-05-05: complete/partial 判断简化 & 年度重新获取规则简化 & 字段清理
+
+- **complete/partial**: year 模式 `histogram_total <= seen_total` → complete；direct 模式 `scholar_total <= seen_total` → complete。无 diagnostics → partial
+- **年度重新获取**: 仅当本 run 已完成 或 `seen >= histogram_count` 时跳过。移除全局 `probed_year_counts_satisfied`、`selective_refresh_years`、`probe_zero_skip` 等复杂分支
+- **fetch policy 简化**: 仅用引用数阈值（<50 → direct，≥50 → year），移除 `avg_citations_per_year` 规则
+- **`_fetch_state` 字段清理**: 移除 `num_citations_cached`、`num_citations_seen`、`dedup_count`、`complete`、`completed_years`、`probed_year_counts`（均从 diagnostics summary 推导）。仅保留 `num_citations_on_scholar` 和 `complete_fetch_attempt`
+- **direct→year 过渡**: 从缓存引用合成 year_fetch_diagnostics
+- **direct_resume_state**: 仅 cache 文件保留（within-run resume），输出文件不保存
+- **日志**: 统一缩进，`reported_total`→`scholar_total`，`yielded_total`→`cached_total`
+
 ## 2026-05-05: 冗余字段清理
 
 - **`underfetched` / `underfetch_gap`**: 从 `direct_fetch_diagnostics` 中移除（= `seen_total < reported_total` 和 `reported_total - seen_total`），改为通过 `_direct_fetch_is_underfetched()` / `_direct_fetch_gap()` 按需计算
