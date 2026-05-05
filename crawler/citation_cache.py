@@ -67,15 +67,12 @@ def build_year_fetch_diagnostics(year, scholar_total, cached_total, dedup_count,
     cached_total = max(0, cached_total)
     dedup_count = max(0, dedup_count)
     seen_total = cached_total + dedup_count
-    gap = max(0, scholar_total - seen_total)
     return {
         'year': year,
         'scholar_total': scholar_total,
         'cached_total': cached_total,
         'seen_total': seen_total,
         'dedup_count': dedup_count,
-        'underfetched': seen_total < scholar_total,
-        'underfetch_gap': gap,
         'termination_reason': termination_reason or 'iterator_exhausted',
     }
 
@@ -103,8 +100,6 @@ def normalize_year_fetch_diagnostics(year_fetch_diagnostics):
         if raw_seen_total is not None and raw_seen_total >= diagnostic['cached_total']:
             diagnostic['seen_total'] = raw_seen_total
             diagnostic['dedup_count'] = raw_seen_total - diagnostic['cached_total']
-            diagnostic['underfetch_gap'] = max(0, diagnostic['scholar_total'] - raw_seen_total)
-            diagnostic['underfetched'] = raw_seen_total < diagnostic['scholar_total']
         normalized[diagnostic['year']] = diagnostic
     return normalized
 

@@ -67,7 +67,7 @@ class CitationStatusTests(FetcherTestCase):
                 saved["citation_count_summary"]["scholar_total"],
                 saved["citation_count_summary"]["histogram_total"],
             )
-            self.assertEqual(saved["completed_years_in_current_run"], [2024])
+            self.assertEqual(saved["completed_years"], [2024])
             self.assertEqual(saved["probed_year_total"], 2)
             self.assertEqual(saved["cached_unyeared_count"], 0)
             self.assertEqual(saved["citation_count_summary"]["scholar_total"], 2)
@@ -337,8 +337,7 @@ class CitationStatusTests(FetcherTestCase):
         )
 
         self.assertEqual(diagnostics["seen_total"], 10)
-        self.assertFalse(diagnostics["underfetched"])
-        self.assertEqual(diagnostics["underfetch_gap"], 0)
+        self.assertFalse(diagnostics["seen_total"] < diagnostics["scholar_total"])
         self.assertEqual(diagnostics["termination_reason"], "target_reached")
 
     def test_fetch_by_year_skips_when_seen_total_covers_probe_total(self):

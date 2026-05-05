@@ -447,16 +447,29 @@ class PaperCitationFetcher:
         # Drop unyeared cached citations for every year-based fetch:
         # unyeared entries have no year bucket to diff against histogram data.
         drop_cached_unyeared = fetch_policy['mode'] == 'year'
+        num_seen = cached.get('num_citations_seen')
+        try:
+            num_seen = int(num_seen) if num_seen is not None else None
+        except (TypeError, ValueError):
+            num_seen = None
+        seen_str = f", seen={num_seen}" if num_seen is not None else ""
+
         if old_scholar_known is not None and old_scholar_known != num_citations:
             unyeared_note = "; drop unyeared" if drop_cached_unyeared else ""
-            action = f"fetch ({len(resume_from)} cached, citations {old_scholar} -> {num_citations}{unyeared_note})"
+            action = (f"fetch ({len(resume_from)} cached{seen_str}, "
+                      f"scholar {old_scholar} -> {num_citations}{unyeared_note})")
         else:
-            unyeared_note = "; drop unyeared" if drop_cached_unyeared else ""
-            action = f"fetch ({len(resume_from)} cached; recheck by year{unyeared_note})"
             rehydrated_probed_year_counts, rehydrated_probe_complete = self._rehydrate_probe_metadata(
                 cached,
                 num_citations,
             )
+            unyeared_note = "; drop unyeared" if drop_cached_unyeared else ""
+            if fetch_policy['mode'] == 'year':
+                action = (f"fetch ({len(resume_from)} cached{seen_str}, "
+                          f"scholar={num_citations} unchanged; recheck by year{unyeared_note})")
+            else:
+                action = (f"fetch ({len(resume_from)} cached{seen_str}, "
+                          f"scholar={num_citations} unchanged; recheck (direct){unyeared_note})")
 
         if drop_cached_unyeared:
             resume_from = self._filter_citations_with_year(resume_from)
@@ -1062,7 +1075,17 @@ class PaperCitationFetcher:
                         run_dedup = self._dedup_count
                         seen_total = len(citations) + run_dedup
                     dedup_str = f", {run_dedup} dupes" if run_dedup else ""
-                    print(f"  Done: {len(citations)} cached, {seen_total} seen{dedup_str} (Scholar: {num_citations})")
+                    histogram_total = sum(
+                        d.get('scholar_total', 0)
+                        for d in (year_fetch_diagnostics or {}).values()
+                    ) if year_fetch_diagnostics else 0
+                    if histogram_total > 0:
+                        unyeared = max(0, num_citations - histogram_total)
+                        print(f"  Done: {len(citations)} cached, {seen_total} seen{dedup_str} "
+                              f"(histogram: {histogram_total}, scholar: {num_citations}, unyeared: {unyeared})")
+                    else:
+                        print(f"  Done: {len(citations)} cached, {seen_total} seen{dedup_str} "
+                              f"(Scholar: {num_citations})")
                     year_counts = self._year_count_map(citations)
                     if year_counts:
                         year_total = sum(year_counts.values())

@@ -389,7 +389,6 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
                 'complete': effective_complete,
                 'complete_fetch_attempt': complete,  # True only when fetch ran to completion (not mid-run interrupt)
                 'completed_years': sorted(ctx.completed_year_segments),
-                'completed_years_in_current_run': sorted(ctx.completed_year_segments),
                 'probed_year_counts': fetcher._dump_year_count_map(
                     fetcher._normalize_year_count_map(ctx.probed_year_counts)
                 ),
@@ -710,6 +709,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
     )
     cached_total_citations = count_summary['cached_total']
     cached_year_total = count_summary['cached_year_total']
+    cached_seen_total = count_summary['seen_total']
     cached_unyeared_citations = count_summary['cached_unyeared_count']
     probed_hist_total = count_summary['histogram_total']
     probed_missing_from_histogram = count_summary['scholar_unyeared_count']
@@ -720,7 +720,8 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
     else:
         print(f"    Probe totals: scholar_total={num_citations}, year_sum={probed_hist_total}, missing_from_histogram={probed_missing_from_histogram}", flush=True)
     print(f"    Cache summary: {fetcher._format_year_count_summary(cached_year_counts)}", flush=True)
-    print(f"    Cache totals: cached_total={cached_total_citations}, cached_year_sum={cached_year_total}, cached_unyeared={cached_unyeared_citations}, dedup_num={ctx.dedup_count}", flush=True)
+    print(f"    Cache totals: cached_total={cached_total_citations}, seen_total={cached_seen_total}, "
+          f"cached_year_sum={cached_year_total}, cached_unyeared={cached_unyeared_citations}, dedup_num={ctx.dedup_count}", flush=True)
     effective_target = probed_hist_total if histogram_authoritative else num_citations
     _fetch_mode_label = 'full-rebuild' if force_year_rebuild else 'selective'
     probe_note = "" if ctx.probed_year_count_complete else " (histogram may be incomplete)"
@@ -1042,11 +1043,13 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                 print(f"      Year {year} done: {year_new_count} new citations", flush=True)
             else:
                 print(f"      Year {year} done: no new citations", flush=True)
+            diag = year_fetch_diagnostics[year]
+            underfetched = diag['seen_total'] < diag['scholar_total']
             print(
-                f"      Year {year} compare: scholar={year_fetch_diagnostics[year]['scholar_total']}, "
-                f"seen={year_fetch_diagnostics[year]['seen_total']}, cached={year_fetch_diagnostics[year]['cached_total']}, "
-                f"dedup={year_fetch_diagnostics[year]['dedup_count']}, underfetched={year_fetch_diagnostics[year]['underfetched']}, "
-                f"termination={year_fetch_diagnostics[year]['termination_reason']}",
+                f"      Year {year} compare: scholar={diag['scholar_total']}, "
+                f"seen={diag['seen_total']}, cached={diag['cached_total']}, "
+                f"dedup={diag['dedup_count']}, underfetched={underfetched}, "
+                f"termination={diag['termination_reason']}",
                 flush=True,
             )
             print(f"      Year {year} status: year_total={len(year_fetched_citations)}, year_new={year_new_count}, "

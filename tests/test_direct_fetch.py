@@ -711,7 +711,7 @@ class DirectFetchTests(FetcherTestCase):
         self.assertEqual([c["title"] for c in citations], ["Y2025", "Y2024", "NoYear"])
         self.assertEqual(save_calls, [False, True])
         self.assertIn("    Probe totals: scholar_total=3, year_sum=2, missing_from_histogram=1", output)
-        self.assertIn("    Cache totals: cached_total=3, cached_year_sum=2, cached_unyeared=1, dedup_num=0", output)
+        self.assertIn("    Cache totals: cached_total=3, seen_total=3, cached_year_sum=2, cached_unyeared=1, dedup_num=0", output)
         self.assertIn("Year fetch skipped: histogram-authoritative match", output)
         self.assertIn("scholar_total=3, year_sum=2, cached_total=3, cached_year_sum=2, dedup_num=0", output)
 

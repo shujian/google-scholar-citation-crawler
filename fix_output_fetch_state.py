@@ -24,7 +24,7 @@ CACHE_KEYS = [
     'fetch_strategy', 'num_citations_seen', 'dedup_count',
     'cached_year_counts', 'year_fetch_diagnostics',
     'probed_year_counts', 'complete', 'complete_fetch_attempt',
-    'completed_years', 'completed_years_in_current_run',
+    'completed_years',
     'num_citations_on_scholar', 'num_citations_cached',
 ]
 
@@ -113,6 +113,9 @@ def migrate_one_file(json_path, cache_dir):
             for diag in yfd.values():
                 if isinstance(diag, dict):
                     diag.pop('mode', None)
+                    diag.pop('underfetched', None)
+                    diag.pop('underfetch_gap', None)
+        state.pop('completed_years_in_current_run', None)
 
         old_summary = state.get("citation_count_summary", {})
         if old_summary != new_summary:
