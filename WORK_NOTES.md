@@ -1,48 +1,6 @@
 # Work Notes: Google Scholar Citation Crawler
 
-
-## 2026-05-05: summary 嵌套 & cites_id fallback 修复
-
-- `citation_count_summary` 重命名为 `summary`，作为 `year_fetch_diagnostics`（year 模式）或 `direct_fetch_diagnostics`（direct 模式）的嵌套子字段
-- `save_progress` 现在按 `fetch_policy.mode` 决定将 summary 嵌入哪个 diagnostics 对象
-- `rehydrate_probe_metadata` 的 `histogram_total` 回退逻辑改为读取 `year_fetch_diagnostics.summary.histogram_total`
-- `_FETCH_STATE_KEYS` 移除 `citation_count_summary`
-- 直接模式不再构建独立的 `citation_count_summary`，日志信息改用局部计算
-- **cites_id fallback**: scholarly 的 `_scholar_pub()` 方法不设置 `cites_id`（仅设置 `citedby_url`），导致 73.7% 的引用缺 `cites_id`。新增三级回退：`cites_id` → `citedby_url` 解析 → `url_scholarbib` 解析（提取 `cid`）
-- `fix_output_fetch_state.py` 已更新，可将旧 JSON 文件中的 `citation_count_summary` 迁移到 `year_fetch_diagnostics.summary` 或 `direct_fetch_diagnostics.summary`
-
-## 2026-05-05: complete/partial 判断简化 & 年度重新获取规则简化 & 字段清理
-
-- **complete/partial**: year 模式 `histogram_total <= seen_total` → complete；direct 模式 `scholar_total <= seen_total` → complete。无 diagnostics → partial
-- **年度重新获取**: 仅当本 run 已完成 或 `seen >= histogram_count` 时跳过。移除全局 `probed_year_counts_satisfied`、`selective_refresh_years`、`probe_zero_skip` 等复杂分支
-- **fetch policy 简化**: 仅用引用数阈值（<50 → direct，≥50 → year），移除 `avg_citations_per_year` 规则
-- **`_fetch_state` 字段清理**: 移除 `num_citations_cached`、`num_citations_seen`、`dedup_count`、`complete`、`completed_years`、`probed_year_counts`（均从 diagnostics summary 推导）。仅保留 `num_citations_on_scholar` 和 `complete_fetch_attempt`
-- **direct→year 过渡**: 从缓存引用合成 year_fetch_diagnostics
-- **direct_resume_state**: 仅 cache 文件保留（within-run resume），输出文件不保存
-- **日志**: 统一缩进，`reported_total`→`scholar_total`，`yielded_total`→`cached_total`
-
-## 2026-05-05: 冗余字段清理
-
-- **`underfetched` / `underfetch_gap`**: 从 `direct_fetch_diagnostics` 中移除（= `seen_total < reported_total` 和 `reported_total - seen_total`），改为通过 `_direct_fetch_is_underfetched()` / `_direct_fetch_gap()` 按需计算
-- **`direct_resume_state: null`**: 不再保存（`save_progress` 仅在非 null 时写入，`fix_output_fetch_state.py` 清理已有 null 值）
-- **`complete` / `complete_fetch_attempt`**: 保留。`complete_fetch_attempt` 表示抓取是否运行完成（未中断），`complete` 表示是否完整获取（direct 模式 underfetched 时为 false）。两者语义不同，用于状态判断
-- **`fetch_complete`**: 保留。顶层便利字段，供 Excel 输出使用
-
-## 2026-05-05: 字段重命名 & 策略简化
-
-- **`scholar_total` → `histogram_count`**: year_fetch_diagnostics 每一年条目中，Scholar histogram 值重命名为 `histogram_count`（所有年的和 = `histogram_total`）
-- **direct_fetch_diagnostics 重构**: 所有字段移入 `summary` 子字段（`reported_total` → `scholar_total`，`yielded_total` → `cached_total`）；direct 模式论文现在也生成 `year_fetch_diagnostics`（从缓存引用数据）
-- **direct→year 过渡**: 缓存中没有 year_fetch_diagnostics 时，从缓存引用数据合成年度诊断，使 year fetch 路径知道哪些年份已覆盖
-- **简化 fetch policy**: 仅用引用数阈值判断（<50 → direct，≥50 → year），移除 avg_citations_per_year 规则
-- **within-run resume 修复**: direct 模式重试时从缓存文件读取 `direct_resume_state`，而非从 `_resolve_refresh_strategy`（始终返回 None）
-- **probe_zero_skip 修复**: 使用实际 cached 数量而非强制 0
-
-## 2026-05-05: 简化 complete/partial 判断逻辑
-
-- **Year mode**: `year_fetch_diagnostics.summary.histogram_total <= seen_total` → complete
-- **Direct mode**: `direct_fetch_diagnostics.summary.scholar_total <= seen_total` → complete
-- 旧版缓存兼容：无 summary 时从 per-year diagnostics 推导 histogram_total / seen_total
-- 移除复杂的多条件分支（probe_complete、histogram_match_complete 等），不再需要 `rehydrate_probe_metadata`、`probed_year_counts_satisfied` 等辅助函数
+本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [update_history.md](update_history.md)。
 
 ## 开发环境
 
@@ -52,7 +10,7 @@
   - 关键文件: `publication_parser.py` (PublicationParser, _SearchScholarIterator)
   - 关键文件: `_scholarly.py` (scholarly core)
 
-## 项目结构（2026-04-15 更新）
+## 项目结构
 
 ```
 google-scholar-citation-crawler/
@@ -70,29 +28,33 @@ google-scholar-citation-crawler/
 │   ├── citation_fetch.py        # fetch_citations_with_progress + fetch_by_year
 │   ├── scholarly_session.py     # SessionContext + scholarly monkey-patch + year probe
 │   ├── interactive.py           # cURL cookie 注入、captcha 提示、proxy-switch 等待
+│   ├── output_state.py          # 输出文件 _fetch_state 读写
 │   └── cli.py                   # parse_args() + _run_main(args)
-├── tests/                       # 单元测试（106 个，不需要网络）
-│   ├── conftest.py
-│   ├── test_scholar_patch.py
-│   ├── test_year_fetch_early.py
-│   ├── test_fetch_policy.py
-│   ├── test_direct_fetch.py
-│   ├── test_year_fetch_main.py
-│   ├── test_output.py
-│   ├── test_citation_status.py
-│   ├── test_main_loop.py
-│   └── test_profile.py
+├── tests/                       # 单元测试（107 个，不需要网络）
+│   ├── conftest.py              # 共享 stubs + FetcherTestCase 基类
+│   ├── test_scholar_patch.py    # scholarly patch URL 日志、cookie 注入、CLI 解析
+│   ├── test_year_fetch_early.py # year fetch early-stop / histogram-authoritative
+│   ├── test_fetch_policy.py     # Fetch policy 选择、refresh 策略
+│   ├── test_direct_fetch.py     # Direct fetch：progress save、early-stop、resume、dedup
+│   ├── test_year_fetch_main.py  # Year fetch：materialize、selective refresh
+│   ├── test_output.py           # save_output、flush promotion、reconciliation
+│   ├── test_citation_status.py  # _citation_status、rehydrate、diagnostics 边界
+│   ├── test_main_loop.py        # _run_main_loop retry、main() CLI 集成
+│   ├── test_output_state.py     # 输出状态读写、citation_status 优先级
+│   └── test_profile.py          # AuthorProfileFetcher 计数汇总和 JSON/Excel 输出
+├── fix_output_fetch_state.py    # 输出文件 _fetch_state 迁移/修复脚本
+├── update_history.md            # 按时间顺序的更新历史
+├── user.md                      # 用户输入记录
 ├── requirements.txt             # scholarly>=1.7, openpyxl>=3.1, httpx==0.27.2
-├── README.md
-├── WORK_NOTES.md                # 本文件（gitignored）
-└── docs/superpowers/            # AI 辅助开发的设计文档（gitignored）
+└── README.md                    # 对外功能说明
 ```
 
 ### 输出文件
+
 - `author_{id}_profile.json` / `.xlsx` — 作者信息 + 论文列表
-- `author_{id}_history.json` — 变更历史（追加写入）
 - `author_{id}_paper_citations.json` / `.xlsx` — 逐篇引用列表
 - `scholar_cache/` — 增量缓存
+- `output/curl.txt` — Cookie 持久化
 
 ---
 
@@ -102,10 +64,7 @@ google-scholar-citation-crawler/
 # 安装依赖
 pip install -r requirements.txt
 
-# 日常使用（个人脚本）
-./examples/run_my_author.sh
-
-# 或直接运行
+# 日常使用
 python scholar_citation.py --author YOUR_AUTHOR_ID
 
 # 测试少量
@@ -119,10 +78,11 @@ python scholar_citation.py --author YOUR_AUTHOR_ID --limit 1 --skip 1
 |------|------|
 | `--author` (必填) | Scholar author ID 或完整 URL |
 | `--output-dir` | 输出目录，默认 `./output` |
-| `--skip M` | 跳过所有论文列表中的前 M 篇（按引用数降序），不计入 limit |
-| `--limit N` | 在 skip 之后处理 N 篇（第 M+1 到 M+N 篇），不管状态是否需要抓取 |
-| `--force-refresh-pubs` | 忽略缓存重新抓取论文列表 |
-| `--force-refresh-citations` | 按缓存条数 vs Scholar 数重新检查，不匹配的重新抓取 |
+| `--skip M` | 跳过前 M 篇论文（按引用数降序） |
+| `--limit N` | 在 skip 之后处理 N 篇 |
+| `--fetch-mode` | `rough` / `normal` / `force`（默认 normal） |
+| `--interactive-captcha` | 交互式验证码恢复 |
+| `--accelerate SCALE` | 等待倍率（默认 1.0，0.1 = 10× 快） |
 
 ---
 
@@ -136,7 +96,7 @@ python scholar_citation.py --author YOUR_AUTHOR_ID --limit 1 --skip 1
 
 2. **智能跳过判断**
    - 比较本次与上次的 `total_citations` 和 `total_publications`
-   - 都没变 → 跳过 citation 抓取，直接结束
+   - 都没变 → 跳过 citation 抓取
 
 3. **Citation 阶段**（有变化时才运行）
    - 逐篇获取引用来源列表
@@ -147,28 +107,25 @@ python scholar_citation.py --author YOUR_AUTHOR_ID --limit 1 --skip 1
 
 ## 等待与超时机制
 
-### 统一等待策略（2026-03-08 更新）
+### 统一等待策略
 
-所有主动等待统一使用 30-60 秒随机值（`rand_delay()`），不再区分 base delay / page delay：
+所有主动等待统一使用 45-90 秒随机值（`rand_delay()`）：
 - Profile 阶段：搜索作者后、两阶段之间
-- Citation 阶段：翻页时、年份段切换时、论文之间
+- Citation 阶段：翻页时、年份段切换时
 
-每次主动等待都会输出等待信息（秒数）。
+每次主动等待都会输出等待信息。论文间没有额外延时（每页请求前已有足够延时）。
 
 ### 心跳超时机制
 
 - **心跳间隔**：10 秒检查一次（`HEARTBEAT_INTERVAL = 10`）
 - **超时阈值**：80 秒无响应（`HEARTBEAT_TIMEOUT = 80`）
-- **超时处理**：保存进度后 `os._exit(1)` 强制终止整个程序
+- **超时处理**：保存进度后 `os._exit(1)` 强制终止
 
 ### 主动等待与超时计时的关系
 
 关键设计：主动等待不计入超时计时。
-
-- 进入主动等待前设 `_deliberately_waiting = True`，心跳线程 `continue` 跳过检查
+- 进入主动等待前设 `_deliberately_waiting = True`，心跳线程跳过检查
 - 主动等待结束后设 `_deliberately_waiting = False`，**同时重置 `_last_activity = time.time()`**
-- 这样超时计时从主动等待结束后才开始，不会把等待时间误算
-- `_last_activity` 是实例变量，monkey-patch 中的闭包和 heartbeat 线程都能访问
 
 ---
 
@@ -176,13 +133,13 @@ python scholar_citation.py --author YOUR_AUTHOR_ID --limit 1 --skip 1
 
 ### Monkey-patch（运行时替换，不修改 scholarly 源码）
 
-1. **翻页随机延迟**：替换 `_SearchScholarIterator._load_url`，每次翻页前等待 30-60 秒
-2. **年份切换随机延迟**：替换 `scholarly._citedby_long`，>1000 引用按年份分段时加延迟
-3. **session 刷新**：每篇论文开始前刷新 scholarly 内部 httpx session，清除被标记的 cookie
+1. **翻页随机延迟**：替换 `_SearchScholarIterator._load_url`，每次翻页前等待 45-90 秒
+2. **年份切换随机延迟**：替换 `scholarly._citedby_long`，按年份分段时加延迟
+3. **Session 刷新**：随机 10-20 页刷新 scholarly 内部 httpx session
 
 ### citedby_url 前缀修正
 
-scholarly 的 `_get_soup` 会在 URL 前拼接 `https://scholar.google.com`，但缓存中的 `citedby_url` 已是完整 URL，需要先剥掉前缀，否则双重前缀导致请求失败。
+scholarly 的 `_get_soup` 会在 URL 前拼接 `https://scholar.google.com`，但缓存中的 `citedby_url` 已是完整 URL，需要先剥掉前缀。
 
 ### scholarly pub_obj 必需字段
 
@@ -197,25 +154,78 @@ pub_obj = {
 }
 ```
 - `num_citations <= 1000`：走 `PublicationParser.citedby()` → 只用 `citedby_url` + `filled`
-- `num_citations > 1000`：走 `_citedby_long()` → 按年份分批抓取，额外需要 `bib.title`、`bib.pub_year`、`source`
+- `num_citations > 1000`：走 `_citedby_long()` → 按年份分批抓取
 
 ---
 
-## 增量缓存与续传
+## 缓存体系
 
 ### 缓存结构
-- `scholar_cache/author_{id}/basics.json` — 基本信息
-- `scholar_cache/author_{id}/publications.json` — 论文列表
-- `scholar_cache/author_{id}/citations/{md5_16}.json` — 每篇论文的引用列表
 
-### 缓存有效条件
-- `complete=True` 且 `num_citations_cached == 当前引用数` → 跳过
-- 引用数变化或 `complete=False` → 重新抓取（或续传）
+- `output/scholar_cache/author_{id}/basics.json` — 基本信息
+- `output/scholar_cache/author_{id}/publications.json` — 论文列表
+- `output/scholar_cache/author_{id}/citations/{md5_16}.json` — 每篇论文的引用缓存
+- `output/curl.txt` — Cookie 持久化
 
-### 中断续传
-- 每 10 条引用写一次进度（`complete=False`）
-- 重跑时检测到未完成 → 从已有条数处续传
-- 续传优化：≤1000 引用时在 `citedby_url` 后追加 `&start=N`，直接跳到断点页
+### per-paper citation cache 核心字段
+
+- `num_citations_on_scholar` — 上次抓取时 Scholar 报告的总数
+- `num_citations_cached` — 实际缓存条数
+- `dedup_count` — 本次运行遇到的重复行数
+- `complete_fetch_attempt` — 是否正常跑完
+- `year_fetch_diagnostics` — 每年抓取诊断（histogram_count, cached_total, seen_total, dedup_count, termination_reason）
+- `direct_fetch_diagnostics` — 直接抓取诊断（scholar_total, cached_total, seen_total, dedup_count, termination_reason）
+- `direct_resume_state` — 直接模式中断恢复位置（仅 cache 文件）
+
+### 输出文件 `_fetch_state` 字段
+
+```json
+{
+  "title": "...",
+  "pub_url": "...",
+  "citedby_url": "...",
+  "fetch_strategy": "year" | "direct",
+  "num_citations_on_scholar": 1200,
+  "complete_fetch_attempt": true,
+  "year_fetch_diagnostics": {
+    "2024": {"year": 2024, "histogram_count": 50, "cached_total": 49, "seen_total": 50, "dedup_count": 0, "termination_reason": "short_page_stop"},
+    "summary": {"histogram_total": 1200, "scholar_total": 1210, "cached_total": 1195, "seen_total": 1205, ...}
+  },
+  "direct_fetch_diagnostics": {
+    "summary": {"scholar_total": 46, "cached_total": 46, "seen_total": 46, "dedup_count": 0, "termination_reason": "iterator_exhausted"}
+  },
+  "fetched_at": "2026-05-05T12:00:00"
+}
+```
+
+**不在 output 中的字段**（可从 diagnostics 推导）：`num_citations_seen`、`cached_year_counts`、`dedup_count`、`complete`。
+
+### partial_year_start 的语义
+
+- **只在同一次运行内有效**，不写入缓存文件
+- 当某一年处理到一半被中断，记录已处理位置
+- 必须是**页面对齐的**（10 的倍数）
+- 跨运行时永远为空 `{}`
+
+---
+
+## Citation 状态判定
+
+### complete/partial 规则
+
+- **Year mode**: `year_fetch_diagnostics.summary.histogram_total <= seen_total` → complete
+- **Direct mode**: `direct_fetch_diagnostics.summary.scholar_total <= seen_total` → complete
+- 无 diagnostics summary → fallback 到 `num_seen >= current_scholar_total`
+
+### Fetch policy 选择
+
+- 引用数 < 50 → direct（简单翻页获取）
+- 引用数 >= 50 → year（按年份桶获取，支持断点续传和按年跳过）
+
+### 断点续传
+
+- Direct 模式：`direct_resume_state` 记录 page-aligned 位置，重试从页开头重抓
+- Year 模式：`completed_year_segments` 记录已完成年份，`partial_year_start` 记录年份内断点
 
 ---
 
@@ -233,162 +243,11 @@ pub_obj = {
 |--------|------|
 | Summary | 论文概览，含 Scholar 引用数 vs 已采集引用数 |
 | All Citations | 所有引用来源的扁平列表 |
+| Run Metadata | 运行级元数据（author_id, fetch_time, totals） |
 
 ---
 
-## venue 字段说明
-
-- **论文列表**（profile 阶段）：bib 只含 `title`、`pub_year`、`citation`，venue 取自 `bib.citation`
-- **引用来源**（citation 阶段）：publication search snippet 的 bib 含 `venue` 字段，直接使用
-
----
-
-## 环境说明
-
-- conda 环境：`scholar`
-- 关键包：`scholarly==1.7.11`、`openpyxl==3.1.5`、`httpx==0.28.1`
-- 代理：scholarly 自身代理 API 与 httpx 0.28+ 不兼容，通过系统 `https_proxy` 环境变量生效
-
----
-
-## 变更历史
-
-- **2026-03-07** — 第一步：作者主页采集脚本（fetch_author_profile.py）
-- **2026-03-08** — 第二步：论文引用采集 + 限流对策（fetch_paper_citations.py）
-- **2026-03-08** — 项目重组：合并两个脚本为 scholar_citation.py，清理个人信息，准备 GitHub 发布
-- **2026-03-08** — 去掉 `--step` 参数，profile 每次都运行，无变化时自动跳过 citation 抓取
-- **2026-03-08** — 统一等待策略：所有主动等待 30-60 秒随机值，去掉 `--delay`/`--page-delay-min`/`--page-delay-max`；心跳间隔 10 秒、超时 80 秒后 `os._exit(1)` 强制终止；主动等待结束后重置 `_last_activity`，确保超时计时不误算主动等待时间
-- **2026-03-08** — 修复 skip 逻辑：即使 citations 总数和 publications 数没变，也检查是否所有论文的 citation 缓存都已完整（`has_pending_work()`），有未完成的则继续抓取；重构 `_citation_status` 和 `_load_citation_cache` 为实例方法复用
-- **2026-03-08** — 添加论文级别重试机制（`MAX_RETRIES=3`）：抓取被阻止时刷新 session + 等待 + 重试，重试前重新加载缓存利用上次保存的部分进度；超时重试耗尽后保存已有结果并退出
-- **2026-03-08** — Monkey-patch scholarly `_navigator._get_page` 的 403/DOS 重试等待：原始代码用 `random.uniform(60, 120)` 等 60-120 秒，会超过心跳 80 秒超时导致误杀进程。现在拦截 `_get_page` 内部的 `time.sleep`，>5s 的等待统一替换为 30-60s 并标记 `_deliberately_waiting`，心跳不会误判。同时将超时处理从 `os._exit(1)` 改为 `_thread.interrupt_main()` + `TimeoutError`，使重试逻辑能正常工作
-- **2026-03-08** — 优化重试策略：scholarly 内部 `_max_retries` 从 5 降为 2（`nav._set_retries(2)`），快速失败；外层采用渐进式重试（失败→等3h→重试→失败→保存进度→等6h→重试→失败→打印时间→终止）；添加全局页面访问计数器 `_total_page_count`，出错时输出已访问页数用于诊断
-- **2026-03-09** — 年份级查询从一开始就使用：引用数 >=50 的论文直接按年份用 `scholarly.search_citedby(pub_id, year_low=Y, year_high=Y, start_index=N)` 查询；每完成一个年份立即记录 `completed_years`，中断后跳过已完成年份；Session refresh 间隔改为随机 10-20 页（原固定 5 页），切换论文和年份时也刷新 session 并重置计数；scholarly 内部 403 重试通过 `MAX_SLEEPS_PER_PAGE=3` 限制，`_max_retries` 降为 1
-- **2026-03-09** — 日志增强：所有 retry/error 输出加时间戳；添加 `_new_citations_count` 本次运行新增引用计数，在 progress saved 和最终输出中显示
-- **2026-03-09** — 缓存与中断保护：主循环提取为 `_run_main_loop`，Ctrl+C 中断时也保存最终 JSON/Excel 输出；所有 Waiting 消息增加上下文（位置、累计运行时间、新增 citation 数、总页数）
-- **2026-03-10** — 修复引用变化检测：`fetch_basics()` 不再使用缓存，每次从网络获取（只需 1 次请求）以可靠检测引用数变化；当 `total_citations` 与上次不同时自动刷新 publications 列表，捕获每篇论文的引用数更新
-- **2026-03-10** — 合并 history 到 profile：`change_history` 作为 `profile.json` 的字段存储，去掉独立的 `history.json`；旧数据通过 `load_prev_profile()` 自动迁移；去掉 `--force-refresh-basics` 参数（basics 每次网络获取）
-- **2026-03-10** — 修复 citation 完成判断：`_citation_status()` 改为比较实际缓存条数 `num_citations_cached` 与当前 `pub['num_citations']`，而非比较 `num_citations_on_scholar`（抓取时快照）；逻辑简化为：缓存数 >= Scholar 数 → complete，缓存数 < Scholar 数 → partial
-- **2026-03-10** — 年份查询提前终止：`_fetch_by_year` 每完成一个年份后检查 `len(citations) >= num_citations`，满足则跳过更早年份（新增引用通常集中在最近年份）
-- **2026-03-10** — 加回 `--force-refresh-pubs`：用于 profile 更新后因断线导致 publications 没刷新的情况，手动强制刷新
-- **2026-03-10** — 引用去重：抓取时按 title（小写去空格）去重，避免 Scholar 跨年份/翻页返回重复结果；清理现有缓存中 142 条重复
-- **2026-03-10** — 修复去重导致的无效重查：去重后缓存数 < Scholar 报告数（差值是重复），`_citation_status()` 改为比较 Scholar 当前引用数与上次完成时的 Scholar 引用数（`num_citations_on_scholar`），而非比较缓存条数；Scholar 没涨 → complete，Scholar 涨了 → partial；去掉 `_fetch_citations_with_progress` 中清除 `completed_years` 的逻辑
-- **2026-03-11** — 修复 Scholar 引用增长时的更新逻辑：保留已有缓存但清空 `completed_years`，避免全量重下载或跳过所有年份；三种场景分别处理：中断续传（保留缓存+完成年份）、Scholar 增长（保留缓存，清年份）、首次抓取（全空）
-- **2026-03-11** — 年份扫描 early stop 优化：传入 `prev_scholar_count`，当本篇论文新增引用数 >= Scholar 增量时提前停止扫描更早年份；使用 `paper_new_count` 局部计数而非全局 `_new_citations_count`
-- **2026-03-11** — 添加 `--force-refresh-citations`：正常模式下 `_citation_status` 比较 Scholar 当前数 vs 上次完成时 Scholar 数（容忍去重差值）；force 模式直接比较缓存条数 vs Scholar 当前数，不匹配即重新抓取；两个 force 参数独立：`--force-refresh-pubs` 作用于 profile 阶段，`--force-refresh-citations` 作用于 citation 阶段
-- **2026-03-12** — 修复 `--force-refresh-citations` 被提前 return 拦截：main() 中"无变化检测"分支加入 `not args.force_refresh_citations` 条件，force 模式下跳过该检查
-- **2026-03-12** — 修复 `--force-refresh-citations` 中 `completed_years` 未清空：force 模式下主循环始终清空 `completed_years`，确保每个年份都重新检查；新增 `force re-check` action 标签与 `resume`/`update`/`first fetch` 区分
-- **2026-03-12** — 修复漏抓引用：`start_index` 依赖 `year_counts` 不可靠（4% 引用的 year 字段为 N/A 导致计数偏少）；改为每个年份始终从 `start_index=0` 开始，完全依靠 `seen_titles` 去重跳过已有引用
-- **2026-03-12** — 去重时输出重复条目：遇到重复引用时打印 `[dedup]` 日志，显示新条目和已有条目的标题+年份，方便人工核查
-- **2026-03-12** — 修复 scholarly `search_citedby` 漏抓 bug：该方法始终在 URL 中加入 `&as_sdt=N,33`（地区过滤参数），导致 Scholar 过滤部分结果（实测 19→18）；改为直接构造不含 `as_sdt` 的 URL，使用 `_SearchScholarIterator` 迭代，与 `PublicationParser.citedby()` 内部做法一致
-- **2026-03-13** — 延长重试等待时间：第一次失败 3h→6h，第二次失败 6h→12h
-- **2026-03-14** — 修复 `_refresh_scholarly_session` 因 httpx 不兼容崩溃：捕获 `TypeError`，session 刷新失败时静默跳过
-- **2026-03-14** — 添加浏览器特征参数 `as_sdt=0,5`：citation URL 改用全局地区码（5），避免 scholarly 默认的 `,33`（纽约地区）过滤结果；彻底研究确认 `as_sdt` 含义：第一段=搜索类型，第二段=地区码，`as_sdt=2005` 是 Scholar 内部 "Cited by" 专用复合标志
-- **2026-03-14** — 随机化抓取顺序：无 `--skip`/`--limit` 时 shuffle `need_fetch`，避免每次从最高引用论文开始触发 ban；有 `--skip`/`--limit` 时保持原始顺序以保证定位准确
-- **2026-03-14** — 优化运行摘要输出：显示 `X/231 papers, N fetched, M new`；`_papers_fetched_count` 记录本次实际抓取数；中断/limit 导致的未处理论文从缓存补数据，保证总引用数准确
-- **2026-03-15** — 记录 `num_citations_seen`（缓存数+去重数）：新增 `_dedup_count` 只统计 Scholar 自身列表的重复（不含 cache hit），保存到缓存；`_citation_status` 优先用 `num_citations_seen >= current` 判断完整性，无此字段时回退旧逻辑
-- **2026-03-16** — 修复 `search_author_id` 返回 `None` 导致崩溃：Scholar 限流时返回 None，加入显式检查并打印清晰错误信息
-- **2026-03-17** — 修复 `--skip`/`--limit` 语义：改为基于所有论文列表的绝对位置；`--skip M` 跳过前 M 篇，`--limit N` 在 skip 之后处理 N 篇（M+1 到 M+N），skip 不计入 limit
-- **2026-03-17** — 记录 citation URL：每次按年份请求时打印完整 URL 方便对比验证
-- **2026-03-17** — 修复中断后年份丢失：`_fetch_by_year` 的 `except` 由仅捕获 `KeyboardInterrupt` 扩展为同时捕获 `Exception`，任何异常都调用 `save_progress(complete=False)` 保存已完成年份
-- **2026-03-18** — 改善 `fetch_basics` 异常提示：`AttributeError`/`TypeError`（Scholar 返回 None 导致）单独捕获，输出明确的网络问题提示，不打印堆栈；其他异常仍打印完整堆栈
-- **2026-03-20** — 降级 httpx 至 0.27.2 修复 session 刷新：scholarly 1.7.11 使用已在 httpx 0.28 移除的 `proxies=` 参数，导致 `_new_session()` 始终抛 `TypeError` 被静默吞掉，session 从未真正刷新；降至 0.27.2 后 `_new_session()` 正常工作；requirements.txt 固定 `httpx==0.27.2`
-- **2026-03-20** — 增加请求延迟：`DELAY_MIN 30→45`，`DELAY_MAX 60→90`，降低 Scholar IP 级速率限制触发概率
-- **2026-03-20** — 新增强制长休息机制：每 8-12 页（随机）触发一次 3-6 分钟休息，让 Scholar 的滑动窗口速率限制有时间重置；休息后顺带刷新 session 并重置 `_next_refresh_at`；与常规 session 刷新（10-20 页一次）独立运行，长休息优先级更高；`_next_break_at` 和 `_next_refresh_at` 错开初始化，避免两者同时触发
-- **2026-03-20** — 修复 httpx 0.27.2 下 proxy 失效问题：`scholarly.use_proxy(pg)` 在 0.28.1 时因 TypeError 被 catch 而不生效，proxy 由 httpx 自动读取环境变量；降至 0.27.2 后该调用开始生效，但 scholarly 的 `{'http': url}` 格式与 httpx 0.27.x 要求的 `{'http://': url}` 格式不符，导致 proxy 静默失效、直连 Scholar 被封；修复方案：`setup_proxy()` 不再调用 scholarly proxy API，完全依赖 httpx `trust_env=True` 自动读取 `HTTPS_PROXY` 环境变量
-- **2026-03-20** — 浏览器请求还原（通过抓取真实 cURL 分析）：①年份查询 URL 从 `as_sdt=0,5` 改为 `as_sdt=2005`（Scholar citation-search 专用内部标志），并补充 `sciodt=0,5` 和 `scipsc=`，与浏览器点击年份过滤产生的 URL 完全一致；②在 scholarly 的 httpx session 上添加完整浏览器 headers：`sec-fetch-dest/mode/site/user`、`sec-ch-ua`、`upgrade-insecure-requests`、完整 `accept`；③动态 Referer：每次翻页前将 `_last_scholar_url`（上一页 URL）设为 Referer，初始值为 author profile URL（模拟用户从作者主页点击"Cited by"的导航链）；④patch `_new_session`：scholarly 在真正 403 后重建 httpx client 时自动重新应用 browser headers；⑤session 策略改变：`_refresh_scholarly_session` 改为 soft reset（只重置 `got_403`，不销毁 httpx client），保留 Scholar 在请求过程中积累的 cookies
-- **2026-03-21** — 交互式 captcha 输入改为逐行读取（`input()` loop + 末行无 `\` 自动结束），替换原来的 `sys.stdin.read()`；`sys.stdin.read()` 在 SSH+tmux 下会卡死（Ctrl+D 被 tmux/SSH 拦截无法触发 EOF）；新方案基于 Chrome DevTools cURL 格式特征（最后一行无 `\`）自动检测粘贴完成，无需任何结束符
-- **2026-03-21** — 程序结束时输出 Run summary：`elapsed X | N pages accessed | M new citations`，与运行中的 `_wait_status()` 格式保持一致；修复了同次提交中 `_save_output` 方法定义被意外删除的 bug（`def _save_output` 行在插入 `_wait_proxy_switch` 时被覆盖）
-- **2026-03-21** — 更新 README：补充所有主要功能（year-based fetching、mandatory breaks、HTTP/2、interactive captcha bypass、proxy-switch wait、run summary、`--skip`/`--limit` 语义、`--force-refresh-citations` 说明）；添加 `user.md` 和 `WORK_NOTES.md` 说明（已提交到 git，无个人信息，记录 AI 辅助开发过程，用户零代码）；注明项目完全由 Claude Code CLI 开发
-- **2026-03-21** — Interactive 模式跳过 session 重置：`--interactive-captcha` 模式下用户已注入真实 cookies，重置 session 会丢弃它们；在 4 处 `_refresh_scholarly_session()` 调用（mandatory break 后、常规 soft refresh、年份切换、retry 开头）均加 `not self.interactive_captcha` 守卫
-- **2026-03-21** — 修复年份中断后重从第1页开始的问题：新增 `partial_year_start` 机制（仅内存，不写入缓存文件），`_fetch_by_year` 在每个 item 迭代时即更新 `self._partial_year_start[year] = start_index + year_items_seen`；同一次运行内 retry 从 `self._partial_year_start` 读取断点直接跳到对应页；程序重启时自然清零，从第 0 条重来（更安全）；年份完成后 pop 清除；新增 "resuming from position N" 日志
-- **2026-03-23** — 新增 `approach.md`：记录每次用户提出意见后的标准工作流程（6步：分析→修改→确认→WORK_NOTES→user.md→提交）
-- **2026-03-23** — 完善 `--help` 输出：各参数加详细 `help=` 说明，`--skip`/`--limit` 用 `metavar` 标注变量名，加 `formatter_class=RawDescriptionHelpFormatter` 和 `epilog` 示例区；argparse 原生支持 `--help`，无需额外代码
-- **2026-03-23** — 新增 `--hard` 参数：force refresh 时默认在 `len(citations) >= num_citations` 或找到足够新引用时提前停止，避免不必要的请求；`--hard` 禁用两个 early-stop 条件，强制抓取所有年份；仅与 `--force-refresh-citations` 配合使用有意义
-- **2026-03-23** — 持久化 `dedup_count`：Scholar 自身结果中的重复条目数量写入缓存 JSON（`dedup_count` 字段）；resume/force-refresh 时以保存值初始化 `_dedup_count`（而非重置为 0），防止 force refresh 时重复条目因命中 `cached_titles` 而不被重新计数，导致 `num_citations_seen` 偏低；仅在 `--force-refresh-citations --hard` 组合时清零（此时全部年份重新抓取，重复会被重新发现）
-- **2026-03-24** — 修复 profile→citation 过渡触发验证码：`_patch_scholarly()` 创建新 HTTP/2 session 时会丢弃 profile 阶段 Scholar 设置的所有 cookies，Scholar 看到无 cookie 的全新连接直接触发验证码；修复：创建新 session 前先复制旧 session 的全部 cookies，过渡后 Scholar 仍能识别已有连接
-- **2026-03-24** — 修复 SSH/tmux 粘贴 cURL 卡死（多次迭代）：root cause 是 pty canonical mode 的行缓冲导致 pty 输入队列填满，SSH 流控生效，终端冻结；最终方案：用 `termios` 只关掉 `ICANON`（保留 ECHO），用 `select + os.read()` 在非行缓冲模式下快速消费数据；phase 1 无限等待第一个字节，phase 2 每次读后等 3s 超时判定粘贴结束；finally 块确保终端设置总被还原；经过 readline/raw mode/file-based 等多种方案测试后，ICANON-only 方案在 SSH+tmux 下验证有效
-- **2026-03-24** — 修复 probing year 三个问题：①probe 异常不再被 catch 吞掉，网络/访问类错误直接抛出传递到 `_run_main_loop` 统一触发 captcha/proxy-switch；②retry 时 start_year 不后退——probe 结果与 `min(year_counts.keys())` 取 min，防止 Scholar 档位变化导致跳过已缓存早期年份；③probe 解析多来源：除 `as_ylo=YYYY` 粗粒度侧边栏链接外，还解析单年柱状图链接（`as_ylo=X&as_yhi=X`）和引用片段年份文本（`gs_age`/`gs_gray`/`gs_a` 元素），取所有来源最小值，比仅依赖粗粒度档位更准确
-- **2026-03-25** — 原地重试机制重构：① probe 遇到验证码/封锁时在方法内部处理（`MAX_PROBE_RETRIES=3`），interactive 模式调 `_try_interactive_captcha`，非 interactive 调 `_wait_proxy_switch`，失败则返回 `None` 降级，不向外抛出；② 年份迭代中途遇到验证码时也原地重试（per-year retry loop）：interactive 模式解完验证码直接 `continue` 从断点位置继续，非 interactive 则向外抛出走 outer retry loop；③ 有 `completed_years` 记录时跳过 probe——直接用 `min(completed_years)` 作为 start_year，retry 时不再重新 probe
-- **2026-03-25** — 修复 citation start_year probe 的主数据源：用户提供了 Scholar 页面真实 DOM 片段，先误以为 sidebar 小图 `#gs_res_sb_hist_wrp .gs_hist_g_a[data-year][data-count]` 就是完整年份分布，后经用户验证发现它只覆盖最近几年；真正完整分布对应的是弹窗/完整图容器中的 `.gs_rs_hist_dialog-g_bar_wrapper .gs_hist_g_a[data-year][data-count]` / `#gs_md_hist .gs_hist_g_a[data-year][data-count]` 节点。当前 `_probe_citation_start_year` 优先解析完整图 DOM（仅取 `data-count > 0` 的年份），且一旦拿到完整图年份就直接返回，不再混入 `as_ylo=1996` 这类 fallback 链接导致错误回退；单年链接 `as_ylo=X&as_yhi=X`、粗粒度 `as_ylo=YYYY`、snippet 年份文本只在完整图 DOM 不可用时才作为 fallback
-- **2026-03-26** — 年份确认逻辑改为“每次新抓取都 probe，一次运行内恢复不重复 probe”：用 TDD 添加 `test_year_probe_logic.py` 验证三种行为——① force refresh 且有缓存年份时仍会 probe；② 普通新一轮抓取即使已有缓存年份也会 probe；③ 同一次运行内如果 `completed_years` 非空，则跳过 probe。实现上删除了“有 `year_counts` 且非 force 就直接信缓存年份”的分支，仅保留“`completed_years` 非空时跳过 probe”的特例。验证命令：`python3 -m unittest test_year_probe_logic.py` 与 `python3 -c "import ast; ast.parse(open('scholar_citation.py').read())"` 均通过
-- **2026-03-26** — CLI 语义清理：将 `--force-refresh-citations` 重命名为 `--recheck-citations`，更准确表达“在选中论文范围内重新检查 citation 完整性并仅重抓不完整者”的实际行为；`--skip` / `--limit` 语义不变。删除已过时的 `--hard` 参数（当前默认 early-stop 行为已经足够，`--hard` 不再提供独立价值）；保留 `--force-refresh-citations` 作为 deprecated alias 以兼容旧用法
-- **2026-03-28** — Interactive 模式等待缩短实验参数化：原先为测试“页面访问数 / 验证次数”关系，曾把 interactive 模式所有 deliberate waits 固定缩短到 1/10；现改为显式参数 `--accelerate SCALE`，默认 `1.0`（原始速度），例如 `--accelerate 0.1` 才表示快 10 倍。该比例统一作用于 profile 阶段等待、citation request wait、citation probe wait、paper-to-paper wait、mandatory break。配合 `_captcha_solved_count` 与 `_wait_status()` 输出中的 captcha solves，一起观察不同等待倍率对验证码频率的影响
-- **2026-03-31** — 引用去重键从 title-only 改为组合 identity：新增 `_normalize_identity_part()` 与 `_citation_identity_key()`，抓取 citation 时优先用 `title + venue` 去重，venue 缺失/N/A 时回退到 `title + authors`，再退回 `title`。普通抓取路径与按年份抓取路径统一使用该键，避免 Scholar 中“同标题但不同 venue/source”的记录被误判为重复；旧缓存无需迁移，resume / recheck 时会基于缓存里的 title/authors/venue 重新计算 identity，自然兼容历史数据。新增 `test_year_probe_logic.py` 回归测试，覆盖 identity 规则、普通路径/年份路径去重，以及旧缓存 resume 场景；测试命令 `python -m unittest test_year_probe_logic.py` 已通过（11 tests）。
-- **2026-03-31** — 补记协作流程要求：`user.md` 与 `WORK_NOTES.md` 需要和 Python 代码一起同步更新，并在每次相关修改时一并提交，避免文档记录落后于代码状态。
-- **2026-03-31** — 持久化年份分布并跳过未变化年份：每篇论文缓存新增 `probed_year_counts`（probe 看到的 Scholar 年份直方图）和 `cached_year_counts`（本地已缓存引用按年份聚合）；后续 update / recheck 时，`_fetch_by_year()` 会比较当前 probe 计数与缓存年份计数，若某年计数相同且该年没有 `partial_year_start` 断点，则直接标记该年完成并跳过请求；旧缓存若没有新字段则回退为从 `citations` 现场聚合年份计数，保持兼容。
-- **2026-04-01** — 修正年份抓取的 early-stop 与 recheck 语义：命中 early-stop 条件时不再立刻中断当前页，而是处理完当前 page 后再停止；同时把 update / recheck 语义显式分离，新增 `allow_incremental_early_stop` 控制参数，只有普通 update 模式允许按 Scholar 增量提前停止并采用 newest→oldest；`--recheck-citations` 改为禁用该增量 early-stop，并固定按 oldest→newest 做完整年份重检。新增 `test_citation_page_stop.py` 覆盖“当前页处理完再停”“recheck 不按增量早停”“recheck 方向为 oldest→newest”三个回归场景，`python -m unittest test_citation_page_stop.py` 通过。
-- **2026-04-01** — 修正 citation year probe 的 histogram 完整性语义：`_probe_citation_start_year()` 现在同时接收 Scholar 总引用数和论文 `pub_year`，先校验 full histogram DOM 的年度计数总和是否等于 Scholar 总数；只有总和一致时，才把 `probed_year_counts` 视为完整年份分布并允许 `_fetch_by_year()` 使用 `probe count=0` / `cached==probe` 的按年跳过优化。若 histogram 总和不一致，则回退为保守年份范围（`start_year` 至少不晚于 `pub_year`），并禁用基于该 histogram 的 count-based 年份跳过，避免因直方图缺年而漏抓 citation。`test_citation_page_stop.py` 新增回归测试覆盖“不完整 histogram 回退到 pub_year”“不完整 histogram 不跳年”“完整 histogram 仍保留跳年优化”，`python -m unittest test_citation_page_stop.py` 通过。
-- **2026-04-01** — 补充 year-based 抓取运行日志：在 `_probe_citation_start_year()` 中增加 histogram 年份分布摘要、histogram 完整/不完整说明、`pub_year` 是否参与 conservative `start_year` 回退等日志；在 `_fetch_by_year()` 中增加整体 year fetch context（mode、probe_complete、target、cached/probe/completed/partial year 摘要）以及逐年 skip / fetch / resume / done 的上下文日志，并在 early-stop 时标明发生的 year。新增 `test_citation_page_stop.py` 日志回归测试，验证 incomplete histogram、完整 histogram skip reason、resume year context 三类输出，`python -m unittest test_citation_page_stop.py` 通过。
-- **2026-04-02** — 交互式验证码恢复增强：粘贴浏览器 cURL 时除 cookies 外，还会复用一小组 allowlisted 请求头（`accept`、`accept-language`、`priority`、`sec-ch-ua*`），并在 scholarly session 重建时自动重放；仍保持程序自身的动态 `referer`、固定 `user-agent` 与其他请求形状不变，以尽量利用跨设备但同 domain 的 cURL 信息，同时控制副作用
-- **2026-04-02** — 调整 year-based fetch 的完整性判断与日志可读性：当 `cached_total_citations == scholar_total` 且当前没有 `partial_year_start` 断点时，`_fetch_by_year()` 直接采用 total-count fallback 跳过整篇论文的 year fetch，把 histogram 缺口解释为 citation 缺少年份元数据而非缺失缓存；同时新增对称的 `Probe totals` / `Cache totals` 诊断（分别输出 Scholar 总数、histogram 总数、missing-from-histogram 与 cached 总数、按年计数总和、unyeared），并把 year-based context 日志整理成更清晰的分组块（`Fetch context`、`Direction`、`Probe summary/totals`、`Cache summary/totals`、`Completed years`、`Partial resume points`），缩进加大，便于长输出中快速定位。`test_citation_page_stop.py` 新增 total-count fallback 与 partial-resume 覆盖，回归测试 `python -m unittest test_citation_page_stop.py` 通过。
-- **2026-04-03** — citation refresh 两阶段策略补齐：在 `_selective_refresh_candidate_years()` 中把 `partial_year_start` 断点年份纳入 changed-years 选择；`_fetch_by_year()` 在 update 模式且 probe histogram 完整时，会显式根据 `cached_year_counts` vs `probed_year_counts` 自动计算 `selective_refresh_years`，优先只刷新发生变化的年份，而不是直接整段重抓；同时把大论文 `--recheck-citations` 的策略收敛为显式 `force_year_rebuild=True`，避免用空 `selective_refresh_years` 表达“全量重检”这种歧义语义。
-- **2026-04-03** — 新增 `_run_main_loop()` escalation 回归测试：`test_citation_page_stop.py` 增加 “第一次 incremental/year-selective fetch 后 reconciliation 失败，再自动升级为 full year revalidation 并成功” 的 orchestration 测试；同时修复测试基础设施里的等待假挂起问题（mock `rand_delay` / `time.sleep` / `_wait_proxy_switch`）和缺失的 `_papers_fetched_count` 初始化。验证通过：`python -m unittest test_citation_page_stop.py`（23 tests, OK）。
-- **2026-04-04** — 修复 reconciliation escalation 后的 stale state 覆盖：新增 `_rehydrate_probe_metadata()`，仅在缓存显式标记 `probe_complete=True` 且 histogram 总和仍等于当前 Scholar 总数时，才恢复 `probed_year_counts` 的完整直方图语义；`_fetch_citations_with_progress()` 会把 `probe_complete` 一并持久化。`_run_main_loop()` 在普通 retry 时会从最新缓存重新 hydrate probe metadata，但当 reconciliation 失败并升级为 full revalidation 时，会用 `preserve_escalated_state_once` 保留升级后的内存状态，避免下一轮被 stale cache、旧 `completed_years`、旧 `dedup_count` 或旧 histogram 覆盖。`test_citation_page_stop.py` 新增 rehydrate / retry / escalation regression tests，验证 legacy/stale complete flag 会被降级、普通 retry 能恢复最新 probe metadata、escalation retry 不会回退到磁盘旧状态；`python -m unittest test_citation_page_stop.py` 通过（29 tests）。
-- **2026-04-04** — 每篇论文 citation 抓取完成时新增收尾摘要：保留原有 `Done: ...` 总数日志，并在存在年份 bucket 时追加 `Year summary: ...`；其中 `_format_year_count_summary()` 的 `nonzero=` 展示字段重命名为更清晰的 `years_with_citations=`，同时把缺少年份元数据的 citation 继续单独表示为 `unyeared=N`，避免与 histogram bucket 数混淆。新增 `test_citation_page_stop.py` 回归测试覆盖 final year summary 输出与文案改名，`python -m unittest test_citation_page_stop.py` 通过（31 tests）。
-- **2026-04-05** — citation accounting 语义切换为 histogram-authoritative：year-based 路径不再以 `cached_total == scholar_total` 作为完成条件，而是以 `cached_year_counts == probed_year_counts` 为准；新增 `_build_citation_count_summary()` 统一输出 `scholar_total`、`histogram_total/year_sum`、`cached_total`、`cached_year_total`、`cached_unyeared_count`、`dedup_count`、`unyeared_count`，并把这些字段写入 cache 的 `probed_year_total`、`cached_unyeared_count`、`citation_count_summary`。`_refresh_reconciliation_status()`、`_refresh_log_message()`、`_refresh_escalation_message()` 和 `_citation_status()` 均改为优先使用 histogram metadata；`_fetch_by_year()` 新增 histogram-authoritative skip/logging，明确区分 Scholar total、year sum、cached total、cached year sum、dedup num。另修复两处回归：`save_progress()` 在 fresh/materialized 为空但已有旧缓存时保留旧 citations，避免 summary 被错误写成 0；resume 日志优先读取持久化 `self._cached_year_counts`，避免 partial resume 显示 `cached=?`。回归测试 `python -m unittest test_citation_page_stop.py` 通过（34 tests）。
-- **2026-04-08** — 新增运行日志镜像：`main()` 在每次运行开始时创建 `output/logs/author_<id>_run_<timestamp>.log`，通过 `TeeStream` 将 stdout 同时写入终端和日志文件，覆盖 profile/citation/proxy/skip 等现有 `print()` 输出，不引入额外 logging 框架；`test_citation_page_stop.py` 新增回归测试验证时间戳命名日志文件创建与 skip 分支日志写入。
-- **2026-04-08** — 修复 year-based citation 抓取缺少年份时的回填：`_extract_citation_info(pub, fallback_year=None)` 在 Scholar 未返回 `pub_year`（空值 / `N/A` / `?`）时允许使用当前 year-query 的年份回填；仅在 `_fetch_by_year()` 的按年份请求路径传入 `fallback_year=year`，普通 citedby 路径保持不变，从而修正 `cached_year_counts`、`cached_unyeared_count`、`citation_count_summary` 与 reconciliation 的 year-based 统计。新增回归测试覆盖“缺失年份回填查询年份”和“若 citation 自带明确 `pub_year` 则保持原值不覆盖”。
-- **2026-04-08** — 修复 paper citations JSON / Excel 导出不一致：`_save_output()` 改为先构造共享 `output_payload`（`author_id`、`fetch_time`、`total_papers`、`total_citations_collected`、`papers`），JSON 直接写出该 payload，Excel 通过 `_save_xlsx(results, metadata=output_payload)` 新增 `Run Metadata` sheet，同步写入顶层运行级元数据；新增回归测试验证 Excel metadata 与 JSON 顶层字段一致，并检查 citation 行中的 `year` 与 JSON 同步。
-- **2026-04-08** — citation 去重进一步升级为 Scholar 原生 `cites_id` 优先：`_extract_citation_info()` 现在持久化 `cites_id`，`_citation_identity_keys()` 优先使用 `cites_id` 做 identity，同时保留 `title + venue/authors` 的 metadata fallback；`_overlay_citations_by_identity()`、普通抓取、year-based 抓取、cache overlay 与最终 JSON/XLSX 导出统一复用这套规则，因此新抓取记录可以无缝覆盖旧缓存中没有 `cites_id` 的 citation，避免重复且无需做一次性缓存迁移。`All Citations` 工作表同步增加 `Cites ID` 列，并补充 `test_citation_page_stop.py` 回归测试覆盖 `cites_id` 提取、identity 优先级、legacy cache merge 与输出写出。
-- **2026-04-08** — year-based resume 状态语义澄清：把持久化/运行时混用的 `completed_years` 明确收敛为 `completed_years_in_current_run`，只表示“当前这一次运行里已经完成的年份”，仅用于同次运行中断后的 retry/resume 控制；fresh run / cross-run 是否需要重抓，不再把这个字段当作 authoritative truth，而是主要依赖 cache/probe reconciliation（`probe_complete`、`probed_year_counts`、`cached_year_counts`）。为兼容旧缓存，读取时仍会回退接受历史 `completed_years` 字段，但新语义下日志与主流程都按 current-run resume state 解释。同步更新 `test_citation_page_stop.py` 覆盖 `_run_main_loop()`、retry rehydrate、保存字段与 fetch 调用参数，验证 targeted regression `python -m unittest test_citation_page_stop.py` 通过（42 tests, OK）。
-- **2026-04-09** — 修复 year-based refresh 的状态统计口径：`_fetch_by_year()` 在年份抓取过程中虽然已经用 year-bucket replacement 更新了 authoritative citation state，但 `Year {year} status: paper_total=...`、histogram target reached、以及 year-path partial save 仍有部分地方读取旧的 overlay 视图，导致日志里的 `paper_total` 落后于真实替换后的总数。这次统一改成在 year-based 路径下使用 authoritative materialized citations 进行状态统计与 partial save；非 year-based / small-paper 的 incomplete save 仍保留原有 overlay 语义。同步补充 `test_citation_page_stop.py` 回归测试，覆盖 year status total 与 partial save snapshot，`python -m unittest test_citation_page_stop.py` 通过（43 tests, OK）。
-- **2026-04-09** — 放宽 incomplete probe 在 year-based incremental update 中的用途：即使 `probe_complete=False`，只要 histogram 已经明确指出某些年份存在 deficit（`cached_year_counts[year] < probed_year_counts[year]`），`_fetch_by_year()` 也会自动把 selective refresh 缩到这些 deficit years；`probe_complete` 继续只用于 authoritative match / reconciliation 这类“是否已完全一致”的严格语义，不再作为 selective refresh 的硬门槛。同步补充 `test_citation_page_stop.py` 回归测试，覆盖 deficit-only refresh、missing probed year 不视为 0、empty-candidate fallback、partial resume 优先级，`python -m unittest test_citation_page_stop.py` 通过（47 tests, OK）。
-- **2026-04-09** — 修复长时间运行导致的 per-paper citation count snapshot 过期问题：当 citation fetch 在 year probe 或 direct fetch 中观察到 live count 高于 profile snapshot 时，`PaperCitationFetcher` 现在只做单向上调（upward-only promotion），同步更新该论文的 `pub['num_citations']`、per-paper cache 里的 `num_citations_on_scholar` / `citation_count_summary`，并在最终保存输出前把提升后的数值批量刷回 `publications.json`、`author_<id>_profile.json` 和 profile xlsx。author-level `total_citations` / `author_info.citedby` / `change_history` 仍保留 profile 阶段 snapshot 语义，不在 citation 阶段被静默改写。同步补充 `test_citation_page_stop.py` 回归测试，覆盖 year-histogram promotion、direct-fetch promotion、promoted cache total completeness、final profile/publications sync、preserved fetch_time；`python -m unittest test_citation_page_stop.py` 通过（50 tests, OK）。
-- **2026-04-10** — 修复 year-based citation fetch 的外层重试死循环：当 `_fetch_by_year()` 已经因为 histogram-authoritative match 结束，而后续 reconciliation / finalization 阶段再抛错时，`_run_main_loop()` 现在会复用本次 attempt 已经得到的 in-memory citations，只重试 post-fetch reconciliation，不再重新从 cache 进入 `_fetch_citations_with_progress()`。这样可避免 interactive 模式下一直重复 `Retrying with ... cached citations from previous attempt` → `Year fetch skipped: histogram-authoritative match` 的空转循环。同步补充 `test_citation_page_stop.py` 回归测试，覆盖“真实 fetch 失败仍从 cache retry”与“post-fetch 失败不再 refetch”两条路径。定点 unittest 触发了异常慢/被系统杀掉（exit 137），本次未保留完整通过记录，后续应继续只跑最小相关用例并确保快速结束。
-- **2026-04-10** — 调整 citation refresh/early-stop 控制流：year-based fetch 不再使用 incremental early stop，selective refresh 失败后仅记录结果、不再 escalation/retry；post-fetch reconciliation 对 `histogram_incomplete + probe_complete=False` 也改为直接记录结束，避免 small-year 场景重复打印 `Retrying post-fetch reconciliation with in-memory citations`。同时把 incremental early stop 限定在 small direct fetch，并改为基于 materialized total 达到 Scholar total 时停止；新增 first-fetch 保护，首抓没有旧缓存时不再错误触发 `recovered Scholar increase` 早停。补充 `test_citation_page_stop.py` 回归测试覆盖 selective refresh、incomplete histogram、direct fetch early stop、recheck no early stop、first fetch no early stop，以及 year-based fetch 不再被 early stop 打断。已定向跑通 direct-fetch 相关 3 个 unittest；整包 `test_citation_page_stop.py` 暂未重跑，因为先前暴露出 year-based 分页退出条件导致的日志洪水，后续应继续只跑最小相关用例并确保快速结束。
-- **2026-04-11** — 收口 citation completeness 语义：`_refresh_reconciliation_status()` 现在按两套规则判断完成状态——year-based 流程只比较逐年 histogram（`cached_year_counts == probed_year_counts`，即使存在 unyeared 缺口也视为 complete），small/no-probe 流程只比较整体总数（`cached_total == scholar_total`，含 unyeared）。同时修复 `_citation_status()` 对 promoted totals 的误判：仅当本地实际缓存条数已达到当前 Scholar 数量时，才允许把 cache 判为 complete，避免 “cache 只有 1 条但 metadata 已提升到 44” 的论文被跳过。同步清理并补充 `test_citation_page_stop.py` 中的 reconciliation / sparse-cache 回归测试；本次只跑最小相关用例，7 个定向 unittest 全部通过，继续避免整包测试造成日志洪水。
-- **2026-04-11** — 修复 `_run_main_loop()` 的 post-fetch 异常重试控制：当 fetch 已完成、但 `Done` / `Year summary` / reconciliation 阶段抛异常时，现在只允许用 in-memory citations 重试一次；第二次仍失败则直接抛出包含原始异常类型与消息的错误（如 `Post-fetch reconciliation failed after retry: RuntimeError: ...`），不再进入无限 `Retrying post-fetch reconciliation with in-memory citations` 循环，也不再错误走 `_wait_proxy_switch()`。同时在 small/direct fetch 开始前新增 `Direct fetch target: scholar_total=..., prev_scholar=..., cached_total=..., allow_early_stop=...` 日志，便于在 resume/cache 之外直接看到本轮抓取目标。补充 `test_citation_page_stop.py` 的最小回归测试，覆盖 post-fetch retry 限制与 direct fetch target 日志；已定向跑通相关 5 个 unittest。
-- **2026-04-11** — 修复 small/direct fetch 的 early-stop 计数口径：停止条件不再使用 incomplete materialized cache（`old_citations + fresh_citations` 的 overlay）总数，而改为只按本轮最新从 Scholar 抓到的 `fresh_citations` 数量判断。这样不会再出现日志里 `Direct fetch: reached target (109 >= 109)`，但最终 `Done: 106 cached, 106 seen (Scholar: 109)` 的自相矛盾情况；引用恢复进度现在严格以最新 Scholar 结果为准。同步补充 `test_citation_page_stop.py` 回归测试，覆盖“旧 cache overlay 不再被计入 early-stop target”；已定向跑通 direct-fetch 相关 3 个 unittest。
-- **2026-04-11** — 增强请求可观测性：在 scholarly 底层请求 patch 中统一打印每次访问的 Google Scholar URL，并在可用时附带 referer，便于检查 profile / publications / citation 抓取到底访问了哪些页面、分页参数是否正确，以及错误发生前最后一次请求落点。实现上把 URL 日志收口到 `_patch_scholarly()` 的 `patched_get_page()`，避免在 `patched_load_url()`、year probe 或高层 `search_author_id()` / `fill()` 调用点重复打印。同步补充 `test_citation_page_stop.py` 最小回归测试，覆盖 profile request URL 与 citation request URL 日志；已定向跑通相关 3 个 unittest。
-- **2026-04-13** — 统一 citation skip/update 判定语义：`_citation_status()` 现在按 fetch policy 区分 direct 与 year-based。direct 模式在缓存记录的 `num_citations_on_scholar` 与当前 Scholar total 一致、且上一轮 `num_citations_seen >= current total` 时判 `complete`；year-based 模式在 `num_citations_on_scholar` 未变化且 `num_citations_seen >= probed_year_total` 时判 `complete`，等价于 `seen >= scholar_total - scholar_unyeared`。`--recheck-citations` 仍绕过该 shortcut，direct underfetch diagnostics 仍优先把缓存判为 `partial`。
-- **2026-04-13** — 补充 skip-rule 回归测试：`test_citation_page_stop.py` 新增/更新 direct `seen >= scholar_total`、year-based `seen >= scholar_total - scholar_unyeared` 以及 year-mode 未达到门槛时保持 `partial` 的测试；整份 `python -m unittest test_citation_page_stop.py` 通过（85 tests, OK）。
-- **2026-04-13** — README 最小澄清：把 `Incremental Caching` / `--recheck-citations` 的高层描述补成 seen-aware completeness 语义，明确 direct 与 year-based 在“下次是否需要更新”上的判断口径不同，避免把 year-based 的 histogram target 误读成必须严格等于 Scholar total。
-- **2026-04-13** — 完成 direct fetch 的 retry 断点续抓：为 direct 模式新增独立的 `direct_resume_state`（`mode/next_index/source_scholar_total/citedby_url`），partial save 持久化、complete save 清空；`_resolve_refresh_strategy()` 统一负责 direct resume 的恢复与失效判定，仅在 fetch policy 仍为 direct、Scholar total 未变、`citedby_url` 一致、direct cursor 合法且 histogram 语义仍有效时复用。direct fetch 入口改为显式 `start=` 分页，并支持 `page_start + in_page_skip` 的非整页恢复，避免 captcha/temporary failure 后从第一页 replay 已抓页面。`_run_main_loop()` 的 retry/reload-cache 路径现在会重新加载 latest cache，并按最新 cache 与当前策略重新决定是否保留 direct offset；同时修复 retry 场景下 year/probe metadata 的兼容分流：latest cache 没有 `num_citations_on_scholar` 时，仅在初始 attempt 已存在有效 probe metadata 的情况下才沿用 latest cache 的 `completed_years_in_current_run` 与 probe metadata，否则视为 stale retry cache 丢弃这些 year-state。同步修复 direct diagnostics helper 区域的语法/兼容问题（补回 `_build_direct_fetch_diagnostics()`、`_direct_fetch_diagnostics()` wrapper、`_direct_fetch_log_message()`），并在 `test_citation_page_stop.py` 的 `setUp()` 中显式重置 `self.fetcher.recheck_citations = False`，避免全量测试的状态污染。最终 `python -m unittest test_citation_page_stop.py` 通过（82 tests, OK）。
-- **2026-04-14** — 修复 direct fetch 两个回归：① `_iter_direct_citedby()` 在非-resume direct 路径补回传给 `scholarly.citedby()` 的 `num_citations`，避免 `KeyError: 'num_citations'`；② direct fetch 开始前预先把 `self._current_attempt_url` 设为当前 direct request URL，避免报错或 captcha 提示继续显示上一条 year-based 请求 URL（例如残留的 `start=70`）。新增 `_direct_request_url()` 统一 direct request URL 计算，并补充最小回归测试覆盖 direct publication payload 与 `_current_attempt_url` 刷新。
-- **2026-04-14** — 收紧 year-based resume / pagination 语义：新增 `_page_aligned_start()`，resume 请求里的 `start` 一律对齐到 10 的整数倍；partial resume 改为“页对齐请求 + in-page skip”，例如逻辑位置 148 会请求 `start=140` 并跳过前 8 条，避免重复抓取污染 dedup 计数。`_fetch_by_year()` 现在在当前请求返回不足 `SCHOLAR_PAGE_SIZE` 时立即停止，不再继续请求下一页；日志文案也从含混的 `retrying from position` 改为更明确的 `resuming ... via page start ... (skip first ...)` / `continuing ...`。同步更新 `test_citation_page_stop.py` 多个分页/恢复回归场景，整份 `python -m unittest test_citation_page_stop.py` 通过（88 tests, OK）。
-- **2026-04-14** — 修复跨论文 year histogram 状态泄漏：`_fetch_citations_with_progress()` 入口现在会基于当前论文的 `resume_from` 立即重置 `self._cached_year_counts`，不再沿用上一论文在 `save_progress()` 中留下的实例级 histogram；这样 `_fetch_by_year()` 打印的 `Cache summary` 与 `Cache totals` 始终对应同一篇论文的 cache snapshot。同步补充 `test_citation_page_stop.py` 回归测试，验证同一个 fetcher 顺序处理两篇论文时，第二篇不会复用上一篇论文的 cached histogram。
-- **2026-04-14** — 修复 direct fetch 的 page-boundary save / early-stop：`_iter_direct_citedby()` 现在保留 `_finished_current_page`，direct 模式不再按 `save_every` 每 N 条 citation 保存，也不再在页内命中 `target_reached` / `scholar_increase_recovered` 后立刻停止；改为处理完整个当前 page 后统一 `save_progress(complete=False)`，再按整页后的 `seen_total` / `paper_new_citations_count` 决定是否 early stop。partial save 的 `direct_resume_state.next_index` 也随页边界进度更新。同步更新 `test_citation_page_stop.py` 覆盖 partial save、target reached、seen+dedup completion 与 page-boundary stop 场景；整份 `python -m unittest test_citation_page_stop.py` 当前通过（96 tests, OK）。
-- **2026-04-14** — 下沉 year-based per-year diagnostics：为 year-based fetch 新增逐年 `scholar_total / cached_total / seen_total / dedup_count / underfetched / underfetch_gap / termination_reason` 诊断，并把这套 direct-style `seen >= scholar` 完成语义接到 `_fetch_by_year()` 的单年 skip、`_selective_refresh_candidate_years()` 的 refresh year 选择、`_citation_status()` 的 partial 判定，以及最终的 `Year fetch comparisons` / `Direct fetch summary` 日志输出里。同步补充 `test_citation_page_stop.py` 回归测试，覆盖 per-year completion boundary、underfetched bucket、selective refresh、rehydration、final logging；整份 `python -m unittest test_citation_page_stop.py` 当前通过（96 tests, OK）。
-- **2026-04-14** — 修正 direct retry 与 final totals 的语义：`_resolve_refresh_strategy()` 在 direct 模式下不再恢复 `direct_resume_state`，即使 cache 里还留有 `next_index/source_scholar_total/citedby_url` 也统一从 head 重跑，避免 temporary failure / captcha 之后直接从中间页 `start=40` 一类 offset 续抓，把本轮 fresh 抓到的数量误当成整篇 cache 总量。direct fetch 结束时也把 final summary 拆成两层：`yielded_total/seen_total` 继续表示本轮 fresh fetch 的结果，而 `Cache summary` / `Cache totals` 与新增的 `materialized_total/materialized_seen_total` 改为基于 materialized cache（旧缓存 overlay 新结果）输出，这样像“46 cached 后本轮又抓到 7 条”的场景会明确显示 fresh=7、materialized=47，而不是把 7 错看成整篇 paper 的当前 cache total。同步补充 `test_citation_page_stop.py` 回归测试，覆盖 direct resume 不再恢复 offset、retry 不再打印 `direct offset=...`、以及 final log 分离 fresh/materialized totals；整份 `python -m unittest test_citation_page_stop.py` 当前通过（97 tests, OK）。
-- **2026-04-14** — citation 状态判定改为“计数与 diagnostics 优先”：`_citation_status()` 不再先看 cache 里的 `complete`、`direct_fetch_diagnostics.underfetched`、`year_fetch_diagnostics[*].underfetched` 来短路 `partial`，而是先统一推导 `current / actual_cached / num_seen / probed_year_counts / cached_year_counts / direct/year diagnostics`，再按 direct 的 `seen >= scholar_total` 与 year 的 histogram/diagnostics 满足关系决定是否 complete。`complete` 现在只作为兼容性的落盘字段保留，不再主导运行时流程；这样像 `num_citations_on_scholar == num_citations_seen == num_citations_cached == 48` 但历史 cache 写成 `complete=false`、残留 `direct underfetched=true` 的论文，会被重新判为 complete 并跳过，不再被历史坏状态强行拉回抓取。同步补充 `test_citation_page_stop.py` 回归测试，覆盖 direct 坏状态翻案、year 坏 diagnostics 翻案、legacy seen shortcut 与 recheck 保持现语义；整份 `python -m unittest test_citation_page_stop.py` 当前通过（100 tests, OK）。
-- **2026-04-14** — 修复 direct mixed-policy 误抓取与末页重复保存：`_citation_status()` 现在先按当前 `fetch_policy` 决定用 direct 还是 year 语义判定 complete；如果当前策略已经回到 direct，即使旧 cache 里仍残留 `probe_complete=true`、`cached_year_counts < probed_year_counts` 和旧的 year `underfetched` diagnostics，只要 `num_citations_seen >= current scholar total` 也会判为 complete，不再把像 `Latent opinions transfer network...` 这类 `109/109` 的论文误拉回 fetch。与此同时，direct fetch 的 `for ... else` 末尾不再对刚在页边界保存过的最后一页再次 `save_progress(complete=False)`，从而消除同一页 10 条 citation 触发两次 `Progress saved` 的重复日志。同步补充 `test_citation_page_stop.py` 回归测试，覆盖“当前 policy=direct 时旧 year probe 状态不再主导”和“direct 最后一页只保存一次”；整份 `python -m unittest test_citation_page_stop.py` 当前通过（102 tests, OK）。
-- **2026-04-14** — 第一轮模块化重构：从 `scholar_citation.py`（近 4000 行）拆出两个独立文件。`scholar_common.py` 收录全部常量（`DELAY_MIN/MAX`、`YEAR_BASED_THRESHOLD` 等）以及无业务状态的工具函数（`rand_delay`、`now_str`、`TeeStream`、`setup_proxy`、`extract_author_id`、`_scholar_request_url`）。`scholar_profile_io.py` 收录 author profile 的纯输出逻辑（`build_profile_count_summary`、`build_profile_payload`、`save_profile_json`、`save_profile_xlsx`），并通过参数注入接受 `datetime_module / openpyxl_module / font_cls / pattern_fill_cls / alignment_cls`，使测试对 `scholar_citation.datetime` / `scholar_citation.openpyxl` 的 patch 仍然有效。`AuthorProfileFetcher` 的三个方法（`_build_profile_count_summary`、`save_profile_json`、`save_profile_xlsx`）改为薄包装，委托给新模块函数，并保留 `_last_profile_workbook` 赋值以维持测试兼容性。同时消除 `PaperCitationFetcher._flush_publication_count_updates()` 里对 `AuthorProfileFetcher(self.author_id, self.output_dir)` 的反向实例化，改为直接调用 `build_profile_payload` 和 `write_profile_xlsx`，并动态拼出 profile xlsx 路径。整份 `python -m unittest test_citation_page_stop.py` 通过（105 tests, OK）。
-- **2026-04-14** — 第二轮模块化重构（citation 子包）：新建 `citation/` 子包，拆出两个专门模块。`citation/cache.py` 收录所有 year count / diagnostics 的纯函数（`year_count_map`、`normalize_year_count_map`、`dump_year_count_map`、`build_year_fetch_diagnostics`、`normalize_year_fetch_diagnostics`、`dump_year_fetch_diagnostics`、`year_fetch_diagnostic_matches_total`、`probed_year_counts_satisfied`、`rehydrate_probe_metadata`、`rehydrate_year_fetch_diagnostics`），全部为无状态函数，不依赖任何 class 实例。`citation/strategy.py` 收录 fetch policy 与 refresh 决策层（`normalize_pub_year`、`resolve_citation_fetch_policy`、`selective_refresh_candidate_years`、`build_citation_count_summary`、`refresh_reconciliation_status`、`format_year_fetch_diagnostics_summary`），通过参数注入 `year_based_threshold`，自身只依赖 `citation.cache`，无循环依赖。`PaperCitationFetcher` 里原有的 15 个方法定义改为单行薄包装，保持外部接口完全不变，现有测试零改动，105 tests OK。
-- **2026-04-14** — 第三轮模块化重构（统一到 crawler/ + 测试目录拆分）：把所有模块统一收入 `crawler/` 包（`scholar_common.py` → `crawler/common.py`、`scholar_profile_io.py` → `crawler/profile_io.py`、`citation/cache.py` → `crawler/citation_cache.py`、`citation/strategy.py` → `crawler/citation_strategy.py`），同时删除旧的顶层散文件和 `citation/` 目录，`scholar_citation.py` 里的 import 全部指向 `crawler.*`。另外把原 4531 行的 `test_citation_page_stop.py` 拆成 `tests/` 下的 9 个按主题划分的文件（scholar_patch、year_fetch_early、fetch_policy、direct_fetch、year_fetch_main、output、citation_status、main_loop、profile），共享 stubs 和 setUp 抽取到 `tests/conftest.py` 的 `FetcherTestCase` 基类。`python -m unittest discover -s tests -p "test_*.py"` 通过（105 tests, OK），原测试文件 `test_citation_page_stop.py` 仍并行保留作过渡兼容。
-- **2026-04-14** — 第四轮模块化重构（低风险四项）：①新建 `crawler/citation_identity.py`，收录 `normalize_cites_id`、`normalize_identity_part`、`citation_identity_keys`、`citation_identity_key`、`extract_citation_info` 五个纯函数。②新建 `crawler/citation_io.py`，收录 `citation_cache_path`、`load_citation_cache`、`derive_citation_cache_state`、`resolve_citation_status_from_state`（独立于 load 的状态判断逻辑，使 `_citation_status` 可通过 `self._load_citation_cache` 被正常 patch）、以及 `save_citations_xlsx`。③把整个 `AuthorProfileFetcher` 类移到 `crawler/author_fetcher.py`，主文件只保留单行 import。④把 `parse_args()` 和 CLI 编排逻辑迁到 `crawler/cli.py`（`_run_main`），主文件保留真实的 `main()` 函数（引用 `scholar_citation` 命名空间符号）以保持测试 patch 路径兼容。主文件从 3433 行减至 2834 行。105 tests OK。
-- **2026-04-14** — 第五轮模块化重构（citation fetch 引擎拆分）：新建四个模块。`crawler/interactive.py`：把 `_inject_cookies_from_curl`、`_try_interactive_captcha`、`_wait_proxy_switch` 提取为接受参数注入的纯函数，wrapper 通过 `list[int]` mutable counter 传回 `_captcha_solved_count`。`crawler/scholarly_session.py`：定义 `SessionContext` dataclass（持有 HTTP 会话节拍控制、cookie、callback 等运行时状态），把 `_patch_scholarly`（267 行 monkey-patch 闭包）、`_refresh_scholarly_session`、`_probe_citation_start_year` 迁出；patch 闭包改为捕获 `ctx` 而非 `fetcher_self`，消除对 `PaperCitationFetcher` 实例的隐式依赖。`crawler/fetch_context.py`：定义 `FetchContext` dataclass，收录所有 per-paper 可变状态（`completed_year_segments`、`partial_year_start`、`dedup_count`、`probed_year_counts` 等），让状态流在函数参数间显式传递。`crawler/citation_fetch.py`：把 `_fetch_citations_with_progress`（302 行）、`_fetch_by_year`（487 行）及 17 个 direct-fetch 纯辅助函数迁出；迁移策略是接受 `(fetcher, ctx, ...)` 参数，per-paper 状态读写通过 `ctx`，其余方法调用通过 `fetcher`；为保持测试 patch 路径兼容，`_SearchScholarIterator` 通过 `type(fetcher).__module__` 动态查找，`_iter_direct_citedby` / `_fetch_by_year` 在 `fetch_citations_with_progress` 里通过 `fetcher.xxx(...)` 调用。`scholar_citation.py` 从 2293 行减至 1388 行，105 tests OK。
-- **2026-04-15** — 收紧 current scholar total 的真值来源：`_effective_scholar_total()` 不再把当前 `pub['num_citations']` 与历史 cache 里的 `num_citations_on_scholar` 取 `max`，从而避免新一轮运行时被旧 cache 的高水位自动抬高 `current`、fetch policy 和 skip/fetch 判定。运行过程中如果真的观测到 live count 变大，仍继续通过 `_promote_live_citation_count()` 做 upward-only promotion 并回写 `pub['num_citations']`；也就是说现在只信“本轮 live 观察到的提升”，不再信“历史 cache 快照自动抬高当前值”。同步补充 `test_citation_page_stop.py` 回归测试，覆盖 historical cache high watermark 不再主导 `_effective_scholar_total()` / `_citation_status()`，以及 runtime live promotion 语义保留；整份 `python -m unittest test_citation_page_stop.py` 当前通过（105 tests, OK）。
-- **2026-04-15** — 代码清理：删除 `test_citation_page_stop.py`（已被 `tests/` 下 9 个测试文件完全替代，且因 `fetch_mode` 重构已有 6 个失败）、`tmp_compare_scholar.py`（临时诊断脚本，已在 .gitignore 中）、以及 git 里已 stage 未提交的旧模块残留（`citation/__init__.py`、`citation/cache.py`、`citation/strategy.py`、`scholar_common.py`、`scholar_profile_io.py`）；删除 `author_test-author_paper_citations.json`（测试残留文件）和 `issues.md`（已解决的 bug 记录）。现存测试 106 个，全部在 `tests/` 下。
-- **2026-04-15** — `seen` 完整性条件从 `>=` 收紧为 `==`：`citation_io.resolve_citation_status_from_state()` 中三处 `num_seen >= threshold` 统一改为 `num_seen == threshold`（direct 模式对 scholar total，year 模式对 histogram total，year 无 histogram 对 scholar total）；之前 seen > threshold 的情况（如 seen=1331, hist=1328）现在判为 partial 而非 complete；对应测试期望更新，106 tests OK。
-- **2026-04-15** — `--fetch-mode` 三层抓取行为控制：以 `--fetch-mode {rough,normal,force}` 替换已废弃的 `--recheck-citations` / `--force-refresh-citations`。`rough`：scholar 数量不变就跳过（即使 cache 不完整）；`normal`（默认）：现有宽标准行为，用 num_seen 判断 completeness；`force`：抓取前先删除 cache 文件，强制从头重抓，建议配合 `--skip`/`--limit` 限定范围。`citation_io.resolve_citation_status_from_state()` 移除 `recheck_citations` 参数及旧的严格判断分支；`citation_fetch.py` 的 `direct_fetch_allow_early_stop` 从 `not fetcher.recheck_citations` 改为 `fetcher.fetch_mode != 'force'`；`_resolve_refresh_strategy()` 移除 `recheck` 分支；`_run_main_loop()` 在 complete 判断后增加 rough-mode 跳过逻辑；`run()` 在 status 检查前增加 force-mode cache 删除逻辑；并修复了原有的重复 `@staticmethod` 装饰器和 rough 模式 `int(last_known)` 缺少 try/except 的问题。同步删除所有 `recheck_citations` 相关测试，新增 rough skip / rough first-fetch / force delete 三个测试；106 tests OK。
-- **2026-04-15** — 共享 HTTP/2 session 修复首次 citation 被阻断：在 `main()` / `_run_main()` 里把 `PaperCitationFetcher` 的创建和 `_patch_scholarly()` 调用提前到 `AuthorProfileFetcher.run()` 之前，两个阶段从此共用同一个 HTTP/2 session；profile 阶段的页面访问历史自然积累成 citation 阶段的 session 背景，Scholar 不再看到一个凭空声称 `sec-fetch-site: same-origin` 的全新连接；`PaperCitationFetcher.__init__` 同步初始化 `_session_patched / _run_start_time / _new_citations_count / _papers_fetched_count`，`run()` 加 guard 避免重复 patch，`_run_start_time` 计时从 patch 时开始覆盖整个运行（不再在 `run()` 里重置）；同时消除 `main()` 里原来两次创建 `PaperCitationFetcher` 的冗余，全程复用同一 instance。测试：两个 `FakePaperFetcher` 补 `_patch_scholarly` stub，106 tests OK。
-- **2026-04-15** — 修复 pagination 计数两个问题：①`_wait_status()` 和 `_save_output()` 里的 pages 读 `self._total_page_count`（patch 时的快照，永远不更新），改为读 `self._session_ctx.total_page_count`（实时值）；②pagination 括号里的页码用 `_SearchScholarIterator._page_num`（每次创建新 iterator 就重置为 0），改为用 `SessionContext.current_paper_page_count`（每篇论文重置一次，换年份段和 captcha retry 不重置）。
-- **2026-04-15** — 日志改进三项：①移除 `_format_year_count_summary` 和 `format_year_fetch_diagnostics_summary` 的 `limit=8` 截断逻辑，所有年份全部显示；②"Year fetch comparisons" 改为每年一行格式（`N years\n  year: ...`）；③年份循环前的 "Year fetch comparisons" 打印（显示 rehydrate 旧数据）改名为 "Prior run diagnostics" 以区分本次运行最终结果。
-- **2026-04-15** — 修复 probe 结果未写入 FetchContext 导致 Probe summary 显示 none：`_probe_citation_start_year()` 通过 `self._session_ctx`（SessionContext）写入 probe 结果，但 `fetch_by_year` 里的本地 `FetchContext ctx` 是在 probe 之前建立的，两者不共享，导致 Line 706 重读 `ctx.probed_year_counts` 时仍为 None，Probe summary 显示 "none"、年份跳过优化全部失效。根本修复：给 `_probe_citation_start_year` 加 `fetch_ctx=None` 参数，传入时直接写入，调用方（`fetch_by_year`）传入 `ctx`，消除手动 sync 步骤。相关说明：每年每次运行只抓一次，"Year fetch comparisons" 在年份循环前后各打印一次，循环前的已改名为 "Prior run diagnostics" 以避免与最终结果混淆。106 tests OK。
-- **2026-04-16** — 移除 Refresh check 和 escalation 逻辑：fetch 完成后原有的 `_refresh_reconciliation_status()` 调用及 escalation（清空状态重跑 full revalidation）全部删除；每篇论文 fetch 一次，结果直接记录，不完整由下次运行的 selective refresh 处理。同时删除 `_refresh_log_message`、`_refresh_escalation_message`、`_refresh_reconciliation_status` 三个方法；`_cs_refresh_reconciliation_status` 函数本身保留（测试直接引用）。Direct fetch 的 underfetch 日志保留。103 tests OK。
-- **2026-04-16** — `Fetch context: mode=` 字段重命名为 `strategy=`，并从 `incremental`/`full-recheck` 两值扩展为四值：`update`（Scholar 数量变化）、`resume`（数量未变，缓存不完整）、`full-recheck`（force 模式）、`full-rebuild`（`force_year_rebuild=True`，现为死路）。此后又发现 `full-rebuild` 是 escalation 删除后的死代码，`strategy` 简化为 `selective`（正常 histogram-driven）和 `full-rebuild`。
-- **2026-04-16** — 合并 resume/update 为统一 fetch 策略：两种模式不再区分，统一行为为：①丢弃缓存中无年份标记的 citations（`drop_cached_unyeared`，仅限 year 模式）；②清空 `completed_years_in_current_run`；③以 histogram 为权威按需抓取。遍历方向固定 oldest→newest。`_resolve_refresh_strategy` 中 mode 统一为 `'fetch'`，action 字符串含 `"drop unyeared"`。103 tests OK。
-- **2026-04-16** — Histogram 权威化与 `probe_complete` 降级：`selective_refresh_candidate_years` 大幅简化，不再依赖 `probe_complete`、`year_fetch_diagnostics.underfetched` 等复杂条件，只比较 `cached_year_counts[year]` vs `probed_year_counts[year]`（+断点年份）决定是否抓；`probe_complete` 从所有逻辑判断中移除，仅在 `Fetch context` 里输出 `(histogram may be incomplete)` 提示。不在 histogram 中的引用不再视为抓取问题（放弃）。`fetch_by_year` 逐年 skip 统一为 seen-based：probe=0 直接跳；有 diagnostics 用 `seen_total >= probe_count`；无 diagnostics 用 `cached_count == probe_count`（seen=cached，无 dedup）；日志统一为 `Year YYYY: skip (seen=N >= probe=N)`。Fast-path（全年满足时跳过整个循环）同样去掉 `probe_complete` 门槛，只要有 histogram 数据就执行。102 tests OK。
-- **2026-04-16** — `drop_cached_unyeared` 精确化：仅在从 direct 切换到 year 模式时 drop（`prev_was_direct = direct_fetch_diagnostics.get('mode') == 'direct'`，当前是 year 模式）。year→year、missing→year、direct→direct 均不 drop。理由：year 模式的旧 cache 已按年份组织，unyeared 不影响 histogram diff；direct 模式不按年份 bucket 运作，unyeared 通过 identity dedup 正常覆盖；只有从 direct 切换到 year 时才存在"旧 unyeared 无法参与 histogram diff"的问题。102 tests OK。
-- **2026-04-16** — Pagination 计数与 referer 日志改进：①`SessionContext.current_paper_page_count` 在 year-based fetch 里每个年份开始前重置为 0（`fetch_by_year` 年份循环入口），使 `Pagination (page N)` 与该年的 URL `start=` 对应；direct fetch 维持整篇论文连续计数。②referer 日志只在 `referer != ctx.last_scholar_url` 时显示（说明是外部注入的，非正常翻页 referer）；正常翻页时 referer 等于上一页 URL，不显示。101 tests OK。
-- **2026-04-16** — 移除重复的 `Year fetch comparisons` 打印：`_run_main_loop` 里 fetch 完成后重复打印了一次 `year_fetch_diagnostics`，与 `fetch_by_year` 末尾的打印重复且数字不同（前者用的是 save_progress 后 rehydrate 的磁盘数据）。删除 `_run_main_loop` 里的那次打印，`Year fetch comparisons` 只由 `fetch_by_year` 内部打印一次，数字即真实抓取结果。101 tests OK。
-- **2026-04-16** — dedup 不再跨 run 累计；`Done:` 行 year 模式改用 per-year diagnostics 求和：`saved_dedup_count` 在 `_resolve_refresh_strategy` 里始终初始化为 0，不从 cache 的 `dedup_count` 字段继承历史值。`Done:` 行 year 模式的 `seen_total` 和 `run_dedup` 改为从 `_year_fetch_diagnostics` 各年的 `seen_total`/`dedup_count` 求和（per-year diagnostics 是真值来源）；direct 模式仍用 `ctx.dedup_count`（本次 run 从 0 开始）。设计原则：per-year diagnostics 是权威，汇总数字从它们实时计算，cache 里不保存跨 run 累计的汇总以避免版本不一致。101 tests OK。
-- **2026-04-16** — 移除 live citation count promotion 机制：`_promote_live_citation_count`、`_flush_publication_count_updates`、`promote_live_count_fn` 及相关字段全部删除。根本原因：probe 过程中观察到的 live count（如 657）会被写回 profile.json，下次运行 profile 阶段可能读到不同值（如 656），造成虚假的 Scholar 数量变化，触发不必要的 update fetch。Scholar 数量现在完全由每次运行开头的 profile fetch 决定，citation fetch 阶段不再修改它。99 tests OK。
-- **2026-04-16** — `drop_cached_unyeared` 恢复为所有 year-based fetch 都 drop：之前被错误地收窄为"只有 direct→year 切换时才 drop"，但原始设计（Message 222）明确要求每次 year-based fetch 都先 drop unyeared。恢复为 `drop_cached_unyeared = fetch_policy['mode'] == 'year'`。99 tests OK。
-- **2026-04-17** — Probe 日志加 unyeared 数量；移除 year 循环内的 early-stop 死代码：①probe incomplete 日志加 `unyeared=N`（`scholar_total - hist_total`）；②`_get_early_stop_status`、`target_reached_by_histogram` lambda、`suppress_target_reached`、`suppress_final_histogram_target_stop`、`current_count_for_stop_and_status` 全部删除（year 循环从不调用 early stop，都是死代码）；`_build_year_fetch_plan` wrapper 一并删除。98 tests OK。
-- **2026-04-17** — 三处日志修复：①`Direct fetch under-fetched (...)` 详情行与上面的 `Direct fetch totals:` 重复，删掉详情行，只保留简短提示；②`Done:` 行 direct fetch 的 seen 错误使用上一篇 year-based 论文残留的 `_year_fetch_diagnostics`，现在只在 `fetch_policy['mode'] == 'year'` 时使用 diagnostics，direct fetch 始终用 `ctx.dedup_count`；③`Prior run diagnostics` 和 `Year fetch comparisons` 的续行缩进从 2 个空格改为 8 个空格，与上下文层级对齐。98 tests OK。
-- **2026-04-17** — 修复 year fetch 日志缩进不一致：`_fetch_by_year()` 内的引用条目输出 `[count]` / `[dedup]` 从 2 格缩进改为 6 格，与同级的 `Pagination`/`Request URL`/`Year N:` 等日志对齐。来自 `scholarly_session.py` 的 session 层级日志（`Pagination`、`Request URL`、`Waiting`）本就是 6 格，无需修改。对 direct fetch 内相同格式的 2 格缩进无影响（两套 print 语句独立）。94 tests OK。
-- **2026-04-17** — 修复 `while True` 循环在短页成功后无谓重试的问题：`_SearchScholarIterator` 在返回最后一个短页（< SCHOLAR_PAGE_SIZE）的 items 后，会自动尝试请求下一页；如果下一页 load 抛出异常（captcha / 限流），except 处理器会误判为 captcha retry，重新构造从当前 page start 开始的 iterator，形成不必要的二次循环。根本修复：在 for 循环里，当 `page_finished=True` 且 `_items_in_current_page < SCHOLAR_PAGE_SIZE` 时（短页完成），直接 break 跳出 for 循环，不让 iterator 再发起下一页请求。skipped-item 路径同样加了对应 break。exception 根本不会发生，except 处理器里的特殊分支也同步删除。保留 `while True` 只用于真实 captcha retry（全页 + 异常场景）。新增回归测试 `test_short_page_exception_at_next_page_does_not_retry`（用抛出 RuntimeError 的 FakeIterator 验证只创建一次 iterator）。95 tests OK。
-- **2026-04-17** — 给 main 分支最后的单文件版本打标签 `single_file_version`，把 `refactor/modularize` 合并进 main 分支。
-- **2026-04-17** — 修复 `year_fetch_diagnostics` dedup_count 跨次运行丢失（双 FetchContext 问题）：`_fetch_by_year` 方法创建了独立的内部 FetchContext，而 `save_progress` 闭包读取的是外部 FetchContext。内部 ctx 里积累的 `dedup_count`（包括 `year_fetch_diagnostics` 里的逐年 dedup）不传播到外部 ctx，导致每次 `save_progress` 写入 JSON 时 dedup 均为 0；运行日志正确（读内部局部变量），但保存数据错误。修复：在 `_fetch_by_year` 方法里用 wrapper 包裹 `save_progress`，每次调用前将内部 ctx 的 `year_fetch_diagnostics` 和 `dedup_count` 同步到 `fetcher._live_year_fetch_diagnostics` / `fetcher._live_dedup_count`；`build_materialized_year_fetch_diagnostics` 和 `save_progress` 优先读这两个属性。入口处置 None 防止旧论文数据污染 direct 模式。新增回归测试 `test_save_progress_wrapper_syncs_inner_ctx_dedup_to_fetcher`。96 tests OK。
-- **2026-04-18** — 分层缩进 year-based fetch 日志：三层体系（6 格：年份边界 Year N: fetching/skip/done/compare/status；8 格：年份内页面级 URL/Pagination/Request URL/Mandatory break/Refreshing/Waiting/Blocked/continuing from；10 格：页面内引用 [N]/[dedup]）。`scholarly_session.py` 5 处、`citation_fetch.py` 5 处同步修改。96 tests OK。
-- **2026-04-28** — 修复 direct fetch "Progress saved" 连续重复输出，同时明确化日志措辞；展示全量引用变化论文。①`_WrappedDirectIterator` 新增 `_items_in_current_page` 同步（从 base iterator 同步），在 page save 时检查是否为完整页（`>= SCHOLAR_PAGE_SIZE`），只在完整页打印 "Progress saved"，短页（Scholar 偶尔返回少于 10 条的页面）静默保存，消除连续短页带来的重复日志行；②日志措辞改为 `Progress saved: N fetched this paper, M new across run`，明确两个数字分别代表本篇 fetch 数和本次 run 总新增；③`author_fetcher.py` `append_history` 里的 `Citation changes` 从最多显示 5 条改为全量展示。96 tests OK。
-- **2026-04-28** — Cookie 跨次持久化：`output/curl.txt` 自动保存/加载 Scholar session cookie。`crawler/interactive.py` 新增 `save_curl_to_file`/`load_curl_from_file`/`prompt_first_curl`，并把 `try_interactive_captcha` 与 `prompt_first_curl` 共用的 TTY 多行读取逻辑抽取为 `_read_multiline_input`；`inject_cookies_from_curl` 新增 `curl_save_path=` 参数，注入成功后自动写文件。`scholarly_session.py` `SessionContext` 加 `first_page_prompt_fn` 回调，在第一次请求前触发。`scholar_citation.py` 启动时自动加载 `curl.txt`，无 cookie 时注册首次请求提示。96 tests OK。
-- **2026-04-29** — 诊断：missing citation 原因确认为 Scholar session/cookie 状态差异（非代码 bug）。用 `curl.txt` 里的 cookie 实际抓取对比 URL，确认同一 URL 有 cookie 时返回 3 条、无 cookie 触发 captcha。Scholar 根据 session 动态过滤结果，与 6→7 问题根本原因相同。
-- **2026-04-29** — 减少 author profile 重复请求：①`fetch_publications` 复用 `fetch_basics` 拿到的 author stub（`self._author_stub`），省去 Phase 2 开头重复的 `search_author_id` 请求；②`fetch_basics` 不再调用 `search_author_id`（该函数内部也会触发一次 fill），改为直接构造最小 stub（`{'container_type':'Author','filled':[],'scholar_id':id,'source':'AUTHOR_PROFILE_PAGE'}`）再一次性 `fill(sections=['basics','indices','counts'])`，同时去掉两次调用之间手动加的 `rand_delay`。每次 profile 抓取从 3 次 HTTP 请求减为 2 次（basics/indices/counts 一次，publications 一次）。96 tests OK。
-- **2026-04-29** — Selective refresh 原因日志：在 "Selective refresh years" 后加一行 `(reasons: year: probe=N vs cache=M, ...)`，明确展示本次 probe histogram 与 cached_year_counts 的逐年对比。解决用户疑惑：Prior run diagnostics 里的 `scholar=N` 是上次存档旧值，选不选某年取决于**当前 probe**，两者可以不一致。96 tests OK。
-
----
+## scholarly 内部机制
 
 ### 源码位置
 `<python-env>/lib/python3.11/site-packages/scholarly/`
@@ -400,537 +259,71 @@ pub_obj = {
 | `num_citations <= 1000` | 简单路径 | `PublicationParser.citedby()` → `_SearchScholarIterator` 直接翻页 |
 | `num_citations > 1000` | 长路径 | `_citedby_long()` → 按年份分段，每段用 `search_citedby(id, year_low, year_high)` |
 
-### _citedby_long 按年份分段策略
-- 从 `citedby_url` 中用正则提取 publication ID（`cites=[\d+,]*`）
-- `source == AUTHOR_PUBLICATION_ENTRY` 时：先 `fill()` 获取 `cites_per_year`，用 `_bin_citations_by_year()` 分组（每组 ≤1000）
-- `source == PUBLICATION_SEARCH_SNIPPET` 时：逐年遍历（当前年 → pub_year），每年一段
-- 单年仍超 1000 时只 log warning，实际只能拿到 1000 条（Scholar 硬限制）
-
 ### _SearchScholarIterator 翻页
+
 - 每页 10 条结果
 - `__next__()` 检查是否有 `gs_ico_nav_next` 按钮决定是否翻页
 - `_load_url()` 调用 `_nav._get_soup(url)` → `_get_page()` 发起 HTTP 请求
 
+### _citedby_long 按年份分段策略
+
+- 从 `citedby_url` 中提取 publication ID（`cites=[\d+,]*`）
+- `source == AUTHOR_PUBLICATION_ENTRY` 时：先 `fill()` 获取 `cites_per_year`，用 `_bin_citations_by_year()` 分组
+- `source == PUBLICATION_SEARCH_SNIPPET` 时：逐年遍历（当前年 → 最早年）
+- 单年仍超 1000 时只能拿到 1000 条（Scholar 硬限制）
+
 ### 403 / 限流处理（_navigator._get_page）
-- **每次请求前**：`random.uniform(1, 2)` 等 1-2 秒（第 112 行）
+
+- **每次请求前**：`random.uniform(1, 2)` 等 1-2 秒
 - **首次 403**：立即重试，新 session
-- **后续 403**：`random.uniform(60, 120)` 等 60-120 秒，再换 session 重试（第 142 行）
-- **DOSException**：同样等 60-120 秒（第 161 行）
-- **最多重试**：`_max_retries` 次（默认 5），超过抛 `MaxTriesExceededException`
-- **异常传播**：NOT caught in iterator，直接传给调用者
-- **⚠️ 冲突问题**：scholarly 的 60-120 秒等待会超过心跳 80 秒超时 → 已通过 monkey-patch `_get_page` 解决，将 >5s 的 sleep 替换为 30-60s 并标记主动等待
+- **后续 403**：`random.uniform(60, 120)` 等 60-120 秒
+- **最多重试**：`_max_retries` 次（默认 5）
+- scholarly 的 60-120 秒等待会超过心跳 80 秒超时 → 已通过 monkey-patch 解决
 
 ### `as_sdt` 参数说明
 
 `as_sdt` 格式：`as_sdt=<类型>,<地区码>`
-- 类型：`0`=排除专利（默认），`7`=包含专利，`4`=判例法搜索，`2005`=citation 搜索专用内部标志
+- 类型：`0`=排除专利，`7`=包含专利，`2005`=citation 搜索专用内部标志
 - 地区码：`5`=全球默认，`33`=特定地区（会过滤部分结果）
 
-scholarly `_construct_url()` 默认生成 `&as_sdt=0,33` 或 `&as_sdt=1,33`，地区码 `33` 会导致 Scholar 过滤部分结果（实测 19→18）。
-
-浏览器点击 "Cited by" 链接时生成 `as_sdt=2005&sciodt=0,5`（`2005` 是 citation 搜索专用复合标志，`sciodt` 用途未完全确认暂不设置）。
-
-**当前方案**：使用 `as_sdt=0,5`（排除专利 + 全球地区），避免地区限制导致漏抓。
-**解决方案**：直接构造 URL 使用 `_SearchScholarIterator`，不通过 `search_citedby()`。
+当前方案：使用 `as_sdt=0,5`（排除专利 + 全球地区），配合 `sciodt=0,5`。
 
 ### 续传时 >1000 引用的问题
-- `_citedby_long` 无法用 `&start=N` 跳页（它按年份重新查询）
+
+- `_citedby_long` 无法用 `&start=N` 跳页（按年份重新查询）
 - 续传时只能逐条 skip 已有的引用，需要重新翻过所有已缓存的页面
-- 990 条缓存 = 重新翻 ~99 页 × 30-60s 延迟 ≈ 可能 50+ 分钟才到断点
-- 大量重复请求极易触发 Scholar 限流 → 需要论文级重试机制
+- 大量重复请求极易触发 Scholar 限流
 
 ---
 
-## Bug：year_fetch_diagnostics dedup_count 跨次运行丢失（2026-04-17）
+## `_scholar_pub` 不设置 `cites_id`
 
-### 症状
-某年（如 2025）的 `year_fetch_diagnostics` 在当次 log 中正确显示 `dedup=1, seen=179`，但下一次运行读取缓存时该年变成了 `dedup=0, seen=178`。
-
-### 根本原因：内外两个 FetchContext
-
-`fetch_citations_with_progress`（`crawler/citation_fetch.py`）创建**外部 ctx**，并定义了 `save_progress` 闭包。闭包里的 `build_materialized_year_fetch_diagnostics` 读 `ctx.year_fetch_diagnostics`（外部 ctx）。
-
-但进入 year 模式后，代码调用 `fetcher._fetch_by_year()`（`scholar_citation.py`），该方法又用 `FetchContext(...)` 创建了**内部 ctx**，再调用模块函数 `_cf.fetch_by_year(fetcher, inner_ctx, ..., save_progress, ...)`。
-
-`_cf.fetch_by_year` 在 per-year 循环里持续更新 `inner_ctx.year_fetch_diagnostics`（包含 `dedup_count`），但外部 ctx 完全感知不到这些更新。每次 `save_progress` 被调用时，`build_materialized_year_fetch_diagnostics` 读的是**过期的外部 ctx**，于是以 `dedup=0` 写回 JSON。
-
-### 修复方案（双文件两处改动）
-
-**`scholar_citation.py` `_fetch_by_year` 方法**：
-
-在调用 `_cf.fetch_by_year` 前，用一个包装函数替换传入的 `save_progress`。包装函数在每次调用原始 `save_progress` 之前，先把内部 ctx 的 `year_fetch_diagnostics` 同步到 `self._live_year_fetch_diagnostics`。
-
-**`crawler/citation_fetch.py` `build_materialized_year_fetch_diagnostics`**：
-
-优先读取 `fetcher._live_year_fetch_diagnostics`（由 wrapper 刚刚同步过来的内部 ctx 数据），回退才读外部 `ctx.year_fetch_diagnostics`。同时在 `fetch_citations_with_progress` 入口把该属性置 `None`，避免上一篇论文的残留数据影响 direct 模式。
-
-### 为何 log 正确但保存错误
-
-`year_log = fetcher._year_fetch_log_message(year_fetch_diagnostics)`（第 999 行）读的是 `_cf.fetch_by_year` 内部的 **local** `year_fetch_diagnostics` 变量（正确），而 `save_progress(complete=True)` 读的是**外部 ctx**（过期），二者不同步，导致 log 与实际保存值不一致。
+scholarly 的 `_scholar_pub()` 方法（用于 _SearchScholarIterator 解析 citedby 结果）从不设置 `cites_id` 字段，只设置 `citedby_url`（仅在引用有 "Cited by N" 链接时）。解决方案：三级 fallback — `pub['cites_id']` → `pub['citedby_url']` 解析 `cites=` → `pub['url_scholarbib']` 解析 `cid`。
 
 ---
 
-## 2026-04-30 — Year-based fetch 每页丢失 1 条 + partial_year_start 对齐防御
+## 关键 Bug 记录
 
-### 现象
+### year_fetch_diagnostics dedup_count 跨次运行丢失（2026-04-17）
 
-用户报告：某页 `Page items: 8` 但只输出 7 条。特定论文（"Recommendation algorithm based on dual attention mechanism..."）始终缺失。
+内外两个 FetchContext 不同步：`_fetch_by_year` 创建独立内部 ctx，`save_progress` 闭包读外部 ctx。修复：wrapper 同步内部 ctx → fetcher 属性 → save_progress。
 
-### 诊断日志揭示的异常
+### 分页机制冲突导致每页丢失 1 条（2026-04-30）
 
-```
-[DEBUG patched_next] pos_before=0  rows_len=10 items=1  title=...
-[DEBUG patched_next] pos_before=10 rows_len=10 items=2  title=...
-```
+scholarly 的自动分页与手动分页冲突，`original_next` 自动加载下一页时丢弃当前页第 1 条。修复：满页时也 break，分页控制权完全交还给 while True 循环。
 
-`patched_next` 被调用了 11 次，但 for 循环只迭代了 10 次。`pos_before` 从 0 直接跳到 10，说明 `_pos` 被人为跳变。
+### cites_id 全为 null（2026-05-01）
 
-### 根因：两种分页机制冲突
+`_scholar_pub()` 不设置 `cites_id`。修复：从 `citedby_url` 提取。
 
-scholarly 的 `_SearchScholarIterator.__next__` 是**自动分页**迭代器：
+### 重试时 output state 覆盖 cache 导致丢失引用（2026-05-06）
 
-```python
-if self._pos < len(self._rows):
-    ...
-elif self._soup.find(class_='gs_ico gs_ico_nav_next'):
-    self._load_url(url)      # 自动加载下一页
-    return self.__next__()   # 递归返回下一页第1条
-```
-
-调用者只需要 `for citing in iterator`，iterator 会自动翻页直到结束。
-
-我们的 year-based fetch 是**手动分页**：
-
-```python
-while True:
-    year_url_cur = f'/scholar?...start={request_start}'
-    iterator = _SearchScholarIterator(nav, year_url_cur)  # 明确指定页码
-    for citing in iterator:
-        ...
-    if 满页:
-        continue   # 新建 iterator 加载下一页
-    else:
-        break
-```
-
-旧代码的 break 条件只在**短页**时触发：
-
-```python
-if page_finished and _items_in_current_page < SCHOLAR_PAGE_SIZE:
-    break
-```
-
-满页时（`10 < 10` 为 False）break 不触发，for 循环继续到下一次 `next(iterator)`。此时 `_pos=10 >= len(_rows)`，`original_next` 进入 `elif` 分支，**自动加载下一页**，递归返回下一页第 1 条。外层的 `patched_next` 把递归结果当作"当前页的新条目"，导致：
-
-1. **旧页面第 1 条被丢弃**（外层 `original_next` 返回的是递归结果，不是旧页面 `_rows[0]`）
-2. `_items_in_current_page` 计数错位
-3. 满页时新页面恰好补充了丢失的条目，肉眼未察觉；短页时新页面条目更少，导致可见丢失
-
-### 修复
-
-**`crawler/citation_fetch.py`**（一行改动）：
-
-```python
-# 旧：只在短页时 break
-if page_finished and _items_in_current_page < SCHOLAR_PAGE_SIZE:
-    break
-
-# 新：当前页处理完就 break，把分页控制权完全交还给 while True
-if page_finished:
-    break
-```
-
-这样 `original_next` 的 `elif` 分支永远不会被触发。分页完全由我们的 `while True` 循环控制：满页 → break → `continue` → 新建 iterator；短页 → break → `short_page_stop` → 退出年份。
-
-### 防御性修复：partial_year_start 读取对齐
-
-旧缓存中可能保存了非对齐的 `partial_year_start` 值（如 `{2019: 101}`），导致 `request_in_page_skip=1`，跳过当前页第 1 条。
-
-```python
-ctx.partial_year_start = {
-    int(year): _page_aligned_start(idx)
-    for year, idx in (partial_year_start or {}).items()
-}
-```
+`retry_strategy_cached` 优先使用 output state（不含 citations）。修复：缓存文件优先。
 
 ---
 
-## 2026-04-30 — 缓存体系完整说明
-
-### 缓存文件
-
-- `output/author_{id}_profile.json/.xlsx` — Phase 1 产出
-- `output/scholar_cache/author_{id}/basics.json` — 作者基本信息
-- `output/scholar_cache/author_{id}/publications.json` — 论文列表
-- `output/scholar_cache/author_{id}/citations/{md5}.json` — 每篇论文的引用缓存
-- `output/curl.txt` — Cookie 持久化
-
-### per-paper citation cache 核心字段
-
-- `num_citations_on_scholar` — 上次抓取时 Scholar 报告的总数
-- `num_citations_cached` — 实际缓存条数
-- `num_citations_seen` — 从 iterator 看到的总行数 = cached + dedup
-- `dedup_count` — 本次运行遇到的重复行数（每轮重置）
-- `complete` / `complete_fetch_attempt` — 是否抓全 / 是否正常跑完
-- `probed_year_counts` — 年份直方图探针结果
-- `year_fetch_diagnostics` — 每年抓取诊断（scholar_total, seen_total, cached_total, dedup_count, termination_reason）
-
-### partial_year_start 的语义
-
-- **只在同一次运行内有效**，不写入缓存文件
-- 当某一年处理到一半被中断，`partial_year_start[year]` 记录已处理位置
-- 必须是**页面对齐的**（10 的倍数），否则 `request_in_page_skip > 0` 会跳过条目
-- 跨运行时永远为空 `{}`，由 while True 循环通过 `year_items_seen` 累积控制分页
-
-## 2026-05-01 — 修复 cites_id 全为 null 的问题
-
-### 问题
-
-所有缓存 citation 的 `cites_id` 都是 `null`，去重完全回退到 `title+venue`，精度降低。
-
-### 根因
-
-scholarly 的 `PublicationParser` 对两种数据来源使用不同解析方法：
-- `_citation_pub`（作者个人页面论文列表）→ 设置 `cites_id`
-- `_scholar_pub`（搜索结果/引用列表，即 `citedby()` 返回的）→ **不设置 `cites_id`**，只设置 `citedby_url`
-
-我们的 `extract_citation_info` 直接从 `pub.get('cites_id')` 读取，对于 `_scholar_pub` 来源永远得到 `None`。
-
-### 修复
-
-在 `crawler/citation_identity.py` 中：
-1. 新增 `_extract_cites_id_from_url(url)`，用正则 `cites=([\d,]*)` 从 `citedby_url` 提取 ID
-2. `extract_citation_info` 在 `pub.get('cites_id')` 为空时，自动 fallback 到 `citedby_url` 提取
-
-### 影响
-
-- 历史缓存中的 `cites_id` 仍为 `null`，但去重回退到 `title+venue` 仍然有效（只是精度稍低）
-- 新 fetch 的引用会正确携带 `cites_id`，去重更精确
-
-### 相关文件
-
-- `crawler/citation_identity.py` — 提取逻辑
-- `tests/test_scholar_patch.py` — 新增 `test_extract_citation_info_falls_back_to_citedby_url`
-
-## 2026-05-01 — 输出文件成为跨运行状态来源
-
-### 问题
-
-per-paper 缓存文件 (`scholar_cache/.../citations/{md5}.json`) 同时承担两个职责：
-1. **单次运行内断点恢复** — 程序中断后从第 N 页继续
-2. **跨运行策略决策** — 下次运行时判断 complete / partial / missing
-
-用户希望解耦：缓存只做 (1)，输出文件 (`author_{id}_paper_citations.json`) 做 (2)。
-
-### 方案
-
-1. **输出文件新增 `_fetch_state` 字段** — 每个 paper 条目携带之前只在缓存中的控制字段（`year_fetch_diagnostics`、`complete`、`dedup_count`、`num_citations_on_scholar` 等），不含 `citations` 数组（已在顶层）。
-2. **程序启动时加载输出文件状态** — `run()` 调用 `load_output_fetch_state(self.out_json)` 构建 `{title: state}` 映射。
-3. **策略决策优先使用输出状态** — `_citation_status()` 和 `_resolve_refresh_strategy()` 的调用者先查 `_output_fetch_state`，不存在才回退到缓存文件。
-4. **缓存文件仍然生成** — `save_progress()` 继续写缓存，供本次运行内中断后恢复。
-
-### 新增/修改文件
-
-- `crawler/output_state.py` — 新增模块，`load_output_fetch_state()`、`resolve_citation_status_from_output()`、`extract_fetch_state()`
-- `scholar_citation.py` — 导入 output_state；`run()` 加载输出状态；`_citation_status()` 优先查输出；`_run_main_loop()` 优先传输出状态给 `_resolve_refresh_strategy`；`_save_output()` 附加 `_fetch_state`
-- `tests/test_output.py` — 新增 `test_save_output_includes_fetch_state_from_cache`
-- `tests/test_output_state.py` — 新增测试文件，覆盖 load/resolve/extract 和优先级回退
-
-### 后续修正
-
-**`cache_status` 真正忽略旧缓存文件**
-
-初始实现中 `cache_status` 仍然是"先查缓存文件，不存在才回退到输出文件"，这与"新的运行不使用之前运行的缓存文件"矛盾。修正后：`cache_status` 永远先查 `_output_fetch_state`，只有输出文件没有该论文时才回退到缓存文件。
-
-**`_output_citations` 映射**
-
-当缓存文件被删除而输出文件存在时，`_fetch_state` 不含 `citations` 数组，导致 `_resolve_refresh_strategy` 的 `resume_from=[]`。修正：`run()` 加载输出文件时同时构建 `_output_citations = {title: citations}`，`cache_status` 用 `_fetch_state` + `_output_citations` 构建合成缓存 dict。
-
-**`finally` 块确保 `_save_output` 总是执行**
-
-原代码只在正常完成和 `KeyboardInterrupt` 时调用 `_save_output`；其他异常会导致输出文件得不到更新，行为不一致。修正：`run()` 用 `try/finally` 包裹主循环，确保任何情况下退出前都把缓存中的最新 `_fetch_state` 写入输出文件。
-
-**迁移脚本**
-
-`migrate_output_fetch_state.py` — 一次性脚本，读取现有输出文件和缓存文件，将控制字段写入 `_fetch_state`。
-
-## 2026-05-03 — 彻底修复输出状态读取的边界情况
-
-### 问题背景
-
-用户反馈"运行好像都是重新开始抓取"，日志显示 `fetch (0 cached, ...)`。经彻底排查，发现多个关联的边界情况 bug。
-
-### 发现的 bug 及修复
-
-**1. `extract_fetch_state` 不补充缺失字段**
-
-旧缓存文件（或迁移后的 `_fetch_state`）可能缺少 `num_citations_cached`、`num_citations_seen`、`num_citations_on_scholar`。`extract_fetch_state` 原来只是简单过滤字段，缺失的键直接为 `None`。
-
-后果：`derive_citation_cache_state` 中 `actual_cached` 回退到 `0`，`num_seen` 为 `None`。`resolve_citation_status_from_state` 判定为 `partial`，程序从头 fetch。
-
-修复：`extract_fetch_state` 现在主动推导缺失字段：
-- `num_citations_cached` 缺失 → 从 `len(citations)` 推导
-- `num_citations_seen` 缺失 → 从 `len(citations) + dedup_count` 推导
-- `num_citations_on_scholar` 缺失 → 从 `num_citations_seen` 推导（如果 `complete` 为 True）
-
-**2. `promoted_scholar_total` 缺失时回退到 0**
-
-`derive_citation_cache_state` 中原代码：`promoted_scholar_total = int(cached.get('num_citations_on_scholar', 0) or 0)`。字段缺失时得到 `0`。
-
-后果：`resolve_citation_status_from_state` 中 `current <= promoted_scholar_total` 永远为 False，即使 `complete_fetch_attempt=True` 的兜底逻辑也因 `current > 0` 而不触发。
-
-修复：字段缺失时使用 `current`（当前 Scholar 计数）作为备选：
-```python
-promoted_scholar_total = cached.get('num_citations_on_scholar')
-try:
-    promoted_scholar_total = int(promoted_scholar_total) if promoted_scholar_total is not None else current
-except (TypeError, ValueError):
-    promoted_scholar_total = current
-```
-
-**3. `load_output_fetch_state` 和 `_output_citations` 构建缺少 `AttributeError` 捕获**
-
-如果输出文件格式异常（比如 JSON 顶层是 list 而非 dict），`data.get('papers', [])` 抛出 `AttributeError`，未被捕获，程序崩溃。
-
-修复：两处均添加 `AttributeError` 到 `except` 子句。
-
-**4. 诊断日志**
-
-`run()` 中新增输出状态加载数量的日志，方便排查。
-
-### 相关文件
-
-- `crawler/output_state.py` — `extract_fetch_state` 推导缺失字段；`load_output_fetch_state` 捕获 `AttributeError`
-- `crawler/citation_io.py` — `derive_citation_cache_state` 中 `promoted_scholar_total` 缺失时用 `current` 备选
-- `scholar_citation.py` — `_output_citations` 构建捕获 `AttributeError`；诊断日志
-- `tests/test_output_state.py` — 新增 `test_extract_fetch_state_derives_missing_numeric_fields`、`test_resolve_citation_status_from_legacy_output_without_counters`
-
-## 2026-05-03 — 修复 skip/limit 时 _fetch_state 中 num_citations_on_scholar 不更新的问题
-
-### 问题
-
-当 profile 重新获取后，由于 `--skip`/`--limit` 等原因某些论文未被处理（既未 fetch 也未更新），这些论文的 `_fetch_state.num_citations_on_scholar` 保持旧值。下一轮运行时，策略决策基于过时的引用数，可能导致错误判断。
-
-### 修复
-
-**1. `cache_status` 更新 synthetic cache**
-
-构建 synthetic cache 时，强制用当前 profile 的 `pub['num_citations']` 覆盖 `num_citations_on_scholar`：
-```python
-current_total = pub.get('num_citations')
-if current_total is not None:
-    synthetic['num_citations_on_scholar'] = current_total
-```
-这样即使论文被跳过，后续策略决策也基于最新计数。
-
-**2. `_save_output` 重构 fetch state 来源**
-
-原逻辑：对于每个论文，`_fetch_state` 都从 `self._load_citation_cache()`（即 per-paper cache 文件）重新加载。如果 cache 文件被删除，`_fetch_state` 就丢失了。
-
-修复后：`_save_output` 使用与 `cache_status` 一致的状态来源优先级：
-1. 优先从 `self._output_fetch_state`（输出文件中的跨运行状态）获取
-2. 如果 output state 不存在，才从 cache 文件获取
-3. 用当前 profile 的 `num_citations` 更新 `num_citations_on_scholar`
-4. 用实际 citations 数组长度更新 `num_citations_cached` 和 `num_citations_seen`
-
-提取了内部辅助函数 `_build_entry(pub, citations)` 统一处理两种分支（已处理 / 被跳过）。
-
-### 相关文件
-
-- `scholar_citation.py` — `cache_status()` 更新 synthetic cache；`_save_output()` 重构 `_fetch_state` 来源逻辑
-
-### 测试
-
-109 tests pass。
-
-## 2026-05-05 — 日志去重 + 修复状态判断
-
-### 日志去重
-
-删除了三处重复/冗余的日志输出：
-
-1. **`Year histogram summary`**（`scholarly_session.py`）：probe 阶段打印后，`fetch_by_year` 中 `Probe summary` 又打印了相同的 `probed_year_counts`。删除了 probe 阶段的打印。
-
-2. **`Prior run diagnostics`**（`citation_fetch.py`）：fetch 开始前打印逐年诊断，结束时 `Year fetch comparisons` 再次打印几乎相同的内容。删除了开始前的打印，保留结束时的最终状态。
-
-3. **`Direction: oldest→newest`**（`citation_fetch.py`）：现已不再有反向抓取（newest→oldest），方向始终是 oldest→newest，无需打印。
-
-### `num_citations_seen` 缺失时的 fallback（`citation_io.py`）
-
-**问题**：旧版缓存可能没有 `num_citations_seen` 字段。`derive_citation_cache_state()` 在无法获取该值时 `num_seen = None`，导致后续完整性检查全部失效，已完成的论文被误判为 `partial`。
-
-**修复**：当 `num_citations_seen` 缺失时，从 `year_fetch_diagnostics` 中各年份 `seen_total` 求和来推导 `num_seen`。
-
-### `resolve_citation_status_from_state` off-by-1 defense-in-depth（`citation_io.py`）
-
-当 `probe_complete=True` 但 `probe_histogram_complete=False`（个别年份 cached ≠ probe）时，额外检查 `num_seen >= probed_hist_total`。避免因单个年份的小差异（如 178 vs 179）直接返回 `partial`。
-
-### `year_fetch_diagnostics` 过时导致不必要重新抓取（`citation_fetch.py`）
-
-**问题**：当某年份的引用数在两次运行之间增长（如 scholar 从 88 增长到 93），`year_fetch_diagnostics` 中保存的 `scholar_total` 和 `cached_total` 仍是旧值。`year_fetch_diagnostic_matches_total` 因为 `cached_total` 不匹配而返回 False，导致已完成的年份被重新抓取。
-
-**修复 1**：`build_materialized_year_fetch_diagnostics` 不再为没有现有 diagnostic 的年份创建新条目。避免用 `dedup_count=0` 的默认值回填，导致 `seen_total < scholar_total` 的误判。
-
-**修复 2**：在 `fetch_by_year` 开始前，用当前 probe 和 cache 数据更新过时的 diagnostics：
-- `scholar_total` 更新为当前 probe 值
-- `cached_total` 更新为当前 cache 值
-- `seen_total` 重新计算为 `cached_total + dedup_count`（保留旧的 dedup 计数作为下限）
-
-### captcha URL 显示错误（`citation_fetch.py`）
-
-**问题**：自动翻页时 `_SearchScholarIterator` 内部加载下一页（`start=160`）被阻止，但异常处理中给用户显示的 URL 是迭代器创建时的初始 URL（`start=90`），而不是实际被阻止的页面。
-
-**修复**：根据 `start_index + processed_in_this_run` 计算出实际被阻止的 page start 位置，重新构造 URL。
-
-### 相关文件
-
-- `crawler/scholarly_session.py` — 删除 `Year histogram summary` 打印
-- `crawler/citation_fetch.py` — 删除 `Prior run diagnostics` 和 `Direction` 打印；修复 `build_materialized_year_fetch_diagnostics`；同步过时 diagnostics；修复 captcha URL
-- `crawler/citation_io.py` — `num_seen` 从 diagnostics fallback；`resolve_citation_status_from_state` off-by-1 检查
-- `crawler/citation_cache.py` — 保留 `probed_year_counts_satisfied` 不变
-- `scholar_citation.py` — `_save_output._build_entry` 从 cache 文件合并 fresh `year_fetch_diagnostics` 等字段到 output state
-- `tests/test_direct_fetch.py` — 更新断言
-- `tests/test_citation_status.py` — 新增 `test_citation_status_complete_when_num_seen_derived_from_year_diagnostics`
-
-### 输出文件 `year_fetch_diagnostics` 不更新的修复
-
-**问题**：`_save_output` 的 `_build_entry` 对已有 output state 的论文直接复制旧的 `year_fetch_diagnostics`，从不更新。虽然 fetch 期间有 sync 代码补救当前运行，但下次运行又要从相同的过时数据重新开始。
-
-**修复**：`_build_entry` 现在从当前运行的 cache 文件中合并最新值（`year_fetch_diagnostics`、`cached_year_counts`、`probed_year_counts`、`probed_year_total`、`probe_complete`、`dedup_count`）。
-
-### 测试
-
-110 tests pass。
-
-### `citation_count_summary` 汇总值从 per-year diagnostics 推导
-
-**问题**：JSON 输出文件的 `citation_count_summary` 中，`histogram_total=0`（因为外层 `ctx.probed_year_counts=None`），`unyeared_count=1347`（因 histogram=0 导致计算出错），缺少 `seen_total`，`cached_unyeared_count` 在顶层和 summary 内重复。
-
-**修复**：
-1. `_synced_save_progress` 增加 `_live_probed_year_counts` / `_live_probe_complete` 同步，解决 `histogram_total=0`
-2. `build_citation_count_summary` 新增 `year_fetch_diagnostics` 参数，当 diagnostics 可用时所有汇总值（`histogram_total`、`seen_total`、`cached_year_total`、`dedup_count`）从 per-year 数据累加得到（`scholar_total` 除外，来自页面）
-3. 新增 `seen_total` 字段（per-year `seen_total` 累加）
-4. 从 `_FETCH_STATE_KEYS` 移除 `cached_unyeared_count`（消除重复）
-5. `build_materialized_year_fetch_diagnostics` 恢复为所有年份创建条目，`citation_count_summary` 才能获得完整 totals
-
-### 迁移脚本
-
-`fix_output_fetch_state.py` — 读取现有 output JSON，按新逻辑重建 `citation_count_summary`。
-
-### `probe_complete` 从相等性推导 + `unyeared_count` 重命名
-
-**原则**：不保存可推导的值。
-
-- `probe_complete` 不再保存到 cache/output。`rehydrate_probe_metadata` 改为推导：`scholar_total == histogram_total`
-- `unyeared_count` → `scholar_unyeared_count`
-- 从 `_FETCH_STATE_KEYS` 移除 `probe_complete`
-
-### `fetch_strategy` 统一标记 + 移除 `probed_year_total`
-
-- 新增 `fetch_strategy: "year"` / `"direct"` 到 `_fetch_state` 顶层
-- 移除 per-year `mode: "year"` 和 `direct_fetch_diagnostics.mode: "direct"`（冗余）
-- 移除 `probed_year_total`（与 `citation_count_summary.histogram_total` 冗余）
-- `rehydrate_probe_metadata` 从 `citation_count_summary.histogram_total` 读取备选
-
-### 日志汇总优化
-
-- 开始汇总 "Cache totals" 新增 `seen_total`，方便与 `histogram_total` 对比
-- 结束汇总 "Done:" 新增 `histogram` 和 `unyeared`：
-  `Done: X cached, Y seen, Z dupes (histogram: H, scholar: S, unyeared: U)`
-- action 标签修正：direct 模式不再错误显示 "recheck by year"
-- action 行增加 `seen` 和 `scholar` 变化信息
-
-### 移除 `underfetched`/`underfetch_gap`/`completed_years_in_current_run`
-
-- `underfetched`/`underfetch_gap` 从 year diagnostics 移除（衍生值，日志打印时即时计算）
-- `completed_years_in_current_run` 从 output JSON 移除（与 `completed_years` 重复，仅同 run 内有用）
-
-### 迁移脚本增强
-
-- 为缺失 `year_fetch_diagnostics` 的旧 year 模式论文，从 `probed_year_counts` + `cached_year_counts` 重建
-- 自动推导 `fetch_strategy`：有 probe 数据 → year，否则 → direct
-
-### Direct/Year 两种 summary 分离
-
-**问题**：`save_progress` 中将 `count_summary`（per-year 派生值）直接覆盖到 `direct_fetch_diagnostics.summary`，导致 direct 模式的 summary 包含了 per-year 派生字段（`histogram_total`、`cached_year_total` 等），且 `seen_total` 可能不准确（因 unyeared 引用不归入 per-year 条目）。
-
-**修复**：
-1. `save_progress`：direct summary 只同步 `scholar_total`、`cached_total`、`seen_total`、`dedup_count` 五个顶层计数器，其中 `seen_total` 使用实际记录值 `len(citations_to_save) + effective_dedup`（即 `num_citations_seen`），不重新计算
-2. `_build_direct_fetch_diagnostics`：新增 `seen_total` 参数，不再内部计算 `cached_total + dedup_count`
-3. `build_citation_count_summary`：year summary 的 `seen_total` 加上 `cached_unyeared_count`（`seen_total = diag_seen + cached_unyeared_count`），确保无年份引用也被计入
-4. `_build_entry`：不再覆盖 summary 中的 `seen_total` 和 `dedup_count`
-
-### `num_citations_seen` 恢复
-
-从 `_FETCH_STATE_KEYS` 中移除 `num_citations_seen` 后，输出文件不再保留该字段，导致 direct summary 无法使用记录值作为 `seen_total`。恢复该字段，`seen_total` 优先使用 `num_citations_seen`（实际记录值），不再通过 `cached + dedup` 重新计算。
-
-### 日志：抓取判定诊断
-
-新增 `_format_completeness_diag(st, cached)`，在每篇论文标题下打印诊断信息：
-
-```
-  direct: seen_total=49 ≥ scholar_total=49 → complete
-  year: seen_total=1343 ≥ histogram_total=1340 → complete
-  direct: seen_total=45 < scholar_total=46 → partial
-```
-
-### Direct fetch 日志缩进
-
-Direct fetch 条目从 4 空格改为 8 空格，与 `Page items:` 和 `Progress saved:` 对齐。
-
-### `fix_output_fetch_state.py` 多项修复
-
-- 条件从 `not yfd` 改为 `not has_year_entries`，处理只有 `summary` 键的 yfd
-- 合成不再要求 `probed_year_counts` 存在
-- `fetch_strategy` 基于引用数阈值（50）推断，不因合成 per-year 条目而误判
-- 空 `_fetch_state` / `None` 正确初始化
-- `direct_fetch_diagnostics.summary` 的 `seen_total` 使用 `num_citations_seen` 或 `cached_total + dedup_count` fallback
-- 保留 `num_citations_seen`（不再移除）
-
-### 重试状态注入修复 + direct resume 页对齐
-
-**问题 1**：重试时 `retry_strategy_cached = latest_output_state if latest_output_state else latest_cache`。当 paper 在 output state 中存在时，直接用 output state（不含 `citations` 数组），忽略了缓存文件中 `save_progress` 保存的最新引用。
-
-**修复**：`retry_strategy_cached = latest_cache if latest_cache else latest_output_state`，缓存文件优先。
-
-**问题 2**：`direct_resume_state.next_index` 保存精确位置（如 7），重试时跳过前 7 个 item，但跳过的 item 可能未在 `old_citations` 中，导致丢失。
-
-**修复**：`_build_direct_resume_state` 将 `next_index` 对齐到页边界（`_page_aligned_start`），重试从页开头重新抓取，已保存的引用通过 `old_citations` 去重。
-
-### 论文间延时移除
-
-每次页面访问前已有 45-90s 延时，论文之间的额外延时是冗余的。移除 `time.sleep(d)`，只保留状态日志。
-
-### `resolve_citation_status_from_state` 无 diagnostics 时的 fallback
-
-当 `direct_fetch_diagnostics.summary` 或 `year_fetch_diagnostics.summary` 缺失时，原逻辑直接返回 `partial`，未使用已有的 `current` / `num_seen` 进行判断。
-
-**修复**：当 diagnostics summary 不可用时，fallback 到 `num_seen >= current`（当前 scholar total）判断 complete/partial。
-
-### `fix_output_fetch_state.py` 多项修复
-
-- `fetch_strategy` 强制按阈值重新评估（已有 `year` 但引用数 < 50 的论文纠正为 `direct`）
-- `direct_fetch_diagnostics.summary` 为 `None` 时触发 repair
-- `num_citations_seen` 不再从 `new_summary`（per-year 派生）设置，直接模式从 `direct_fetch_diagnostics.summary.seen_total` 取实际记录值
-
-### Direct fetch 日志缩进统一
-
-Direct fetch 的 item 行从 8 空格改为 10 空格，与 year fetch 一致。
-
-### `num_citations_seen` 和 `cached_year_counts` 从 output 中移除
-
-两个字段均可从 diagnostics summaries 推导，不需要作为顶层字段持久化：
-
-- `num_citations_seen`：直接模式从 `direct_fetch_diagnostics.summary.seen_total`，年份模式从 `year_fetch_diagnostics.summary.seen_total`
-- `cached_year_counts`：从 `year_fetch_diagnostics` 每个年份条目的 `cached_total` 累加
-
-修改点：
-- `_FETCH_STATE_KEYS` 移除这两个字段
-- `derive_citation_cache_state` — `num_seen` 直接从 diagnostics summary 读取
-- `_resolve_refresh_strategy` — 按策略从对应 diagnostics 读取 `seen_total`
-- `_build_entry` — 不再合并 `cached_year_counts`
-- `fix_output_fetch_state.py` — 从 `year_fetch_diagnostics` 推导，移除相关逻辑
-
-### `underfetched`/`underfetch_gap` 清理
-
-这些字段已在日志中临时计算（不持久化），`fix_output_fetch_state.py` 清理了旧数据中残留的字段。
+## 环境说明
+
+- **Conda 环境**：`scholar`
+- **关键包**：`scholarly==1.7.11`、`openpyxl==3.1.5`、`httpx==0.27.2`
+- **代理**：scholarly 自身代理 API 与 httpx 0.28+ 不兼容，通过系统 `https_proxy` 环境变量生效
