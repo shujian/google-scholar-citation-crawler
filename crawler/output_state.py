@@ -26,7 +26,6 @@ _FETCH_STATE_KEYS = frozenset([
     'fetch_strategy',
     'num_citations_on_scholar',
     'complete_fetch_attempt',
-    'cached_year_counts',
     'year_fetch_diagnostics',
     'direct_fetch_diagnostics',
     'fetched_at',

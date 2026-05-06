@@ -552,6 +552,7 @@ class CitationStatusTests(FetcherTestCase):
         diagnostics = self.fetcher._direct_fetch_diagnostics(
             scholar_total=10,
             cached_total=9,
+            seen_total=10,
             dedup_count=1,
             termination_reason="target_reached",
         )

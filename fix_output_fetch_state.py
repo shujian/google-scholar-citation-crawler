@@ -22,8 +22,8 @@ from crawler.citation_cache import normalize_year_count_map, year_count_map
 
 
 CACHE_KEYS = [
-    'fetch_strategy', 'num_citations_seen', 'dedup_count',
-    'cached_year_counts', 'year_fetch_diagnostics',
+    'fetch_strategy', 'dedup_count',
+    'year_fetch_diagnostics',
     'probed_year_counts', 'complete', 'complete_fetch_attempt',
     'completed_years',
     'num_citations_on_scholar', 'num_citations_cached',
@@ -46,9 +46,12 @@ def migrate_one_file(json_path, cache_dir):
     updated = 0
     for paper in papers:
         state = paper.get("_fetch_state")
-        title = (paper.get('pub') or {}).get('title', '') or state.get('title', '')
-        if not state or not title:
+        title = (paper.get('pub') or {}).get('title', '') or (state or {}).get('title', '')
+        if not title:
             continue
+        # Create _fetch_state if it doesn't exist yet (None or empty dict).
+        if not state:
+            paper['_fetch_state'] = state = {}
 
         # 1. Merge fresh data from per-paper cache file
         cache_path = _cache_path(cache_dir, title)
@@ -68,19 +71,29 @@ def migrate_one_file(json_path, cache_dir):
             yfd = state.get('year_fetch_diagnostics') or {}
             dedup = sum(d.get('dedup_count', 0) for d in yfd.values()) or state.get('dedup_count', 0)
             state['num_citations_cached'] = len(citations)
-            state['num_citations_seen'] = len(citations) + (dedup or 0)
-            state['cached_year_counts'] = year_count_map(citations)
 
-        # 2b. Rebuild year_fetch_diagnostics from probed/cached counts if missing
+        # 2b. Rebuild year_fetch_diagnostics from per-year cached counts if missing
         yfd = state.get('year_fetch_diagnostics')
         probed = normalize_year_count_map(state.get("probed_year_counts"))
-        cached_yc = state.get('cached_year_counts') or year_count_map(citations)
-        if (not yfd) and probed and cached_yc:
+        # Check if yfd has actual per-year entries (not just a summary)
+        has_year_entries = yfd and any(
+            isinstance(v, dict) and 'year' in v
+            for v in yfd.values()
+        )
+        # Derive cached_yc from year_fetch_diagnostics when available;
+        # fall back to actual citation year counts.
+        if has_year_entries:
+            cached_yc = {
+                int(d['year']): d.get('cached_total', 0)
+                for d in yfd.values()
+                if isinstance(d, dict) and 'year' in d
+            }
+        else:
+            cached_yc = year_count_map(citations)
+        if (not has_year_entries) and cached_yc:
             yfd = {}
-            all_years = set(probed.keys()) | set(cached_yc.keys())
-            for year in sorted(all_years):
-                s = probed.get(year, cached_yc.get(year, 0))
-                c = cached_yc.get(year, 0)
+            for year, c in sorted(cached_yc.items()):
+                s = (probed or {}).get(year, c)
                 yfd[str(year)] = {
                     'year': year,
                     'histogram_count': s,
@@ -111,26 +124,65 @@ def migrate_one_file(json_path, cache_dir):
         new_summary.pop("cached_year_counts", None)
         new_summary.pop("probed_year_counts", None)
 
-        # Prefer per-year sums for dedup_count / num_citations_seen
-        if new_summary.get('dedup_count'):
-            state['dedup_count'] = new_summary['dedup_count']
-        if new_summary.get('seen_total'):
-            state['num_citations_seen'] = new_summary['seen_total']
-        # Infer fetch_strategy from available data
-        if not state.get('fetch_strategy'):
-            if state.get('year_fetch_diagnostics') or state.get('probed_year_counts'):
-                state['fetch_strategy'] = 'year'
-            else:
-                state['fetch_strategy'] = 'direct'
+        # Infer or correct fetch_strategy from citation count threshold.
+        scholar = state.get("num_citations_on_scholar")
+        try:
+            scholar_int = int(scholar) if scholar is not None else 0
+        except (TypeError, ValueError):
+            scholar_int = 0
+        yfd = state.get('year_fetch_diagnostics')
+        has_year_entries = yfd and any(
+            isinstance(v, dict) and 'year' in v
+            for v in yfd.values()
+        )
+        # Year mode requires BOTH citation count >= 50 AND real per-year
+        # probe data.  If either is missing the paper should be direct.
+        expected = 'year' if (scholar_int >= 50 and has_year_entries) else 'direct'
+        if state.get('fetch_strategy') != expected:
+            state['fetch_strategy'] = expected
+            merged = True
 
-        # Remove legacy fields
+        # Synthesise or repair direct_fetch_diagnostics for direct-mode papers.
+        if state.get('fetch_strategy') == 'direct':
+            dfd = state.get('direct_fetch_diagnostics')
+            needs_df_repair = (
+                not isinstance(dfd, dict)
+                or not isinstance(dfd.get('summary'), dict)
+            )
+            if needs_df_repair:
+                dedup_for_diag = state.get('dedup_count', 0) or 0
+                state['direct_fetch_diagnostics'] = {
+                    'summary': {
+                        'scholar_total': scholar_int,
+                        'cached_total': len(citations),
+                        'seen_total': len(citations) + dedup_for_diag,
+                        'dedup_count': dedup_for_diag,
+                        'termination_reason': 'migrated',
+                    },
+                }
+                merged = True
+            # Restore dedup_count for direct mode from diagnostics if missing.
+            dfd = state.get('direct_fetch_diagnostics')
+            if isinstance(dfd, dict) and isinstance(dfd.get('summary'), dict):
+                if state.get('dedup_count') is None:
+                    state['dedup_count'] = dfd['summary'].get('dedup_count', 0)
+                    merged = True
+
+        # For year mode, dedup_count comes from per-year sums.
+        if state.get('fetch_strategy') == 'year':
+            if state.get('dedup_count') is None:
+                state['dedup_count'] = new_summary.get('dedup_count')
+                merged = True
+
+        # Remove legacy/redundant fields
         state.pop('probed_year_total', None)
         state.pop('probe_complete', None)
         state.pop('cached_unyeared_count', None)
         state.pop('citation_count_summary', None)
+        state.pop('cached_year_counts', None)  # derived from year_fetch_diagnostics
+        state.pop('num_citations_seen', None)  # derived from diagnostics summaries
         # Remove fields now derived from diagnostics summaries
         state.pop('num_citations_cached', None)
-        state.pop('num_citations_seen', None)
         state.pop('dedup_count', None)
         state.pop('complete', None)
         state.pop('completed_years', None)
@@ -186,14 +238,18 @@ def migrate_one_file(json_path, cache_dir):
             merged = True
         if strategy == 'direct':
             dfd = state.get('direct_fetch_diagnostics')
-            if isinstance(dfd, dict) and dfd.get('summary'):
-                # Update the direct summary with latest scholar_total etc.
-                dfd['summary'].update({
-                    'scholar_total': new_summary.get('scholar_total'),
-                    'cached_total': new_summary.get('cached_total'),
-                    'seen_total': new_summary.get('seen_total'),
-                    'dedup_count': new_summary.get('dedup_count'),
-                })
+            if isinstance(dfd, dict) and isinstance(dfd.get('summary'), dict):
+                # Direct-fetch diagnostics uses simple top-level counters.
+                # scholar_total and cached_total from the current state.
+                dfd['summary']['scholar_total'] = new_summary.get('scholar_total')
+                dfd['summary']['cached_total'] = new_summary.get('cached_total')
+                # seen_total: keep the existing recorded value; if missing,
+                # compute from cached_total + dedup_count.
+                if dfd['summary'].get('seen_total') is None:
+                    dd = state.get('dedup_count') or 0
+                    dfd['summary']['seen_total'] = new_summary.get('cached_total', 0) + dd
+                if dfd['summary'].get('dedup_count') is None:
+                    dfd['summary']['dedup_count'] = state.get('dedup_count') or 0
                 merged = True
 
         # 4. Set fetch_complete at paper level from _fetch_state

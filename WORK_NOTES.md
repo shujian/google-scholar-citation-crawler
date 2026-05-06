@@ -849,3 +849,88 @@ if current_total is not None:
 
 - 为缺失 `year_fetch_diagnostics` 的旧 year 模式论文，从 `probed_year_counts` + `cached_year_counts` 重建
 - 自动推导 `fetch_strategy`：有 probe 数据 → year，否则 → direct
+
+### Direct/Year 两种 summary 分离
+
+**问题**：`save_progress` 中将 `count_summary`（per-year 派生值）直接覆盖到 `direct_fetch_diagnostics.summary`，导致 direct 模式的 summary 包含了 per-year 派生字段（`histogram_total`、`cached_year_total` 等），且 `seen_total` 可能不准确（因 unyeared 引用不归入 per-year 条目）。
+
+**修复**：
+1. `save_progress`：direct summary 只同步 `scholar_total`、`cached_total`、`seen_total`、`dedup_count` 五个顶层计数器，其中 `seen_total` 使用实际记录值 `len(citations_to_save) + effective_dedup`（即 `num_citations_seen`），不重新计算
+2. `_build_direct_fetch_diagnostics`：新增 `seen_total` 参数，不再内部计算 `cached_total + dedup_count`
+3. `build_citation_count_summary`：year summary 的 `seen_total` 加上 `cached_unyeared_count`（`seen_total = diag_seen + cached_unyeared_count`），确保无年份引用也被计入
+4. `_build_entry`：不再覆盖 summary 中的 `seen_total` 和 `dedup_count`
+
+### `num_citations_seen` 恢复
+
+从 `_FETCH_STATE_KEYS` 中移除 `num_citations_seen` 后，输出文件不再保留该字段，导致 direct summary 无法使用记录值作为 `seen_total`。恢复该字段，`seen_total` 优先使用 `num_citations_seen`（实际记录值），不再通过 `cached + dedup` 重新计算。
+
+### 日志：抓取判定诊断
+
+新增 `_format_completeness_diag(st, cached)`，在每篇论文标题下打印诊断信息：
+
+```
+  direct: seen_total=49 ≥ scholar_total=49 → complete
+  year: seen_total=1343 ≥ histogram_total=1340 → complete
+  direct: seen_total=45 < scholar_total=46 → partial
+```
+
+### Direct fetch 日志缩进
+
+Direct fetch 条目从 4 空格改为 8 空格，与 `Page items:` 和 `Progress saved:` 对齐。
+
+### `fix_output_fetch_state.py` 多项修复
+
+- 条件从 `not yfd` 改为 `not has_year_entries`，处理只有 `summary` 键的 yfd
+- 合成不再要求 `probed_year_counts` 存在
+- `fetch_strategy` 基于引用数阈值（50）推断，不因合成 per-year 条目而误判
+- 空 `_fetch_state` / `None` 正确初始化
+- `direct_fetch_diagnostics.summary` 的 `seen_total` 使用 `num_citations_seen` 或 `cached_total + dedup_count` fallback
+- 保留 `num_citations_seen`（不再移除）
+
+### 重试状态注入修复 + direct resume 页对齐
+
+**问题 1**：重试时 `retry_strategy_cached = latest_output_state if latest_output_state else latest_cache`。当 paper 在 output state 中存在时，直接用 output state（不含 `citations` 数组），忽略了缓存文件中 `save_progress` 保存的最新引用。
+
+**修复**：`retry_strategy_cached = latest_cache if latest_cache else latest_output_state`，缓存文件优先。
+
+**问题 2**：`direct_resume_state.next_index` 保存精确位置（如 7），重试时跳过前 7 个 item，但跳过的 item 可能未在 `old_citations` 中，导致丢失。
+
+**修复**：`_build_direct_resume_state` 将 `next_index` 对齐到页边界（`_page_aligned_start`），重试从页开头重新抓取，已保存的引用通过 `old_citations` 去重。
+
+### 论文间延时移除
+
+每次页面访问前已有 45-90s 延时，论文之间的额外延时是冗余的。移除 `time.sleep(d)`，只保留状态日志。
+
+### `resolve_citation_status_from_state` 无 diagnostics 时的 fallback
+
+当 `direct_fetch_diagnostics.summary` 或 `year_fetch_diagnostics.summary` 缺失时，原逻辑直接返回 `partial`，未使用已有的 `current` / `num_seen` 进行判断。
+
+**修复**：当 diagnostics summary 不可用时，fallback 到 `num_seen >= current`（当前 scholar total）判断 complete/partial。
+
+### `fix_output_fetch_state.py` 多项修复
+
+- `fetch_strategy` 强制按阈值重新评估（已有 `year` 但引用数 < 50 的论文纠正为 `direct`）
+- `direct_fetch_diagnostics.summary` 为 `None` 时触发 repair
+- `num_citations_seen` 不再从 `new_summary`（per-year 派生）设置，直接模式从 `direct_fetch_diagnostics.summary.seen_total` 取实际记录值
+
+### Direct fetch 日志缩进统一
+
+Direct fetch 的 item 行从 8 空格改为 10 空格，与 year fetch 一致。
+
+### `num_citations_seen` 和 `cached_year_counts` 从 output 中移除
+
+两个字段均可从 diagnostics summaries 推导，不需要作为顶层字段持久化：
+
+- `num_citations_seen`：直接模式从 `direct_fetch_diagnostics.summary.seen_total`，年份模式从 `year_fetch_diagnostics.summary.seen_total`
+- `cached_year_counts`：从 `year_fetch_diagnostics` 每个年份条目的 `cached_total` 累加
+
+修改点：
+- `_FETCH_STATE_KEYS` 移除这两个字段
+- `derive_citation_cache_state` — `num_seen` 直接从 diagnostics summary 读取
+- `_resolve_refresh_strategy` — 按策略从对应 diagnostics 读取 `seen_total`
+- `_build_entry` — 不再合并 `cached_year_counts`
+- `fix_output_fetch_state.py` — 从 `year_fetch_diagnostics` 推导，移除相关逻辑
+
+### `underfetched`/`underfetch_gap` 清理
+
+这些字段已在日志中临时计算（不持久化），`fix_output_fetch_state.py` 清理了旧数据中残留的字段。

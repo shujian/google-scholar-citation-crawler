@@ -48,16 +48,9 @@ def derive_citation_cache_state(pub, cached, year_based_threshold):
     current = int(pub.get('num_citations', 0) or 0)
     fetch_policy = resolve_citation_fetch_policy(current, pub.get('year', 'N/A'), year_based_threshold)
 
-    num_seen = cached.get('num_citations_seen')
-    try:
-        num_seen = int(num_seen) if num_seen is not None else None
-    except (TypeError, ValueError):
-        num_seen = None
-
-    # Extract summary from diagnostics to get the target and seen values
-    # that were recorded at the end of the last fetch.
-    # The summary is stored alongside per-year entries (at the "summary" key)
-    # and must be extracted before normalization which filters non-year keys.
+    # seen_total is always read from diagnostics summaries
+    # (direct_fetch_diagnostics for direct mode,
+    # year_fetch_diagnostics for year mode).
     raw_year_diag = cached.get('year_fetch_diagnostics') or {}
     year_summary = raw_year_diag.get('summary') or {}
     year_diag = normalize_year_fetch_diagnostics(raw_year_diag)
@@ -79,12 +72,12 @@ def derive_citation_cache_state(pub, cached, year_based_threshold):
     if year_seen_total is None and year_diag:
         year_seen_total = sum(d.get('seen_total', 0) for d in year_diag.values())
 
-    # Fallback: derive num_seen from diagnostics if top-level field is missing
-    if num_seen is None and direct_seen_total is not None:
+    # Derive num_seen from the appropriate diagnostics summary.
+    if direct_seen_total is not None:
         num_seen = direct_seen_total
-    if num_seen is None and year_seen_total is not None:
+    elif year_seen_total is not None:
         num_seen = year_seen_total
-    if num_seen is None:
+    else:
         actual_cached = max(
             int(cached.get('num_citations_cached', len(citations)) or 0),
             len(citations),
@@ -133,6 +126,10 @@ def resolve_citation_status_from_state(state):
         if target is not None and num_seen is not None:
             return 'complete' if num_seen >= target else 'partial'
 
+    # No diagnostics summary available — fall back to top-level counters.
+    current = state.get('current')
+    if current is not None and num_seen is not None and num_seen >= current:
+        return 'complete'
     return 'partial'
 
 

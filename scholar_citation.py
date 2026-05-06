@@ -249,11 +249,11 @@ class PaperCitationFetcher:
         return _cf._iter_direct_citedby(citedby_url, direct_resume_state, num_citations,
                                         fetcher=self)
     @staticmethod
-    def _build_direct_fetch_diagnostics(scholar_total, cached_total, dedup_count, termination_reason):
-        return _cf._build_direct_fetch_diagnostics(scholar_total, cached_total, dedup_count, termination_reason)
+    def _build_direct_fetch_diagnostics(scholar_total, cached_total, seen_total, dedup_count, termination_reason):
+        return _cf._build_direct_fetch_diagnostics(scholar_total, cached_total, seen_total, dedup_count, termination_reason)
     @staticmethod
-    def _direct_fetch_diagnostics(scholar_total, cached_total, dedup_count, termination_reason):
-        return _cf._direct_fetch_diagnostics(scholar_total, cached_total, dedup_count, termination_reason)
+    def _direct_fetch_diagnostics(scholar_total, cached_total, seen_total, dedup_count, termination_reason):
+        return _cf._direct_fetch_diagnostics(scholar_total, cached_total, seen_total, dedup_count, termination_reason)
     @staticmethod
     def _direct_fetch_summary_message(diagnostics):
         return _cf._direct_fetch_summary_message(diagnostics)
@@ -460,7 +460,14 @@ class PaperCitationFetcher:
         # Drop unyeared cached citations for every year-based fetch:
         # unyeared entries have no year bucket to diff against histogram data.
         drop_cached_unyeared = fetch_policy['mode'] == 'year'
-        num_seen = cached.get('num_citations_seen')
+        # Derive seen total from diagnostics summary.
+        num_seen = None
+        if fetch_policy['mode'] == 'year':
+            yfd_summary = (cached.get('year_fetch_diagnostics') or {}).get('summary') or {}
+            num_seen = yfd_summary.get('seen_total')
+        else:
+            dfd_summary = (cached.get('direct_fetch_diagnostics') or {}).get('summary') or {}
+            num_seen = dfd_summary.get('seen_total')
         try:
             num_seen = int(num_seen) if num_seen is not None else None
         except (TypeError, ValueError):
@@ -732,6 +739,42 @@ class PaperCitationFetcher:
         state = self._derive_citation_cache_state(pub, cached)
         return _cio_resolve_citation_status_from_state(state)
 
+    @staticmethod
+    def _format_completeness_diag(st, cached):
+        """Return a one-line completeness diagnostic from cached state."""
+        if st in ('skip_zero', None):
+            return ''
+        if st == 'missing':
+            return '  no cached state → missing'
+
+        strategy = cached.get('fetch_strategy', 'direct')
+
+        if strategy == 'year':
+            yfd = cached.get('year_fetch_diagnostics') or {}
+            summary = yfd.get('summary') or {}
+            target = summary.get('histogram_total')
+            seen = summary.get('seen_total')
+            label = 'histogram_total'
+        else:
+            dfd = cached.get('direct_fetch_diagnostics') or {}
+            summary = dfd.get('summary') or {}
+            target = summary.get('scholar_total')
+            seen = summary.get('seen_total')
+            label = 'scholar_total'
+
+        if target is None or seen is None:
+            # Legacy cache without diagnostics summary.
+            # Use top-level counters for the completeness verdict.
+            scholar = cached.get('num_citations_on_scholar')
+            cit_len = len(cached.get('citations', []) or [])
+            seen_val = cit_len
+            cmp_sym = '≥' if (seen_val or 0) >= (scholar or 0) else '<'
+            return (f'  {strategy}: seen={seen_val} {cmp_sym} '
+                    f'scholar_total={scholar} (no diagnostics) → {st}')
+
+        cmp_sym = '≥' if seen >= target else '<'
+        return f'  {strategy}: seen_total={seen} {cmp_sym} {label}={target} → {st}'
+
     def has_pending_work(self):
         """Check if there are any papers with incomplete citation caches."""
         if not os.path.exists(self.profile_json):
@@ -912,6 +955,8 @@ class PaperCitationFetcher:
 
             if st == 'complete':
                 print(f"[{idx}/{len(publications)}] {title[:55]}... -> cached ({len(cached['citations'])} citations)")
+                if self.fetch_mode != 'force':
+                    print(PaperCitationFetcher._format_completeness_diag(st, cached))
                 results[idx - 1] = {'pub': pub, 'citations': cached['citations']}
                 continue
 
@@ -970,6 +1015,7 @@ class PaperCitationFetcher:
             action = attempt_state['action']
 
             print(f"[{idx}/{len(publications)}] {title[:55]}...")
+            print(PaperCitationFetcher._format_completeness_diag(st, cached))
             print(f"  {action}")
 
             # Skip year-based fetch when all cached citations are unyeared and
@@ -1006,7 +1052,10 @@ class PaperCitationFetcher:
                             # so same-run retries resume from the exact page where the error occurred.
                             latest_cache = self._load_citation_cache(title)
                             latest_output_state = getattr(self, '_output_fetch_state', {}).get(title)
-                            retry_strategy_cached = latest_output_state if latest_output_state else latest_cache
+                            # Within-run retry: prefer cache file (written by
+                            # save_progress with the most recent citations) over
+                            # output state (which lacks the citations array).
+                            retry_strategy_cached = latest_cache if latest_cache else latest_output_state
                             if retry_strategy_cached:
                                 retry_attempt_state = self._resolve_refresh_strategy(
                                     pub,
@@ -1186,9 +1235,7 @@ class PaperCitationFetcher:
             results[idx - 1] = {'pub': pub, 'citations': citations or []}
 
             if fetch_idx < (self.limit or len(need_fetch)):
-                d = rand_delay(self._delay_scale)
-                print(f"  {now_str()} Waiting {d:.0f}s before next paper... [{self._wait_status()}]", flush=True)
-                time.sleep(d)
+                print(f"  {now_str()} Next paper... [{self._wait_status()}]", flush=True)
 
     def _inject_cookies_from_curl(self, curl_str):
         """Parse cookies and selected headers from a pasted cURL command."""
@@ -1248,25 +1295,22 @@ class PaperCitationFetcher:
             cached = self._load_citation_cache(title) if pub else None
             if cached:
                 for key in ('fetch_strategy', 'year_fetch_diagnostics',
-                            'direct_fetch_diagnostics',
-                            'cached_year_counts'):
+                            'direct_fetch_diagnostics'):
                     if key in cached:
                         fetch_state[key] = cached[key]
-            # Update scholar total from current profile (the only top-level
-            # counter that cannot be derived from diagnostics).
+            # Update scholar total and cached_total from current state.
+            # seen_total and dedup_count are intentionally left untouched —
+            # they are derived from per-year sums inside
+            # build_citation_count_summary and must not be overwritten by
+            # top-level counters that may disagree with per-year data.
             current_total = pub.get('num_citations') if pub else None
             if current_total is not None and fetch_state:
                 fetch_state['num_citations_on_scholar'] = current_total
-                # Keep diagnostics summaries in sync with actual citations.
-                dedup = (cached or {}).get('dedup_count', 0) or 0
-                seen_total = len(citations) + dedup
                 for diag_key in ('year_fetch_diagnostics', 'direct_fetch_diagnostics'):
                     diag = fetch_state.get(diag_key)
                     if isinstance(diag, dict) and 'summary' in diag:
                         diag['summary']['scholar_total'] = current_total
                         diag['summary']['cached_total'] = len(citations)
-                        diag['summary']['seen_total'] = seen_total
-                        diag['summary']['dedup_count'] = dedup
             return {
                 'pub': pub,
                 'citations': citations,

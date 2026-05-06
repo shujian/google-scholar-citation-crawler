@@ -135,7 +135,11 @@ def build_citation_count_summary(citations, scholar_total=None, probed_year_coun
             unyeared_count = max(0, scholar_total - histogram_total)
         cached_year_total = diag_cached
         cached_unyeared_count = max(0, cached_total - diag_cached)
-        seen_total = diag_seen
+        # seen_total must include unyeared citations, which are not
+        # represented in any per-year entry.  diag_seen covers only
+        # yeared citations; the unyeared remainder is added here so
+        # that seen_total = total_cached + total_dedup.
+        seen_total = diag_seen + cached_unyeared_count
         cached_dedup = diag_dedup
     else:
         cached_year_total = sum(cached_year_counts.values())

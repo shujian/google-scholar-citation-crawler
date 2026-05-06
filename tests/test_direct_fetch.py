@@ -93,9 +93,11 @@ class DirectFetchTests(FetcherTestCase):
         with open(cache_path, "r", encoding="utf-8") as f:
             saved = json.load(f)
 
+        # next_index is page-aligned so the retry re-fetches the whole page;
+        # already-saved items in the cache serve as old_citations for dedup.
         self.assertEqual(saved["direct_resume_state"], {
             "mode": "direct",
-            "next_index": 2,
+            "next_index": 0,
             "source_scholar_total": 25,
             "citedby_url": "/scholar?cites=123",
         })
@@ -835,13 +837,9 @@ class DirectFetchTests(FetcherTestCase):
             {
                 "summary": {
                     "scholar_total": 98,
-                    "histogram_total": 3,
                     "cached_total": 3,
-                    "cached_year_total": 3,
                     "seen_total": 3,
-                    "cached_unyeared_count": 0,
                     "dedup_count": 0,
-                    "scholar_unyeared_count": 95,
                     "termination_reason": "iterator_exhausted",
                 },
             },

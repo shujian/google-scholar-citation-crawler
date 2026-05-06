@@ -511,7 +511,7 @@ class MainLoopTests(FetcherTestCase):
             {"title": "Y2024-A", "authors": "A", "venue": "V1", "year": "2024", "url": "u1"},
             {"title": "Y2025-A", "authors": "B", "venue": "V2", "year": "2025", "url": "u2"},
         ]
-        direct_fetch_diagnostics = self.fetcher._build_direct_fetch_diagnostics(12, 11, 1, "target_reached")
+        direct_fetch_diagnostics = self.fetcher._build_direct_fetch_diagnostics(12, 11, 12, 1, "target_reached")
 
         def cache_status(current_pub):
             self.assertEqual(current_pub["title"], pub["title"])
