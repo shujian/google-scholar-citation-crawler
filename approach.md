@@ -22,21 +22,15 @@
 - 向用户说明做了什么、为什么这样做
 - 等待用户确认问题已解决，再进行下一步
 
-### 4. 更新 WORK_NOTES.md
+### 4. 更新文档
 
-- 记录本次变更的技术细节：改了什么、为什么、设计决策
-- 格式：`- **YYYY-MM-DD** — 简短标题：详细说明`
-- 追加到变更历史末尾，不覆盖已有内容
+- `_update_history.zh.md`：记录本次变更的时间、标题、简要说明
+- `_work_notes.zh.md`：记录关键技术细节、架构决策、踩坑记录（非时间顺序）
+- `_user.zh.md`：将用户本次的原始消息追加到文件末尾，按序号编排
 
-### 5. 更新 user.md
+### 5. Git 提交
 
-- 将用户本次的原始消息追加到文件末尾
-- 格式：`## Message N [YYYY-MM-DD]\n\n用户消息内容\n\n---`
-- 消息原文照录，不修改、不翻译
-
-### 6. Git 提交
-
-- `git add` 涉及的文件（`scholar_citation.py`、`WORK_NOTES.md`、`user.md`，以及其他改动文件）
+- `git add` 涉及的文件（`scholar_citation.py`、`_work_notes.zh.md`、`_update_history.zh.md`、`_user.zh.md`，以及其他改动文件）
 - commit message 用英文，说明做了什么、为什么，不只写"what"，也写"why"
 - 每次只提交一个逻辑单元，不把多个不相关的修改混在一起
 
@@ -56,8 +50,9 @@
 
 ## 文档原则
 
-- `WORK_NOTES.md`：技术细节、架构决策、踩坑记录，供自己和贡献者参考
-- `user.md`：用户原始输入历史，展示 AI 辅助开发的完整对话轨迹
+- `_work_notes.zh.md`：技术细节、架构决策、踩坑记录，供自己和贡献者参考
+- `_update_history.zh.md`：按时间顺序的更新历史
+- `_user.zh.md`：用户原始输入历史，展示 AI 辅助开发的完整对话轨迹
 - `README.md`：面向外部用户的功能说明，有重大功能更新时同步更新
 - `approach.md`：本文件，描述工作流程本身
 

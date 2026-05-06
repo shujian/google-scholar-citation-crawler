@@ -1,6 +1,6 @@
 # Work Notes: Google Scholar Citation Crawler
 
-本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [update_history.md](update_history.md)。
+本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
 ## 开发环境
 
@@ -43,8 +43,8 @@ google-scholar-citation-crawler/
 │   ├── test_output_state.py     # 输出状态读写、citation_status 优先级
 │   └── test_profile.py          # AuthorProfileFetcher 计数汇总和 JSON/Excel 输出
 ├── fix_output_fetch_state.py    # 输出文件 _fetch_state 迁移/修复脚本
-├── update_history.md            # 按时间顺序的更新历史
-├── user.md                      # 用户输入记录
+├── _update_history.zh.md        # 按时间顺序的更新历史
+├── _user.zh.md                  # 用户输入记录
 ├── requirements.txt             # scholarly>=1.7, openpyxl>=3.1, httpx==0.27.2
 └── README.md                    # 对外功能说明
 ```

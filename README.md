@@ -2,7 +2,7 @@
 
 A Python tool to crawl Google Scholar author profiles and per-paper citation lists. Supports incremental caching, resume after interruption, and outputs both JSON and Excel files.
 
-> **Developed entirely with [Claude Code CLI](https://github.com/anthropics/claude-code)** — the user wrote zero lines of code. All implementation, debugging, and iteration were driven through natural-language conversation. `user.md` and `WORK_NOTES.md` in this repository document that process in full.
+> **Developed entirely with [Claude Code CLI](https://github.com/anthropics/claude-code)** — the user wrote zero lines of code. All implementation, debugging, and iteration were driven through natural-language conversation. `_user.zh.md` and `_work_notes.zh.md` in this repository document that process in full.
 
 ## Features
 
@@ -146,19 +146,22 @@ If the script is interrupted (Ctrl+C, timeout, or error):
 
 ## Year-Based Fetch Details
 
-Papers with ≥ 50 average citations per year switch to year-by-year fetch mode:
+Papers with ≥ 50 **total** citations switch to year-by-year fetch mode:
 
 - **Direction**: Always oldest → newest
 - **Selective refresh**: Scholar's year histogram is probed once per paper; only years where the cached count differs from the histogram are re-fetched
-- **Skip logic**: A year is skipped if `seen_total (cached + dedup) >= probe_count` for that year; a whole paper is skipped if every year satisfies this condition (equivalent to `seen >= scholar_total − unyeared`)
-- **Resume**: `partial_year_start` records the exact item offset within the in-progress year, so a retry resumes from the correct page rather than replaying from the beginning
+- **Skip logic**: 
+  - **Per-year**: A year is skipped if `seen_total (cached + dedup) >= histogram_count` for that year
+  - **Paper-level**: Year mode → complete when `histogram_total <= seen_total`; Direct mode → complete when `scholar_total <= seen_total`
+- **Resume**: `partial_year_start` records the item offset within the in-progress year; direct mode uses page-aligned `direct_resume_state`
 
 ## Development Notes
 
-This repository includes two files that document the AI-assisted development process:
+This repository includes three files that document the AI-assisted development process:
 
-- **`user.md`**: A timestamped log of all user messages from development conversations — shows how requirements evolved entirely through natural language, with the user writing zero code.
-- **`WORK_NOTES.md`**: Detailed technical notes, architecture decisions, and bug-fix records accumulated during development.
+- **`_user.zh.md`**: A timestamped, sequentially numbered log of all user messages — shows how requirements evolved entirely through natural language, with the user writing zero code.
+- **`_update_history.zh.md`**: Chronological record of every feature, fix, and refactor with clear date headings.
+- **`_work_notes.zh.md`**: Technical reference — architecture decisions, caching design, scholarly internals, and key bug records.
 
 Both files are committed to git and contain no personally identifiable information.
 
@@ -178,8 +181,9 @@ crawler/
   citation_fetch.py          # fetch_citations_with_progress + fetch_by_year engine
   scholarly_session.py       # SessionContext + scholarly monkey-patch + year probe
   interactive.py             # cURL cookie injection, captcha prompt, proxy-switch wait
+  output_state.py            # Output file _fetch_state read/write
   cli.py                     # parse_args() + _run_main()
-tests/                       # 96 unit tests, no network required
+tests/                       # 107 unit tests, no network required
 ```
 
 ### Running Tests

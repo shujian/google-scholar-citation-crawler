@@ -3,11 +3,12 @@
 请使用中文作为主要工作语言。但是在代码和提交中使用英文。
 
 ## 工作管理
-- `WORK_NOTES.md`：技术细节、架构决策、踩坑记录，供自己和贡献者参考
-- `user.md`：用户原始输入历史，展示 AI 辅助开发的完整对话轨迹
+- `_work_notes.zh.md`：技术细节、架构决策、踩坑记录，供自己和贡献者参考
+- `_update_history.zh.md`：按时间顺序的更新历史
+- `_user.zh.md`：用户原始输入历史，展示 AI 辅助开发的完整对话轨迹
 - `README.md`：面向外部用户的功能说明，有重大功能更新时同步更新
 
-每次完成功能更新或者bug修复等任务之后，请将用户完整输入记录在user.md，讲技术细节记录在WORK_NOTES.md，并考虑README.md是否需要更新。上述事宜都处理完毕之后，提交git更新。
+每次完成功能更新或者bug修复等任务之后，请将用户完整输入记录在 _user.zh.md，将更新历史记录在 _update_history.zh.md，将技术细节记录在 _work_notes.zh.md，并考虑 README.md 是否需要更新。上述事宜都处理完毕之后，提交git更新。
 
 如果用户对某项功能的实现有异议，或者发现了问题需要进一步修复，请同样在完成后以上述流程进行处理。
 
@@ -20,7 +21,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Install deps: `pip install -r requirements.txt`
 - Run the CLI: `python scholar_citation.py --author YOUR_AUTHOR_ID`
 - Run a small targeted crawl: `python scholar_citation.py --author YOUR_AUTHOR_ID --skip 2 --limit 3`
-- Recheck incomplete citation caches: `python scholar_citation.py --author YOUR_AUTHOR_ID --recheck-citations --skip 2 --limit 3`
+- Force re-fetch specific papers: `python scholar_citation.py --author YOUR_AUTHOR_ID --fetch-mode force --skip 2 --limit 3`
 - Use interactive captcha recovery: `python scholar_citation.py --author YOUR_AUTHOR_ID --interactive-captcha`
 - Speed up waits for debugging: `python scholar_citation.py --author YOUR_AUTHOR_ID --interactive-captcha --accelerate 0.1`
 - Run all tests: `python -m unittest discover -s tests -p "test_*.py"`
@@ -58,7 +59,7 @@ google-scholar-citation-crawler/
 │   │   ── CLI ──
 │   └── cli.py                   # parse_args() + _run_main(args)
 │
-├── tests/                       # Unit tests (97 tests, no network required)
+├── tests/                       # Unit tests (107 tests, no network required)
 │   ├── conftest.py              # Shared stubs (scholarly/openpyxl mocks) + FetcherTestCase
 │   ├── test_scholar_patch.py    # scholarly patch URL logging, inject_curl, parse_args
 │   ├── test_year_fetch_early.py # fetch_by_year early-stop and histogram-authoritative mode
@@ -66,6 +67,7 @@ google-scholar-citation-crawler/
 │   ├── test_direct_fetch.py     # Direct fetch: progress save, early-stop, resume, dedup
 │   ├── test_year_fetch_main.py  # Year fetch: materialize, selective refresh, force rebuild
 │   ├── test_output.py           # save_output, flush promotion, reconciliation
+│   ├── test_output_state.py     # Output state read/write and status priority
 │   ├── test_citation_status.py  # _citation_status, rehydrate, diagnostics boundary tests
 │   ├── test_main_loop.py        # _run_main_loop retry, main() CLI integration
 │   └── test_profile.py          # AuthorProfileFetcher count summary and JSON/Excel output
@@ -73,9 +75,10 @@ google-scholar-citation-crawler/
 ├── test_citation_page_stop.py   # Legacy monolithic test file (kept for transition)
 ├── requirements.txt             # scholarly>=1.7, openpyxl>=3.1, httpx==0.27.2
 ├── README.md                    # Public-facing documentation
-├── WORK_NOTES.md                # Technical change log (for contributors)
-├── approach.md                  # Development workflow description
-└── user.md                      # Raw user message history (AI-assisted dev record)
+├── _work_notes.zh.md            # Technical reference (Chinese)
+├── _update_history.zh.md        # Chronological update history (Chinese)
+├── _user.zh.md                  # User message history (Chinese)
+└── approach.md                  # Development workflow description
 ```
 
 ## Architecture overview
