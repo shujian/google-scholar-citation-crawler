@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-05-07: 修复 direct_fetch_diagnostics.summary 被 year 字段污染
+
+`fix_output_fetch_state.py` 的 direct summary 同步只更新个别字段，不清理旧 buggy 运行残留的 year 模式字段（`histogram_total`、`cached_year_total`、`cached_unyeared_count`、`scholar_unyeared_count`），且 `seen_total` 只在 `None` 时才修正。
+
+修复：direct summary 完全重建为 5 字段（`scholar_total`、`cached_total`、`seen_total`、`dedup_count`、`termination_reason`），`seen_total` 强制重算为 `cached_total + dedup_count`。
+
+### 中文文档重命名
+
+`update_history.md` → `_update_history.zh.md`、`WORK_NOTES.md` → `_work_notes.zh.md`、`user.md` → `_user.zh.md`。更新了 CLAUDE.md、README.md、approach.md 和 memory 中所有引用。
+
+---
+
 ## 2026-05-06: 重试状态修复、冗余字段清理、诊断日志完善
 
 ### 重试时缓存状态丢失

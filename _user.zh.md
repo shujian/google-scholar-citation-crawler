@@ -2242,3 +2242,14 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 - `underfetched`/`underfetch_gap` 也一并清理
 
 ---
+
+## 288. [2026-05-07 A] 重命名中文文档 + 修复 direct summary 被 year 字段污染
+
+> 重命名中文文件，以单下划线开头，后缀加 .zh 标识语言。
+
+> direct_fetch_diagnostics.summary 被 year 字段污染，几次反复出现。
+
+- 三个文件重命名：`update_history.md` → `_update_history.zh.md`、`WORK_NOTES.md` → `_work_notes.zh.md`、`user.md` → `_user.zh.md`；更新所有引用
+- `fix_output_fetch_state.py`：direct summary 完全重建为 5 字段，`seen_total` 强制重算，清除旧 buggy 运行残留的 year 字段
+
+---

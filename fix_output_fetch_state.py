@@ -239,17 +239,20 @@ def migrate_one_file(json_path, cache_dir):
         if strategy == 'direct':
             dfd = state.get('direct_fetch_diagnostics')
             if isinstance(dfd, dict) and isinstance(dfd.get('summary'), dict):
-                # Direct-fetch diagnostics uses simple top-level counters.
-                # scholar_total and cached_total from the current state.
-                dfd['summary']['scholar_total'] = new_summary.get('scholar_total')
-                dfd['summary']['cached_total'] = new_summary.get('cached_total')
-                # seen_total: keep the existing recorded value; if missing,
-                # compute from cached_total + dedup_count.
-                if dfd['summary'].get('seen_total') is None:
-                    dd = state.get('dedup_count') or 0
-                    dfd['summary']['seen_total'] = new_summary.get('cached_total', 0) + dd
-                if dfd['summary'].get('dedup_count') is None:
-                    dfd['summary']['dedup_count'] = state.get('dedup_count') or 0
+                ds = dfd['summary']
+                # Direct-fetch diagnostics uses only five fields.
+                # Recompute from scratch to ensure correctness and strip
+                # any year-mode fields leaked by previous buggy runs.
+                dd = state.get('dedup_count') or 0
+                ct = new_summary.get('cached_total', len(citations))
+                st = ct + dd
+                dfd['summary'] = {
+                    'scholar_total': new_summary.get('scholar_total'),
+                    'cached_total': ct,
+                    'seen_total': st,
+                    'dedup_count': dd,
+                    'termination_reason': ds.get('termination_reason', 'migrated'),
+                }
                 merged = True
 
         # 4. Set fetch_complete at paper level from _fetch_state
