@@ -47,20 +47,12 @@ def resolve_citation_fetch_policy(num_citations, pub_year, year_based_threshold,
 
     Returns a dict with keys: mode, pub_year, reason.
     """
+    from crawler.citation_models import FetchPolicy
     current_year = current_year or datetime.now().year
     total = int(num_citations or 0)
     if total < year_based_threshold:
-        return {
-            'strategy': 'direct',
-            'pub_year': normalize_pub_year(pub_year, current_year),
-            'reason': 'below_year_threshold',
-        }
-
-    return {
-        'strategy': 'year',
-        'pub_year': normalize_pub_year(pub_year, current_year),
-        'reason': 'at_or_above_year_threshold',
-    }
+        return FetchPolicy(strategy='direct', pub_year=normalize_pub_year(pub_year, current_year), reason='below_year_threshold')
+    return FetchPolicy(strategy='year', pub_year=normalize_pub_year(pub_year, current_year), reason='at_or_above_year_threshold')
 
 
 # ---------------------------------------------------------------------------

@@ -30,35 +30,16 @@ from crawler.common import (
     rand_delay,
 )
 from crawler.fetch_context import FetchContext
+from crawler.citation_models import ResumeState, _page_align
 
 
 def _normalize_direct_resume_state(state):
-    if not isinstance(state, dict):
-        return None
-    if state.get('mode') != 'direct':
-        return None
-    try:
-        next_index = int(state.get('next_index'))
-        source_scholar_total = int(state.get('source_scholar_total'))
-    except (TypeError, ValueError):
-        return None
-    citedby_url = state.get('citedby_url')
-    if not isinstance(citedby_url, str) or not citedby_url:
-        return None
-    if next_index < 0 or source_scholar_total < 0 or next_index > source_scholar_total:
-        return None
-    return {
-        'mode': 'direct',
-        'next_index': next_index,
-        'source_scholar_total': source_scholar_total,
-        'citedby_url': citedby_url,
-    }
+    rs = ResumeState.from_dict(state)
+    return rs.to_dict() if rs else None
 
 def _direct_resume_log_suffix(state):
-    normalized = _normalize_direct_resume_state(state)
-    if not normalized:
-        return ""
-    return f" (direct offset={normalized['next_index']})"
+    rs = ResumeState.from_dict(state)
+    return f" (direct offset={rs.next_index})" if rs else ""
 
 def _build_direct_resume_state(next_index, scholar_total, citedby_url):
     try:
@@ -66,37 +47,23 @@ def _build_direct_resume_state(next_index, scholar_total, citedby_url):
         scholar_total = int(scholar_total)
     except (TypeError, ValueError):
         return None
-    if next_index < 0 or scholar_total < 0 or next_index > scholar_total:
+    if next_index < 0 or scholar_total < 0 or next_index > scholar_total or not citedby_url:
         return None
-    if not isinstance(citedby_url, str) or not citedby_url:
-        return None
-    # Align to page boundary so the retry re-fetches the whole page
-    # from its start.  The items already saved by save_progress serve
-    # as old_citations for dedup, so duplicates are filtered out.
-    next_index = _page_aligned_start(next_index)
-    return {
-        'mode': 'direct',
-        'next_index': next_index,
-        'source_scholar_total': scholar_total,
-        'citedby_url': citedby_url,
-    }
+    rs = ResumeState(
+        next_index=_page_align(next_index),
+        source_scholar_total=scholar_total,
+        citedby_url=citedby_url,
+    )
+    return rs.to_dict()
 
 def _page_aligned_start(index):
-    try:
-        index = int(index or 0)
-    except (TypeError, ValueError):
-        return 0
-    if index <= 0:
-        return 0
-    return (index // SCHOLAR_PAGE_SIZE) * SCHOLAR_PAGE_SIZE
+    return _page_align(index)
 
 def _direct_start_position(direct_resume_state):
-    normalized = _normalize_direct_resume_state(direct_resume_state)
-    if not normalized:
+    rs = ResumeState.from_dict(direct_resume_state)
+    if rs is None:
         return 0, 0
-    next_index = normalized['next_index']
-    page_start = _page_aligned_start(next_index)
-    return page_start, next_index - page_start
+    return rs.page_start(), rs.in_page_skip()
 
 def _append_start_param(citedby_url, start):
     if start <= 0:
@@ -107,11 +74,10 @@ def _append_start_param(citedby_url, start):
     return f"{citedby_url}{separator}start={start}"
 
 def _direct_request_url(citedby_url, direct_resume_state=None):
-    normalized = _normalize_direct_resume_state(direct_resume_state)
-    if not normalized:
+    rs = ResumeState.from_dict(direct_resume_state)
+    if rs is None:
         return citedby_url
-    page_start, _ = _direct_start_position(normalized)
-    return _append_start_param(citedby_url, page_start)
+    return _append_start_param(citedby_url, rs.page_start())
 
 def _wrap_direct_citedby_iterator(iterator, in_page_skip=0):
     class _WrappedDirectIterator:
