@@ -28,7 +28,7 @@ google-scholar-citation-crawler/
 │   ├── citation_fetch.py        # fetch_citations_with_progress + fetch_by_year
 │   ├── scholarly_session.py     # SessionContext + scholarly monkey-patch + year probe
 │   ├── interactive.py           # cURL cookie 注入、captcha 提示、proxy-switch 等待
-│   ├── output_state.py          # 输出文件 _fetch_state 读写
+│   ├── output_state.py          # PaperFetchState dataclass + 输出文件 _fetch_state 读写
 │   └── cli.py                   # parse_args() + _run_main(args)
 ├── tests/                       # 单元测试（107 个，不需要网络）
 │   ├── conftest.py              # 共享 stubs + FetcherTestCase 基类

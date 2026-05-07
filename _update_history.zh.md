@@ -4,6 +4,25 @@
 
 ---
 
+## 2026-05-07: PaperFetchState dataclass 重构
+
+引入 `PaperFetchState` dataclass（`crawler/output_state.py`），封装 `_fetch_state` 的 9 个持久化字段，替代裸 dict。
+
+**新增方法**：
+- `from_dict()` / `to_dict()` — 序列化，入出两端均规范化 diagnostics 字段
+- `is_complete()` — year/direct 统一 completeness 判断
+- `completeness_diag()` — 替代 `_format_completeness_diag` 逻辑
+
+**规范化**：
+- `direct_fetch_diagnostics.summary` 严格限制为 5 字段
+- `year_fetch_diagnostics` 按年份排序，per-year 条目限制为规范 keys，剔除 `underfetched`/`mode`/`underfetch_gap`
+
+**多态兼容**：`_citation_status()`、`cache_status()`、retry logic 同时接受 PaperFetchState 和 dict。
+
+**修复**：`_build_entry` 合并 cache 时补充 `fetched_at`、`complete_fetch_attempt` 字段（之前漏合并导致输出文件保留旧值）。
+
+---
+
 ## 2026-05-07: 修复 year 模式 seen_total 错误包含 unyeared
 
 **Bug**：`build_citation_count_summary` 中 year 模式的 `seen_total = diag_seen + cached_unyeared_count`，导致 year summary 的 `seen_total` 多计了 unyeared 引用。

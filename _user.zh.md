@@ -2263,3 +2263,27 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 修复：year 模式 `seen_total = diag_seen`；direct 模式 `seen_total = cached_total + dedup_count`。
 
 ---
+
+## 291. [2026-05-07 D] PaperFetchState dataclass 重构
+
+> 我想继续进行一下代码的分析和重构，我们已经确认了output文件的格式，希望把这些内容做成获取过程中的关键数据结构（对象）。
+
+> 注意如果可以进行模块或者类的功能划分，可以通过划分让代码结构更加清晰。
+
+引入 `PaperFetchState` dataclass（`crawler/output_state.py`），封装 _fetch_state 的 9 个字段。`from_dict()` / `to_dict()` 在入出两端规范化 diagnostics；`is_complete()` 统一 year/direct 判断；`completeness_diag()` 替代 dict 版诊断函数。多态兼容保持 107 个原有测试通过。
+
+---
+
+## 292. [2026-05-07 E] 规范化 diagnostics 输入输出
+
+> 请检查一下to_dict()过程中direct diag的输出。再检查一下输入和输出，应该是明确控制写入的信息，和读出的信息，而不应该做简单的透传。注意在输出year diag的时候，按照年份排序输出。
+
+`from_dict()` / `to_dict()` 改为显式构造每个字段，不做 dict 透传。`direct_fetch_diagnostics.summary` 严格 5 字段；`year_fetch_diagnostics` 按年份排序，per-year 条目剔除 `underfetched`/`mode` 等残留字段。
+
+---
+
+## 293. [2026-05-07 F] 修复 fetched_at 不更新
+
+> 是不是输出里的fetched_at不再更新了？检查一下哪里不对。
+
+`_build_entry` 合并 cache 文件时漏了 `fetched_at` 和 `complete_fetch_attempt`，导致输出保留旧值。

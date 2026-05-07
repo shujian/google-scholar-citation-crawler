@@ -326,12 +326,6 @@ class AuthorProfileFetcher:
             print("Failed to fetch basic info, exiting")
             return False
 
-        # Only wait between phases if we actually made network requests
-        if basics_fetched:
-            d = rand_delay(self.delay_scale)
-            print(f"\n{now_str()} Waiting {d:.0f}s before continuing...")
-            time.sleep(d)
-
         # Phase 2: Publications
         # Auto-refresh if total citations changed, or if forced via CLI
         if not force_refresh_pubs and prev_profile:
