@@ -721,12 +721,12 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
     paper_new_count = 0
 
     probed_year_counts = fetcher._normalize_year_count_map(ctx.probed_year_counts)
-    can_skip_by_probe_counts = ctx.probed_year_count_complete
+    is_year_mode = True  # fetch_by_year is only entered in year mode
     count_summary = fetcher._build_citation_count_summary(
         old_citations,
         scholar_total=num_citations,
         probed_year_counts=probed_year_counts,
-        probe_complete=can_skip_by_probe_counts,
+        probe_complete=is_year_mode,
         dedup_count=ctx.dedup_count,
         year_fetch_diagnostics=year_fetch_diagnostics,
     )
@@ -747,7 +747,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
           f"cached_year_sum={cached_year_total}, cached_unyeared={cached_unyeared_citations}, dedup_num={ctx.dedup_count}", flush=True)
     effective_target = probed_hist_total if histogram_authoritative else num_citations
     _fetch_mode_label = 'full-rebuild' if force_year_rebuild else 'selective'
-    probe_note = "" if ctx.probed_year_count_complete else " (histogram may be incomplete)"
+    probe_note = "" if is_year_mode else " (no histogram probe)"
     print(f"    Fetch context: strategy={_fetch_mode_label}, "
           f"prev_scholar={prev_scholar_count}, target={effective_target}, total_years={total_years}{probe_note}", flush=True)
     print(f"    Current-run completed years: {fetcher._format_year_set_summary(ctx.completed_year_segments)}", flush=True)
@@ -755,7 +755,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
     # Sync stale diagnostics with current probe/cache values so that
     # year_fetch_diagnostic_matches_total can correctly recognise years
     # that were completed in a prior run even when the cite count has grown.
-    if year_fetch_diagnostics and probed_year_counts:
+    if year_fetch_diagnostics and is_year_mode:
         for year, diag in list(year_fetch_diagnostics.items()):
             current_probe = probed_year_counts.get(year)
             current_cached = cached_year_counts.get(year)
@@ -768,7 +768,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
         ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
 
     stop_partial_resume_once_satisfied = (
-        bool(probed_year_counts)
+        is_year_mode
         and bool(ctx.partial_year_start)
         and cached_year_counts == probed_year_counts
     )
