@@ -12,6 +12,7 @@ from datetime import datetime
 from scholarly import scholarly
 
 from crawler.common import rand_delay, now_str
+from crawler.pub_info import PubInfo
 from crawler.profile_io import (
     build_profile_count_summary,
     build_profile_payload,
@@ -170,18 +171,7 @@ class AuthorProfileFetcher:
 
             publications = []
             for i, pub in enumerate(raw_pubs, 1):
-                bib = pub.get('bib', {})
-                pub_info = {
-                    'no': i,
-                    'title': bib.get('title', 'N/A'),
-                    'year': str(bib.get('pub_year', 'N/A')),
-                    'venue': bib.get('citation', bib.get('venue', 'N/A')),
-                    'authors': bib.get('author', 'N/A'),
-                    'num_citations': pub.get('num_citations', 0),
-                    'url': pub.get('pub_url', pub.get('eprint_url', 'N/A')),
-                    'citedby_url': pub.get('citedby_url', ''),
-                }
-                publications.append(pub_info)
+                publications.append(PubInfo.from_scholarly(pub, i).to_dict())
 
                 if i % 20 == 0:
                     print(f"  Processed {i}/{len(raw_pubs)} papers...")

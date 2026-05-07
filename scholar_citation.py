@@ -95,6 +95,7 @@ from crawler.output_state import (
     resolve_citation_status_from_output as _os_resolve_citation_status_from_output,
     extract_fetch_state as _os_extract_fetch_state,
 )
+from crawler.pub_info import PubInfo
 
 from crawler.author_fetcher import AuthorProfileFetcher  # noqa: F401
 from crawler.interactive import (
@@ -1323,11 +1324,11 @@ class PaperCitationFetcher:
                     if isinstance(diag, dict) and 'summary' in diag:
                         diag['summary']['scholar_total'] = current_total
                         diag['summary']['cached_total'] = len(citations)
-            # Round-trip through PaperFetchState to strip any unapproved
-            # keys that leaked in from cache-file merges.
+            # Round-trip through dataclasses to strip unapproved keys.
             fetch_state = PaperFetchState.from_dict(fetch_state).to_dict()
+            pub_out = PubInfo.from_dict(pub).to_dict() if pub else {}
             return {
-                'pub': pub,
+                'pub': pub_out,
                 'citations': citations,
                 'fetch_complete': bool(fetch_state.get('complete_fetch_attempt')) if fetch_state else False,
                 **({'_fetch_state': fetch_state} if fetch_state else {}),
