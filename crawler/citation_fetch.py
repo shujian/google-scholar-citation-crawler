@@ -332,20 +332,16 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
         source = live if live is not None else ctx.year_fetch_diagnostics
         diagnostics = dict(fetcher._normalize_year_fetch_diagnostics(source))
         year_counts = fetcher._year_count_map(citations_to_save)
+        has_probe = bool(ctx.probed_year_counts)
         for year, diagnostic in list(diagnostics.items()):
             if year not in year_counts and year not in (ctx.probed_year_counts or {}):
                 diagnostics.pop(year, None)
-        # Ensure every year with data has a diagnostic entry so that the
-        # summary can derive all its totals from per-year statistics.
-        # Years that were never diagnosed get created with
-        # dedup_count=0 and termination_reason=None so the next run can
-        # distinguish them from years that were actually completed.
         for year, cached_total in year_counts.items():
             existing = diagnostics.get(year)
             if existing is not None:
                 histogram_count = existing.get('histogram_count', existing.get('scholar_total'))
                 if histogram_count is None:
-                    histogram_count = (ctx.probed_year_counts or {}).get(year, cached_total)
+                    histogram_count = (ctx.probed_year_counts or {}).get(year, 0 if not has_probe else cached_total)
                 diagnostics[year] = fetcher._build_year_fetch_diagnostics(
                     year,
                     histogram_count,
@@ -354,12 +350,10 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
                     existing.get('termination_reason'),
                 )
             else:
+                # Direct mode: no probe, histogram=0.  Year mode: probe or cached.
+                hc = (ctx.probed_year_counts or {}).get(year, 0 if not has_probe else cached_total)
                 diagnostics[year] = fetcher._build_year_fetch_diagnostics(
-                    year,
-                    (ctx.probed_year_counts or {}).get(year, cached_total),
-                    cached_total,
-                    0,
-                    None,
+                    year, hc, cached_total, 0, None,
                 )
         for year, probe_total in (ctx.probed_year_counts or {}).items():
             if year not in diagnostics:
