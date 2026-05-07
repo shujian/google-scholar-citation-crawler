@@ -37,6 +37,25 @@ _FETCH_STATE_KEYS = frozenset([
     'fetched_at',
 ])
 
+# Allowed keys in direct_fetch_diagnostics.summary.
+_DIRECT_SUMMARY_KEYS = frozenset([
+    'scholar_total', 'cached_total', 'seen_total', 'dedup_count', 'termination_reason',
+])
+
+# Allowed keys in year_fetch_diagnostics.summary.
+_YEAR_SUMMARY_KEYS = frozenset([
+    'scholar_total', 'histogram_total',
+    'cached_total', 'cached_year_total',
+    'seen_total', 'cached_unyeared_count',
+    'dedup_count', 'scholar_unyeared_count',
+])
+
+# Allowed keys in each per-year entry of year_fetch_diagnostics.
+_PER_YEAR_KEYS = frozenset([
+    'year', 'histogram_count', 'cached_total', 'seen_total', 'dedup_count',
+    'termination_reason',
+])
+
 
 @dataclass
 class PaperFetchState:
@@ -56,8 +75,9 @@ class PaperFetchState:
     def from_dict(cls, d):
         """Construct from a raw dict (output JSON _fetch_state or cache file).
 
-        Unknown keys are silently ignored.  The legacy 'complete' key is
-        accepted as a fallback for 'complete_fetch_attempt'.
+        Only known fields are extracted — unknown keys are discarded.
+        Diagnostics objects are normalised on entry so that even legacy
+        or cache-file data with extra keys is cleaned up.
         """
         if not isinstance(d, dict):
             return cls()
@@ -70,13 +90,22 @@ class PaperFetchState:
             complete_fetch_attempt=bool(
                 d.get('complete_fetch_attempt', d.get('complete', False))
             ),
-            year_fetch_diagnostics=d.get('year_fetch_diagnostics'),
-            direct_fetch_diagnostics=d.get('direct_fetch_diagnostics'),
+            year_fetch_diagnostics=_normalize_year_diagnostics(
+                d.get('year_fetch_diagnostics')
+            ),
+            direct_fetch_diagnostics=_normalize_direct_diagnostics(
+                d.get('direct_fetch_diagnostics')
+            ),
             fetched_at=d.get('fetched_at'),
         )
 
     def to_dict(self):
-        """Serialize to the 9-key dict stored as _fetch_state in the output JSON."""
+        """Serialize to the 9-key dict stored as _fetch_state in the output JSON.
+
+        Every field is explicitly constructed — no pass-through of raw dicts.
+        This guarantees the output schema even when internal state was modified
+        by cache-file merges or other runtime operations.
+        """
         return {
             'title': self.title,
             'pub_url': self.pub_url,
@@ -84,22 +113,18 @@ class PaperFetchState:
             'fetch_strategy': self.fetch_strategy,
             'num_citations_on_scholar': self.num_citations_on_scholar,
             'complete_fetch_attempt': self.complete_fetch_attempt,
-            'year_fetch_diagnostics': self.year_fetch_diagnostics,
-            'direct_fetch_diagnostics': self.direct_fetch_diagnostics,
+            'year_fetch_diagnostics': _normalize_year_diagnostics(
+                self.year_fetch_diagnostics
+            ),
+            'direct_fetch_diagnostics': _normalize_direct_diagnostics(
+                self.direct_fetch_diagnostics
+            ),
             'fetched_at': self.fetched_at,
         }
 
     def is_complete(self, current_scholar_total=None, pub_year='N/A',
                     year_based_threshold=50):
-        """Return True when diagnostics prove the paper was fully fetched.
-
-        Re-evaluates fetch_policy from *current_scholar_total* (which may
-        have grown since the last run), then compares seen_total from the
-        appropriate diagnostics summary against the target.
-
-        When no diagnostics summary is available, falls back to comparing
-        seen_total against the current Scholar total.
-        """
+        """Return True when diagnostics prove the paper was fully fetched."""
         from crawler.citation_strategy import resolve_citation_fetch_policy
 
         scholar = int(current_scholar_total or 0)
@@ -116,7 +141,6 @@ class PaperFetchState:
 
         if target is not None and seen is not None:
             return (seen or 0) >= target
-        # No diagnostics summary — fall back to the last known seen count.
         seen = seen or self.num_citations_on_scholar or 0
         return seen >= scholar
 
@@ -139,13 +163,16 @@ class PaperFetchState:
             cmp_sym = '≥' if (seen or 0) >= (target or 0) else '<'
             return f'  {strategy}: seen_total={seen} {cmp_sym} {label}={target}'
 
-        # Legacy fallback: no diagnostics summary
         scholar = self.num_citations_on_scholar
         seen_val = citations_len or 0
         cmp_sym = '≥' if seen_val >= (scholar or 0) else '<'
         return (f'  {strategy}: seen={seen_val} {cmp_sym} '
                 f'scholar_total={scholar} (no diagnostics)')
 
+
+# ---------------------------------------------------------------------------
+# Normalization helpers
+# ---------------------------------------------------------------------------
 
 def _coerce_int(value):
     try:
@@ -154,15 +181,100 @@ def _coerce_int(value):
         return None
 
 
+def _normalize_direct_diagnostics(dfd):
+    """Return direct_fetch_diagnostics with exactly the 5 allowed summary fields.
+
+    Discards any year-mode fields that leaked in from buggy merges.
+    Returns None when the input is missing or invalid.
+    """
+    if not isinstance(dfd, dict):
+        return None
+    raw = dfd.get('summary')
+    if not isinstance(raw, dict):
+        return None
+    dd = raw.get('dedup_count', 0) or 0
+    ct = raw.get('cached_total', 0) or 0
+    return {
+        'summary': {
+            'scholar_total': _coerce_int(raw.get('scholar_total')),
+            'cached_total': ct,
+            'seen_total': _coerce_int(raw.get('seen_total', ct + dd)) or (ct + dd),
+            'dedup_count': dd,
+            'termination_reason': raw.get('termination_reason', 'iterator_exhausted'),
+        },
+    }
+
+
+def _normalize_year_diagnostics(yfd):
+    """Return year_fetch_diagnostics with per-year entries sorted by year
+    and restricted to the canonical per-year keys.  The summary key is also
+    filtered to allowed fields.
+
+    Returns None when the input is missing or invalid.
+    """
+    if not isinstance(yfd, dict):
+        return None
+    # Normalize per-year entries (keep only _PER_YEAR_KEYS), sorted by year.
+    per_year = {}
+    for key, diag in yfd.items():
+        if not isinstance(diag, dict) or 'year' not in diag:
+            continue
+        try:
+            year = int(diag['year'])
+        except (TypeError, ValueError):
+            continue
+        cleaned = {k: v for k, v in diag.items() if k in _PER_YEAR_KEYS}
+        cleaned.setdefault('year', year)
+        cleaned.setdefault('histogram_count', 0)
+        cleaned.setdefault('cached_total', 0)
+        cleaned.setdefault('seen_total', cleaned['cached_total'] + cleaned.get('dedup_count', 0))
+        cleaned.setdefault('dedup_count', 0)
+        cleaned.setdefault('termination_reason', 'iterator_exhausted')
+        per_year[str(year)] = cleaned
+
+    # Sort by year ascending
+    sorted_entries = {str(y): per_year[str(y)] for y in sorted(per_year.keys())}
+
+    # Normalize summary key
+    raw_summary = yfd.get('summary')
+    if isinstance(raw_summary, dict):
+        summary = {k: v for k, v in raw_summary.items() if k in _YEAR_SUMMARY_KEYS}
+    else:
+        summary = _build_year_summary_from_entries(sorted_entries)
+
+    result = dict(sorted_entries)
+    result['summary'] = summary
+    return result
+
+
+def _build_year_summary_from_entries(entries):
+    """Derive a year_fetch_diagnostics.summary from per-year entries."""
+    from crawler.citation_strategy import build_citation_count_summary
+    # This path is only used when the original summary is absent.
+    # We need citations to build a full summary; without them, return
+    # a minimal per-year-derived summary.
+    hist_total = sum(d.get('histogram_count', 0) for d in entries.values())
+    cached_total = sum(d.get('cached_total', 0) for d in entries.values())
+    seen_total = sum(d.get('seen_total', 0) for d in entries.values())
+    dedup_total = sum(d.get('dedup_count', 0) for d in entries.values())
+    return {
+        'scholar_total': None,
+        'histogram_total': hist_total,
+        'cached_total': sum(d.get('cached_total', 0) for d in entries.values()),
+        'cached_year_total': cached_total,
+        'seen_total': seen_total,
+        'cached_unyeared_count': 0,
+        'dedup_count': dedup_total,
+        'scholar_unyeared_count': None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Output file I/O
 # ---------------------------------------------------------------------------
 
 def load_output_fetch_state(output_path):
-    """Return {paper_title: PaperFetchState} from the aggregate output JSON.
-
-    Returns an empty dict when the file is missing or unreadable.
-    """
+    """Return {paper_title: PaperFetchState} from the aggregate output JSON."""
     if not os.path.exists(output_path):
         return {}
     try:
@@ -179,8 +291,7 @@ def load_output_fetch_state(output_path):
 
 
 def resolve_citation_status_from_output(pub, state, year_based_threshold):
-    """Derive 'complete' | 'partial' | 'skip_zero' | 'missing' from an output
-    _fetch_state dict, reusing the same pure logic used for cache files.
+    """Derive 'complete' | 'partial' | 'skip_zero' | 'missing' from output state.
 
     *state* may be a PaperFetchState (new path) or a raw dict (legacy path).
     """
@@ -191,7 +302,6 @@ def resolve_citation_status_from_output(pub, state, year_based_threshold):
                              year_based_threshold):
             return 'complete'
         return 'partial'
-    # Legacy dict path
     cache_state = derive_citation_cache_state(pub, state, year_based_threshold)
     return resolve_citation_status_from_state(cache_state)
 

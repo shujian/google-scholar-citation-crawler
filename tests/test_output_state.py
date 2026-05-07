@@ -288,6 +288,73 @@ class PaperFetchStateTests(unittest.TestCase):
         self.assertIn("(no diagnostics)", fs.completeness_diag(citations_len=10))
 
 
+    def test_to_dict_normalizes_direct_summary(self):
+        """Extra fields in direct_fetch_diagnostics.summary are stripped."""
+        fs = PaperFetchState.from_dict({
+            "title": "T", "fetch_strategy": "direct",
+            "direct_fetch_diagnostics": {
+                "summary": {
+                    "scholar_total": 10, "cached_total": 10, "seen_total": 10,
+                    "dedup_count": 0, "termination_reason": "ok",
+                    "histogram_total": 999,  # leaked year field
+                    "cached_unyeared_count": 5,  # leaked year field
+                },
+            },
+        })
+        out = fs.to_dict()
+        ds = out["direct_fetch_diagnostics"]["summary"]
+        self.assertEqual(set(ds.keys()), {
+            "scholar_total", "cached_total", "seen_total", "dedup_count", "termination_reason",
+        })
+        self.assertEqual(ds["scholar_total"], 10)
+        self.assertEqual(ds["termination_reason"], "ok")
+
+    def test_to_dict_sorts_year_entries(self):
+        """Year entries are sorted by year ascending."""
+        fs = PaperFetchState.from_dict({
+            "title": "T", "fetch_strategy": "year",
+            "year_fetch_diagnostics": {
+                "2023": {"year": 2023, "histogram_count": 10, "cached_total": 10, "seen_total": 10, "dedup_count": 0, "termination_reason": "ok"},
+                "2020": {"year": 2020, "histogram_count": 5, "cached_total": 5, "seen_total": 5, "dedup_count": 0, "termination_reason": "ok"},
+                "summary": {"histogram_total": 15, "seen_total": 15, "scholar_total": 20,
+                            "cached_total": 15, "cached_year_total": 15, "cached_unyeared_count": 0,
+                            "dedup_count": 0, "scholar_unyeared_count": 5},
+            },
+        })
+        out = fs.to_dict()
+        yfd = out["year_fetch_diagnostics"]
+        year_keys = [k for k in yfd if isinstance(yfd[k], dict) and 'year' in yfd[k]]
+        self.assertEqual(year_keys, ["2020", "2023"])
+
+    def test_to_dict_strips_unknown_year_fields(self):
+        """Per-year entries only contain allowed keys."""
+        fs = PaperFetchState.from_dict({
+            "title": "T", "fetch_strategy": "year",
+            "year_fetch_diagnostics": {
+                "2024": {"year": 2024, "histogram_count": 1, "cached_total": 1,
+                         "seen_total": 1, "dedup_count": 0, "termination_reason": "ok",
+                         "underfetched": True, "mode": "year"},
+                "summary": {"histogram_total": 1, "scholar_total": 1, "cached_total": 1,
+                            "cached_year_total": 1, "seen_total": 1, "cached_unyeared_count": 0,
+                            "dedup_count": 0, "scholar_unyeared_count": 0},
+            },
+        })
+        out = fs.to_dict()
+        entry = out["year_fetch_diagnostics"]["2024"]
+        self.assertNotIn("underfetched", entry)
+        self.assertNotIn("mode", entry)
+        self.assertIn("year", entry)
+
+    def test_to_dict_all_nine_keys_present(self):
+        fs = PaperFetchState.from_dict({"title": "T"})
+        out = fs.to_dict()
+        self.assertEqual(set(out.keys()), {
+            "title", "pub_url", "citedby_url", "fetch_strategy",
+            "num_citations_on_scholar", "complete_fetch_attempt",
+            "year_fetch_diagnostics", "direct_fetch_diagnostics", "fetched_at",
+        })
+
+
 if __name__ == '__main__':
     unittest.main()
 
