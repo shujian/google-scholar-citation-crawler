@@ -7,6 +7,7 @@ from tests.conftest import (
 import unittest
 import scholar_citation
 from crawler.output_state import (
+    PaperFetchState,
     load_output_fetch_state,
     resolve_citation_status_from_output,
     extract_fetch_state,
@@ -43,9 +44,9 @@ class OutputStateTests(FetcherTestCase):
         try:
             mapping = load_output_fetch_state(path)
             self.assertEqual(set(mapping.keys()), {"Paper A", "Paper B"})
-            self.assertEqual(mapping["Paper A"]["num_citations_on_scholar"], 100)
-            self.assertTrue(mapping["Paper A"]["complete"])
-            self.assertFalse(mapping["Paper B"]["complete"])
+            self.assertEqual(mapping["Paper A"].num_citations_on_scholar, 100)
+            self.assertTrue(mapping["Paper A"].complete_fetch_attempt)
+            self.assertFalse(mapping["Paper B"].complete_fetch_attempt)
         finally:
             os.remove(path)
 
@@ -124,10 +125,10 @@ class OutputStateTests(FetcherTestCase):
             "extra_field": "should be excluded",
         }
         state = extract_fetch_state(cached)
-        self.assertEqual(state["title"], "T")
-        self.assertEqual(state["num_citations_on_scholar"], 10)
-        self.assertNotIn("citations", state)
-        self.assertNotIn("extra_field", state)
+        self.assertEqual(state.title, "T")
+        self.assertEqual(state.num_citations_on_scholar, 10)
+        self.assertNotIn("citations", state.to_dict())
+        self.assertNotIn("extra_field", state.to_dict())
 
     def test_citation_status_prefers_output_state_over_cache(self):
         """When _output_fetch_state contains a paper, _citation_status should use it."""
@@ -184,6 +185,108 @@ class OutputStateTests(FetcherTestCase):
             }, f)
         status = self.fetcher._citation_status(pub)
         self.assertEqual(status, "complete")
+
+
+class PaperFetchStateTests(unittest.TestCase):
+    def test_from_dict_roundtrip(self):
+        d = {
+            "title": "Test Paper",
+            "pub_url": "http://example.com",
+            "citedby_url": "/scholar?cites=123",
+            "fetch_strategy": "direct",
+            "num_citations_on_scholar": 42,
+            "complete_fetch_attempt": True,
+            "year_fetch_diagnostics": None,
+            "direct_fetch_diagnostics": {
+                "summary": {
+                    "scholar_total": 42,
+                    "cached_total": 42,
+                    "seen_total": 42,
+                    "dedup_count": 0,
+                    "termination_reason": "iterator_exhausted",
+                },
+            },
+            "fetched_at": "2026-05-07T12:00:00",
+        }
+        fs = PaperFetchState.from_dict(d)
+        self.assertEqual(fs.title, "Test Paper")
+        self.assertEqual(fs.num_citations_on_scholar, 42)
+        self.assertTrue(fs.complete_fetch_attempt)
+        self.assertEqual(fs.fetch_strategy, "direct")
+        out = fs.to_dict()
+        self.assertEqual(out["title"], "Test Paper")
+        self.assertEqual(out["num_citations_on_scholar"], 42)
+        self.assertEqual(out["direct_fetch_diagnostics"]["summary"]["scholar_total"], 42)
+        self.assertEqual(set(out.keys()), {
+            "title", "pub_url", "citedby_url", "fetch_strategy",
+            "num_citations_on_scholar", "complete_fetch_attempt",
+            "year_fetch_diagnostics", "direct_fetch_diagnostics", "fetched_at",
+        })
+
+    def test_from_dict_accepts_legacy_complete_key(self):
+        fs = PaperFetchState.from_dict({"title": "T", "complete": True})
+        self.assertTrue(fs.complete_fetch_attempt)
+        fs2 = PaperFetchState.from_dict({"title": "T", "complete": False})
+        self.assertFalse(fs2.complete_fetch_attempt)
+
+    def test_is_complete_direct_mode(self):
+        fs = PaperFetchState.from_dict({
+            "title": "T", "fetch_strategy": "direct",
+            "direct_fetch_diagnostics": {"summary": {"scholar_total": 10, "seen_total": 10}},
+        })
+        self.assertTrue(fs.is_complete(current_scholar_total=10))
+
+    def test_is_complete_direct_mode_partial(self):
+        fs = PaperFetchState.from_dict({
+            "title": "T", "fetch_strategy": "direct",
+            "direct_fetch_diagnostics": {"summary": {"scholar_total": 10, "seen_total": 5}},
+        })
+        self.assertFalse(fs.is_complete(current_scholar_total=10))
+
+    def test_is_complete_year_mode(self):
+        fs = PaperFetchState.from_dict({
+            "title": "T", "fetch_strategy": "year",
+            "year_fetch_diagnostics": {"summary": {"histogram_total": 100, "seen_total": 100}},
+        })
+        self.assertTrue(fs.is_complete(current_scholar_total=110, pub_year="2020"))
+
+    def test_is_complete_year_mode_partial(self):
+        fs = PaperFetchState.from_dict({
+            "title": "T", "fetch_strategy": "year",
+            "year_fetch_diagnostics": {"summary": {"histogram_total": 100, "seen_total": 90}},
+        })
+        self.assertFalse(fs.is_complete(current_scholar_total=110, pub_year="2020"))
+
+    def test_is_complete_no_diagnostics_falls_back(self):
+        fs = PaperFetchState.from_dict({
+            "title": "T", "fetch_strategy": "direct", "num_citations_on_scholar": 10,
+        })
+        self.assertTrue(fs.is_complete(current_scholar_total=10))
+        self.assertFalse(fs.is_complete(current_scholar_total=11))
+
+    def test_completeness_diag_direct_complete(self):
+        fs = PaperFetchState.from_dict({
+            "title": "T", "fetch_strategy": "direct",
+            "direct_fetch_diagnostics": {"summary": {"scholar_total": 10, "seen_total": 10}},
+        })
+        self.assertIn("≥", fs.completeness_diag())
+        self.assertIn("seen_total=10", fs.completeness_diag())
+
+    def test_completeness_diag_direct_partial(self):
+        fs = PaperFetchState.from_dict({
+            "title": "T", "fetch_strategy": "direct",
+            "direct_fetch_diagnostics": {"summary": {"scholar_total": 10, "seen_total": 5}},
+        })
+        diag = fs.completeness_diag()
+        self.assertIn("<", diag)
+        self.assertIn("seen_total=5", diag)
+
+    def test_completeness_diag_no_diagnostics(self):
+        fs = PaperFetchState.from_dict({
+            "title": "T", "fetch_strategy": "direct", "num_citations_on_scholar": 10,
+        })
+        self.assertIn("(no diagnostics)", fs.completeness_diag(citations_len=10))
+
 
 if __name__ == '__main__':
     unittest.main()

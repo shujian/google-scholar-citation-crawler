@@ -90,6 +90,7 @@ from crawler.citation_io import (
     save_citations_xlsx as _cio_save_citations_xlsx,
 )
 from crawler.output_state import (
+    PaperFetchState,
     load_output_fetch_state as _os_load_output_fetch_state,
     resolve_citation_status_from_output as _os_resolve_citation_status_from_output,
     extract_fetch_state as _os_extract_fetch_state,
@@ -732,6 +733,9 @@ class PaperCitationFetcher:
         # Prefer output file state for cross-run strategy decisions
         output_state = getattr(self, '_output_fetch_state', {}).get(pub['title'])
         if output_state:
+            # Accept both PaperFetchState (new) and raw dict (legacy / test fixtures).
+            if isinstance(output_state, dict):
+                output_state = PaperFetchState.from_dict(output_state)
             return _os_resolve_citation_status_from_output(pub, output_state, YEAR_BASED_THRESHOLD)
         cached = self._load_citation_cache(pub['title'])
         if not cached:
@@ -746,6 +750,9 @@ class PaperCitationFetcher:
             return ''
         if st == 'missing':
             return '  no cached state → missing'
+        # PaperFetchState path
+        if isinstance(cached, PaperFetchState):
+            return cached.completeness_diag()
 
         strategy = cached.get('fetch_strategy', 'direct')
 
@@ -861,7 +868,12 @@ class PaperCitationFetcher:
             # NOT read on a fresh program start.
             output_state = getattr(self, '_output_fetch_state', {}).get(pub['title'])
             if output_state:
-                synthetic = dict(output_state)
+                # PaperFetchState or legacy dict; build synthetic dict for
+                # _resolve_refresh_strategy compatibility.
+                if isinstance(output_state, PaperFetchState):
+                    synthetic = output_state.to_dict()
+                else:
+                    synthetic = dict(output_state)
                 synthetic['citations'] = getattr(self, '_output_citations', {}).get(pub['title'], [])
                 # Always update scholar total from current profile so the state
                 # reflects the latest count even when the paper was skipped this run.
@@ -1055,6 +1067,10 @@ class PaperCitationFetcher:
                             # Within-run retry: prefer cache file (written by
                             # save_progress with the most recent citations) over
                             # output state (which lacks the citations array).
+                            # _resolve_refresh_strategy expects a dict; convert
+                            # PaperFetchState if needed.
+                            if latest_output_state is not None and not isinstance(latest_output_state, dict):
+                                latest_output_state = latest_output_state.to_dict() if isinstance(latest_output_state, PaperFetchState) else dict(latest_output_state)
                             retry_strategy_cached = latest_cache if latest_cache else latest_output_state
                             if retry_strategy_cached:
                                 retry_attempt_state = self._resolve_refresh_strategy(
@@ -1284,10 +1300,11 @@ class PaperCitationFetcher:
             # Prefer output state (cross-run), fall back to cache file (within-run)
             state = output_fetch_state.get(title)
             if state:
-                fetch_state = dict(state)
+                fetch_state = state.to_dict() if isinstance(state, PaperFetchState) else dict(state)
             else:
                 cached = self._load_citation_cache(title) if pub else None
-                fetch_state = _os_extract_fetch_state(cached) if cached else {}
+                fs = _os_extract_fetch_state(cached) if cached else None
+                fetch_state = fs.to_dict() if fs else {}
             # For papers that were processed this run, the cache file has
             # fresh year_fetch_diagnostics / probed_year_counts.  Merge
             # them into the output state so the next run starts from
