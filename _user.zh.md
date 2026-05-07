@@ -2253,3 +2253,13 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 - `fix_output_fetch_state.py`：direct summary 完全重建为 5 字段，`seen_total` 强制重算，清除旧 buggy 运行残留的 year 字段
 
 ---
+
+## 290. [2026-05-07 C] 修复 year 模式 seen_total 错误包含 unyeared
+
+> 我觉得关键不是包含哪些字段，是seen的计算方法在direct和year里是不一样的，year里我们去掉了unyeared count，direct里面不去除。
+
+`build_citation_count_summary` 中 year 模式的 `seen_total` 之前被错误改为 `diag_seen + cached_unyeared_count`。Year fetch 中 unyeared 引用被故意丢弃（无法归入年份桶），因此 year summary 的 `seen_total` 应该只包含有年份的引用（`= diag_seen`）。
+
+修复：year 模式 `seen_total = diag_seen`；direct 模式 `seen_total = cached_total + dedup_count`。
+
+---

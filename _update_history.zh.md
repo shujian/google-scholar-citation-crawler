@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-05-07: 修复 year 模式 seen_total 错误包含 unyeared
+
+**Bug**：`build_citation_count_summary` 中 year 模式的 `seen_total = diag_seen + cached_unyeared_count`，导致 year summary 的 `seen_total` 多计了 unyeared 引用。
+
+**根因**：Year fetch 中 unyeared 引用在 `_resolve_refresh_strategy` 阶段被故意丢弃（`drop_cached_unyeared`），因为它们无法归入年份桶参与 histogram 对比。因此 `seen_total` 应该只反映有年份的引用（`= diag_seen`，各年份 seen 的累加值），不应该加回 unyeared。
+
+**修复**：year 模式 `seen_total = diag_seen`；direct 模式 `seen_total = cached_total + dedup_count`（不丢弃 unyeared）。
+
+---
+
 ## 2026-05-07: 修复 direct_fetch_diagnostics.summary 被 year 字段污染
 
 `fix_output_fetch_state.py` 的 direct summary 同步只更新个别字段，不清理旧 buggy 运行残留的 year 模式字段（`histogram_total`、`cached_year_total`、`cached_unyeared_count`、`scholar_unyeared_count`），且 `seen_total` 只在 `None` 时才修正。
