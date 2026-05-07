@@ -4,9 +4,29 @@
 
 ---
 
+## 2026-05-07: year_records 独立 + citation_models + PubInfo
+
+### year_records 从 year_fetch_diagnostics 分离
+
+`year_fetch_diagnostics` 现在只包含 8-field summary，per-year 条目移至新顶层字段 `year_records`（按年份排序的列表）。`_FETCH_STATE_KEYS` 新增 `year_records`，共 10 个字段。
+
+### PubInfo dataclass
+
+`crawler/pub_info.py`：封装 `pub` 的 8 个字段（`no`, `title`, `year`, `venue`, `authors`, `num_citations`, `url`, `citedby_url`）。`from_scholarly()` 替代 `bib.get('xxx', 'N/A')` 默认值。
+
+### citation_models.py
+
+`crawler/citation_models.py`：`Citation`、`YearRecord`、`YearDiagnostics`、`DirectDiagnostics` 四个 dataclass，各带 `from_dict`/`to_dict` 和 dict-compat 方法。当前在 I/O 边界使用，内部逐步迁移。
+
+### 移除 profile 阶段间延时 + 论文间延时
+
+Profile Phase 1→2 延时和论文间延时已移除（每页访问前已有 45-90s 等待）。
+
+---
+
 ## 2026-05-07: PaperFetchState dataclass 重构
 
-引入 `PaperFetchState` dataclass（`crawler/output_state.py`），封装 `_fetch_state` 的 9 个持久化字段，替代裸 dict。
+引入 `PaperFetchState` dataclass（`crawler/output_state.py`），封装 `_fetch_state` 的持久化字段，替代裸 dict。
 
 **新增方法**：
 - `from_dict()` / `to_dict()` — 序列化，入出两端均规范化 diagnostics 字段

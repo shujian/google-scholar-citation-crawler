@@ -2287,3 +2287,18 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 > 是不是输出里的fetched_at不再更新了？检查一下哪里不对。
 
 `_build_entry` 合并 cache 文件时漏了 `fetched_at` 和 `complete_fetch_attempt`，导致输出保留旧值。
+
+---
+
+## 294. [2026-05-07 G] PubInfo + citation_models + year_records 独立
+
+> 类似的，把每一条citation封装成一个类的对象，把每一年的抓取记录封装成一个对象，移到Fetch State类中。
+
+> 我建议把YearRecord列表作为fetch state的一部分，不要从属于yearDiag。
+
+- `crawler/pub_info.py`：封装 pub 的 8 个字段，用空字符串替代 "N/A" 默认值
+- `crawler/citation_models.py`：Citation、YearRecord、YearDiagnostics、DirectDiagnostics 四个 dataclass
+- `year_records` 从 `year_fetch_diagnostics` 分离：year_fetch_diagnostics 现在只含 8-field summary，per-year 条目移至新顶层字段 `year_records`
+- 移除 profile Phase 1→2 延时和论文间延时
+
+---
