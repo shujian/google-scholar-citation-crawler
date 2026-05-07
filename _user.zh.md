@@ -2303,17 +2303,32 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 
 ---
 
-## 295. [2026-05-07 H] 命名统一：strategy vs mode + 运行时状态封装
+## 295. [2026-05-07 H] 命名统一 + 运行时状态封装
 
-> 请统一一下命名，我们认为mode指rough、normal、force，strategy有year和direct。
+> 请统一一下命名，我们认为mode指rough、normal、force，strategy有year和direct，注意变量名、函数名等信息的更新。
 
-> direct_resume_state是用来做什么的？我们之前封装了跟输出相关的数据，下面请把程序运行时的数据也封装一下。
+> direct_resume_state是用来做什么的？我们之前封装了跟输出相关的数据，下面请把程序运行时的数据也封装一下，能使用输出类对象的请注意使用。避免相似类的反复定义或者重复定义。
 
-- 命名统一：`fetch_policy['mode']` → `fetch_policy['strategy']`（9 文件），`mode` = rough/normal/force
-- 新增 `ResumeState`：统一 direct/year 断点续传位置，提供 `page_start()` / `in_page_skip()` / `request_url()`
-- 新增 `FetchPolicy`：替代 `resolve_citation_fetch_policy` 返回的 dict
-- `citation_fetch.py` 5 个 resume 函数委托给 `ResumeState`（-65 行 +22 行）
-- 控制流改为 mode 驱动：`is_year` 标志替代值存在性检查
-- Direct mode 无 probe：histogram_count=0, histogram_total=0
+> Year-based fetch不也需要resume吗？跟这里的direct resume state是什么关系？我记得以前好像讨论过类似的问题？两者除了url不同，翻页和重试方面应该是一样的。
+
+- `fetch_policy['mode']` → `fetch_policy['strategy']`（9 文件 44 处）；`mode` = rough/normal/force；`is_year_mode` → `is_year`
+- `citation_fetch.py`: 避免在代码中根据某些值是否存在进行判定。改用 `is_year` = `fetch_policy['strategy'] == 'year'` 控制程序执行。
+- 新增 `ResumeState` dataclass：统一 direct 和 year 模式的断点续传位置。（`_build_direct_resume_state`、`_normalize_direct_resume_state` 等函数委托给 `ResumeState`）
+- 新增 `FetchPolicy` dataclass：替代 `resolve_citation_fetch_policy` 返回的 dict
+- `resolve_citation_fetch_policy` 返回 `FetchPolicy`（带 `__getitem__` / `get()` 兼容 dict 访问）
+- Direct mode 无 probe：histogram_count=0, histogram_total=0（`build_materialized_year_fetch_diagnostics` 中通过 `is_year` 控制）
+- `partial_year_start` 保持 `dict[int, int]`（只需位置值，不需要完整 ResumeState）
+
+## 296. [2026-05-07 I] 继续完成迁移 + partial_year_start 说明
+
+> 请继续完成迁移
+
+> 对照之前的计划，重构全部完成了嘛？
+
+> partial_year_start是指什么？
+
+> 请继续完成计划！
+
+已全部完成。`scholar_citation.py` 通过 `FetchPolicy.__getitem__`/`.get()` 兼容，`partial_year_start` 保持 `{year: int}` 更合理。
 
 ---
