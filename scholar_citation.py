@@ -1312,7 +1312,8 @@ class PaperCitationFetcher:
             cached = self._load_citation_cache(title) if pub else None
             if cached:
                 for key in ('fetch_strategy', 'year_fetch_diagnostics',
-                            'direct_fetch_diagnostics'):
+                            'direct_fetch_diagnostics', 'fetched_at',
+                            'complete_fetch_attempt'):
                     if key in cached:
                         fetch_state[key] = cached[key]
             # Update scholar total and cached_total from current state.
