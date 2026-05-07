@@ -28,9 +28,11 @@ google-scholar-citation-crawler/
 │   ├── citation_fetch.py        # fetch_citations_with_progress + fetch_by_year
 │   ├── scholarly_session.py     # SessionContext + scholarly monkey-patch + year probe
 │   ├── interactive.py           # cURL cookie 注入、captcha 提示、proxy-switch 等待
+│   ├── citation_models.py       # Citation, YearRecord, YearDiagnostics, DirectDiagnostics, ResumeState, FetchPolicy
 │   ├── output_state.py          # PaperFetchState dataclass + 输出文件 _fetch_state 读写
+│   ├── pub_info.py              # PubInfo dataclass（pub 字段规范化）
 │   └── cli.py                   # parse_args() + _run_main(args)
-├── tests/                       # 单元测试（107 个，不需要网络）
+├── tests/                       # 单元测试（121 个，不需要网络）
 │   ├── conftest.py              # 共享 stubs + FetcherTestCase 基类
 │   ├── test_scholar_patch.py    # scholarly patch URL 日志、cookie 注入、CLI 解析
 │   ├── test_year_fetch_early.py # year fetch early-stop / histogram-authoritative
@@ -167,17 +169,26 @@ pub_obj = {
 - `output/scholar_cache/author_{id}/citations/{md5_16}.json` — 每篇论文的引用缓存
 - `output/curl.txt` — Cookie 持久化
 
-### per-paper citation cache 核心字段
+### 命名约定
 
-- `num_citations_on_scholar` — 上次抓取时 Scholar 报告的总数
-- `num_citations_cached` — 实际缓存条数
-- `dedup_count` — 本次运行遇到的重复行数
-- `complete_fetch_attempt` — 是否正常跑完
-- `year_fetch_diagnostics` — 每年抓取诊断（histogram_count, cached_total, seen_total, dedup_count, termination_reason）
-- `direct_fetch_diagnostics` — 直接抓取诊断（scholar_total, cached_total, seen_total, dedup_count, termination_reason）
-- `direct_resume_state` — 直接模式中断恢复位置（仅 cache 文件）
+- **`strategy`** = `year` / `direct`（`fetch_policy['strategy']`、`fetch_strategy`、`PaperFetchState.fetch_strategy`）
+- **`mode`** = `rough` / `normal` / `force`（`--fetch-mode` CLI 参数、`self.fetch_mode`）
+- `direct_resume_state` 中的 `'mode': 'direct'` 已移除，改用 `ResumeState` 对象
 
-### 输出文件 `_fetch_state` 字段
+### 核心 dataclass 一览
+
+| 类 | 位置 | 用途 | 字段数 |
+|-----|------|------|--------|
+| `PaperFetchState` | `output_state.py` | 输出文件 `_fetch_state` | 10 |
+| `PubInfo` | `pub_info.py` | 输出文件 `pub` | 8 |
+| `Citation` | `citation_models.py` | 单条引用（I/O） | 6 |
+| `YearRecord` | `citation_models.py` | 单年抓取记录（I/O） | 6 |
+| `YearDiagnostics` | `citation_models.py` | 年份模式 summary（I/O） | 8 + records |
+| `DirectDiagnostics` | `citation_models.py` | 直接模式 summary（I/O） | 5 |
+| `ResumeState` | `citation_models.py` | 断点续传位置（运行时） | 3 |
+| `FetchPolicy` | `citation_models.py` | 抓取策略决策（运行时） | 3 |
+
+### 输出文件 `_fetch_state` 字段（10 个）
 
 ```json
 {
@@ -188,17 +199,51 @@ pub_obj = {
   "num_citations_on_scholar": 1200,
   "complete_fetch_attempt": true,
   "year_fetch_diagnostics": {
-    "2024": {"year": 2024, "histogram_count": 50, "cached_total": 49, "seen_total": 50, "dedup_count": 0, "termination_reason": "short_page_stop"},
-    "summary": {"histogram_total": 1200, "scholar_total": 1210, "cached_total": 1195, "seen_total": 1205, ...}
+    "histogram_total": 1200, "scholar_total": 1210,
+    "cached_total": 1195, "cached_year_total": 1195,
+    "seen_total": 1205, "cached_unyeared_count": 0,
+    "dedup_count": 1, "scholar_unyeared_count": 10
   },
   "direct_fetch_diagnostics": {
-    "summary": {"scholar_total": 46, "cached_total": 46, "seen_total": 46, "dedup_count": 0, "termination_reason": "iterator_exhausted"}
+    "summary": {
+      "scholar_total": 46, "cached_total": 46,
+      "seen_total": 46, "dedup_count": 0,
+      "termination_reason": "iterator_exhausted"
+    }
   },
-  "fetched_at": "2026-05-05T12:00:00"
+  "year_records": [
+    {"year": 2024, "histogram_count": 50, "cached_total": 49,
+     "seen_total": 50, "dedup_count": 0, "termination_reason": "short_page_stop"},
+    {"year": 2025, ...}
+  ],
+  "fetched_at": "2026-05-07T12:00:00"
 }
 ```
 
-**不在 output 中的字段**（可从 diagnostics 推导）：`num_citations_seen`、`cached_year_counts`、`dedup_count`、`complete`。
+**关键设计**：`year_fetch_diagnostics` 是纯 summary（8 字段），per-year 条目在 `year_records`（独立顶层列表）。`direct_fetch_diagnostics` 只有 `summary`（5 字段）。`direct_summary` 不含 `histogram_total` 等 year 字段。
+
+### 不在 output 中的字段
+
+`num_citations_seen`、`cached_year_counts`、`dedup_count`、`complete` — 均可从 diagnostics 推导。
+
+### 数据流：year_records → diagnostics
+
+```
+fetch 过程:
+  year mode: per-year fetch → YearRecord (histogram_count 来自 probe)
+  direct mode: 引用抓取 → YearRecord (histogram_count=0, 无 probe)
+
+save_progress:
+  YearRecord 列表 → build_citation_count_summary → year_fetch_diagnostics (summary)
+  direct fetch → _build_direct_fetch_diagnostics → direct_fetch_diagnostics.summary
+
+输出:
+  PaperFetchState.to_dict() → 规范化所有字段 → 写入 output JSON
+```
+
+### normalize 调用链
+
+`from_dict` 入口 → `_normalize_year_summary_dict`（year summary）→ `_normalize_direct_diagnostics`（direct summary）→ `_normalize_year_records`（per-year 列表）。`to_dict` 出口同样调用这些函数，入出两端规范化。
 
 ### partial_year_start 的语义
 
@@ -213,19 +258,22 @@ pub_obj = {
 
 ### complete/partial 规则
 
-- **Year mode**: `year_fetch_diagnostics.summary.histogram_total <= seen_total` → complete
+- **Year mode**: `year_fetch_diagnostics.histogram_total <= seen_total` → complete（`year_fetch_diagnostics` 自身就是 summary）
 - **Direct mode**: `direct_fetch_diagnostics.summary.scholar_total <= seen_total` → complete
-- 无 diagnostics summary → fallback 到 `num_seen >= current_scholar_total`
+- 无 diagnostics → `PaperFetchState.is_complete()` 已封装，内部 fallback
 
 ### Fetch policy 选择
 
-- 引用数 < 50 → direct（简单翻页获取）
-- 引用数 >= 50 → year（按年份桶获取，支持断点续传和按年跳过）
+- 引用数 < 50 → `FetchPolicy(strategy='direct')`
+- 引用数 >= 50 → `FetchPolicy(strategy='year')`
+- `FetchPolicy.is_year()` / `is_direct()` 辅助方法；`__getitem__`/`get()` 兼容 dict 访问
 
 ### 断点续传
 
-- Direct 模式：`direct_resume_state` 记录 page-aligned 位置，重试从页开头重抓
-- Year 模式：`completed_year_segments` 记录已完成年份，`partial_year_start` 记录年份内断点
+- 统一用 `ResumeState`（`next_index`, `source_scholar_total`, `citedby_url`）
+- `page_start()` 返回页对齐位置，`in_page_skip()` 返回页内偏移
+- Direct 模式：单个 `ResumeState` → cache 文件 `direct_resume_state`
+- Year 模式：`completed_year_segments`（已完成年份集）+ `partial_year_start`（`{year: int}`，年份内断点位置）
 
 ---
 
