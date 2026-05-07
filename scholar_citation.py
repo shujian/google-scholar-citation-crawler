@@ -759,7 +759,8 @@ class PaperCitationFetcher:
 
         if strategy == 'year':
             yfd = cached.get('year_fetch_diagnostics') or {}
-            summary = yfd.get('summary') or {}
+            # After migration year_fetch_diagnostics IS the summary (no 'summary' sub-key)
+            summary = yfd.get('summary', yfd) if isinstance(yfd, dict) else {}
             target = summary.get('histogram_total')
             seen = summary.get('seen_total')
             label = 'histogram_total'
