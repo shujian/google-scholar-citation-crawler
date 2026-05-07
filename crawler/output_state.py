@@ -231,9 +231,14 @@ def _normalize_year_summary_dict(yfd):
     """Extract just the summary from year_fetch_diagnostics (no per-year entries)."""
     if not isinstance(yfd, dict):
         return None
+    # Old format: summary nested under 'summary' key
     raw_summary = yfd.get('summary')
     if isinstance(raw_summary, dict):
         return _normalize_year_summary(raw_summary)
+    # Post-migration format: yfd IS the summary (has histogram_total or scholar_total)
+    if 'histogram_total' in yfd or 'scholar_total' in yfd:
+        return _normalize_year_summary(yfd)
+    # Legacy format: per-year entries only, derive summary from them
     records = _normalize_year_records(yfd) or []
     return {
         'scholar_total': None,
