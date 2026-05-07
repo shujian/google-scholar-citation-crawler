@@ -4,6 +4,32 @@
 
 ---
 
+## 2026-05-07: 命名统一 + 运行时状态封装
+
+### 命名标准化
+
+- `strategy` = `year` / `direct`（`fetch_policy['strategy']`、`fetch_strategy`）
+- `mode` = `rough` / `normal` / `force`（`self.fetch_mode`、`--fetch-mode`）
+- `fetch_policy['mode']` → `fetch_policy['strategy']`（9 个文件，44 处修改）
+
+### ResumeState 运行时 dataclass
+
+`crawler/citation_models.py` 新增：
+- **`ResumeState`**：统一 direct 和 year 模式的断点续传位置（`next_index`, `source_scholar_total`, `citedby_url`），提供 `page_start()` / `in_page_skip()` / `request_url()` / `is_valid()` + `from_dict`/`to_dict`
+- **`FetchPolicy`**：替代 `resolve_citation_fetch_policy` 返回的 dict，`strategy` / `pub_year` / `reason` + dict-compat
+
+`citation_fetch.py` 中 5 个 resume 函数改为委托 `ResumeState`（消除重复 dict 构造/校验逻辑，22 行新增 65 行删除）；`citation_strategy.py` 返回 `FetchPolicy` 对象。
+
+### 控制流改为 mode 驱动
+
+`fetch_by_year` 中的 `ctx.probed_year_count_complete`、`bool(probed_year_counts)` 等值存在性检查改为 `is_year` mode 标志驱动。
+
+### Direct mode histogram=0
+
+Direct mode 无 probe，year_records 中 `histogram_count=0`，summary 中 `histogram_total=0`。
+
+---
+
 ## 2026-05-07: year_records 独立 + citation_models + PubInfo
 
 ### year_records 从 year_fetch_diagnostics 分离

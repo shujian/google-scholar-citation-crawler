@@ -2302,3 +2302,18 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 - 移除 profile Phase 1→2 延时和论文间延时
 
 ---
+
+## 295. [2026-05-07 H] 命名统一：strategy vs mode + 运行时状态封装
+
+> 请统一一下命名，我们认为mode指rough、normal、force，strategy有year和direct。
+
+> direct_resume_state是用来做什么的？我们之前封装了跟输出相关的数据，下面请把程序运行时的数据也封装一下。
+
+- 命名统一：`fetch_policy['mode']` → `fetch_policy['strategy']`（9 文件），`mode` = rough/normal/force
+- 新增 `ResumeState`：统一 direct/year 断点续传位置，提供 `page_start()` / `in_page_skip()` / `request_url()`
+- 新增 `FetchPolicy`：替代 `resolve_citation_fetch_policy` 返回的 dict
+- `citation_fetch.py` 5 个 resume 函数委托给 `ResumeState`（-65 行 +22 行）
+- 控制流改为 mode 驱动：`is_year` 标志替代值存在性检查
+- Direct mode 无 probe：histogram_count=0, histogram_total=0
+
+---
