@@ -27,6 +27,7 @@ CACHE_KEYS = [
     'probed_year_counts', 'complete', 'complete_fetch_attempt',
     'completed_years',
     'num_citations_on_scholar', 'num_citations_cached',
+    'fetched_at',
 ]
 
 
