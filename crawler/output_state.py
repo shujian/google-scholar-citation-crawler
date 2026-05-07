@@ -223,22 +223,23 @@ def _normalize_year_diagnostics(yfd):
             year = int(diag['year'])
         except (TypeError, ValueError):
             continue
-        cleaned = {k: v for k, v in diag.items() if k in _PER_YEAR_KEYS}
-        cleaned.setdefault('year', year)
-        cleaned.setdefault('histogram_count', 0)
-        cleaned.setdefault('cached_total', 0)
-        cleaned.setdefault('seen_total', cleaned['cached_total'] + cleaned.get('dedup_count', 0))
-        cleaned.setdefault('dedup_count', 0)
-        cleaned.setdefault('termination_reason', 'iterator_exhausted')
+        cleaned = {
+            'year': year,
+            'histogram_count': diag.get('histogram_count', diag.get('scholar_total', 0)) or 0,
+            'cached_total': diag.get('cached_total', 0) or 0,
+            'seen_total': diag.get('seen_total', (diag.get('cached_total', 0) or 0) + (diag.get('dedup_count', 0) or 0)),
+            'dedup_count': diag.get('dedup_count', 0) or 0,
+            'termination_reason': diag.get('termination_reason', 'iterator_exhausted'),
+        }
         per_year[str(year)] = cleaned
 
     # Sort by year ascending
     sorted_entries = {str(y): per_year[str(y)] for y in sorted(per_year.keys())}
 
-    # Normalize summary key
+    # Normalize summary key with fixed field order.
     raw_summary = yfd.get('summary')
     if isinstance(raw_summary, dict):
-        summary = {k: v for k, v in raw_summary.items() if k in _YEAR_SUMMARY_KEYS}
+        summary = _normalize_year_summary(raw_summary)
     else:
         summary = _build_year_summary_from_entries(sorted_entries)
 
@@ -247,12 +248,22 @@ def _normalize_year_diagnostics(yfd):
     return result
 
 
+def _normalize_year_summary(raw):
+    """Return a year_fetch_diagnostics.summary with fixed field order."""
+    return {
+        'scholar_total': _coerce_int(raw.get('scholar_total')),
+        'histogram_total': _coerce_int(raw.get('histogram_total', 0)) or 0,
+        'cached_total': _coerce_int(raw.get('cached_total', 0)) or 0,
+        'cached_year_total': _coerce_int(raw.get('cached_year_total', 0)) or 0,
+        'seen_total': _coerce_int(raw.get('seen_total', 0)) or 0,
+        'cached_unyeared_count': _coerce_int(raw.get('cached_unyeared_count', 0)) or 0,
+        'dedup_count': _coerce_int(raw.get('dedup_count', 0)) or 0,
+        'scholar_unyeared_count': _coerce_int(raw.get('scholar_unyeared_count')),
+    }
+
+
 def _build_year_summary_from_entries(entries):
     """Derive a year_fetch_diagnostics.summary from per-year entries."""
-    from crawler.citation_strategy import build_citation_count_summary
-    # This path is only used when the original summary is absent.
-    # We need citations to build a full summary; without them, return
-    # a minimal per-year-derived summary.
     hist_total = sum(d.get('histogram_count', 0) for d in entries.values())
     cached_total = sum(d.get('cached_total', 0) for d in entries.values())
     seen_total = sum(d.get('seen_total', 0) for d in entries.values())
@@ -260,7 +271,7 @@ def _build_year_summary_from_entries(entries):
     return {
         'scholar_total': None,
         'histogram_total': hist_total,
-        'cached_total': sum(d.get('cached_total', 0) for d in entries.values()),
+        'cached_total': cached_total,
         'cached_year_total': cached_total,
         'seen_total': seen_total,
         'cached_unyeared_count': 0,

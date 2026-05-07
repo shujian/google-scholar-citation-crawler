@@ -1306,9 +1306,7 @@ class PaperCitationFetcher:
                 fs = _os_extract_fetch_state(cached) if cached else None
                 fetch_state = fs.to_dict() if fs else {}
             # For papers that were processed this run, the cache file has
-            # fresh year_fetch_diagnostics / probed_year_counts.  Merge
-            # them into the output state so the next run starts from
-            # current data instead of stale snapshots.
+            # fresh diagnostics.  Merge them into the output state.
             cached = self._load_citation_cache(title) if pub else None
             if cached:
                 for key in ('fetch_strategy', 'year_fetch_diagnostics',
@@ -1317,10 +1315,6 @@ class PaperCitationFetcher:
                     if key in cached:
                         fetch_state[key] = cached[key]
             # Update scholar total and cached_total from current state.
-            # seen_total and dedup_count are intentionally left untouched —
-            # they are derived from per-year sums inside
-            # build_citation_count_summary and must not be overwritten by
-            # top-level counters that may disagree with per-year data.
             current_total = pub.get('num_citations') if pub else None
             if current_total is not None and fetch_state:
                 fetch_state['num_citations_on_scholar'] = current_total
@@ -1329,6 +1323,9 @@ class PaperCitationFetcher:
                     if isinstance(diag, dict) and 'summary' in diag:
                         diag['summary']['scholar_total'] = current_total
                         diag['summary']['cached_total'] = len(citations)
+            # Round-trip through PaperFetchState to strip any unapproved
+            # keys that leaked in from cache-file merges.
+            fetch_state = PaperFetchState.from_dict(fetch_state).to_dict()
             return {
                 'pub': pub,
                 'citations': citations,
