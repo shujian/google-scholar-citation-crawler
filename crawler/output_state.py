@@ -119,7 +119,7 @@ class PaperFetchState:
         scholar = int(current_scholar_total or 0)
         fetch_policy = resolve_citation_fetch_policy(scholar, pub_year, year_based_threshold)
         yfd = self.year_fetch_diagnostics or {}
-        if fetch_policy['mode'] == 'year':
+        if fetch_policy['strategy'] == 'year':
             summary = yfd.get('summary', yfd)
             target = summary.get('histogram_total')
             seen = summary.get('seen_total')

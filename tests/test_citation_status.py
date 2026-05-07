@@ -57,7 +57,7 @@ class CitationStatusTests(FetcherTestCase):
                             "probe_match_skip",
                         ),
                     },
-                    fetch_policy={"mode": "year"},
+                    fetch_policy={"strategy": "year"},
                 )
 
             self.assertEqual(citations, [])
@@ -303,7 +303,7 @@ class CitationStatusTests(FetcherTestCase):
             "num_citations_on_scholar": 98,
             "num_citations_seen": 77,
             "direct_fetch_diagnostics": {
-                "mode": "direct",
+                "strategy": "direct",
                 "reported_total": 98,
                 "yielded_total": 77,
                 "seen_total": 77,
@@ -420,7 +420,7 @@ class CitationStatusTests(FetcherTestCase):
             "num_citations_seen": 8,
             "year_fetch_diagnostics": {
                 "2024": {
-                    "mode": "year",
+                    "strategy": "year",
                     "year": 2024,
                     "scholar_total": 10,
                     "cached_total": 8,
@@ -530,7 +530,7 @@ class CitationStatusTests(FetcherTestCase):
             "num_citations_on_scholar": 10,
             "year_fetch_diagnostics": {
                 "2024": {
-                    "mode": "year",
+                    "strategy": "year",
                     "year": 2024,
                     "scholar_total": 10,
                     "cached_total": 9,

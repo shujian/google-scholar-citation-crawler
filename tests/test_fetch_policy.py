@@ -15,7 +15,7 @@ class FetchPolicyAndStrategyTests(FetcherTestCase):
             fake_datetime.now.return_value = types.SimpleNamespace(year=2026)
             policy = self.fetcher._resolve_citation_fetch_policy(60, "2023")
 
-        self.assertEqual(policy["mode"], "year")
+        self.assertEqual(policy["strategy"], "year")
         self.assertEqual(policy["pub_year"], 2023)
         self.assertEqual(policy["reason"], "at_or_above_year_threshold")
 
@@ -24,7 +24,7 @@ class FetchPolicyAndStrategyTests(FetcherTestCase):
             fake_datetime.now.return_value = types.SimpleNamespace(year=2026)
             policy = self.fetcher._resolve_citation_fetch_policy(60, "2026")
 
-        self.assertEqual(policy["mode"], "year")
+        self.assertEqual(policy["strategy"], "year")
         self.assertEqual(policy["pub_year"], 2026)
         self.assertEqual(policy["reason"], "at_or_above_year_threshold")
 
@@ -44,7 +44,7 @@ class FetchPolicyAndStrategyTests(FetcherTestCase):
             "num_citations_on_scholar": 25,
             "dedup_count": 0,
             "direct_resume_state": {
-                "mode": "direct",
+                "strategy": "direct",
                 "next_index": 13,
                 "source_scholar_total": 25,
                 "citedby_url": "/scholar?cites=123",
@@ -64,7 +64,7 @@ class FetchPolicyAndStrategyTests(FetcherTestCase):
             "num_citations_on_scholar": 25,
             "dedup_count": 0,
             "direct_resume_state": {
-                "mode": "direct",
+                "strategy": "direct",
                 "next_index": 13,
                 "source_scholar_total": 25,
                 "citedby_url": "/scholar?cites=123",
@@ -84,7 +84,7 @@ class FetchPolicyAndStrategyTests(FetcherTestCase):
             "num_citations_on_scholar": 25,
             "dedup_count": 0,
             "direct_resume_state": {
-                "mode": "direct",
+                "strategy": "direct",
                 "next_index": 13,
                 "source_scholar_total": 25,
                 "citedby_url": "/scholar?cites=123",
@@ -107,7 +107,7 @@ class FetchPolicyAndStrategyTests(FetcherTestCase):
             ],
             "num_citations_on_scholar": 80,
             "dedup_count": 0,
-            "direct_fetch_diagnostics": {"mode": "direct"},
+            "direct_fetch_diagnostics": {"strategy": "direct"},
         }
 
         strategy = self.fetcher._resolve_refresh_strategy(pub, cached, "partial")

@@ -116,12 +116,12 @@ def resolve_citation_status_from_state(state):
     fetch_policy = state['fetch_policy']
     num_seen = state['num_seen']
 
-    if fetch_policy['mode'] == 'year':
+    if fetch_policy['strategy'] == 'year':
         target = state.get('year_histogram_total')
         if target is not None and num_seen is not None:
             return 'complete' if num_seen >= target else 'partial'
 
-    elif fetch_policy['mode'] == 'direct':
+    elif fetch_policy['strategy'] == 'direct':
         target = state.get('direct_scholar_total')
         if target is not None and num_seen is not None:
             return 'complete' if num_seen >= target else 'partial'

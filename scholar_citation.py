@@ -446,7 +446,7 @@ class PaperCitationFetcher:
         # diagnostics yet.  Synthesise per-year entries from the cached
         # citations so the year fetch path knows which years are already
         # covered and only probes / fetches what is missing.
-        if fetch_policy['mode'] == 'year' and not rehydrated_year_fetch_diagnostics and resume_from:
+        if fetch_policy['strategy'] == 'year' and not rehydrated_year_fetch_diagnostics and resume_from:
             year_counts = self._year_count_map(resume_from)
             if year_counts:
                 synthesized = {}
@@ -461,10 +461,10 @@ class PaperCitationFetcher:
         completed_years_in_current_run = []
         # Drop unyeared cached citations for every year-based fetch:
         # unyeared entries have no year bucket to diff against histogram data.
-        drop_cached_unyeared = fetch_policy['mode'] == 'year'
+        drop_cached_unyeared = fetch_policy['strategy'] == 'year'
         # Derive seen total from diagnostics summary.
         num_seen = None
-        if fetch_policy['mode'] == 'year':
+        if fetch_policy['strategy'] == 'year':
             yfd_summary = (cached.get('year_fetch_diagnostics') or {}).get('summary') or {}
             num_seen = yfd_summary.get('seen_total')
         else:
@@ -486,7 +486,7 @@ class PaperCitationFetcher:
                 num_citations,
             )
             unyeared_note = "; drop unyeared" if drop_cached_unyeared else ""
-            if fetch_policy['mode'] == 'year':
+            if fetch_policy['strategy'] == 'year':
                 action = (f"fetch ({len(resume_from)} cached{seen_str}, "
                           f"scholar={num_citations} unchanged; recheck by year{unyeared_note})")
             else:
@@ -496,7 +496,7 @@ class PaperCitationFetcher:
         if drop_cached_unyeared:
             resume_from = self._filter_citations_with_year(resume_from)
 
-        if cached.get('direct_resume_state') is not None and fetch_policy['mode'] == 'direct':
+        if cached.get('direct_resume_state') is not None and fetch_policy['strategy'] == 'direct':
             action = f"{action}; direct fetch restarts from head"
 
         direct_resume_state = None
@@ -1035,7 +1035,7 @@ class PaperCitationFetcher:
             # Skip year-based fetch when all cached citations are unyeared and
             # the previous fetch ran to completion.  Year-based diff cannot
             # improve citations that carry no year.
-            if (fetch_policy['mode'] == 'year'
+            if (fetch_policy['strategy'] == 'year'
                     and cached
                     and cached.get('complete_fetch_attempt')
                     and not resume_from
@@ -1161,7 +1161,7 @@ class PaperCitationFetcher:
                     # a previous paper's year-based fetch polluting direct fetch totals.
                     year_fetch_diagnostics = (
                         getattr(self, '_year_fetch_diagnostics', None)
-                        if fetch_policy.get('mode') == 'year'
+                        if fetch_policy.get('strategy') == 'year'
                         else None
                     )
                     if year_fetch_diagnostics:

@@ -51,13 +51,13 @@ def resolve_citation_fetch_policy(num_citations, pub_year, year_based_threshold,
     total = int(num_citations or 0)
     if total < year_based_threshold:
         return {
-            'mode': 'direct',
+            'strategy': 'direct',
             'pub_year': normalize_pub_year(pub_year, current_year),
             'reason': 'below_year_threshold',
         }
 
     return {
-        'mode': 'year',
+        'strategy': 'year',
         'pub_year': normalize_pub_year(pub_year, current_year),
         'reason': 'at_or_above_year_threshold',
     }

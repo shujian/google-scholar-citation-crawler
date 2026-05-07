@@ -44,7 +44,7 @@ class DirectFetchTests(FetcherTestCase):
                 resume_from=[],
                 direct_resume_state={
                     "mode": "direct",
-                    "next_index": 13,
+            "next_index": 13,
                     "source_scholar_total": 25,
                     "citedby_url": "/scholar?cites=123",
                 },
@@ -119,7 +119,7 @@ class DirectFetchTests(FetcherTestCase):
                 resume_from=[],
                 direct_resume_state={
                     "mode": "direct",
-                    "next_index": 7,
+            "next_index": 7,
                     "source_scholar_total": 1,
                     "citedby_url": "/scholar?cites=123",
                 },
@@ -141,7 +141,7 @@ class DirectFetchTests(FetcherTestCase):
             ])
 
         fetch_policy = {
-            "mode": "direct",
+            "strategy": "direct",
             "covered_years": 3,
             "avg_citations_per_year": 40,
             "pub_year": 2024,
@@ -182,7 +182,7 @@ class DirectFetchTests(FetcherTestCase):
             yield
 
         fetch_policy = {
-            "mode": "direct",
+            "strategy": "direct",
             "covered_years": 3,
             "avg_citations_per_year": 40,
             "pub_year": 2024,
@@ -214,7 +214,7 @@ class DirectFetchTests(FetcherTestCase):
         self.fetcher._cached_year_counts = {2017: 3, 2018: 38, 2019: 107}
         observed = {}
         fetch_policy = {
-            "mode": "year",
+            "strategy": "year",
             "covered_years": 8,
             "avg_citations_per_year": 25,
             "pub_year": 2017,
@@ -251,7 +251,7 @@ class DirectFetchTests(FetcherTestCase):
             {"bib": {"title": "Y2025", "author": ["B"], "venue": "V2", "pub_year": "2025"}, "pub_url": "u2"},
         ])
         fetch_policy = {
-            "mode": "direct",
+            "strategy": "direct",
             "covered_years": 4,
             "avg_citations_per_year": 15,
             "pub_year": 2023,
@@ -797,7 +797,7 @@ class DirectFetchTests(FetcherTestCase):
             {"bib": {"title": "Fresh-C", "author": ["C"], "venue": "V3", "pub_year": "2026"}, "pub_url": "new-c", "cites_id": "cid-c"},
         ]
         fetch_policy = {
-            "mode": "direct",
+            "strategy": "direct",
             "covered_years": 10,
             "avg_citations_per_year": 9.8,
             "pub_year": 2017,
