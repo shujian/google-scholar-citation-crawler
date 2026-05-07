@@ -289,6 +289,98 @@ class DirectDiagnostics:
 
 
 # ---------------------------------------------------------------------------
+# ResumeState — unified resume position for both direct and year-based fetch
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ResumeState:
+    """Resume position within a fetch segment (direct or per-year).
+
+    next_index is page-aligned so the retry re-fetches the whole page;
+    already-saved items serve as old_citations for dedup.
+    """
+
+    next_index: int = 0
+    source_scholar_total: int = 0
+    citedby_url: str = ""
+
+    @classmethod
+    def from_dict(cls, d):
+        if not isinstance(d, dict):
+            return None
+        try:
+            ni = int(d.get('next_index', 0))
+            st = int(d.get('source_scholar_total', 0))
+        except (TypeError, ValueError):
+            return None
+        url = d.get('citedby_url', '')
+        if ni < 0 or st < 0 or ni > st or not url:
+            return None
+        return cls(next_index=ni, source_scholar_total=st, citedby_url=url)
+
+    def to_dict(self):
+        return {
+            'next_index': self.next_index,
+            'source_scholar_total': self.source_scholar_total,
+            'citedby_url': self.citedby_url,
+        }
+
+    def is_valid(self):
+        return self.next_index >= 0 and self.source_scholar_total > 0 and bool(self.citedby_url)
+
+    def page_start(self):
+        return _page_align(self.next_index)
+
+    def in_page_skip(self):
+        return self.next_index - self.page_start()
+
+    def request_url(self, base_url=None):
+        """Return the URL with &start= appended for the resume page."""
+        url = base_url or self.citedby_url
+        ps = self.page_start()
+        if ps <= 0:
+            return url
+        import re
+        sep = '&' if '?' in url else '?'
+        if re.search(r'([?&])start=\d+', url):
+            return re.sub(r'([?&])start=\d+', lambda m: f'{m.group(1)}start={ps}', url)
+        return f'{url}{sep}start={ps}'
+
+
+def _page_align(index):
+    try: index = int(index or 0)
+    except (TypeError, ValueError): return 0
+    if index <= 0: return 0
+    return (index // 10) * 10
+
+
+# ---------------------------------------------------------------------------
+# FetchPolicy — fetch strategy decision
+# ---------------------------------------------------------------------------
+
+@dataclass
+class FetchPolicy:
+    """Result of resolve_citation_fetch_policy."""
+
+    strategy: str = 'direct'  # 'year' | 'direct'
+    pub_year: Optional[int] = None
+    reason: str = ""
+
+    def is_year(self): return self.strategy == 'year'
+    def is_direct(self): return self.strategy == 'direct'
+
+    def get(self, key, default=None):
+        """dict-compat accessor."""
+        return getattr(self, key, default)
+
+    def __getitem__(self, key):
+        return getattr(self, key)
+
+    def __contains__(self, key):
+        return hasattr(self, key)
+
+
+# ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
 
