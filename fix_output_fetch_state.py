@@ -256,7 +256,36 @@ def migrate_one_file(json_path, cache_dir):
                 }
                 merged = True
 
-        # 4. Set fetch_complete at paper level from _fetch_state
+        # 4. Migrate year_fetch_diagnostics: extract per-year entries into
+        # year_records, keep only the summary in year_fetch_diagnostics.
+        yfd = state.get('year_fetch_diagnostics')
+        if isinstance(yfd, dict):
+            records = []
+            for key, val in yfd.items():
+                if isinstance(val, dict) and 'year' in val:
+                    try: year = int(val['year'])
+                    except (TypeError, ValueError): continue
+                    hc = val.get('histogram_count', val.get('scholar_total', 0)) or 0
+                    ct = val.get('cached_total', 0) or 0
+                    dd = val.get('dedup_count', 0) or 0
+                    records.append({
+                        'year': year, 'histogram_count': hc,
+                        'cached_total': ct,
+                        'seen_total': val.get('seen_total', ct + dd),
+                        'dedup_count': dd,
+                        'termination_reason': val.get('termination_reason', 'iterator_exhausted'),
+                    })
+            if records and state.get('year_records') is None:
+                records.sort(key=lambda r: r['year'])
+                state['year_records'] = records
+                merged = True
+            # Strip per-year entries, keep summary only
+            summary = yfd.get('summary')
+            if isinstance(summary, dict):
+                state['year_fetch_diagnostics'] = dict(summary)
+                merged = True
+
+        # 5. Set fetch_complete at paper level from _fetch_state
         if state.get('complete_fetch_attempt') or state.get('complete'):
             paper['fetch_complete'] = True
 

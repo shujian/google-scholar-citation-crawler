@@ -220,7 +220,8 @@ class PaperFetchStateTests(unittest.TestCase):
         self.assertEqual(set(out.keys()), {
             "title", "pub_url", "citedby_url", "fetch_strategy",
             "num_citations_on_scholar", "complete_fetch_attempt",
-            "year_fetch_diagnostics", "direct_fetch_diagnostics", "fetched_at",
+            "year_fetch_diagnostics", "direct_fetch_diagnostics",
+            "year_records", "fetched_at",
         })
 
     def test_from_dict_accepts_legacy_complete_key(self):
@@ -310,7 +311,7 @@ class PaperFetchStateTests(unittest.TestCase):
         self.assertEqual(ds["termination_reason"], "ok")
 
     def test_to_dict_sorts_year_entries(self):
-        """Year entries are sorted by year ascending."""
+        """Year records are sorted by year ascending."""
         fs = PaperFetchState.from_dict({
             "title": "T", "fetch_strategy": "year",
             "year_fetch_diagnostics": {
@@ -322,12 +323,12 @@ class PaperFetchStateTests(unittest.TestCase):
             },
         })
         out = fs.to_dict()
-        yfd = out["year_fetch_diagnostics"]
-        year_keys = [k for k in yfd if isinstance(yfd[k], dict) and 'year' in yfd[k]]
-        self.assertEqual(year_keys, ["2020", "2023"])
+        records = out["year_records"]
+        years = [r["year"] for r in records]
+        self.assertEqual(years, [2020, 2023])
 
     def test_to_dict_strips_unknown_year_fields(self):
-        """Per-year entries only contain allowed keys."""
+        """Per-year records only contain allowed keys."""
         fs = PaperFetchState.from_dict({
             "title": "T", "fetch_strategy": "year",
             "year_fetch_diagnostics": {
@@ -340,7 +341,7 @@ class PaperFetchStateTests(unittest.TestCase):
             },
         })
         out = fs.to_dict()
-        entry = out["year_fetch_diagnostics"]["2024"]
+        entry = out["year_records"][0]
         self.assertNotIn("underfetched", entry)
         self.assertNotIn("mode", entry)
         self.assertIn("year", entry)
@@ -351,7 +352,8 @@ class PaperFetchStateTests(unittest.TestCase):
         self.assertEqual(set(out.keys()), {
             "title", "pub_url", "citedby_url", "fetch_strategy",
             "num_citations_on_scholar", "complete_fetch_attempt",
-            "year_fetch_diagnostics", "direct_fetch_diagnostics", "fetched_at",
+            "year_fetch_diagnostics", "direct_fetch_diagnostics",
+            "year_records", "fetched_at",
         })
 
 

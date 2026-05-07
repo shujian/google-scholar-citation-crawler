@@ -162,8 +162,9 @@ class OutputAndReconciliationTests(FetcherTestCase):
         self.assertEqual(fs["num_citations_on_scholar"], 150)
         self.assertTrue(fs["complete_fetch_attempt"])
         self.assertIn("year_fetch_diagnostics", fs)
-        self.assertEqual(fs["year_fetch_diagnostics"]["2024"]["histogram_count"], 50)
-        self.assertIn("summary", fs["year_fetch_diagnostics"])
+        self.assertIn("year_records", fs)
+        yr = fs["year_records"][0]
+        self.assertEqual(yr["histogram_count"], 50)
         # citations should NOT be duplicated inside _fetch_state
         self.assertNotIn("citations", fs)
 
