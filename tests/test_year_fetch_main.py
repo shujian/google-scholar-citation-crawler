@@ -175,7 +175,6 @@ class YearFetchMainTests(FetcherTestCase):
             fetch_mode='normal',
             interactive_captcha=False,
             accelerate=1.0,
-            force_refresh_pubs=False,
         )
 
         class FakeAuthorFetcher:
@@ -186,7 +185,7 @@ class YearFetchMainTests(FetcherTestCase):
             def load_prev_profile(self):
                 return None
 
-            def run(self, force_refresh_pubs=False):
+            def run(self):
                 with open(self.profile_json, "w", encoding="utf-8") as f:
                     json.dump({"total_citations": 1, "total_publications": 1, "author_info": {"citedby": 1}}, f)
                 print("Profile fetch done")
@@ -250,7 +249,6 @@ class YearFetchMainTests(FetcherTestCase):
             fetch_mode='normal',
             interactive_captcha=False,
             accelerate=1.0,
-            force_refresh_pubs=False,
         )
 
         class FakeAuthorFetcher:
@@ -261,7 +259,7 @@ class YearFetchMainTests(FetcherTestCase):
                 self.calls += 1
                 return prev_profile if self.calls == 1 else curr_profile
 
-            def run(self, force_refresh_pubs=False):
+            def run(self):
                 print("Profile fetch done")
                 return True
 

@@ -2332,3 +2332,31 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 已全部完成。`scholar_citation.py` 通过 `FetchPolicy.__getitem__`/`.get()` 兼容，`partial_year_start` 保持 `{year: int}` 更合理。
 
 ---
+
+### 297
+
+> 这个程序现在还接受--force-refresh-pubs参数吗？我记得好像去掉了。
+
+### 298
+
+> 这个参数功能跟fetch-mode force是一样的吧，请移除它吧。
+
+### 299
+
+> 我还想确认一下程序在不同位置被中断引发的行为，比如如果在获取author profile的时候，发现引用总数变化了，但是这时候发生了中断（比如被用户ctrl c），程序会怎么样？对结果的正确性有影响吗？如果同样的事情发生在后续某个阶段呢？
+
+### 300
+
+> 请注意我们之前已经决定让程序的本次运行只使用上次的输出文件，不再依赖以往的cache文件了。对profile和citation应该做相同处理。
+
+### 301
+
+> 好的，请修复
+
+### 302
+
+> profile中的author和url都是N/A请检查一下是什么问题。
+
+### 303
+
+> 请提交git，并更新相关文档。

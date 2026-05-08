@@ -142,7 +142,6 @@ class PaperCitationFetcher:
 
         # Paths
         self.cache_dir = os.path.join(output_dir, "scholar_cache", f"author_{author_id}", "citations")
-        self.pubs_cache = os.path.join(output_dir, "scholar_cache", f"author_{author_id}", "publications.json")
         self.profile_json = os.path.join(output_dir, f"author_{author_id}_profile.json")
         self.out_json = os.path.join(output_dir, f"author_{author_id}_paper_citations.json")
         self.out_xlsx = os.path.join(output_dir, f"author_{author_id}_paper_citations.xlsx")
@@ -820,17 +819,15 @@ class PaperCitationFetcher:
         publications = profile.get('publications', [])
         self._profile_data = profile
 
-        # Load citedby_url mapping from publications cache
-        if not os.path.exists(self.pubs_cache):
-            print(f"Error: {self.pubs_cache} not found. Profile must be fetched first.")
+        # Build citedby_url mapping from profile publications.
+        # Each publication in the profile already has citedby_url and url fields.
+        if not publications:
+            print(f"Error: {self.profile_json} has no publications. Profile must be fetched first.")
             return False
-        with open(self.pubs_cache, 'r', encoding='utf-8') as f:
-            pubs_data = json.load(f)
-        self._pubs_data = pubs_data
         url_map = {p['title']: {
             'citedby_url': p.get('citedby_url', ''),
             'pub_url':     p.get('url', 'N/A'),
-        } for p in pubs_data.get('publications', [])}
+        } for p in publications}
 
         # Load previous output file state so cross-run decisions are based on
         # the output file, not on stale per-paper cache files.
@@ -1285,13 +1282,9 @@ class PaperCitationFetcher:
         """Save citation results to JSON and Excel."""
         print("\n" + "=" * 70)
         profile = getattr(self, '_profile_data', None)
-        pubs_data = getattr(self, '_pubs_data', None)
         if profile is None and os.path.exists(self.profile_json):
             with open(self.profile_json, 'r', encoding='utf-8') as f:
                 profile = json.load(f)
-        if pubs_data is None and os.path.exists(self.pubs_cache):
-            with open(self.pubs_cache, 'r', encoding='utf-8') as f:
-                pubs_data = json.load(f)
         publications = profile.get('publications', []) if profile else []
         output_fetch_state = getattr(self, '_output_fetch_state', {})
         output_citations = getattr(self, '_output_citations', {})
@@ -1434,7 +1427,7 @@ def main():
 
         fetcher = AuthorProfileFetcher(author_id, args.output_dir, delay_scale=delay_scale)
         prev_profile = fetcher.load_prev_profile()
-        success = fetcher.run(force_refresh_pubs=args.force_refresh_pubs)
+        success = fetcher.run()
         if not success:
             sys.exit(1)
 

@@ -174,10 +174,11 @@ def save_profile_xlsx(
     ws2.column_dimensions['B'].width = 55
     ws2.column_dimensions['C'].width = 12
     ws2.column_dimensions['D'].width = 25
-    ws2.column_dimensions['E'].width = 12
-    ws2.column_dimensions['F'].width = 50
+    ws2.column_dimensions['E'].width = 20
+    ws2.column_dimensions['F'].width = 12
+    ws2.column_dimensions['G'].width = 50
 
-    headers2 = ['No.', 'Title', 'Year', 'Venue', 'Citations', 'Link']
+    headers2 = ['No.', 'Title', 'Year', 'Venue', 'Authors', 'Citations', 'Link']
     for col, header in enumerate(headers2, 1):
         cell = ws2.cell(row=1, column=col, value=header)
         cell.fill = header_fill
@@ -190,12 +191,13 @@ def save_profile_xlsx(
         row_index = pub['no'] + 1
         ws2.cell(row=row_index, column=1, value=pub['no']).alignment = center
         ws2.cell(row=row_index, column=2, value=pub['title']).alignment = content_align
-        ws2.cell(row=row_index, column=3, value=pub['year']).alignment = center
-        ws2.cell(row=row_index, column=4, value=pub['venue']).alignment = content_align
-        ws2.cell(row=row_index, column=5, value=pub['num_citations']).alignment = center
+        ws2.cell(row=row_index, column=3, value=pub['year'] or 'N/A').alignment = center
+        ws2.cell(row=row_index, column=4, value=pub['venue'] or 'N/A').alignment = content_align
+        ws2.cell(row=row_index, column=5, value=pub['authors'] or 'N/A').alignment = content_align
+        ws2.cell(row=row_index, column=6, value=pub['num_citations']).alignment = center
 
-        url = pub.get('url', 'N/A')
-        link_cell = ws2.cell(row=row_index, column=6, value=url)
+        url = pub.get('url') or 'N/A'
+        link_cell = ws2.cell(row=row_index, column=7, value=url)
         if url and url != 'N/A':
             try:
                 link_cell.hyperlink = url

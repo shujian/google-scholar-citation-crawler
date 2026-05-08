@@ -4,6 +4,32 @@
 
 ---
 
+## 2026-05-08: 移除 --force-refresh-pubs + pubs_cache 依赖清理 + profile Excel 增强
+
+### 移除 --force-refresh-pubs 参数
+
+与 `--fetch-mode force` 功能重叠。`author_fetcher.py` 中已有自动检测引用总数变化并强制刷新 publications 的逻辑，不需要单独的手动参数。涉及 5 个文件。
+
+### 输出文件作为唯一跨运行状态源
+
+Profile 和 citation 阶段统一：跨运行状态只从输出文件（profile JSON / citations JSON）读取，不再依赖中间 cache 文件。
+
+- **`fetch_publications()`**：不再读取 `pubs_cache`，改为接受 `prev_publications` 参数，从 `prev_profile`（来自 profile JSON）获取上一轮的 publications 列表
+- **Citation 阶段 `url_map`**：从 profile JSON 的 `publications` 构建，不再读取 `pubs_cache`
+- **移除死代码**：`scholar_citation.py` 中 `self.pubs_cache` 属性、`self._pubs_data` 属性、`_save_output` 中的 `pubs_cache` 回退读取
+
+### PubInfo 健壮性增强
+
+- `from_scholarly()` 处理 `bib['author']` 为 list 的情况（scholarly 的 `_citation_pub()` 不设置 author，`_scholar_pub()` 中 `_get_authorlist` 返回 list；只有后续 `fill()` 或 bibtex update 才转为 string）。list 以 `'; '.join()` 转为 string
+- venue 增加 `bib.get('journal')` fallback
+
+### Profile Excel 增强
+
+- Publications 表新增 **Authors** 列（E 列），Link 移至 G 列
+- 空值显示修复：`pub.get('url') or 'N/A'` 替代 `pub.get('url', 'N/A')`，对 `PubInfo` 产生的空字符串正确显示为 'N/A'。Year、Venue、Authors 同理
+
+---
+
 ## 2026-05-07: 命名统一 + 运行时状态封装
 
 ### 命名标准化

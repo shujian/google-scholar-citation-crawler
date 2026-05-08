@@ -140,14 +140,13 @@ class AuthorProfileFetcher:
             traceback.print_exc()
             return None, False
 
-    def fetch_publications(self, force_refresh=False):
+    def fetch_publications(self, force_refresh=False, prev_publications=None):
         """
         Phase 2: Fetch all publications (scholarly handles pagination).
         """
         if not force_refresh:
-            cached = self.load_pubs_cache()
-            if cached:
-                return cached.get('publications', [])
+            if prev_publications:
+                return prev_publications
 
         print("\nPhase 2: Fetching all publications (auto-pagination)...")
         print("Connecting to Google Scholar...")
@@ -295,7 +294,7 @@ class AuthorProfileFetcher:
         self._last_profile_workbook = workbook
         return workbook
 
-    def run(self, force_refresh_pubs=False):
+    def run(self):
         """Main workflow."""
         print("\n" + "=" * 70)
         print("  Google Scholar Author Profile Fetcher")
@@ -317,15 +316,19 @@ class AuthorProfileFetcher:
             return False
 
         # Phase 2: Publications
-        # Auto-refresh if total citations changed, or if forced via CLI
-        if not force_refresh_pubs and prev_profile:
+        # Auto-refresh if total citations changed
+        force_refresh = False
+        if prev_profile:
             old_citedby = prev_profile.get('total_citations', 0)
             new_citedby = basics.get('citedby', 0)
             if new_citedby != old_citedby:
                 print(f"\nTotal citations changed ({old_citedby} -> {new_citedby}), refreshing publications...")
-                force_refresh_pubs = True
+                force_refresh = True
 
-        publications = self.fetch_publications(force_refresh=force_refresh_pubs)
+        publications = self.fetch_publications(
+            force_refresh=force_refresh,
+            prev_publications=prev_profile.get('publications') if prev_profile else None,
+        )
 
         print(f"\nFetch complete: {len(publications)} publications")
 

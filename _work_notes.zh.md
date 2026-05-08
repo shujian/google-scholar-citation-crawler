@@ -90,10 +90,13 @@ python scholar_citation.py --author YOUR_AUTHOR_ID --limit 1 --skip 1
 
 ## 运行流程
 
+**跨运行状态原则**：每次运行只从**输出文件**（profile JSON、citations JSON）读取上一轮状态；cache 文件（`scholar_cache/`）仅用于**同次运行内的中断恢复**，不在新一轮启动时作为状态来源。Profile 和 citation 阶段统一遵循此原则。
+
 1. **Profile 阶段**（每次都运行）
    - 阶段1：获取作者基本信息（name, affiliation, citation stats）
-   - 阶段2：获取所有论文列表（含 citedby_url）
+   - 阶段2：获取所有论文列表（含 citedby_url）。引用数未变时复用 `prev_profile['publications']`（来自输出文件，不读 `pubs_cache`）
    - 增量比较：与上次 profile 对比，发现新增论文、引用数变化
+   - 保存 JSON + Excel + 追加 history
    - 保存 JSON + Excel + 追加 history
 
 2. **智能跳过判断**
@@ -164,9 +167,9 @@ pub_obj = {
 
 ### 缓存结构
 
-- `output/scholar_cache/author_{id}/basics.json` — 基本信息
-- `output/scholar_cache/author_{id}/publications.json` — 论文列表
-- `output/scholar_cache/author_{id}/citations/{md5_16}.json` — 每篇论文的引用缓存
+- `output/scholar_cache/author_{id}/basics.json` — 基本信息（仅写，不读；每次运行始终从网络拉取 basics）
+- `output/scholar_cache/author_{id}/publications.json` — 论文列表（仅写，不读；跨运行状态从 profile JSON 读取）
+- `output/scholar_cache/author_{id}/citations/{md5_16}.json` — 每篇论文的引用缓存（同次运行中断恢复；跨运行状态从 citations JSON 的 `_fetch_state` 读取）
 - `output/curl.txt` — Cookie 持久化
 
 ### 命名约定

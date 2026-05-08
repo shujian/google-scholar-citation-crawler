@@ -48,7 +48,6 @@ python scholar_citation.py --author YOUR_AUTHOR_ID --skip 2 --limit 3
 ```
 usage: scholar_citation.py [-h] --author AUTHOR [--output-dir DIR]
                            [--skip M] [--limit N]
-                           [--force-refresh-pubs]
                            [--fetch-mode {rough,normal,force}]
                            [--interactive-captcha] [--accelerate SCALE]
 
@@ -59,7 +58,6 @@ optional:
   --output-dir DIR              Output directory (default: ./output)
   --skip M                      Skip first M papers (sorted by citations desc)
   --limit N                     Process exactly N papers after --skip M
-  --force-refresh-pubs          Force re-fetch of the publications list
   --fetch-mode {rough,normal,force}
                                 Controls re-fetch aggressiveness (default: normal)
   --interactive-captcha         Enable interactive captcha bypass (see below)

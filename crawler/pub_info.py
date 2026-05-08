@@ -52,12 +52,15 @@ class PubInfo:
     def from_scholarly(cls, pub, index):
         """Construct from a raw scholarly publication dict + 1-based index."""
         bib = pub.get('bib', {}) if isinstance(pub, dict) else {}
+        author = bib.get('author', '')
+        if isinstance(author, list):
+            author = '; '.join(author)
         return cls(
             no=index,
             title=bib.get('title', ''),
             year=str(bib.get('pub_year', '')),
-            venue=bib.get('citation', bib.get('venue', '')),
-            authors=bib.get('author', ''),
+            venue=bib.get('citation', bib.get('venue', bib.get('journal', ''))),
+            authors=author,
             num_citations=pub.get('num_citations', 0) if isinstance(pub, dict) else 0,
             url=pub.get('pub_url', pub.get('eprint_url', '')) if isinstance(pub, dict) else '',
             citedby_url=pub.get('citedby_url', '') if isinstance(pub, dict) else '',

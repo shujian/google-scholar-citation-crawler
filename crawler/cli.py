@@ -40,9 +40,6 @@ examples:
     parser.add_argument('--limit', type=int, default=None, metavar='N',
                         help='Process exactly N papers after --skip (papers M+1 to M+N), '
                              'regardless of whether each needs fetching')
-    parser.add_argument('--force-refresh-pubs', action='store_true',
-                        help='Force re-fetch the publications list from Scholar '
-                             '(useful when profile updated but citations fetch was interrupted)')
     parser.add_argument('--fetch-mode', dest='fetch_mode',
                         choices=['rough', 'normal', 'force'], default='normal',
                         help='Controls citation re-fetch aggressiveness. '
@@ -107,7 +104,7 @@ def _run_main(args):
 
         fetcher = AuthorProfileFetcher(author_id, args.output_dir, delay_scale=delay_scale)
         prev_profile = fetcher.load_prev_profile()
-        success = fetcher.run(force_refresh_pubs=args.force_refresh_pubs)
+        success = fetcher.run()
         if not success:
             sys.exit(1)
 
