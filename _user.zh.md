@@ -2435,6 +2435,8 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 
 > _wait_proxy_switch 应该用哪一层处理？我们处理这些问题的层级关系是什么？
 
+> 不需要main loop中的proxy switch。请开始迁移year fetch
+
 ### 316
 
 > 请继续检查并完成相应内容
@@ -2450,3 +2452,7 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 ### 319
 
 > 请继续完成
+
+### 320
+
+> 请更新user文件
