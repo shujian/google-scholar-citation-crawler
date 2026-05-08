@@ -2404,3 +2404,25 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 ### 310
 
 > 更新文档并提交。
+
+### 311
+
+> 我们之前为最终的数据定义了类，PaperFetchState，管理了所有的数据，并进行了输入和输出的规范化。这个类的对象同时可以作为新的一次运行开始时从上一次的输出文件中读出的内容。下面的问题是，从这个对象开始进行抓取时，抓取的中间状态是否也可以进行封装？是否可以利用PaperFetchState类来进行？比如一个中间状态类中包含一个PaperFetchState的对象，以及一些附加的状态属性。
+
+### 312
+
+> FetchContext有哪些字段？
+
+> 这个FetchSession好像是针对year-based fetch的？direct fetch好像用不到这么多信息？
+
+### 313
+
+> 我建议：写一个BatchFetch类，给定一个url，通过翻页获取这个url对应的全部内容信息。其实这就是direct fetch的全部内容了，可以直接通过BatchFetch来实现。year fetch的每一年就用这个BatchFetch来实现。在year fetch的状态管理中，注意我们始终是按照年份从old到current的顺序进行的。所以并不需要同时每一年记录的抓取状态，因为当前正在抓取的只能是其中某一年。这一年抓取完毕了，后面需要摘取的一定是这一年后的下一个需要抓取的年份。
+
+> 可以叫做BatchFetchSession
+
+> Direct fetch也用一个类管理起来。开始实现吧。
+
+### 314
+
+> 可以先提交进度再继续进行。我们确实设计一下，异常重试和captcha恢复在整个流程中应该怎么处理。我理解都应该直接在BatchFetchSession中处理就好了。

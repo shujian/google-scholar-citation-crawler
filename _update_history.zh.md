@@ -4,6 +4,26 @@
 
 ---
 
+## 2026-05-08: BatchFetchSession 引入 + Direct fetch 迁移
+
+### 新增 `crawler/fetch_session.py`
+
+三个 dataclass：
+
+- **`BatchFetchSession`**：封装单次分页抓取。给定 URL，`run(fetcher, ...)` 自动翻页、提取 citation、dedup、track 翻页位置。支持 `start_index` 续传和 `iterator` 注入（供测试 mock）
+- **`DirectFetchSession`**：包装一个 `BatchFetchSession` + `PaperFetchState` baseline
+- **`YearFetchSession`**：管理年份列表 + per-year `BatchFetchSession`，只需维护 `pending_years` + `current_batch`
+
+### Direct fetch 迁移
+
+`fetch_citations_with_progress` 中 direct 路径已改用 `BatchFetchSession`：
+- 创建 `BatchFetchSession(url=...)`
+- 通过 `fetcher._iter_direct_citedby()` 获取 iterator（保留测试 mock 路径）
+- `batch.run()` 处理翻页 / dedup / 进度回调
+- `save_progress` 接受 `batch` 参数，从 batch 同步 citations 和 dedup
+
+---
+
 ## 2026-05-08: save_progress 参数清理 + 统一 is_data_complete
 
 ### save_progress 变量整理
