@@ -237,12 +237,13 @@ class PaperFetchStateTests(unittest.TestCase):
         })
         self.assertFalse(fs.is_complete(current_scholar_total=110, pub_year="2020"))
 
-    def test_is_complete_no_diagnostics_falls_back(self):
+    def test_is_complete_no_diagnostics_returns_false(self):
+        """Without diagnostics summary, completeness cannot be verified → False."""
         fs = PaperFetchState.from_dict({
             "title": "T", "fetch_strategy": "direct", "num_citations_on_scholar": 10,
         })
-        self.assertTrue(fs.is_complete(current_scholar_total=10))
-        self.assertFalse(fs.is_complete(current_scholar_total=11))
+        self.assertFalse(fs.is_complete(current_scholar_total=10))
+        self.assertFalse(fs.is_complete(current_scholar_total=0))
 
     def test_completeness_diag_direct_complete(self):
         fs = PaperFetchState.from_dict({

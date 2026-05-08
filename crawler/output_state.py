@@ -62,7 +62,6 @@ class PaperFetchState:
     citedby_url: str = ""
     fetch_strategy: Optional[str] = None
     num_citations_on_scholar: Optional[int] = None
-    num_citations_seen: Optional[int] = None  # for backward compat with old caches
     complete_fetch_attempt: bool = False
     year_fetch_diagnostics: Optional[dict] = None
     direct_fetch_diagnostics: Optional[dict] = None
@@ -79,7 +78,6 @@ class PaperFetchState:
             citedby_url=d.get('citedby_url', ''),
             fetch_strategy=d.get('fetch_strategy'),
             num_citations_on_scholar=_coerce_int(d.get('num_citations_on_scholar')),
-            num_citations_seen=_coerce_int(d.get('num_citations_seen')),
             complete_fetch_attempt=bool(
                 d.get('complete_fetch_attempt', d.get('complete', False))
             ),
@@ -137,11 +135,7 @@ class PaperFetchState:
             summary = (self.direct_fetch_diagnostics or {}).get('summary') or {}
         if is_data_complete(strategy, summary):
             return True
-        # Fallback: no diagnostics summary — compare top-level counters
-        if not summary.get('seen_total') and not summary.get('histogram_total', summary.get('scholar_total')):
-            seen = self.num_citations_seen or self.num_citations_on_scholar or 0
-            scholar = int(current_scholar_total or 0)
-            return seen >= scholar
+        # No diagnostics → cannot verify completeness → not complete
         return False
 
     def completeness_diag(self, citations_len=None):
