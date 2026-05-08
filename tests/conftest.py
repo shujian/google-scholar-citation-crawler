@@ -185,6 +185,7 @@ class FetcherTestCase(unittest.TestCase):
         self.fetcher._total_page_count = 0
         self.fetcher._papers_fetched_count = 0
         self.fetcher._delay_scale = 0
+        self.fetcher._session_ctx.delay_scale = 0
         self.fetcher._probed_year_counts = None
         self.fetcher._probed_year_count_complete = False
         self.fetcher.interactive_captcha = False

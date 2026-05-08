@@ -7,7 +7,7 @@ Public API:
 
 Both functions accept:
   fetcher  — the PaperCitationFetcher instance (for method calls and run-level state)
-  ctx      — a FetchContext dataclass (for per-paper mutable state)
+  ctx      — a YearFetchSession dataclass (for per-paper mutable state)
 
 All direct-fetch helper functions are pure module-level functions.
 """
@@ -32,7 +32,7 @@ from crawler.common import (
     now_str,
     rand_delay,
 )
-from crawler.fetch_context import FetchContext
+from crawler.fetch_session import YearFetchSession  # replaces FetchContext
 from crawler.citation_models import ResumeState, _page_align
 
 
@@ -292,7 +292,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
         return direct_materialized_citations(complete)
 
     def build_year_records(citations_to_save):
-        # During year-based fetch, _fetch_by_year creates a separate inner FetchContext
+        # During year-based fetch, _fetch_by_year creates a separate inner ctx
         # and syncs its year_fetch_diagnostics to fetcher._live_year_fetch_diagnostics
         # just before calling save_progress.  Use that when available so that per-year
         # dedup counts accumulated in the inner ctx are not lost.

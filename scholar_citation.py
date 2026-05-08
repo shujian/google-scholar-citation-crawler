@@ -627,8 +627,9 @@ class PaperCitationFetcher:
                                         pub_obj=None,
                                         fetch_policy=None,
                                         direct_resume_state=None):
-        from crawler.fetch_context import FetchContext
-        ctx = FetchContext(
+        from crawler.fetch_session import YearFetchSession
+        ctx = YearFetchSession(
+            baseline=self._output_fetch_state.get(title) if hasattr(self, '_output_fetch_state') else None,
             completed_year_segments=set(completed_years_in_current_run or []),
             partial_year_start=dict(partial_year_start or {}),
             dedup_count=int(saved_dedup_count or 0),
@@ -666,8 +667,9 @@ class PaperCitationFetcher:
                        force_year_rebuild=False,
                        selective_refresh_years=None,
                        year_fetch_diagnostics=None):
-        from crawler.fetch_context import FetchContext
-        ctx = FetchContext(
+        from crawler.fetch_session import YearFetchSession
+        ctx = YearFetchSession(
+            baseline=None,  # inner ctx — baseline handled by outer _fetch_citations_with_progress
             completed_year_segments=self._completed_year_segments,
             partial_year_start=self._partial_year_start,
             dedup_count=self._dedup_count,

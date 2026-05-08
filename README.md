@@ -169,7 +169,8 @@ Both files are committed to git and contain no personally identifiable informati
 scholar_citation.py          # CLI entry point + PaperCitationFetcher orchestrator
 crawler/
   common.py                  # Constants and stateless utilities
-  fetch_context.py           # FetchContext dataclass (per-paper mutable state)
+  fetch_session.py           # BatchFetchSession, DirectFetchSession, YearFetchSession
+  page_visit.py              # PageVisit — per-page error recovery
   author_fetcher.py          # AuthorProfileFetcher
   profile_io.py              # Profile JSON / Excel output
   citation_cache.py          # Year-count and diagnostics pure functions

@@ -206,23 +206,37 @@ class DirectFetchSession:
 
 @dataclass
 class YearFetchSession:
-    """Year-mode fetch for one paper.
+    """Year-mode fetch for one paper — replaces FetchContext for year mode.
 
-    Processes years in order (old→new or new→old, depending on update mode).
-    Each year is a BatchFetchSession.  Only the current year's batch is live
-    at any time; completed years are recorded in year_records.
+    Contains all per-paper mutable state for a year-based fetch, plus the
+    cross-run baseline (PaperFetchState).  This merges what was previously
+    split between FetchContext + closure variables.
     """
 
+    # Cross-run baseline
     baseline: PaperFetchState
+
+    # --- year-segment progress (was FetchContext) --------------------------
+    completed_year_segments: set = field(default_factory=set)
+    partial_year_start: dict = field(default_factory=dict)
+
+    # --- probe metadata ----------------------------------------------------
+    probed_year_counts: Optional[dict] = None
+    probed_year_count_complete: bool = False
+
+    # --- cached year distribution ------------------------------------------
+    cached_year_counts: dict = field(default_factory=dict)
+
+    # --- dedup / progress counters -----------------------------------------
+    dedup_count: int = 0
+    year_fetch_diagnostics: dict = field(default_factory=dict)
+
+    # --- additional session state ------------------------------------------
     pending_years: list = field(default_factory=list)
     current_batch: Optional[BatchFetchSession] = None
     year_records: dict = field(default_factory=dict)   # {year: YearRecord}
     resume_from: list = field(default_factory=list)
     fetch_policy: FetchPolicy = field(default_factory=lambda: FetchPolicy(strategy='year'))
-    dedup_count: int = 0
-    probed_year_counts: dict = field(default_factory=dict)
-    probed_year_count_complete: bool = False
-    cached_year_counts: dict = field(default_factory=dict)
 
     @property
     def completed_years(self):

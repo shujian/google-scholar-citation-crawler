@@ -4,15 +4,23 @@
 
 ---
 
-## 2026-05-08: force mode 改为清除输出状态 + FetchContext 清理
+## 2026-05-08: YearFetchSession 替换 FetchContext + force mode 修复
+
+### YearFetchSession 替换 FetchContext
+
+`crawler/fetch_session.py` 中的 `YearFetchSession` 合并了 `FetchContext` 的全部字段：
+- `completed_year_segments`、`partial_year_start`、`dedup_count`
+- `probed_year_counts`、`probed_year_count_complete`、`cached_year_counts`、`year_fetch_diagnostics`
+- 新增 `baseline: PaperFetchState`（跨运行状态引用）
+- `FetchContext` 文件已删除
+
+### 恢复页面访问前随机等待
+
+`patched_get_page` 中 `PageVisit.fetch()` 调用前增加 `rand_delay()`，恢复 45-90s 随机等待。
 
 ### force mode 语义变更
 
-`--fetch-mode force` 不再删除 per-paper cache 文件，改为从 output file（`_fetch_state`）中清除对应论文的状态。这符合"输出文件是唯一跨运行状态源"的原则。
-
-### FetchContext 清理
-
-- 移除 `current_year_segment` 字段（`_citedby_long` 不再被 year fetch 调用）
+`--fetch-mode force` 不再删除 per-paper cache 文件，改为从 output file 的 `_fetch_state` 中清除对应论文的状态。
 
 ---
 
