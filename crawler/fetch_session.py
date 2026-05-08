@@ -51,14 +51,22 @@ class BatchFetchSession:
         from crawler.citation_fetch import _page_aligned_start
         return start_index - _page_aligned_start(start_index)
 
-    def _make_iterator(self):
+    def _make_iterator(self, fetcher=None):
+        import sys as _sys
+        import scholarly.publication_parser as _pub_parser
         from scholarly import scholarly
-        from scholarly.publication_parser import _SearchScholarIterator
         from crawler.citation_fetch import _wrap_direct_citedby_iterator
+        # Look up _SearchScholarIterator via the fetcher's module so that
+        # tests can patch it (same pattern as the old _iter_direct_citedby).
+        _SSI = (
+            getattr(_sys.modules.get(type(fetcher).__module__, None),
+                    '_SearchScholarIterator', None)
+            if fetcher is not None else None
+        ) or _pub_parser._SearchScholarIterator
         nav = scholarly._Scholarly__nav
         url = self._page_url(self.url, self.start_index)
         return _wrap_direct_citedby_iterator(
-            _SearchScholarIterator(nav, url),
+            _SSI(nav, url),
             self._in_page_skip(self.start_index),
         )
 
@@ -85,7 +93,7 @@ class BatchFetchSession:
 
         while True:
             attempt += 1
-            cur_iter = iterator if attempt == 1 and iterator is not None else self._make_iterator()
+            cur_iter = iterator if attempt == 1 and iterator is not None else self._make_iterator(fetcher)
             try:
                 self._run_once(fetcher, cur_iter, fallback_year, seen_keys,
                               old_cache_identity_keys, on_page_complete,

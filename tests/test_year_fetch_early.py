@@ -57,7 +57,7 @@ class YearFetchEarlyTests(FetcherTestCase):
                 citedby_url="/scholar?cites=123",
                 old_citations=[],
                 fresh_citations=[],
-                save_progress=lambda complete: save_calls.append(complete),
+                save_progress=lambda complete, batch=None: save_calls.append(complete),
                 num_citations=2,
                 pub_year="2025",
                 prev_scholar_count=1,
@@ -118,7 +118,7 @@ class YearFetchEarlyTests(FetcherTestCase):
                 citedby_url="/scholar?cites=123",
                 old_citations=[],
                 fresh_citations=[],
-                save_progress=lambda complete: None,
+                save_progress=lambda complete, batch=None: None,
                 num_citations=5,
                 pub_year="2024",
                 prev_scholar_count=0,
@@ -181,7 +181,7 @@ class YearFetchEarlyTests(FetcherTestCase):
                 citedby_url="/scholar?cites=123",
                 old_citations=[],
                 fresh_citations=[],
-                save_progress=lambda complete: None,
+                save_progress=lambda complete, batch=None: None,
                 num_citations=9,
                 pub_year="2025",
                 prev_scholar_count=0,
@@ -241,7 +241,7 @@ class YearFetchEarlyTests(FetcherTestCase):
 
         live_diags_at_complete_save = {}
 
-        def capture_save(complete):
+        def capture_save(complete, batch=None):
             if complete:
                 live = getattr(self.fetcher, '_live_year_fetch_diagnostics', None) or {}
                 live_diags_at_complete_save.update(live)

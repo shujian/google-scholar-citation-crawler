@@ -366,7 +366,7 @@ class CitationStatusTests(FetcherTestCase):
                 citedby_url="/scholar?cites=123",
                 old_citations=list(cached_citations),
                 fresh_citations=[],
-                save_progress=lambda complete: None,
+                save_progress=lambda complete, batch=None: None,
                 num_citations=10,
                 pub_year="2020",
                 prev_scholar_count=0,

@@ -681,12 +681,12 @@ class PaperCitationFetcher:
         # in the outer fetch_citations_with_progress closure) reads that attribute so that
         # per-year dedup counts from the inner ctx are not silently discarded.
         _orig_save_progress = save_progress
-        def _synced_save_progress(fetch_finished):
+        def _synced_save_progress(fetch_finished, batch=None):
             self._live_year_fetch_diagnostics = ctx.year_fetch_diagnostics
             self._live_dedup_count = ctx.dedup_count
             self._live_probed_year_counts = ctx.probed_year_counts
             self._live_probe_complete = ctx.probed_year_count_complete
-            _orig_save_progress(fetch_finished)
+            _orig_save_progress(fetch_finished, batch)
 
         result = _cf.fetch_by_year(self, ctx, citedby_url, old_citations, fresh_citations, _synced_save_progress,
                                    num_citations, pub_year, prev_scholar_count,
@@ -1233,13 +1233,7 @@ class PaperCitationFetcher:
                             print(f"  {now_str()} Retrying with injected cookies (attempt {attempt + 1})...",
                                   flush=True)
                             continue  # skip wait, go to next attempt
-                    # Save partial progress before the long wait
-                    if os.path.exists(cache_path):
-                        with open(cache_path, 'r', encoding='utf-8') as f:
-                            latest = json.load(f)
-                        saved_count = len(latest.get('citations', []))
-                        print(f"  [{now}] Saved progress ({saved_count} citations)")
-                    self._wait_proxy_switch(max_hours=24)
+                    print(f"  [{now}] Progress already saved to cache by PageVisit/batch")
 
             results[idx - 1] = {'pub': pub, 'citations': citations or []}
 

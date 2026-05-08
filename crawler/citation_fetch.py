@@ -784,16 +784,10 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
 
             year_url = (f'/scholar?as_ylo={year}&as_yhi={year}&hl=en'
                         f'&as_sdt=2005&sciodt=0,5&cites={pub_id}&scipsc=')
-            if resume_page_start > 0:
-                year_url += f'&start={resume_page_start}'
             print(f"        URL: https://scholar.google.com{year_url}", flush=True)
-            nav = scholarly._Scholarly__nav
 
             year_new_count = 0
-            year_items_seen = 0
             year_dedup_count = 0
-            year_termination_reason = 'iterator_exhausted'
-            stop_after_current_page = False
             year_progress_saved = False
             existing_year_fresh = list(old_year_buckets.get(year, [])) if start_index > 0 else []
             year_seen_keys = {}
@@ -801,105 +795,63 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                 label = f"{c.get('title', '')[:50]} ({c.get('venue', 'N/A')}, {c.get('year', '?')}) [cached]"
                 for key in fetcher._citation_identity_keys(c):
                     year_seen_keys[key] = label
-            year_fetched_citations = list(existing_year_fresh)
 
-            while True:
-                processed_in_this_run = 0
-                resume_page_start = _page_aligned_start(start_index)
-                initial_in_page_skip = start_index - resume_page_start
-                year_url_cur = (f'/scholar?as_ylo={year}&as_yhi={year}&hl=en'
-                                f'&as_sdt=2005&sciodt=0,5&cites={pub_id}&scipsc=')
-                if resume_page_start > 0:
-                    year_url_cur += f'&start={resume_page_start}'
-                try:
-                    import sys as _sys
-                    _SSI = getattr(_sys.modules.get(type(fetcher).__module__, None),
-                                   '_SearchScholarIterator', None) or _pub_parser._SearchScholarIterator
-                    iterator = _SSI(nav, year_url_cur)
-                    wrapped = _wrap_direct_citedby_iterator(iterator, initial_in_page_skip)
-                    for citing in wrapped:
-                        processed_in_this_run += 1
-                        ctx.partial_year_start[year] = _page_aligned_start(
-                            start_index + processed_in_this_run)
-                        info = fetcher._extract_citation_info(citing, fallback_year=year)
-                        identity_keys = fetcher._citation_identity_keys(info)
-                        matched_key = next((key for key in identity_keys if key in year_seen_keys), None)
-                        if matched_key is not None:
-                            ctx.dedup_count += 1
-                            year_dedup_count += 1
-                            print(f"          [dedup] Skipping duplicate: {info['title'][:50]}... ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
-                                  f"\n                    Existing: {year_seen_keys[matched_key]}", flush=True)
-                        else:
-                            label = f"{info['title'][:50]} ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
-                            for key in identity_keys:
-                                year_seen_keys[key] = label
-                            year_fetched_citations.append(info)
-                            fresh_year_buckets[year] = list(year_fetched_citations)
-                            fresh_citations[:] = current_citations(complete=True)
-                            if not any(key in old_cache_identity_keys for key in identity_keys):
-                                year_new_count += 1
-                                paper_new_count += 1
-                                fetcher._new_citations_count += 1
-                            count = len(fresh_citations)
+            year_batch = BatchFetchSession(
+                url=year_url,
+                citations=list(existing_year_fresh),
+                start_index=start_index,
+            )
 
-                            print(f"          [{count}] {info['title'][:55]}...", flush=True)
+            def _on_year_citation(info, identity_keys, is_new, is_dupe, existing_label):
+                nonlocal year_new_count, paper_new_count
+                if is_dupe:
+                    print(f"          [dedup] Skipping duplicate: {info['title'][:50]}... "
+                          f"({info.get('venue', 'N/A')}, {info.get('year', '?')})\n"
+                          f"                    Existing: {existing_label}", flush=True)
+                else:
+                    if is_new:
+                        year_new_count += 1
+                        paper_new_count += 1
+                        fetcher._new_citations_count += 1
+                    fresh_year_buckets[year] = list(year_batch.citations)
+                    fresh_citations[:] = current_citations(complete=True)
+                    count = len(fresh_citations)
+                    print(f"          [{count}] {info['title'][:55]}...", flush=True)
 
-                        if getattr(wrapped, '_finished_current_page', False):
-                            save_progress(fetch_finished=False)
-                            year_progress_saved = True
-                            items_on_page = getattr(wrapped, '_items_in_current_page', 0)
-                            if items_on_page >= SCHOLAR_PAGE_SIZE:
-                                _saved_count = len(year_fetched_citations)
-                                print(f"        Progress saved: {_saved_count} fetched for year {year}, "
-                                      f"{fetcher._new_citations_count} new across run", flush=True)
-                            if hasattr(wrapped, '_finished_current_page'):
-                                wrapped._finished_current_page = False
-                            _base = getattr(wrapped, '_base_iterator', None)
-                            if _base is not None and hasattr(_base, '_finished_current_page'):
-                                _base._finished_current_page = False
-                    else:
-                        final_items = getattr(wrapped, '_items_in_current_page', 0)
-                        if 0 < final_items < SCHOLAR_PAGE_SIZE:
-                            year_termination_reason = 'short_page_stop'
-                    break
-                except KeyboardInterrupt:
-                    save_progress(fetch_finished=False)
-                    raise
-                except Exception as e:
-                    now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    print(f"        [{now_s}] Blocked at year {year} "
-                          f"position {start_index + processed_in_this_run}: {e}", flush=True)
-                    save_progress(fetch_finished=False)
-                    if fetcher.interactive_captcha:
-                        # year_url_cur was set for the initial page of this
-                        # iterator.  The actual blocked page is at the
-                        # position where the iterator was trying to advance
-                        # to, not the one we originally constructed.
-                        blocked_pos = start_index + processed_in_this_run
-                        blocked_page = _page_aligned_start(blocked_pos)
-                        cur_url = (f'https://scholar.google.com/scholar?'
-                                   f'as_ylo={year}&as_yhi={year}&hl=en'
-                                   f'&as_sdt=2005&sciodt=0,5'
-                                   f'&cites={pub_id}&scipsc=')
-                        if blocked_page > 0:
-                            cur_url += f'&start={blocked_page}'
-                        solved = fetcher._try_interactive_captcha(cur_url)
-                        if solved:
-                            start_index = ctx.partial_year_start.get(year, start_index)
-                            continue
-                    raise
+            def _on_year_page_complete(batch):
+                nonlocal year_progress_saved, year_dedup_count
+                year_dedup_count = batch.dedup_count
+                ctx.partial_year_start[year] = _page_aligned_start(batch.start_index)
+                save_progress(fetch_finished=False, batch=batch)
+                year_progress_saved = True
+                if batch.items_on_page >= SCHOLAR_PAGE_SIZE:
+                    print(f"        Progress saved: {len(batch.citations)} fetched for year {year}, "
+                          f"{fetcher._new_citations_count} new across run", flush=True)
 
-            fresh_year_buckets[year] = list(year_fetched_citations)
+            year_batch.run(
+                fetcher,
+                fallback_year=year,
+                seen_keys=year_seen_keys,
+                old_cache_identity_keys=old_cache_identity_keys,
+                on_citation=_on_year_citation,
+                on_page_complete=_on_year_page_complete,
+                max_retries=1,
+            )
+            year_dedup_count = year_batch.dedup_count
+            year_termination_reason = year_batch.termination_reason
+
+            fresh_year_buckets[year] = list(year_batch.citations)
             fresh_citations[:] = current_citations(complete=True)
             ctx.partial_year_start.pop(year, None)
             ctx.completed_year_segments.add(year)
-            live_count_for_diag = live_count if live_count is not None else len(year_fetched_citations)
+            ctx.dedup_count += year_batch.dedup_count
+            live_count_for_diag = live_count if live_count is not None else len(year_batch.citations)
             year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
                 year,
                 live_count_for_diag,
-                len(year_fetched_citations),
-                year_dedup_count,
-                year_termination_reason,
+                len(year_batch.citations),
+                year_batch.dedup_count,
+                year_batch.termination_reason,
             )
             ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
             if year_new_count > 0:
@@ -915,7 +867,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                 f"termination={diag['termination_reason']}",
                 flush=True,
             )
-            print(f"      Year {year} status: year_total={len(year_fetched_citations)}, year_new={year_new_count}, "
+            print(f"      Year {year} status: year_total={len(year_batch.citations)}, year_new={year_new_count}, "
                   f"pages={ctx.current_paper_page_count}, skipped_years={skipped_years}", flush=True)
             if not year_progress_saved:
                 save_progress(fetch_finished=False)
