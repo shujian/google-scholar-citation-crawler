@@ -2368,3 +2368,39 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 ### 305
 
 > profile中的author和url都是N/A请检查一下是什么问题。
+
+### 306
+
+> 为什么我现在运行程序不会补上这两个字段？他们什么时候会被更新？
+
+> 目前不用，force_refresh是针对profile的数据吗？
+
+### 307
+
+> 请确认一下citation.xlsx的输出保持跟json中的一致，特别是complete字段应该根据year或者direct的不同调用对应的函数判断得到。
+
+### 308
+
+> build_materialized_year_fetch_diagnostics 这个函数实际build的好像是year record？其函数名是不是应该调整一下？或者把build year record和做year summary分成两个功能？
+
+### 309
+
+> 之前提到的原始complete参数是什么意思？
+
+> 所以这个complete其实是complete_fetch_attempt的意思吧？是否能检查一下这里的逻辑？如果有功能重复的变量合并一下。
+
+> effective_complete是用来干嘛的？
+
+> 这两个变量确实有点绕，我们约定一下，用fetch_finished是指完成了一次获取(而不是loop_finished)，但是获取的结果并不一定是全部的citation。data_complete用来指数据获取是否完整。effective_complete 似乎就按照fetch_finished进行就可以了。你觉得呢？
+
+> data_complete可以通过函数调用来决定，就不需要设置中间变量了，防止出错。
+
+> 在direct策略中，也可以使用与year同样名称的变量或者函数，这样就不需要underfetched变量和判断了。
+
+> is_complete和_compute_data_complete是同样逻辑的两个函数吗？为什么不能是一个函数？
+
+> is_complete不就是is_data_complete的意思吗？
+
+### 310
+
+> 更新文档并提交。

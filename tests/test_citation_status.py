@@ -32,7 +32,7 @@ class CitationStatusTests(FetcherTestCase):
                 self.assertEqual(year_fetch_diagnostics[2024]["histogram_count"], 1)
                 self.assertEqual(year_fetch_diagnostics[2024]["seen_total"], 1)
                 self.assertEqual(year_fetch_diagnostics[2024]["termination_reason"], "probe_match_skip")
-                save_progress(complete=False)
+                save_progress(fetch_finished=False)
                 return []
 
             with patch.object(self.fetcher, "_fetch_by_year", side_effect=fake_fetch_by_year):

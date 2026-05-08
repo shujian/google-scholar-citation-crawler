@@ -198,3 +198,19 @@ def rehydrate_year_fetch_diagnostics(cached):
     return normalize_year_fetch_diagnostics(
         (cached or {}).get('year_fetch_diagnostics')
     ) or None
+
+
+def is_data_complete(strategy, summary):
+    """Return whether *summary* indicates complete citation data.
+
+    For year mode, compares seen_total against histogram_total.
+    For direct mode, compares seen_total against scholar_total.
+    Returns False when the summary is absent or key fields are missing.
+    """
+    if not summary:
+        return False
+    target = summary.get('histogram_total' if strategy == 'year' else 'scholar_total')
+    seen = summary.get('seen_total')
+    if target is not None and seen is not None:
+        return (seen or 0) >= target
+    return False

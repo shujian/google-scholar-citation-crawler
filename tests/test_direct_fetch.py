@@ -827,7 +827,7 @@ class DirectFetchTests(FetcherTestCase):
 
         output = fake_stdout.getvalue()
         self.assertEqual([c["title"] for c in citations], ["Fresh-A", "Fresh-B", "Fresh-C"])
-        self.assertFalse(saved["complete"])
+        self.assertFalse(saved["complete_fetch_attempt"])
         self.assertEqual(saved["num_citations_on_scholar"], 98)
         self.assertEqual(saved["num_citations_cached"], 3)
         self.assertEqual(saved["num_citations_seen"], 3)

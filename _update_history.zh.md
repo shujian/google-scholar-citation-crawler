@@ -4,6 +4,34 @@
 
 ---
 
+## 2026-05-08: save_progress 参数清理 + 统一 is_data_complete
+
+### save_progress 变量整理
+
+- 参数 `complete` → `fetch_finished`（抓取循环是否结束，不等同于数据完整）
+- 移除 `effective_complete` / `materialize_replace` 中间变量：`materialized_citations(fetch_finished)` 直接决策新旧引用替换/合并
+- 移除 `data_complete` 中间变量：改为调用 `_compute_data_complete()` 函数
+- 移除 `cache_data['complete']` key（与 `complete_fetch_attempt` 冗余）
+
+### 统一 is_data_complete
+
+`crawler/citation_cache.py` 新增 `is_data_complete(strategy, summary)`：
+- Year 模式: `seen_total >= histogram_total`
+- Direct 模式: `seen_total >= scholar_total`
+- `PaperFetchState.is_complete()` 和 `_compute_data_complete` 均委托此函数
+
+### 命名修正
+
+- `build_materialized_year_fetch_diagnostics` → `build_year_records`（函数实际构建的是 per-year 记录）
+- `year_fetch_diagnostics_to_save` → `year_records_to_save`
+- `_synced_save_progress(complete)` → `_synced_save_progress(fetch_finished)`
+
+### _build_entry 修复
+
+`fetch_complete` 改为使用 `PaperFetchState.is_complete()`（数据完整性），而非 `complete_fetch_attempt`（过程是否跑完）。
+
+---
+
 ## 2026-05-08: 修复 profile 中 author/url 为 N/A
 
 ### 根因

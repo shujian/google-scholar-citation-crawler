@@ -116,21 +116,25 @@ class PaperFetchState:
     def is_complete(self, current_scholar_total=None, pub_year='N/A',
                     year_based_threshold=50):
         from crawler.citation_strategy import resolve_citation_fetch_policy
-        scholar = int(current_scholar_total or 0)
-        fetch_policy = resolve_citation_fetch_policy(scholar, pub_year, year_based_threshold)
-        yfd = self.year_fetch_diagnostics or {}
-        if fetch_policy['strategy'] == 'year':
+        from crawler.citation_cache import is_data_complete
+        strategy = self.fetch_strategy
+        if not strategy:
+            scholar = int(current_scholar_total or 0)
+            fetch_policy = resolve_citation_fetch_policy(scholar, pub_year, year_based_threshold)
+            strategy = fetch_policy['strategy']
+        if strategy == 'year':
+            yfd = self.year_fetch_diagnostics or {}
             summary = yfd.get('summary', yfd)
-            target = summary.get('histogram_total')
-            seen = summary.get('seen_total')
         else:
             summary = (self.direct_fetch_diagnostics or {}).get('summary') or {}
-            target = summary.get('scholar_total')
-            seen = summary.get('seen_total')
-        if target is not None and seen is not None:
-            return (seen or 0) >= target
-        seen = seen or self.num_citations_on_scholar or 0
-        return seen >= scholar
+        if is_data_complete(strategy, summary):
+            return True
+        # Fallback: no diagnostics summary — compare top-level counters
+        if not summary.get('seen_total') and not summary.get('histogram_total', summary.get('scholar_total')):
+            seen = self.num_citations_on_scholar or 0
+            scholar = int(current_scholar_total or 0)
+            return seen >= scholar
+        return False
 
     def completeness_diag(self, citations_len=None):
         strategy = self.fetch_strategy or 'direct'

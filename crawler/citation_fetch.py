@@ -18,6 +18,8 @@ import re
 import time
 from datetime import datetime
 
+from crawler.citation_cache import is_data_complete
+
 from scholarly import scholarly
 import scholarly.publication_parser as _pub_parser
 
@@ -289,7 +291,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
     def materialized_citations(complete):
         return direct_materialized_citations(complete)
 
-    def build_materialized_year_fetch_diagnostics(citations_to_save):
+    def build_year_records(citations_to_save):
         # During year-based fetch, _fetch_by_year creates a separate inner FetchContext
         # and syncs its year_fetch_diagnostics to fetcher._live_year_fetch_diagnostics
         # just before calling save_progress.  Use that when available so that per-year
@@ -328,20 +330,25 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
                 )
         return fetcher._normalize_year_fetch_diagnostics(diagnostics)
 
-    def save_progress(complete):
-        effective_complete = complete
+    def _compute_data_complete(fetch_finished, is_year, summary):
+        if not fetch_finished:
+            return False
+        return is_data_complete('year' if is_year else 'direct', summary)
+
+    def save_progress(fetch_finished):
+        # fetch_finished: whether the fetch loop ran to completion.  It is
+        # not the same as data completeness — that is computed below from
+        # diagnostics and stored as data_complete / complete_fetch_attempt.
+        is_year = fetch_policy.get('strategy') == 'year' if fetch_policy else False
         diagnostics_to_save = direct_fetch_diagnostics
-        if diagnostics_to_save and _direct_fetch_is_underfetched(diagnostics_to_save):
-            effective_complete = False
-        citations_to_save = materialized_citations(effective_complete)
+        citations_to_save = materialized_citations(fetch_finished)
         if not citations_to_save and old_citations:
             citations_to_save = list(old_citations)
         ctx.cached_year_counts = fetcher._year_count_map(citations_to_save)
-        is_year = fetch_policy.get('strategy') == 'year' if fetch_policy else False
         # Always build year diagnostics from cached citations so every paper
         # has per-year entries and a summary, even direct-mode papers.
-        year_fetch_diagnostics_to_save = build_materialized_year_fetch_diagnostics(citations_to_save)
-        ctx.year_fetch_diagnostics = year_fetch_diagnostics_to_save
+        year_records_to_save = build_year_records(citations_to_save)
+        ctx.year_fetch_diagnostics = year_records_to_save
         # During year-based fetch, use inner-ctx dedup count / probe data synced
         # by _fetch_by_year wrapper.  The outer ctx.probed_year_counts is always
         # None because the probe runs inside the inner fetch_by_year flow.
@@ -357,7 +364,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
             probed_year_counts=effective_probe,
             probe_complete=effective_probe_complete,
             dedup_count=effective_dedup,
-            year_fetch_diagnostics=year_fetch_diagnostics_to_save,
+            year_fetch_diagnostics=year_records_to_save,
         )
         # Build summary (formerly citation_count_summary) and nest it inside
         # the appropriate diagnostics object so callers can find it without
@@ -372,7 +379,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
             'dedup_count': count_summary['dedup_count'],
             'scholar_unyeared_count': count_summary['scholar_unyeared_count'],
         }
-        diag_with_summary = fetcher._dump_year_fetch_diagnostics(year_fetch_diagnostics_to_save)
+        diag_with_summary = fetcher._dump_year_fetch_diagnostics(year_records_to_save)
         diag_with_summary['summary'] = summary
         if diagnostics_to_save:
             # Direct-fetch diagnostics uses top-level recorded counters,
@@ -393,8 +400,9 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
             'num_citations_cached': len(citations_to_save),
             'num_citations_seen': len(citations_to_save) + effective_dedup,
             'dedup_count': effective_dedup,
-            'complete': effective_complete,
-            'complete_fetch_attempt': complete,
+            'complete_fetch_attempt': _compute_data_complete(
+                fetch_finished, is_year, summary,
+            ),
             'completed_years': sorted(ctx.completed_year_segments),
             'probed_year_counts': fetcher._dump_year_count_map(
                 fetcher._normalize_year_count_map(ctx.probed_year_counts)
@@ -416,7 +424,9 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
                 current_scholar_total(),
                 citedby_url,
             )
-            if fetch_policy['strategy'] == 'direct' and not effective_complete
+            if fetch_policy['strategy'] == 'direct' and not _compute_data_complete(
+                fetch_finished, is_year, summary,
+            )
             else None
         )
         if direct_resume is not None:
@@ -514,7 +524,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
                 continue
 
             yielded_total = len(fresh_citations)
-            save_progress(complete=False)
+            save_progress(fetch_finished=False)
             # Only log "Progress saved" for full pages; short pages save silently to
             # avoid noisy consecutive saves when Scholar returns sub-10-item pages.
             items_on_page = getattr(direct_iterator, '_items_in_current_page', 0)
@@ -535,7 +545,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
             if page_items_seen > 0:
                 yielded_total = len(fresh_citations)
     except KeyboardInterrupt:
-        save_progress(complete=False)
+        save_progress(fetch_finished=False)
         raise
 
     direct_fetch_diagnostics = _build_direct_fetch_diagnostics(
@@ -560,7 +570,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
     print(f"        Direct fetch totals: scholar_total={s['scholar_total']}, new={new_count}, total_cached={total_count}, seen_total={s['seen_total']}", flush=True)
     if _direct_fetch_is_underfetched(direct_fetch_diagnostics):
         print(f"        {_direct_fetch_log_message(direct_fetch_diagnostics)}", flush=True)
-    save_progress(complete=True)
+    save_progress(fetch_finished=True)
     return list(fresh_citations)
 
 def _build_year_fetch_plan(start_year, current_year, prev_scholar_count, num_citations,
@@ -775,7 +785,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                     )
                     ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
                     print(f"      Year {year}: skip (seen={prev_seen} >= probe={live_count})", flush=True)
-                    save_progress(complete=False)
+                    save_progress(fetch_finished=False)
                     continue
 
             ctx.current_paper_page_count = 0  # reset per year in year-based mode
@@ -868,7 +878,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                             print(f"          [{count}] {info['title'][:55]}...", flush=True)
 
                         if getattr(wrapped, '_finished_current_page', False):
-                            save_progress(complete=False)
+                            save_progress(fetch_finished=False)
                             year_progress_saved = True
                             items_on_page = getattr(wrapped, '_items_in_current_page', 0)
                             if items_on_page >= SCHOLAR_PAGE_SIZE:
@@ -886,13 +896,13 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                             year_termination_reason = 'short_page_stop'
                     break
                 except KeyboardInterrupt:
-                    save_progress(complete=False)
+                    save_progress(fetch_finished=False)
                     raise
                 except Exception as e:
                     now_s = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     print(f"        [{now_s}] Blocked at year {year} "
                           f"position {start_index + processed_in_this_run}: {e}", flush=True)
-                    save_progress(complete=False)
+                    save_progress(fetch_finished=False)
                     if fetcher.interactive_captcha:
                         # year_url_cur was set for the initial page of this
                         # iterator.  The actual blocked page is at the
@@ -941,7 +951,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
             print(f"      Year {year} status: year_total={len(year_fetched_citations)}, year_new={year_new_count}, "
                   f"pages={ctx.current_paper_page_count}, skipped_years={skipped_years}", flush=True)
             if not year_progress_saved:
-                save_progress(complete=False)
+                save_progress(fetch_finished=False)
 
             if stop_partial_resume_once_satisfied and resuming_partial_year and live_count is not None and len(year_fetched_citations) >= live_count:
                 year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
@@ -956,16 +966,16 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                 break
 
     except KeyboardInterrupt:
-        save_progress(complete=False)
+        save_progress(fetch_finished=False)
         raise
     except Exception:
-        save_progress(complete=False)
+        save_progress(fetch_finished=False)
         raise
 
     fresh_citations[:] = current_citations(complete=True)
     year_log = fetcher._year_fetch_log_message(year_fetch_diagnostics)
     year_log_indented = year_log.replace("\n", "\n        ")
     print(f"    {year_log_indented}", flush=True)
-    save_progress(complete=True)
+    save_progress(fetch_finished=True)
     return list(fresh_citations)
 

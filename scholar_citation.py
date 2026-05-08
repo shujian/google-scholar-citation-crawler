@@ -681,12 +681,12 @@ class PaperCitationFetcher:
         # in the outer fetch_citations_with_progress closure) reads that attribute so that
         # per-year dedup counts from the inner ctx are not silently discarded.
         _orig_save_progress = save_progress
-        def _synced_save_progress(complete):
+        def _synced_save_progress(fetch_finished):
             self._live_year_fetch_diagnostics = ctx.year_fetch_diagnostics
             self._live_dedup_count = ctx.dedup_count
             self._live_probed_year_counts = ctx.probed_year_counts
             self._live_probe_complete = ctx.probed_year_count_complete
-            _orig_save_progress(complete)
+            _orig_save_progress(fetch_finished)
 
         result = _cf.fetch_by_year(self, ctx, citedby_url, old_citations, fresh_citations, _synced_save_progress,
                                    num_citations, pub_year, prev_scholar_count,
@@ -1313,12 +1313,13 @@ class PaperCitationFetcher:
                         diag['summary']['scholar_total'] = current_total
                         diag['summary']['cached_total'] = len(citations)
             # Round-trip through dataclasses to strip unapproved keys.
-            fetch_state = PaperFetchState.from_dict(fetch_state).to_dict()
+            state_obj = PaperFetchState.from_dict(fetch_state)
+            fetch_state = state_obj.to_dict()
             pub_out = PubInfo.from_dict(pub).to_dict() if pub else {}
             return {
                 'pub': pub_out,
                 'citations': citations,
-                'fetch_complete': bool(fetch_state.get('complete_fetch_attempt')) if fetch_state else False,
+                'fetch_complete': state_obj.is_complete(),
                 **({'_fetch_state': fetch_state} if fetch_state else {}),
             }
 
