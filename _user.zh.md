@@ -2364,3 +2364,7 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 ### 304
 
 > 请对Profile阶段的数据也进行封装，并处理其读写机制。如果basics和publication等缓存文件并不读取，可以考虑不用保留。
+
+### 305
+
+> profile中的author和url都是N/A请检查一下是什么问题。

@@ -135,6 +135,13 @@ sys.modules.setdefault("scholarly._proxy_generator", proxy_mod)
 
 pub_parser_mod = types.ModuleType("scholarly.publication_parser")
 pub_parser_mod._SearchScholarIterator = _DummyIterator
+
+class _DummyPublicationParser:
+    @staticmethod
+    def _citation_pub(__data, publication):
+        return publication
+
+pub_parser_mod.PublicationParser = _DummyPublicationParser
 sys.modules.setdefault("scholarly.publication_parser", pub_parser_mod)
 
 openpyxl_mod = types.ModuleType("openpyxl")

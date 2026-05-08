@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-05-08: 修复 profile 中 author/url 为 N/A
+
+### 根因
+
+Scholarly 的 `_citation_pub()`（用于解析作者页论文列表）不提取 `bib['author']` 和 `pub_url`。它只读取 `gs_gray[1]`（venue），丢弃了 `gs_gray[0]`（authors）；也从标题链接提取 `author_pub_id` 但不保存 href 为 `pub_url`。这些字段只在后续对每篇论文单独调用 `fill()` 时才会被设置，但 `scholarly.fill(author, sections=['publications'])` 并不会对每篇论文调用 `fill()`。
+
+### 修复：monkey-patch `_citation_pub`
+
+在 `crawler/scholarly_session.py` 的 `patch_scholarly()` 中新增 monkey-patch：
+
+- 从 `gs_gray[0]` 提取作者名字符串，写入 `bib['author']`
+- 从标题链接 `gsc_a_at` 的 `href` 提取 `pub_url`，补全为绝对 URL（`https://scholar.google.com/...`）
+
+此 patch 不需要额外 HTTP 请求——数据在原有 HTML 解析中已存在，只是被 scholarly 丢弃了。
+
+---
+
 ## 2026-05-08: AuthorProfile dataclass + 移除只写缓存
 
 ### AuthorProfile dataclass 封装

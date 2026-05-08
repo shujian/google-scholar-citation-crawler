@@ -22,7 +22,7 @@ from datetime import datetime
 from typing import Optional
 
 from scholarly import scholarly
-from scholarly.publication_parser import _SearchScholarIterator
+from scholarly.publication_parser import _SearchScholarIterator, PublicationParser
 
 from crawler.common import (
     MANDATORY_BREAK_EVERY_MAX,
@@ -371,6 +371,31 @@ def patch_scholarly(ctx: SessionContext) -> None:
             ctx.completed_year_segments.add(y_lo)
 
     scholarly._citedby_long = patched_citedby_long
+
+    # Patch _citation_pub: also extract pub_url and bib['author'].
+    # Scholarly's _citation_pub (used for AUTHOR_PUBLICATION_ENTRY) only
+    # reads the venue from gs_gray[1] and discards the authors in
+    # gs_gray[0]; it also never saves the title link href as pub_url.
+    # Both are available in the HTML that is already parsed here, so
+    # we inject them without any additional network requests.
+    original_citation_pub = PublicationParser._citation_pub
+
+    def patched_citation_pub(self, __data, publication):
+        result = original_citation_pub(self, __data, publication)
+        title_link = __data.find('a', class_='gsc_a_at')
+        if title_link and title_link.get('href'):
+            href = title_link['href']
+            if href.startswith('/'):
+                href = f'https://scholar.google.com{href}'
+            result['pub_url'] = href
+        author_divs = __data.find_all('div', class_='gs_gray')
+        if len(author_divs) >= 1:
+            author_text = author_divs[0].text.strip()
+            if author_text:
+                result['bib']['author'] = author_text
+        return result
+
+    PublicationParser._citation_pub = patched_citation_pub
 
 
 # ---------------------------------------------------------------------------
