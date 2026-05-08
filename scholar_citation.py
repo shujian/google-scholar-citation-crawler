@@ -726,18 +726,15 @@ class PaperCitationFetcher:
         """Return cache status: 'skip_zero' | 'missing' | 'complete' | 'partial'."""
         if pub['num_citations'] == 0:
             return 'skip_zero'
-        # Prefer output file state for cross-run strategy decisions
+        # Cross-run state comes exclusively from the output file.
+        # Cache files are only for within-run interruption recovery
+        # and are never read on a fresh program start.
         output_state = getattr(self, '_output_fetch_state', {}).get(pub['title'])
         if output_state:
-            # Accept both PaperFetchState (new) and raw dict (legacy / test fixtures).
             if isinstance(output_state, dict):
                 output_state = PaperFetchState.from_dict(output_state)
             return _os_resolve_citation_status_from_output(pub, output_state, YEAR_BASED_THRESHOLD)
-        cached = self._load_citation_cache(pub['title'])
-        if not cached:
-            return 'missing'
-        state = self._derive_citation_cache_state(pub, cached)
-        return _cio_resolve_citation_status_from_state(state)
+        return 'missing'
 
     @staticmethod
     def _format_completeness_diag(st, cached):
@@ -888,9 +885,9 @@ class PaperCitationFetcher:
                             synthetic['complete_fetch_attempt'] = False
                             break
                 return st, synthetic
-            # Fallback to cache file only when output state is absent.
-            cached = self._load_citation_cache(pub['title'])
-            return st, cached
+            # No output state → missing.  Cache files are for within-run
+            # recovery only and are not read on a fresh program start.
+            return st, None
 
         statuses = [cache_status(p) for p in publications]
         need_fetch = [(pub, st, cached) for pub, (st, cached) in zip(publications, statuses)

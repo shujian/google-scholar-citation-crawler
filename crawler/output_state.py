@@ -62,6 +62,7 @@ class PaperFetchState:
     citedby_url: str = ""
     fetch_strategy: Optional[str] = None
     num_citations_on_scholar: Optional[int] = None
+    num_citations_seen: Optional[int] = None  # for backward compat with old caches
     complete_fetch_attempt: bool = False
     year_fetch_diagnostics: Optional[dict] = None
     direct_fetch_diagnostics: Optional[dict] = None
@@ -78,6 +79,7 @@ class PaperFetchState:
             citedby_url=d.get('citedby_url', ''),
             fetch_strategy=d.get('fetch_strategy'),
             num_citations_on_scholar=_coerce_int(d.get('num_citations_on_scholar')),
+            num_citations_seen=_coerce_int(d.get('num_citations_seen')),
             complete_fetch_attempt=bool(
                 d.get('complete_fetch_attempt', d.get('complete', False))
             ),
@@ -119,9 +121,15 @@ class PaperFetchState:
         from crawler.citation_cache import is_data_complete
         strategy = self.fetch_strategy
         if not strategy:
-            scholar = int(current_scholar_total or 0)
-            fetch_policy = resolve_citation_fetch_policy(scholar, pub_year, year_based_threshold)
-            strategy = fetch_policy['strategy']
+            # Infer from which diagnostics are populated
+            if self.year_fetch_diagnostics:
+                strategy = 'year'
+            elif self.direct_fetch_diagnostics:
+                strategy = 'direct'
+            else:
+                scholar = int(current_scholar_total or 0)
+                fetch_policy = resolve_citation_fetch_policy(scholar, pub_year, year_based_threshold)
+                strategy = fetch_policy['strategy']
         if strategy == 'year':
             yfd = self.year_fetch_diagnostics or {}
             summary = yfd.get('summary', yfd)
@@ -131,7 +139,7 @@ class PaperFetchState:
             return True
         # Fallback: no diagnostics summary — compare top-level counters
         if not summary.get('seen_total') and not summary.get('histogram_total', summary.get('scholar_total')):
-            seen = self.num_citations_on_scholar or 0
+            seen = self.num_citations_seen or self.num_citations_on_scholar or 0
             scholar = int(current_scholar_total or 0)
             return seen >= scholar
         return False
@@ -171,12 +179,14 @@ def _coerce_int(value):
 def _normalize_direct_diagnostics(dfd):
     if not isinstance(dfd, dict): return None
     raw = dfd.get('summary')
-    if not isinstance(raw, dict): return None
+    if not isinstance(raw, dict):
+        raw = dfd  # old format: diagnostics dict IS the summary
     dd = raw.get('dedup_count', 0) or 0
-    ct = raw.get('cached_total', 0) or 0
+    ct = raw.get('cached_total', raw.get('yielded_total', 0)) or 0
+    st = raw.get('scholar_total', raw.get('reported_total'))
     return {
         'summary': {
-            'scholar_total': _coerce_int(raw.get('scholar_total')),
+            'scholar_total': _coerce_int(st),
             'cached_total': ct,
             'seen_total': _coerce_int(raw.get('seen_total', ct + dd)) or (ct + dd),
             'dedup_count': dd,

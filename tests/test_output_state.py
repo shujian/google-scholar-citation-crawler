@@ -157,34 +157,13 @@ class OutputStateTests(FetcherTestCase):
         status = self.fetcher._citation_status(pub)
         self.assertEqual(status, "complete")
 
-    def test_citation_status_falls_back_to_cache_when_output_state_missing(self):
-        """When _output_fetch_state does not contain a paper, fall back to cache."""
-        pub = {"title": "Cache Paper", "num_citations": 10, "year": "2024"}
+    def test_citation_status_returns_missing_when_output_state_absent(self):
+        """When _output_fetch_state does not contain a paper, status is 'missing'.
+        Cache files are for within-run recovery only and are not read here."""
+        pub = {"title": "Unknown Paper", "num_citations": 10, "year": "2024"}
         self.fetcher._output_fetch_state = {}
-        # Seed cache
-        cache_path = self.fetcher._citation_cache_path("Cache Paper")
-        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-        with open(cache_path, "w", encoding="utf-8") as f:
-            json.dump({
-                "title": "Cache Paper",
-                "num_citations_on_scholar": 10,
-                "num_citations_cached": 10,
-                "num_citations_seen": 10,
-                "complete": True,
-                "complete_fetch_attempt": True,
-                "direct_fetch_diagnostics": {
-                    "summary": {
-                        "scholar_total": 10,
-                        "cached_total": 10,
-                        "seen_total": 10,
-                        "dedup_count": 0,
-                        "termination_reason": "page_end",
-                    },
-                },
-                "citations": [{"title": "Cite"}],
-            }, f)
         status = self.fetcher._citation_status(pub)
-        self.assertEqual(status, "complete")
+        self.assertEqual(status, "missing")
 
 
 class PaperFetchStateTests(unittest.TestCase):
