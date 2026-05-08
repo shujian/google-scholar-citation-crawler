@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-05-08: force mode 改为清除输出状态 + FetchContext 清理
+
+### force mode 语义变更
+
+`--fetch-mode force` 不再删除 per-paper cache 文件，改为从 output file（`_fetch_state`）中清除对应论文的状态。这符合"输出文件是唯一跨运行状态源"的原则。
+
+### FetchContext 清理
+
+- 移除 `current_year_segment` 字段（`_citedby_long` 不再被 year fetch 调用）
+
+---
+
 ## 2026-05-08: PageVisit + BatchFetchSession 页面访问层重构
 
 ### PageVisit — 统一页面访问错误恢复

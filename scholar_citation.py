@@ -841,15 +841,16 @@ class PaperCitationFetcher:
             except (json.JSONDecodeError, OSError, TypeError, AttributeError):
                 pass
 
-        # force mode: wipe caches before status check so every in-range paper
-        # is treated as 'missing' and starts a fresh first_fetch.
+        # force mode: clear _fetch_state from output file so every in-range
+        # paper is treated as 'missing' and re-fetched from scratch.
         if self.fetch_mode == 'force':
             end_idx = self.skip + self.limit if self.limit else len(publications)
             for pub in publications[self.skip:end_idx]:
-                cache_path = self._citation_cache_path(pub['title'])
-                if os.path.exists(cache_path):
-                    os.remove(cache_path)
-                    print(f"  Force mode: cleared cache for '{pub['title'][:55]}'")
+                title = pub['title']
+                if title in self._output_fetch_state:
+                    del self._output_fetch_state[title]
+                self._output_citations.pop(title, None)
+                print(f"  Force mode: cleared output state for '{title[:55]}'")
 
         def cache_status(pub):
             st = self._citation_status(pub)

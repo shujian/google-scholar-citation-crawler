@@ -26,8 +26,6 @@ class FetchContext:
     completed_year_segments: set = field(default_factory=set)
     # {year_int: start_index} — resume position for the in-progress year
     partial_year_start: dict = field(default_factory=dict)
-    # the year currently being streamed by _citedby_long (None outside fetch)
-    current_year_segment: Optional[int] = None
 
     # --- probe metadata -------------------------------------------------------
     # {year_int: count} from the Scholar histogram; None until probed

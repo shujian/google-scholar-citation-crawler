@@ -654,23 +654,21 @@ class MainLoopTests(FetcherTestCase):
         self.assertEqual(fetch_called, [True])
         self.assertEqual(results[0]["citations"], final_citations)
 
-    def test_force_mode_deletes_cache_before_computing_statuses(self):
-        """run() in force mode deletes cache files for in-range papers before status check."""
+    def test_force_mode_clears_output_state_for_in_range_papers(self):
+        """run() in force mode clears _fetch_state from output file before status check."""
         pub = {
             "no": 1,
             "title": "Cached Paper",
             "num_citations": 5,
             "year": "2024",
             "venue": "V",
+            "citedby_url": "/scholar?cites=123",
+            "url": "https://example.com",
         }
         with tempfile.TemporaryDirectory() as tmpdir:
             fetcher = self.sc.PaperCitationFetcher(
                 "test-author", output_dir=tmpdir, fetch_mode='force'
             )
-            cache_path = fetcher._citation_cache_path(pub["title"])
-            with open(cache_path, 'w', encoding='utf-8') as f:
-                json.dump({"citations": [], "num_citations_on_scholar": 5}, f)
-            self.assertTrue(os.path.exists(cache_path))
 
             profile_path = os.path.join(tmpdir, "author_test-author_profile.json")
             with open(profile_path, 'w', encoding='utf-8') as f:
@@ -680,10 +678,18 @@ class MainLoopTests(FetcherTestCase):
             with open(os.path.join(pubs_dir, "publications.json"), 'w', encoding='utf-8') as f:
                 json.dump({"publications": [pub]}, f)
 
-            loop_saw_cache_gone = []
+            out_json = fetcher.out_json
+            with open(out_json, 'w', encoding='utf-8') as f:
+                json.dump({"papers": [{
+                    "pub": {"title": "Cached Paper"},
+                    "citations": [{"title": "Old", "year": "2024", "url": "u"}],
+                    "_fetch_state": {"title": "Cached Paper", "complete_fetch_attempt": True}
+                }]}, f)
+
+            state_cleared = []
 
             def fake_loop(*args, **kwargs):
-                loop_saw_cache_gone.append(not os.path.exists(cache_path))
+                state_cleared.append("Cached Paper" not in fetcher._output_fetch_state)
 
             with patch.object(fetcher, '_patch_scholarly'), \
                  patch.object(fetcher, '_run_main_loop', side_effect=fake_loop), \
@@ -691,7 +697,7 @@ class MainLoopTests(FetcherTestCase):
                  patch("sys.stdout", new_callable=StringIO):
                 fetcher.run()
 
-            self.assertEqual(loop_saw_cache_gone, [True])
+            self.assertEqual(state_cleared, [True])
 
 
 if __name__ == '__main__':

@@ -248,7 +248,6 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
 
     # Load completed years into patch state for _citedby_long to skip
     ctx.completed_year_segments = set(completed_years_in_current_run or [])
-    ctx.current_year_segment = None
     # Track the page offset (start_index) for the year currently in progress.
     # Saved to cache on exception so retry can skip already-fetched pages.
     # Align to page boundary so old caches with non-aligned values (e.g. 101)

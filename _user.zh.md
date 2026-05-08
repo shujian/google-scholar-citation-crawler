@@ -2434,3 +2434,11 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 > 先实现pagevisit，proxy switch也应该放到这个类里。
 
 > _wait_proxy_switch 应该用哪一层处理？我们处理这些问题的层级关系是什么？
+
+### 316
+
+> 请继续检查并完成相应内容
+
+### 317
+
+> 之前fetch-mode force是清楚cache，现在应该改为清楚输出文件中保存的citation记录重新进行下载。
