@@ -231,16 +231,14 @@ class YearFetchMainTests(FetcherTestCase):
         self.assertIn("Citation fetch done", log_text)
 
     def test_main_skip_message_is_written_to_log_file(self):
-        prev_profile = {
-            "total_citations": 5,
-            "total_publications": 2,
-            "author_info": {"citedby": 5},
-        }
-        curr_profile = {
-            "total_citations": 5,
-            "total_publications": 2,
-            "author_info": {"citedby": 5},
-        }
+        prev_profile = types.SimpleNamespace(
+            total_citations=5,
+            total_publications=2,
+        )
+        curr_profile = types.SimpleNamespace(
+            total_citations=5,
+            total_publications=2,
+        )
         fake_args = types.SimpleNamespace(
             author="test-author",
             output_dir=None,

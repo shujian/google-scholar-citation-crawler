@@ -1,4 +1,147 @@
 import json
+import os
+from dataclasses import dataclass, field
+from datetime import datetime
+
+from crawler.pub_info import PubInfo
+
+
+@dataclass
+class AuthorProfile:
+    """Complete author profile as stored in author_<ID>_profile.json.
+
+    Encapsulates author info, publications list, change history, and
+    all derived summary fields.  Replaces the previous loose dicts passed
+    among fetch_basics / fetch_publications / save_profile_json / append_history.
+    """
+
+    author_info: dict = field(default_factory=dict)
+    publications: list = field(default_factory=list)
+    fetch_time: str = ""
+    change_history: list = field(default_factory=list)
+
+    # -- computed properties ------------------------------------------------
+
+    @property
+    def total_publications(self):
+        return len(self.publications)
+
+    @property
+    def total_citations(self):
+        return self.author_info.get('citedby', 0)
+
+    @property
+    def citation_count_summary(self):
+        return build_profile_count_summary(self.author_info)
+
+    # -- serialisation ------------------------------------------------------
+
+    @classmethod
+    def from_dict(cls, d):
+        """Construct from a profile JSON dict.  Publications are normalised
+        through PubInfo so old formats are upgraded transparently."""
+        if not isinstance(d, dict):
+            return cls()
+        pubs_raw = d.get('publications', [])
+        publications = [PubInfo.from_dict(p).to_dict() for p in pubs_raw]
+        return cls(
+            author_info=dict(d.get('author_info', {})),
+            publications=publications,
+            fetch_time=d.get('fetch_time', ''),
+            change_history=list(d.get('change_history', [])),
+        )
+
+    def to_dict(self):
+        """Produce the dict written to author_<ID>_profile.json."""
+        resolved_time = self.fetch_time or datetime.now().isoformat()
+        return {
+            'author_info': self.author_info,
+            'publications': self.publications,
+            'fetch_time': resolved_time,
+            'total_publications': self.total_publications,
+            'total_citations': self.total_citations,
+            'citation_count_summary': self.citation_count_summary,
+            'change_history': self.change_history,
+        }
+
+    @classmethod
+    def load(cls, path):
+        """Load from a profile JSON file, or None."""
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            # Migrate legacy history.json if change_history is missing
+            if 'change_history' not in data:
+                dirname = os.path.dirname(path)
+                basename = os.path.basename(path)
+                author_id = basename.rsplit('_profile.json', 1)[0]
+                history_json = os.path.join(dirname, f"{author_id}_history.json")
+                if os.path.exists(history_json):
+                    with open(history_json, 'r', encoding='utf-8') as fh:
+                        data['change_history'] = json.load(fh)
+            return cls.from_dict(data)
+        return None
+
+    def save_json(self, path, print_fn=None):
+        """Write the profile to a JSON file."""
+        payload = self.to_dict()
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        if print_fn:
+            print_fn(f'Saved JSON: {path}')
+        return payload
+
+    # -- history ------------------------------------------------------------
+
+    def append_history(self, prev_profile=None):
+        """Compare against *prev_profile* (an AuthorProfile or None) and
+        append a change record to self.change_history.  Returns the record."""
+        record = {
+            'fetch_time': self.fetch_time or datetime.now().isoformat(),
+            'citedby': self.author_info.get('citedby', 0),
+            'citedby_this_year': self.author_info.get('citedby_this_year', 0),
+            'hindex': self.author_info.get('hindex', 0),
+            'i10index': self.author_info.get('i10index', 0),
+            'total_publications': self.total_publications,
+            'new_papers': [],
+            'changed_citations': [],
+        }
+
+        if prev_profile is not None:
+            prev_pubs = {p['title']: p['num_citations'] for p in prev_profile.publications}
+            prev_titles = set(prev_pubs.keys())
+            curr_titles = set(p['title'] for p in self.publications)
+
+            record['new_papers'] = sorted(curr_titles - prev_titles)
+
+            changed = []
+            for pub in self.publications:
+                title = pub['title']
+                if title in prev_pubs:
+                    old_cite = prev_pubs[title]
+                    new_cite = pub['num_citations']
+                    if new_cite != old_cite:
+                        changed.append({'title': title, 'old': old_cite, 'new': new_cite})
+            record['changed_citations'] = changed
+
+            # Print summary
+            new_papers = record['new_papers']
+            changed_citations = record['changed_citations']
+            if new_papers:
+                print(f"\nNew papers ({len(new_papers)}):")
+                for t in new_papers[:5]:
+                    print(f"  + {t[:70]}")
+                if len(new_papers) > 5:
+                    print(f"  ... {len(new_papers)} total")
+            if changed_citations:
+                print(f"\nCitation changes ({len(changed_citations)}):")
+                for c in changed_citations:
+                    print(f"  {c['title'][:60]}... {c['old']} -> {c['new']}")
+            if not new_papers and not changed_citations:
+                print("  (No changes in this run)")
+
+        self.change_history.append(record)
+        return record
 
 
 def build_profile_count_summary(basics):
@@ -48,10 +191,7 @@ def save_profile_json(profile_path, basics, publications, change_history=None, f
 
 def save_profile_xlsx(
     profile_xlsx_path,
-    basics,
-    publications,
-    change_history=None,
-    fetch_time=None,
+    profile,
     *,
     datetime_module,
     openpyxl_module,
@@ -60,12 +200,18 @@ def save_profile_xlsx(
     alignment_cls,
     print_fn=print,
 ):
-    """Save Excel file with 3 sheets: overview, publications, and history."""
-    count_summary = build_profile_count_summary(basics)
+    """Save Excel file with 3 sheets: overview, publications, and history.
+
+    *profile* is an AuthorProfile instance.
+    """
+    basics = profile.author_info
+    publications = profile.publications
+    change_history = profile.change_history
+    count_summary = profile.citation_count_summary
     wb = openpyxl_module.Workbook()
 
-    display_fetch_time = fetch_time
-    if display_fetch_time is None:
+    display_fetch_time = profile.fetch_time
+    if not display_fetch_time:
         now = datetime_module.now()
         display_fetch_time = now.isoformat() if hasattr(now, 'isoformat') else str(now)
 

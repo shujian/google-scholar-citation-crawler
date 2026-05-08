@@ -167,10 +167,10 @@ pub_obj = {
 
 ### 缓存结构
 
-- `output/scholar_cache/author_{id}/basics.json` — 基本信息（仅写，不读；每次运行始终从网络拉取 basics）
-- `output/scholar_cache/author_{id}/publications.json` — 论文列表（仅写，不读；跨运行状态从 profile JSON 读取）
 - `output/scholar_cache/author_{id}/citations/{md5_16}.json` — 每篇论文的引用缓存（同次运行中断恢复；跨运行状态从 citations JSON 的 `_fetch_state` 读取）
 - `output/curl.txt` — Cookie 持久化
+
+> **已移除**：`basics.json` 和 `publications.json` 缓存文件。Basics 每次从网络拉取，publications 跨运行状态从 profile JSON 输出文件读取。两个缓存文件均为只写，不再保留。
 
 ### 命名约定
 
@@ -182,6 +182,7 @@ pub_obj = {
 
 | 类 | 位置 | 用途 | 字段数 |
 |-----|------|------|--------|
+| `AuthorProfile` | `profile_io.py` | 输出文件 author profile | 4 + 3 计算属性 |
 | `PaperFetchState` | `output_state.py` | 输出文件 `_fetch_state` | 10 |
 | `PubInfo` | `pub_info.py` | 输出文件 `pub` | 8 |
 | `Citation` | `citation_models.py` | 单条引用（I/O） | 6 |

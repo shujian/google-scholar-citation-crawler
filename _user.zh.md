@@ -2360,3 +2360,7 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 ### 303
 
 > 请提交git，并更新相关文档。
+
+### 304
+
+> 请对Profile阶段的数据也进行封装，并处理其读写机制。如果basics和publication等缓存文件并不读取，可以考虑不用保留。

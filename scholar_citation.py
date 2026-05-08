@@ -50,12 +50,6 @@ from crawler.common import (
     rand_delay,
     setup_proxy,
 )
-from crawler.profile_io import (
-    build_profile_count_summary,
-    build_profile_payload,
-    save_profile_json as write_profile_json,
-    save_profile_xlsx as write_profile_xlsx,
-)
 from crawler.citation_cache import (
     year_count_map as _cc_year_count_map,
     normalize_year_count_map as _cc_normalize_year_count_map,
@@ -1433,10 +1427,10 @@ def main():
 
         curr_profile = fetcher.load_prev_profile()
         if prev_profile and curr_profile:
-            prev_citations = prev_profile.get('total_citations', prev_profile.get('author_info', {}).get('citedby', -1))
-            curr_citations = curr_profile.get('total_citations', curr_profile.get('author_info', {}).get('citedby', -2))
-            prev_pubs = prev_profile.get('total_publications', -1)
-            curr_pubs = curr_profile.get('total_publications', -2)
+            prev_citations = prev_profile.total_citations if prev_profile else -1
+            curr_citations = curr_profile.total_citations if curr_profile else -2
+            prev_pubs = prev_profile.total_publications if prev_profile else -1
+            curr_pubs = curr_profile.total_publications if curr_profile else -2
 
             if prev_citations == curr_citations and prev_pubs == curr_pubs and args.fetch_mode != 'force':
                 if not citation_fetcher.has_pending_work():

@@ -4,6 +4,31 @@
 
 ---
 
+## 2026-05-08: AuthorProfile dataclass + 移除只写缓存
+
+### AuthorProfile dataclass 封装
+
+`crawler/profile_io.py` 新增 `AuthorProfile` dataclass，封装 profile 阶段的所有数据：
+
+- **字段**：`author_info`、`publications`、`fetch_time`、`change_history`
+- **计算属性**：`total_publications`、`total_citations`、`citation_count_summary`
+- **方法**：`from_dict()` / `to_dict()`（序列化）、`load(path)` / `save_json(path)`（文件 I/O）、`append_history(prev)`（变更追踪）
+- Profile JSON 格式不变，`from_dict` 通过 `PubInfo.from_dict().to_dict()` 规范化旧数据
+
+### 移除只写缓存文件
+
+- `basics_cache`（`scholar_cache/.../basics.json`）：只写不读（basics 每次从网络拉取），移除 `save_basics_cache()` / `load_basics_cache()` 方法及文件路径
+- `pubs_cache`（`scholar_cache/.../publications.json`）：前次提交已移除读取，本次移除 `save_pubs_cache()` / `load_pubs_cache()` 方法及文件路径
+- `AuthorProfileFetcher` 不再创建 `cache_dir`
+
+### profile_io 接口简化
+
+- `save_profile_xlsx()` 接受 `AuthorProfile` 实例替代 5 个独立参数
+- `build_profile_payload()`、`save_profile_json()` 逻辑移入 `AuthorProfile`；旧函数保留以兼容 `scholar_citation.py` 的 import
+- `scholar_citation.py` 中移除未使用的 profile_io import
+
+---
+
 ## 2026-05-08: 移除 --force-refresh-pubs + pubs_cache 依赖清理 + profile Excel 增强
 
 ### 移除 --force-refresh-pubs 参数
