@@ -4,6 +4,24 @@
 
 ---
 
+## 2026-05-09: 彻底移除 cache 文件回退读取
+
+### _citation_status 不再读取 cache 文件
+
+`_citation_status` 和 `cache_status` 在输出文件状态缺失时直接返回 `'missing'`，不再回退读取 per-paper cache 文件。cache 文件仅用于同次运行内的中断恢复。
+
+### force mode 简化
+
+只需清除输出文件的 `_fetch_state` 即可使论文被重新抓取，无需删除 cache 文件。
+
+### 兼容性修复
+
+- `_normalize_direct_diagnostics` 处理旧格式（无 `summary` 子键的扁平 diagnostics），同时识别旧字段名 `reported_total` / `yielded_total`
+- `PaperFetchState` 新增 `num_citations_seen` 字段用于旧 cache 的向后兼容
+- `is_complete` 推断策略时优先检查已有的 diagnostics，而非仅依赖引用数
+
+---
+
 ## 2026-05-08: YearFetchSession 替换 FetchContext + force mode 修复
 
 ### YearFetchSession 替换 FetchContext
