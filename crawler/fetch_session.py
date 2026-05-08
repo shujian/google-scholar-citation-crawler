@@ -38,32 +38,83 @@ class BatchFetchSession:
     finished: bool = False
     termination_reason: str = ""
 
-    def run(self, fetcher, fallback_year=None, seen_keys=None,
-            old_cache_identity_keys=None, on_page_complete=None,
-            on_citation=None, iterator=None):
-        """Execute paginated fetch.
+    # -- pagination helpers --------------------------------------------------
 
-        Yields control via callbacks:
-          on_citation(info, identity_keys, is_new) — each citation
-          on_page_complete(self) — after each full page (for progress save)
+    @staticmethod
+    def _page_url(base_url, start_index):
+        from crawler.citation_fetch import _append_start_param, _page_aligned_start
+        page = _page_aligned_start(start_index)
+        return _append_start_param(base_url, page) if page > 0 else base_url
 
-        If *iterator* is not given, a default _SearchScholarIterator is
-        created.  Callers should pass a pre-built iterator (e.g. via
-        fetcher._iter_direct_citedby) so that test mocks are honoured.
-        Returns self (for chaining).
-        """
+    @staticmethod
+    def _in_page_skip(start_index):
+        from crawler.citation_fetch import _page_aligned_start
+        return start_index - _page_aligned_start(start_index)
+
+    def _make_iterator(self):
         from scholarly import scholarly
         from scholarly.publication_parser import _SearchScholarIterator
-        from crawler.citation_fetch import _wrap_direct_citedby_iterator, _append_start_param, _page_aligned_start
+        from crawler.citation_fetch import _wrap_direct_citedby_iterator
+        nav = scholarly._Scholarly__nav
+        url = self._page_url(self.url, self.start_index)
+        return _wrap_direct_citedby_iterator(
+            _SearchScholarIterator(nav, url),
+            self._in_page_skip(self.start_index),
+        )
 
-        if iterator is None:
-            page_start = _page_aligned_start(self.start_index)
-            in_page_skip = self.start_index - page_start
-            url = _append_start_param(self.url, page_start) if page_start > 0 else self.url
-            nav = scholarly._Scholarly__nav
-            iterator = _wrap_direct_citedby_iterator(
-                _SearchScholarIterator(nav, url), in_page_skip,
-            )
+    def _blocked_url(self):
+        """URL of the page that would be blocked (for captcha recovery)."""
+        return f'https://scholar.google.com{self._page_url(self.url, self.start_index)}'
+
+    # -- main entry point ----------------------------------------------------
+
+    def run(self, fetcher, fallback_year=None, seen_keys=None,
+            old_cache_identity_keys=None, on_page_complete=None,
+            on_citation=None, iterator=None, max_retries=0):
+        """Execute paginated fetch.
+
+        Callbacks:
+          on_citation(info, identity_keys, is_new, is_dupe, existing_label)
+          on_page_complete(self)  — after each full page (save progress)
+
+        *iterator* is for initial fetch only; retries create their own.
+        *max_retries* controls automatic retries (captcha + transient errors).
+        Returns self (for chaining).
+        """
+        attempt = 0
+
+        while True:
+            attempt += 1
+            cur_iter = iterator if attempt == 1 and iterator is not None else self._make_iterator()
+            try:
+                self._run_once(fetcher, cur_iter, fallback_year, seen_keys,
+                              old_cache_identity_keys, on_page_complete,
+                              on_citation)
+                break
+            except KeyboardInterrupt:
+                if on_page_complete:
+                    on_page_complete(self)
+                raise
+            except Exception:
+                if on_page_complete:
+                    on_page_complete(self)
+                # Captcha recovery: try browser cookie injection once.
+                blocked_url = self._blocked_url()
+                if (getattr(fetcher, 'interactive_captcha', False)
+                        and getattr(fetcher, '_try_interactive_captcha', None)):
+                    solved = fetcher._try_interactive_captcha(blocked_url)
+                    if solved:
+                        continue
+                # Automatic retry with a fresh iterator (transient errors).
+                if attempt <= max_retries:
+                    continue
+                raise
+
+        return self
+
+    def _run_once(self, fetcher, iterator, fallback_year, seen_keys,
+                  old_cache_identity_keys, on_page_complete, on_citation):
+        """Single attempt at paginated fetch (called by run() within retry loop)."""
         seen = dict(seen_keys or {})
 
         for citing in iterator:
@@ -96,21 +147,18 @@ class BatchFetchSession:
                 self.items_on_page = getattr(iterator, '_items_in_current_page', 0)
                 if on_page_complete:
                     on_page_complete(self)
-                # Reset page-complete flag so next page can be detected
                 if hasattr(iterator, '_finished_current_page'):
                     iterator._finished_current_page = False
                 _base = getattr(iterator, '_base_iterator', None)
                 if _base is not None and hasattr(_base, '_finished_current_page'):
                     _base._finished_current_page = False
 
-        # Determine termination reason
         final_items = getattr(iterator, '_items_in_current_page', 0)
         if 0 < final_items < SCHOLAR_PAGE_SIZE:
             self.termination_reason = 'short_page_stop'
         else:
             self.termination_reason = 'iterator_exhausted'
         self.finished = True
-        return self
 
 
 # ---------------------------------------------------------------------------

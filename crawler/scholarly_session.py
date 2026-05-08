@@ -29,14 +29,13 @@ from crawler.common import (
     MANDATORY_BREAK_EVERY_MIN,
     MANDATORY_BREAK_MAX,
     MANDATORY_BREAK_MIN,
-    MAX_RETRIES,
     SESSION_REFRESH_MAX,
     SESSION_REFRESH_MIN,
     _scholar_request_url,
     now_str,
     rand_delay,
 )
-from scholarly._proxy_generator import MaxTriesExceededException
+from crawler.page_visit import PageVisit
 
 
 # ---------------------------------------------------------------------------
@@ -212,12 +211,10 @@ def patch_scholarly(ctx: SessionContext) -> None:
     nav.pm1._handle_captcha2 = patched_handle_captcha2
     nav.pm2._handle_captcha2 = patched_handle_captcha2
 
-    # Patch _get_page: inject pre-request delay, URL logging, retry limit
-    MAX_SLEEPS_PER_PAGE = 1
+    # Patch _get_page: URL logging + PageVisit-based error recovery.
+    # PageVisit handles captcha, proxy-switch, and retry internally.
 
     def patched_get_page(pagerequest, premium=False):
-        sleep_count = [0]
-        original_sleep = time.sleep
         request_url = _scholar_request_url(pagerequest)
         if request_url:
             ctx.current_attempt_url = request_url
@@ -229,33 +226,20 @@ def patch_scholarly(ctx: SessionContext) -> None:
         ctx.total_page_count += 1
         if ctx.total_page_count == 1 and ctx.first_page_prompt_fn:
             fn = ctx.first_page_prompt_fn
-            ctx.first_page_prompt_fn = None  # fire once only
+            ctx.first_page_prompt_fn = None
             fn()
         if request_url:
-            # Only show referer when it differs from the last visited URL
-            # (i.e. injected externally, not the natural previous-page referer)
             show_referer = referer and referer != ctx.last_scholar_url
             referer_str = f" (referer: {referer})" if show_referer else ""
             print(f"        Request URL: {request_url}{referer_str}", flush=True)
 
-        def unified_sleep(seconds):
-            sleep_count[0] += 1
-            if sleep_count[0] > MAX_SLEEPS_PER_PAGE:
-                time.sleep = original_sleep
-                raise MaxTriesExceededException(
-                    f"Too many retries ({sleep_count[0]}) for single page request")
-            d = rand_delay(ctx.delay_scale)
-            retry_note = f" (retry {sleep_count[0]})" if sleep_count[0] > 1 else ""
-            wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""
-            print(f"        {now_str()} Waiting {d:.0f}s before request{retry_note}... "
-                  f"[{wait_str}]", flush=True)
-            original_sleep(d)
-
-        time.sleep = unified_sleep
-        try:
-            return original_get_page(pagerequest, premium)
-        finally:
-            time.sleep = original_sleep
+        page_visit = PageVisit(ctx)
+        label = request_url[:80] if request_url else "scholar page"
+        return page_visit.fetch(
+            lambda: original_get_page(pagerequest, premium),
+            url=request_url or f'https://scholar.google.com{ctx.last_scholar_url}',
+            label=label,
+        )
 
     nav._get_page = patched_get_page
 

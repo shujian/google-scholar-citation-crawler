@@ -506,6 +506,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
             on_citation=_direct_on_citation,
             on_page_complete=_direct_on_page_complete,
             iterator=direct_iterator,
+            max_retries=0,
         )
     except KeyboardInterrupt:
         save_progress(fetch_finished=False, batch=direct_batch)

@@ -2426,3 +2426,11 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 ### 314
 
 > 可以先提交进度再继续进行。我们确实设计一下，异常重试和captcha恢复在整个流程中应该怎么处理。我理解都应该直接在BatchFetchSession中处理就好了。
+
+### 315
+
+> 注意，captcha的问题只会在页面访问的时候发生，我们是否可以把这个功能封装成一个PageVisit类？如果出错了，可以captcha或者切换代理等等。然后再BatchFetchSession处理每一页的时候用这个PageVisit？在其他地方如果要访问页面，也可以用它（比如probe histogram之类的时候）。类似页面访问失败的错误也都可以在这个类里处理。剩下的问题可能是keyboard interupt之类的
+
+> 先实现pagevisit，proxy switch也应该放到这个类里。
+
+> _wait_proxy_switch 应该用哪一层处理？我们处理这些问题的层级关系是什么？

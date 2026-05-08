@@ -4,6 +4,31 @@
 
 ---
 
+## 2026-05-08: PageVisit + BatchFetchSession 页面访问层重构
+
+### PageVisit — 统一页面访问错误恢复
+
+新增 `crawler/page_visit.py`：
+
+- **`PageVisit(ctx)`**：封装单次 Scholar 页面访问
+  - `fetch(fn, url, label)` — 调用 `fn()` 获取页面，自动处理所有错误
+  - 三层恢复：captcha 解决 → 自动重试 → proxy 切换
+  - KeyboardInterrupt 始终立即传播
+
+- 集成到 `patched_get_page`：所有 scholarly HTTP 请求均通过 `PageVisit`，替换了之前的 `unified_sleep` hack
+- 移除 `scholarly_session.py` 中不再需要的 `MaxTriesExceededException` import
+
+### 错误处理层级
+
+```
+_run_main_loop        ← 论文级：MAX_RETRIES + 最终 proxy switch 兜底
+  └─ YearFetchSession  ← 年份级：年份顺序 + 续传
+       └─ BatchFetchSession ← 翻页级：分页迭代 + max_retries
+            └─ PageVisit     ← 页面级：captcha / proxy switch / 重试
+```
+
+---
+
 ## 2026-05-08: BatchFetchSession 引入 + Direct fetch 迁移
 
 ### 新增 `crawler/fetch_session.py`
