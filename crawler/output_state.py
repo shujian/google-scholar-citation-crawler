@@ -148,11 +148,7 @@ class PaperFetchState:
         if target is not None and seen is not None:
             cmp_sym = '≥' if (seen or 0) >= (target or 0) else '<'
             return f'  {strategy}: seen_total={seen} {cmp_sym} {label}={target}'
-        scholar = self.num_citations_on_scholar
-        seen_val = citations_len or 0
-        cmp_sym = '≥' if seen_val >= (scholar or 0) else '<'
-        return (f'  {strategy}: seen={seen_val} {cmp_sym} '
-                f'scholar_total={scholar} (no diagnostics)')
+        return f'  {strategy}: diagnostics summary absent — will re-fetch'
 
 
 # ---------------------------------------------------------------------------

@@ -743,38 +743,9 @@ class PaperCitationFetcher:
             return ''
         if st == 'missing':
             return '  no cached state → missing'
-        # PaperFetchState path
-        if isinstance(cached, PaperFetchState):
-            return cached.completeness_diag()
-
-        strategy = cached.get('fetch_strategy', 'direct')
-
-        if strategy == 'year':
-            yfd = cached.get('year_fetch_diagnostics') or {}
-            # After migration year_fetch_diagnostics IS the summary (no 'summary' sub-key)
-            summary = yfd.get('summary', yfd) if isinstance(yfd, dict) else {}
-            target = summary.get('histogram_total')
-            seen = summary.get('seen_total')
-            label = 'histogram_total'
-        else:
-            dfd = cached.get('direct_fetch_diagnostics') or {}
-            summary = dfd.get('summary') or {}
-            target = summary.get('scholar_total')
-            seen = summary.get('seen_total')
-            label = 'scholar_total'
-
-        if target is None or seen is None:
-            # Legacy cache without diagnostics summary.
-            # Use top-level counters for the completeness verdict.
-            scholar = cached.get('num_citations_on_scholar')
-            cit_len = len(cached.get('citations', []) or [])
-            seen_val = cit_len
-            cmp_sym = '≥' if (seen_val or 0) >= (scholar or 0) else '<'
-            return (f'  {strategy}: seen={seen_val} {cmp_sym} '
-                    f'scholar_total={scholar} (no diagnostics) → {st}')
-
-        cmp_sym = '≥' if seen >= target else '<'
-        return f'  {strategy}: seen_total={seen} {cmp_sym} {label}={target} → {st}'
+        if isinstance(cached, dict):
+            cached = PaperFetchState.from_dict(cached)
+        return cached.completeness_diag()
 
     def has_pending_work(self):
         """Check if there are any papers with incomplete citation caches."""
