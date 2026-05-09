@@ -92,9 +92,6 @@ class PaperFetchState:
             year_fetch_diagnostics=yfd,
             direct_fetch_diagnostics=_normalize_direct_diagnostics(
                 d.get('direct_fetch_diagnostics')
-            ) or (
-                # Fallback: create minimal diag from scholar total if available
-                _minimal_direct_diag(d) if d.get('num_citations_on_scholar') is not None else None
             ),
             year_records=year_records,
             fetched_at=d.get('fetched_at'),
@@ -138,10 +135,7 @@ class PaperFetchState:
                 summary = _normalize_year_summary_from_records(self.year_records)
             summary = summary or {}
         else:
-            summary = self.direct_fetch_diagnostics or {
-                'scholar_total': self.num_citations_on_scholar,
-                'seen_total': 0,
-            }
+            summary = self.direct_fetch_diagnostics or {}
         return is_data_complete(strategy, summary)
 
     def completeness_diag(self, citations_len=None):
@@ -155,10 +149,7 @@ class PaperFetchState:
             seen = summary.get('seen_total')
             label = 'histogram_total'
         else:
-            summary = self.direct_fetch_diagnostics or {
-                'scholar_total': self.num_citations_on_scholar,
-                'seen_total': 0,
-            }
+            summary = self.direct_fetch_diagnostics or {}
             target = summary.get('scholar_total')
             seen = summary.get('seen_total')
             label = 'scholar_total'
@@ -175,20 +166,6 @@ class PaperFetchState:
 def _coerce_int(value):
     try: return int(value)
     except (TypeError, ValueError): return None
-
-
-def _minimal_direct_diag(d):
-    """Create a minimal direct-fetch diagnostics when none exists.
-
-    seen_total is 0 — cannot claim completeness without real diag.
-    """
-    return {
-        'scholar_total': _coerce_int(d.get('num_citations_on_scholar')),
-        'cached_total': 0,
-        'seen_total': 0,
-        'dedup_count': 0,
-        'termination_reason': 'unknown',
-    }
 
 
 def _normalize_direct_diagnostics(dfd):

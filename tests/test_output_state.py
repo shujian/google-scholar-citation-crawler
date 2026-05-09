@@ -257,12 +257,10 @@ class PaperFetchStateTests(unittest.TestCase):
         self.assertIn("seen_total=5", diag)
 
     def test_completeness_diag_no_diagnostics(self):
-        """Without real diagnostics, seen_total is 0 → always incomplete."""
         fs = PaperFetchState.from_dict({
             "title": "T", "fetch_strategy": "direct", "num_citations_on_scholar": 10,
         })
-        self.assertIn("seen_total=0", fs.completeness_diag(citations_len=10))
-        self.assertIn("scholar_total=10", fs.completeness_diag(citations_len=10))
+        self.assertIn("diagnostics summary absent", fs.completeness_diag(citations_len=10))
 
 
     def test_to_dict_normalizes_direct_summary(self):

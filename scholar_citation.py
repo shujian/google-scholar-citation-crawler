@@ -861,6 +861,21 @@ class PaperCitationFetcher:
                 # diagnostics summary claims cached citations, the output file
                 # is inconsistent.  Reset completion flags so the next run
                 # fetches honestly.
+                # Derive minimal diagnostics from citations when absent.
+                # For year mode, year_records already handles this via
+                # PaperFetchState.from_dict.  For direct mode, build from
+                # the citations array.
+                if len(synthetic['citations']) > 0:
+                    dfd = synthetic.get('direct_fetch_diagnostics')
+                    if not isinstance(dfd, dict):
+                        n = len(synthetic['citations'])
+                        synthetic['direct_fetch_diagnostics'] = {
+                            'scholar_total': synthetic.get('num_citations_on_scholar'),
+                            'cached_total': n,
+                            'seen_total': n,
+                            'dedup_count': 0,
+                            'termination_reason': 'derived_from_citations',
+                        }
                 if len(synthetic['citations']) == 0:
                     for diag_key in ('year_fetch_diagnostics', 'direct_fetch_diagnostics'):
                         diag = synthetic.get(diag_key)
