@@ -117,6 +117,36 @@ class PaperFetchState:
             'fetched_at': self.fetched_at,
         }
 
+    def restore_year_diag_from_year_records(self):
+        """Rebuild year_fetch_diagnostics by summing year_records.
+
+        Returns self for chaining.
+        """
+        if not self.year_records:
+            return self
+        self.year_fetch_diagnostics = _normalize_year_summary_from_records(
+            self.year_records
+        )
+        return self
+
+    def restore_direct_diag_from_citations(self, citations):
+        """Rebuild direct_fetch_diagnostics from a citations list.
+
+        Only acts when direct_fetch_diagnostics is absent.
+        Returns self for chaining.
+        """
+        if isinstance(self.direct_fetch_diagnostics, dict):
+            return self
+        n = len(citations)
+        self.direct_fetch_diagnostics = {
+            'scholar_total': self.num_citations_on_scholar,
+            'cached_total': n,
+            'seen_total': n,
+            'dedup_count': 0,
+            'termination_reason': 'derived_from_citations',
+        }
+        return self
+
     def is_complete(self, current_scholar_total=None, pub_year='N/A',
                     year_based_threshold=50):
         from crawler.citation_cache import is_data_complete

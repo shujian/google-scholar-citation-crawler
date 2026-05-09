@@ -3,11 +3,10 @@
 fix_diag_from_year_record.py — Rebuild diagnostics from source data.
 
 Reads an author_<ID>_paper_citations.json output file and fixes
-inconsistent diagnostics:
+inconsistent diagnostics using PaperFetchState methods:
 
-  Year mode:   rebuild year_fetch_diagnostics by summing year_records.
-  Direct mode: if direct_fetch_diagnostics is absent, compute cached_total
-               and seen_total from the citations array.
+  Year mode:   restore_year_diag_from_year_records()
+  Direct mode: restore_direct_diag_from_citations(citations)
 
 Usage:
   python fix_diag_from_year_record.py <output_json_path>
@@ -17,51 +16,7 @@ import json
 import sys
 import os
 
-
-def fix_year_diagnostics(state):
-    """Rebuild year_fetch_diagnostics from year_records."""
-    records = state.get('year_records') or []
-    if not records:
-        return state
-
-    histogram_total = sum(
-        r.get('histogram_count', r.get('scholar_total', 0)) or 0
-        for r in records
-    )
-    cached_total = sum(r.get('cached_total', 0) or 0 for r in records)
-    seen_total = sum(r.get('seen_total', 0) or 0 for r in records)
-    dedup_count = sum(r.get('dedup_count', 0) or 0 for r in records)
-
-    state['year_fetch_diagnostics'] = {
-        'scholar_total': state.get('num_citations_on_scholar'),
-        'histogram_total': histogram_total,
-        'cached_total': cached_total,
-        'cached_year_total': cached_total,
-        'seen_total': seen_total,
-        'cached_unyeared_count': 0,
-        'dedup_count': dedup_count,
-        'scholar_unyeared_count': max(
-            0,
-            (state.get('num_citations_on_scholar') or 0) - histogram_total,
-        ) if state.get('num_citations_on_scholar') is not None else None,
-    }
-    return state
-
-
-def fix_direct_diagnostics(state, citations):
-    """Compute direct_fetch_diagnostics from citations when absent."""
-    dfd = state.get('direct_fetch_diagnostics')
-    if isinstance(dfd, dict):
-        return state
-    n = len(citations)
-    state['direct_fetch_diagnostics'] = {
-        'scholar_total': state.get('num_citations_on_scholar'),
-        'cached_total': n,
-        'seen_total': n,
-        'dedup_count': 0,
-        'termination_reason': 'derived_from_citations',
-    }
-    return state
+from crawler.output_state import PaperFetchState
 
 
 def fix_output_file(path):
@@ -72,31 +27,36 @@ def fix_output_file(path):
     changed = 0
 
     for paper in papers:
-        state = paper.get('_fetch_state')
-        if not state:
+        state_dict = paper.get('_fetch_state')
+        if not state_dict:
             continue
 
-        strategy = state.get('fetch_strategy')
+        fs = PaperFetchState.from_dict(state_dict)
+        strategy = fs.fetch_strategy
 
         if strategy == 'year':
-            before = state.get('year_fetch_diagnostics')
-            fix_year_diagnostics(state)
-            after = state.get('year_fetch_diagnostics')
+            before = fs.year_fetch_diagnostics
+            fs.restore_year_diag_from_year_records()
+            after = fs.year_fetch_diagnostics
             if before != after:
                 changed += 1
                 title = paper.get('pub', {}).get('title', '?')[:60]
-                print(f"  [year] {title}: rebuilt diag from {len(state.get('year_records') or [])} years")
+                n = len(fs.year_records or [])
+                print(f"  [year] {title}: rebuilt diag from {n} years")
 
         elif strategy == 'direct':
             citations = paper.get('citations', [])
-            before = state.get('direct_fetch_diagnostics')
-            fix_direct_diagnostics(state, citations)
-            after = state.get('direct_fetch_diagnostics')
+            before = fs.direct_fetch_diagnostics
+            fs.restore_direct_diag_from_citations(citations)
+            after = fs.direct_fetch_diagnostics
             if before != after:
                 changed += 1
                 title = paper.get('pub', {}).get('title', '?')[:60]
                 n = len(citations)
                 print(f"  [direct] {title}: created diag from {n} citations")
+
+        # Write back the fixed state
+        paper['_fetch_state'] = fs.to_dict()
 
     if changed == 0:
         print("  No changes needed.")
