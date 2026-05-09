@@ -688,9 +688,9 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
     print(f"    Cache totals: cached_total={cached_total_citations}, seen_total={cached_seen_total}, "
           f"cached_year_sum={cached_year_total}, cached_unyeared={cached_unyeared_citations}, dedup_num={ctx.dedup_count}", flush=True)
     effective_target = probed_hist_total if histogram_authoritative else num_citations
-    _fetch_mode_label = 'full-rebuild' if force_year_rebuild else 'selective'
+    _years_label = 'full-rebuild' if force_year_rebuild else 'selective'
     probe_note = "" if is_year else " (no histogram probe)"
-    print(f"    Fetch context: strategy={_fetch_mode_label}, "
+    print(f"    Fetch context: years={_years_label}, "
           f"prev_scholar={prev_scholar_count}, target={effective_target}, total_years={total_years}{probe_note}", flush=True)
     print(f"    Current-run completed years: {fetcher._format_year_set_summary(ctx.completed_year_segments)}", flush=True)
     print(f"    Partial resume points: {fetcher._format_partial_year_start_summary(ctx.partial_year_start)}", flush=True)
