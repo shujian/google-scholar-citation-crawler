@@ -55,18 +55,45 @@ _PER_YEAR_KEYS = frozenset([
 
 @dataclass
 class PaperFetchState:
-    """Per-paper fetch progress snapshot persisted in the output JSON."""
+    """Per-paper fetch progress snapshot persisted in the output JSON.
 
-    title: str = ""
-    pub_url: str = ""
-    citedby_url: str = ""
-    fetch_strategy: Optional[str] = None
-    num_citations_on_scholar: Optional[int] = None
-    complete_fetch_attempt: bool = False
-    year_fetch_diagnostics: Optional[dict] = None
-    direct_fetch_diagnostics: Optional[dict] = None
-    year_records: Optional[list] = None
-    fetched_at: Optional[str] = None
+    All fields are private; access via properties or from_dict/to_dict.
+    Mutations go through restore_*() or from_dict().
+    """
+
+    _title: str = ""
+    _pub_url: str = ""
+    _citedby_url: str = ""
+    _fetch_strategy: Optional[str] = None
+    _num_citations_on_scholar: Optional[int] = None
+    _complete_fetch_attempt: bool = False
+    _year_fetch_diagnostics: Optional[dict] = None
+    _direct_fetch_diagnostics: Optional[dict] = None
+    _year_records: Optional[list] = None
+    _fetched_at: Optional[str] = None
+
+    # -- read-only properties -----------------------------------------------
+
+    @property
+    def title(self): return self._title
+    @property
+    def pub_url(self): return self._pub_url
+    @property
+    def citedby_url(self): return self._citedby_url
+    @property
+    def fetch_strategy(self): return self._fetch_strategy
+    @property
+    def num_citations_on_scholar(self): return self._num_citations_on_scholar
+    @property
+    def complete_fetch_attempt(self): return self._complete_fetch_attempt
+    @property
+    def year_fetch_diagnostics(self): return self._year_fetch_diagnostics
+    @property
+    def direct_fetch_diagnostics(self): return self._direct_fetch_diagnostics
+    @property
+    def year_records(self): return self._year_records
+    @property
+    def fetched_at(self): return self._fetched_at
 
     @classmethod
     def from_dict(cls, d):
@@ -81,26 +108,26 @@ class PaperFetchState:
             yfd = _normalize_year_summary_from_records(year_records)
 
         return cls(
-            title=d.get('title', ''),
-            pub_url=d.get('pub_url', ''),
-            citedby_url=d.get('citedby_url', ''),
-            fetch_strategy=d.get('fetch_strategy'),
-            num_citations_on_scholar=_coerce_int(d.get('num_citations_on_scholar')),
-            complete_fetch_attempt=bool(
+            _title=d.get('title', ''),
+            _pub_url=d.get('pub_url', ''),
+            _citedby_url=d.get('citedby_url', ''),
+            _fetch_strategy=d.get('fetch_strategy'),
+            _num_citations_on_scholar=_coerce_int(d.get('num_citations_on_scholar')),
+            _complete_fetch_attempt=bool(
                 d.get('complete_fetch_attempt', d.get('complete', False))
             ),
-            year_fetch_diagnostics=yfd,
-            direct_fetch_diagnostics=_normalize_direct_diagnostics(
+            _year_fetch_diagnostics=yfd,
+            _direct_fetch_diagnostics=_normalize_direct_diagnostics(
                 d.get('direct_fetch_diagnostics')
             ),
-            year_records=year_records,
-            fetched_at=d.get('fetched_at'),
+            _year_records=year_records,
+            _fetched_at=d.get('fetched_at'),
         )
 
     def to_dict(self):
         return {
-            'title': self.title,
-            'pub_url': self.pub_url,
+            'title': self._title,
+            'pub_url': self._pub_url,
             'citedby_url': self.citedby_url,
             'fetch_strategy': self.fetch_strategy,
             'num_citations_on_scholar': self.num_citations_on_scholar,
