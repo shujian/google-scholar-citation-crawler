@@ -646,6 +646,7 @@ class CitationStatusTests(FetcherTestCase):
         cached = {
             "complete": True,
             "probe_complete": False,
+            "fetch_strategy": "year",
             "probed_year_counts": {
                 "2018": 38, "2019": 108, "2020": 157, "2021": 218,
                 "2022": 213, "2023": 213, "2024": 176, "2025": 179, "2026": 38,
@@ -661,6 +662,15 @@ class CitationStatusTests(FetcherTestCase):
             ],
             "num_citations_on_scholar": 1347,
             "year_fetch_diagnostics": {
+                "summary": {
+                    "histogram_total": 1340,
+                    "scholar_total": 1347,
+                    "cached_total": 1339,
+                    "cached_year_total": 1339,
+                    "seen_total": 1340,
+                    "dedup_count": 1,
+                    "scholar_unyeared_count": 7,
+                },
                 "2018": {"year": 2018, "scholar_total": 38, "cached_total": 38, "seen_total": 38, "dedup_count": 0, "termination_reason": "short_page_stop"},
                 "2019": {"year": 2019, "scholar_total": 108, "cached_total": 108, "seen_total": 108, "dedup_count": 0, "termination_reason": "short_page_stop"},
                 "2020": {"year": 2020, "scholar_total": 157, "cached_total": 157, "seen_total": 157, "dedup_count": 0, "termination_reason": "short_page_stop"},

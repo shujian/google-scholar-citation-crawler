@@ -115,7 +115,6 @@ class PaperFetchState:
 
     def is_complete(self, current_scholar_total=None, pub_year='N/A',
                     year_based_threshold=50):
-        from crawler.citation_strategy import resolve_citation_fetch_policy
         from crawler.citation_cache import is_data_complete
         strategy = self.fetch_strategy
         if not strategy:
@@ -125,18 +124,13 @@ class PaperFetchState:
             elif self.direct_fetch_diagnostics:
                 strategy = 'direct'
             else:
-                scholar = int(current_scholar_total or 0)
-                fetch_policy = resolve_citation_fetch_policy(scholar, pub_year, year_based_threshold)
-                strategy = fetch_policy['strategy']
+                return False
         if strategy == 'year':
             yfd = self.year_fetch_diagnostics or {}
             summary = yfd.get('summary', yfd)
         else:
             summary = (self.direct_fetch_diagnostics or {}).get('summary') or {}
-        if is_data_complete(strategy, summary):
-            return True
-        # No diagnostics → cannot verify completeness → not complete
-        return False
+        return is_data_complete(strategy, summary)
 
     def completeness_diag(self, citations_len=None):
         strategy = self.fetch_strategy or 'direct'
@@ -173,14 +167,12 @@ def _coerce_int(value):
 def _normalize_direct_diagnostics(dfd):
     if not isinstance(dfd, dict): return None
     raw = dfd.get('summary')
-    if not isinstance(raw, dict):
-        raw = dfd  # old format: diagnostics dict IS the summary
+    if not isinstance(raw, dict): return None
     dd = raw.get('dedup_count', 0) or 0
-    ct = raw.get('cached_total', raw.get('yielded_total', 0)) or 0
-    st = raw.get('scholar_total', raw.get('reported_total'))
+    ct = raw.get('cached_total', 0) or 0
     return {
         'summary': {
-            'scholar_total': _coerce_int(st),
+            'scholar_total': _coerce_int(raw.get('scholar_total')),
             'cached_total': ct,
             'seen_total': _coerce_int(raw.get('seen_total', ct + dd)) or (ct + dd),
             'dedup_count': dd,
@@ -236,28 +228,13 @@ def _normalize_year_records(data):
 
 
 def _normalize_year_summary_dict(yfd):
-    """Extract just the summary from year_fetch_diagnostics (no per-year entries)."""
+    """Extract the summary from year_fetch_diagnostics."""
     if not isinstance(yfd, dict):
         return None
-    # Old format: summary nested under 'summary' key
     raw_summary = yfd.get('summary')
     if isinstance(raw_summary, dict):
         return _normalize_year_summary(raw_summary)
-    # Post-migration format: yfd IS the summary (has histogram_total or scholar_total)
-    if 'histogram_total' in yfd or 'scholar_total' in yfd:
-        return _normalize_year_summary(yfd)
-    # Legacy format: per-year entries only, derive summary from them
-    records = _normalize_year_records(yfd) or []
-    return {
-        'scholar_total': None,
-        'histogram_total': sum(r['histogram_count'] for r in records),
-        'cached_total': sum(r['cached_total'] for r in records),
-        'cached_year_total': sum(r['cached_total'] for r in records),
-        'seen_total': sum(r['seen_total'] for r in records),
-        'cached_unyeared_count': 0,
-        'dedup_count': sum(r['dedup_count'] for r in records),
-        'scholar_unyeared_count': None,
-    }
+    return None
 
 
 def _normalize_year_summary(raw):
