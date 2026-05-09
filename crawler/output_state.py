@@ -224,12 +224,21 @@ def _normalize_year_records(data):
 
 
 def _normalize_year_summary_dict(yfd):
-    """Extract the summary from year_fetch_diagnostics."""
+    """Extract the summary from year_fetch_diagnostics.
+
+    Two formats coexist:
+    1. Nested summary: yfd['summary'] is the summary dict (current save_progress).
+    2. Inline summary: yfd IS the summary (post-migration output files where
+       year_records were separated from year_fetch_diagnostics).
+    """
     if not isinstance(yfd, dict):
         return None
     raw_summary = yfd.get('summary')
     if isinstance(raw_summary, dict):
         return _normalize_year_summary(raw_summary)
+    # Post-migration format: yfd IS the summary
+    if 'histogram_total' in yfd or 'scholar_total' in yfd:
+        return _normalize_year_summary(yfd)
     return None
 
 
