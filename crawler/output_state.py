@@ -325,14 +325,16 @@ def _normalize_year_summary_from_records(records):
 
 
 def _normalize_year_summary_dict(yfd):
-    """Return a normalized year-fetch diagnostics dict from *yfd*.
-
-    *yfd* IS the summary — no 'summary' sub-key, no per-year entries.
-    """
+    """Return a normalized year-fetch diagnostics dict from *yfd*."""
     if not isinstance(yfd, dict):
         return None
+    # Current format: yfd IS the summary
     if 'histogram_total' in yfd or 'scholar_total' in yfd:
         return _normalize_year_summary(yfd)
+    # Old format: summary nested under 'summary' sub-key
+    raw = yfd.get('summary')
+    if isinstance(raw, dict):
+        return _normalize_year_summary(raw)
     return None
 
 
