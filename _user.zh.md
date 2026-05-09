@@ -2470,3 +2470,33 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 ### 323
 
 > 请更新相关文档
+
+### 324
+
+> 请确认一下代码里所有对状态的修改都应该被封装在对应类的函数里。把数据成员全部改为私有。
+
+> 好的，现在我希望严格控制set方法的调用，请检查一下是否使用都合理。
+
+### 325
+
+> 现在再看一下fix_diag这个文件，看看他的操作是否正确。
+
+> 那如果加载的就是没有summary的格式呢？会不会出问题？
+
+> 不对吧，你说的是year模式，year模式下，除了scholar_total, 每个字段都是从year record加出来的啊
+
+### 326
+
+> 为什么我运行了一遍scholar_citation之后，又发生了histogram_total, seen_total变成0，scholar_unyeared_count变成null的情况？
+
+> 既然约定了只使用output不使用cache，请在每次运行结束删除cache文件。
+
+### 327
+
+> 现在发现一个问题，如果在第一阶段获取更新信息的时候，更新了scholar_total，但是histogram_total目前还没有更新，这时候后续的seen和histo的判断不会发生改变。我建议这时候设置一个标志位，scholar_change = True。判断是否需要抓取的时候，如果scholar_change是true，那即使complete也要抓取。
+
+> 不应该在输出的时候改变scholar_change，应该在抓取之后改变。输出的时候原样输出即可。
+
+### 328
+
+> 请更新文档

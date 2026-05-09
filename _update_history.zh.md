@@ -4,6 +4,38 @@
 
 ---
 
+## 2026-05-09: 状态封装 + cache 清除 + scholar_changed 标志
+
+### 字段私有化
+
+- `PaperFetchState` 10 个字段 → `_field` 前缀，只读 property，通过 `from_dict()`/`restore_*()` 修改
+- `BatchFetchSession` 8 个字段 → `_field` 前缀，只读 property，内部 `_run_once()` 修改
+
+### 彻底移除 cache 依赖
+
+- `_build_entry` 不再从 cache 合并 diagnostics
+- 每次运行结束时 `shutil.rmtree(cache_dir)` 删除所有缓存
+- 同次运行 retry 仍读取 cache（`save_progress` 写入的进度）
+
+### scholar_changed 标志
+
+- `PaperFetchState._scholar_changed`：引用总数变化时在 `cache_status` 中设置
+- `need_fetch()`：`scholar_changed` 为 True 或 `is_complete()` 为 False 时返回 True
+- 抓取成功后 `clear_scholar_changed()`，中断则保留到下次运行
+
+### fix_diag_from_year_record.py
+
+- 使用 `PaperFetchState.from_dict()` → `restore_*()` → `to_dict()` round-trip 修复输出文件
+- Year 模式从 `year_records` 累加重建 `year_fetch_diagnostics`
+- Direct 模式从 citations 计数重建 `direct_fetch_diagnostics`
+
+### 诊断格式统一
+
+- `year_fetch_diagnostics` 和 `direct_fetch_diagnostics` 本身就是 summary，不再有 `summary` 子键
+- `_normalize_year_summary_dict` 兼容三种格式（新扁平格式 + 旧嵌套 summary + records 推导）
+
+---
+
 ## 2026-05-09: 彻底移除 cache 文件回退读取
 
 ### _citation_status 不再读取 cache 文件
