@@ -847,6 +847,8 @@ class PaperCitationFetcher:
                     synthetic['num_citations_on_scholar'] = current_total
                     if old_total is not None and old_total != current_total:
                         synthetic['scholar_changed'] = True
+                        if isinstance(output_state, PaperFetchState):
+                            output_state.mark_scholar_changed()
                     # Update scholar_total in diagnostics to the current value.
                     yfd = synthetic.get('year_fetch_diagnostics')
                     if isinstance(yfd, dict):
@@ -1229,6 +1231,10 @@ class PaperCitationFetcher:
                     print(f"  [{now}] Progress already saved to cache by PageVisit/batch")
 
             results[idx - 1] = {'pub': pub, 'citations': citations or []}
+            # Clear scholar_changed after a successful fetch.
+            output_state = getattr(self, '_output_fetch_state', {}).get(pub['title'])
+            if isinstance(output_state, PaperFetchState):
+                output_state.clear_scholar_changed()
 
             if fetch_idx < (self.limit or len(need_fetch)):
                 print(f"  {now_str()} Next paper... [{self._wait_status()}]", flush=True)
@@ -1281,8 +1287,6 @@ class PaperCitationFetcher:
             current_total = pub.get('num_citations') if pub else None
             if current_total is not None and fetch_state:
                 fetch_state['num_citations_on_scholar'] = current_total
-                # Clear the changed flag — this run has recorded the new total.
-                fetch_state['scholar_changed'] = False
                 for diag_key in ('year_fetch_diagnostics', 'direct_fetch_diagnostics'):
                     diag = fetch_state.get(diag_key)
                     if isinstance(diag, dict):

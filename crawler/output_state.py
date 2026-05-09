@@ -196,6 +196,16 @@ class PaperFetchState:
         }
         return self
 
+    def mark_scholar_changed(self):
+        """Mark that the Scholar total has changed since the last run."""
+        self._scholar_changed = True
+        return self
+
+    def clear_scholar_changed(self):
+        """Clear the scholar-changed flag after a successful fetch."""
+        self._scholar_changed = False
+        return self
+
     def need_fetch(self, current_scholar_total=None, pub_year='N/A',
                    year_based_threshold=50):
         """Return True if the paper needs to be (re-)fetched.
