@@ -70,6 +70,7 @@ class PaperFetchState:
     _year_fetch_diagnostics: Optional[dict] = None
     _direct_fetch_diagnostics: Optional[dict] = None
     _year_records: Optional[list] = None
+    _scholar_changed: bool = False
     _fetched_at: Optional[str] = None
 
     # -- read-only properties -----------------------------------------------
@@ -86,6 +87,8 @@ class PaperFetchState:
     def num_citations_on_scholar(self): return self._num_citations_on_scholar
     @property
     def complete_fetch_attempt(self): return self._complete_fetch_attempt
+    @property
+    def scholar_changed(self): return self._scholar_changed
     @property
     def year_fetch_diagnostics(self): return self._year_fetch_diagnostics
     @property
@@ -121,6 +124,7 @@ class PaperFetchState:
                 d.get('direct_fetch_diagnostics')
             ),
             _year_records=year_records,
+            _scholar_changed=bool(d.get('scholar_changed', False)),
             _fetched_at=d.get('fetched_at'),
         )
 
@@ -132,6 +136,7 @@ class PaperFetchState:
             'fetch_strategy': self.fetch_strategy,
             'num_citations_on_scholar': self.num_citations_on_scholar,
             'complete_fetch_attempt': self.complete_fetch_attempt,
+            'scholar_changed': self.scholar_changed,
             'year_fetch_diagnostics': _normalize_year_summary_dict(
                 self.year_fetch_diagnostics
             ),
@@ -190,6 +195,17 @@ class PaperFetchState:
             'termination_reason': 'derived_from_citations',
         }
         return self
+
+    def need_fetch(self, current_scholar_total=None, pub_year='N/A',
+                   year_based_threshold=50):
+        """Return True if the paper needs to be (re-)fetched.
+
+        True when: scholar_changed is set, or the data is incomplete.
+        """
+        if self._scholar_changed:
+            return True
+        return not self.is_complete(current_scholar_total, pub_year,
+                                    year_based_threshold)
 
     def is_complete(self, current_scholar_total=None, pub_year='N/A',
                     year_based_threshold=50):
@@ -375,10 +391,10 @@ def resolve_citation_status_from_output(pub, state, year_based_threshold):
     if pub.get('num_citations') == 0:
         return 'skip_zero'
     if isinstance(state, PaperFetchState):
-        if state.is_complete(pub.get('num_citations'), pub.get('year', 'N/A'),
-                             year_based_threshold):
-            return 'complete'
-        return 'partial'
+        if state.need_fetch(pub.get('num_citations'), pub.get('year', 'N/A'),
+                            year_based_threshold):
+            return 'partial'
+        return 'complete'
     cache_state = derive_citation_cache_state(pub, state, year_based_threshold)
     return resolve_citation_status_from_state(cache_state)
 

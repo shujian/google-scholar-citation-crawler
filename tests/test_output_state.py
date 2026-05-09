@@ -193,6 +193,7 @@ class PaperFetchStateTests(unittest.TestCase):
         self.assertEqual(set(out.keys()), {
             "title", "pub_url", "citedby_url", "fetch_strategy",
             "num_citations_on_scholar", "complete_fetch_attempt",
+            "scholar_changed",
             "year_fetch_diagnostics", "direct_fetch_diagnostics",
             "year_records", "fetched_at",
         })
@@ -318,12 +319,13 @@ class PaperFetchStateTests(unittest.TestCase):
         self.assertNotIn("mode", entry)
         self.assertIn("year", entry)
 
-    def test_to_dict_all_nine_keys_present(self):
+    def test_to_dict_all_eleven_keys_present(self):
         fs = PaperFetchState.from_dict({"title": "T"})
         out = fs.to_dict()
         self.assertEqual(set(out.keys()), {
             "title", "pub_url", "citedby_url", "fetch_strategy",
             "num_citations_on_scholar", "complete_fetch_attempt",
+            "scholar_changed",
             "year_fetch_diagnostics", "direct_fetch_diagnostics",
             "year_records", "fetched_at",
         })

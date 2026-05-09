@@ -843,7 +843,10 @@ class PaperCitationFetcher:
                 # reflects the latest count even when the paper was skipped this run.
                 current_total = pub.get('num_citations')
                 if current_total is not None:
+                    old_total = synthetic.get('num_citations_on_scholar')
                     synthetic['num_citations_on_scholar'] = current_total
+                    if old_total is not None and old_total != current_total:
+                        synthetic['scholar_changed'] = True
                     # Update scholar_total in diagnostics to the current value.
                     yfd = synthetic.get('year_fetch_diagnostics')
                     if isinstance(yfd, dict):
@@ -1278,6 +1281,8 @@ class PaperCitationFetcher:
             current_total = pub.get('num_citations') if pub else None
             if current_total is not None and fetch_state:
                 fetch_state['num_citations_on_scholar'] = current_total
+                # Clear the changed flag — this run has recorded the new total.
+                fetch_state['scholar_changed'] = False
                 for diag_key in ('year_fetch_diagnostics', 'direct_fetch_diagnostics'):
                     diag = fetch_state.get(diag_key)
                     if isinstance(diag, dict):
