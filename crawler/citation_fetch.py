@@ -456,7 +456,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
 
     # Direct fetch — single BatchFetchSession
     direct_batch = BatchFetchSession(
-        url=_direct_request_url(citedby_url, normalized_direct_resume_state),
+        _url=_direct_request_url(citedby_url, normalized_direct_resume_state),
     )
 
     print("        Direct fetch mode: no year probe, summary shown after fetch", flush=True)
@@ -787,9 +787,9 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                     year_seen_keys[key] = label
 
             year_batch = BatchFetchSession(
-                url=year_url,
-                citations=list(existing_year_fresh),
-                start_index=start_index,
+                _url=year_url,
+                _citations=list(existing_year_fresh),
+                _start_index=start_index,
             )
 
             def _on_year_citation(info, identity_keys, is_new, is_dupe, existing_label):

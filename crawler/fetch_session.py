@@ -29,14 +29,40 @@ class BatchFetchSession:
     The fetcher parameter supplies extraction helpers and the HTTP session.
     """
 
-    url: str
-    citations: list = field(default_factory=list)
-    dedup_count: int = 0              # duplicate citations seen in this batch
-    new_count: int = 0                # new citations (not in old cache)
-    items_on_page: int = 0            # items on the most recently completed page
-    start_index: int = 0              # resume position (page-aligned)
-    finished: bool = False
-    termination_reason: str = ""
+    _url: str = ""
+    _citations: list = field(default_factory=list)
+    _dedup_count: int = 0
+    _new_count: int = 0
+    _items_on_page: int = 0
+    _start_index: int = 0
+    _finished: bool = False
+    _termination_reason: str = ""
+
+    # -- properties ----------------------------------------------------------
+
+    @property
+    def url(self): return self._url
+
+    @property
+    def citations(self): return self._citations
+
+    @property
+    def dedup_count(self): return self._dedup_count
+
+    @property
+    def new_count(self): return self._new_count
+
+    @property
+    def items_on_page(self): return self._items_on_page
+
+    @property
+    def start_index(self): return self._start_index
+
+    @property
+    def finished(self): return self._finished
+
+    @property
+    def termination_reason(self): return self._termination_reason
 
     # -- pagination helpers --------------------------------------------------
 
@@ -64,15 +90,15 @@ class BatchFetchSession:
             if fetcher is not None else None
         ) or _pub_parser._SearchScholarIterator
         nav = scholarly._Scholarly__nav
-        url = self._page_url(self.url, self.start_index)
+        url = self._page_url(self._url, self._start_index)
         return _wrap_direct_citedby_iterator(
             _SSI(nav, url),
-            self._in_page_skip(self.start_index),
+            self._in_page_skip(self._start_index),
         )
 
     def _blocked_url(self):
         """URL of the page that would be blocked (for captcha recovery)."""
-        return f'https://scholar.google.com{self._page_url(self.url, self.start_index)}'
+        return f'https://scholar.google.com{self._page_url(self._url, self._start_index)}'
 
     # -- main entry point ----------------------------------------------------
 
@@ -126,13 +152,13 @@ class BatchFetchSession:
         seen = dict(seen_keys or {})
 
         for citing in iterator:
-            self.start_index += 1
+            self._start_index += 1
             info = fetcher._extract_citation_info(citing, fallback_year=fallback_year)
             identity_keys = fetcher._citation_identity_keys(info)
 
             matched = next((k for k in identity_keys if k in seen), None)
             if matched is not None:
-                self.dedup_count += 1
+                self._dedup_count += 1
                 if on_citation:
                     on_citation(info, identity_keys, is_new=False, is_dupe=True,
                                 existing_label=seen.get(matched))
@@ -141,18 +167,18 @@ class BatchFetchSession:
             label = f"{info['title'][:50]} ({info.get('venue', 'N/A')}, {info.get('year', '?')})"
             for k in identity_keys:
                 seen[k] = label
-            self.citations.append(info)
+            self._citations.append(info)
 
             is_new = not any(k in (old_cache_identity_keys or set()) for k in identity_keys)
             if is_new:
-                self.new_count += 1
+                self._new_count += 1
 
             if on_citation:
                 on_citation(info, identity_keys, is_new=is_new, is_dupe=False,
                             existing_label=None)
 
             if getattr(iterator, '_finished_current_page', False):
-                self.items_on_page = getattr(iterator, '_items_in_current_page', 0)
+                self._items_on_page = getattr(iterator, '_items_in_current_page', 0)
                 if on_page_complete:
                     on_page_complete(self)
                 if hasattr(iterator, '_finished_current_page'):
@@ -163,10 +189,10 @@ class BatchFetchSession:
 
         final_items = getattr(iterator, '_items_in_current_page', 0)
         if 0 < final_items < SCHOLAR_PAGE_SIZE:
-            self.termination_reason = 'short_page_stop'
+            self._termination_reason = 'short_page_stop'
         else:
-            self.termination_reason = 'iterator_exhausted'
-        self.finished = True
+            self._termination_reason = 'iterator_exhausted'
+        self._finished = True
 
 
 # ---------------------------------------------------------------------------
