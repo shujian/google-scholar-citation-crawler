@@ -72,6 +72,14 @@ class PaperFetchState:
     def from_dict(cls, d):
         if not isinstance(d, dict):
             return cls()
+        year_records = _normalize_year_records(
+            d.get('year_records') or d.get('year_fetch_diagnostics')
+        )
+        yfd = _normalize_year_summary_dict(d.get('year_fetch_diagnostics'))
+        # Fallback: derive summary from year_records when diagnostics is absent
+        if yfd is None and year_records:
+            yfd = _normalize_year_summary_from_records(year_records)
+
         return cls(
             title=d.get('title', ''),
             pub_url=d.get('pub_url', ''),
@@ -81,15 +89,11 @@ class PaperFetchState:
             complete_fetch_attempt=bool(
                 d.get('complete_fetch_attempt', d.get('complete', False))
             ),
-            year_fetch_diagnostics=_normalize_year_summary_dict(
-                d.get('year_fetch_diagnostics')
-            ),
+            year_fetch_diagnostics=yfd,
             direct_fetch_diagnostics=_normalize_direct_diagnostics(
                 d.get('direct_fetch_diagnostics')
             ),
-            year_records=_normalize_year_records(
-                d.get('year_records') or d.get('year_fetch_diagnostics')
-            ),
+            year_records=year_records,
             fetched_at=d.get('fetched_at'),
         )
 
@@ -126,7 +130,10 @@ class PaperFetchState:
             else:
                 return False
         if strategy == 'year':
-            summary = self.year_fetch_diagnostics or {}
+            summary = self.year_fetch_diagnostics
+            if summary is None and self.year_records:
+                summary = _normalize_year_summary_from_records(self.year_records)
+            summary = summary or {}
         else:
             summary = self.direct_fetch_diagnostics or {}
         return is_data_complete(strategy, summary)
@@ -134,7 +141,10 @@ class PaperFetchState:
     def completeness_diag(self, citations_len=None):
         strategy = self.fetch_strategy or 'direct'
         if strategy == 'year':
-            summary = self.year_fetch_diagnostics or {}
+            summary = self.year_fetch_diagnostics
+            if summary is None and self.year_records:
+                summary = _normalize_year_summary_from_records(self.year_records)
+            summary = summary or {}
             target = summary.get('histogram_total')
             seen = summary.get('seen_total')
             label = 'histogram_total'
@@ -222,6 +232,22 @@ def _normalize_year_records(data):
         records.sort(key=lambda r: r['year'])
         return records if records else None
     return None
+
+
+def _normalize_year_summary_from_records(records):
+    """Derive the year-fetch summary from per-year records."""
+    if not records:
+        return None
+    return {
+        'scholar_total': None,
+        'histogram_total': sum(r.get('histogram_count', r.get('scholar_total', 0)) or 0 for r in records),
+        'cached_total': sum(r.get('cached_total', 0) or 0 for r in records),
+        'cached_year_total': sum(r.get('cached_total', 0) or 0 for r in records),
+        'seen_total': sum(r.get('seen_total', 0) or 0 for r in records),
+        'cached_unyeared_count': 0,
+        'dedup_count': sum(r.get('dedup_count', 0) or 0 for r in records),
+        'scholar_unyeared_count': None,
+    }
 
 
 def _normalize_year_summary_dict(yfd):
