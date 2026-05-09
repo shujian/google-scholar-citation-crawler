@@ -152,15 +152,25 @@ class PaperFetchState:
         if not self.year_records:
             return self
         derived = _normalize_year_summary_from_records(self.year_records)
-        # Only update fields that records actually provide; keep existing
-        # values for scholar_total, cached_unyeared_count, scholar_unyeared_count
-        # which records cannot know.
+        # All year-mode fields come from records.  Only scholar_total
+        # (the Scholar page total) cannot be derived — keep the existing
+        # value or fall back to num_citations_on_scholar.
         existing = self._year_fetch_diagnostics or {}
-        for key in ('histogram_total', 'cached_total', 'cached_year_total',
-                     'seen_total', 'dedup_count'):
-            if derived.get(key) is not None:
-                existing[key] = derived[key]
-        self._year_fetch_diagnostics = existing
+        scholar_total = (existing.get('scholar_total')
+                         or self._num_citations_on_scholar)
+        self._year_fetch_diagnostics = {
+            'scholar_total': scholar_total,
+            'histogram_total': derived['histogram_total'],
+            'cached_total': derived['cached_total'],
+            'cached_year_total': derived['cached_year_total'],
+            'seen_total': derived['seen_total'],
+            'cached_unyeared_count': 0,   # year mode drops unyeared
+            'dedup_count': derived['dedup_count'],
+            'scholar_unyeared_count': (
+                max(0, (scholar_total or 0) - derived['histogram_total'])
+                if scholar_total is not None else None
+            ),
+        }
         return self
 
     def restore_direct_diag_from_citations(self, citations):
