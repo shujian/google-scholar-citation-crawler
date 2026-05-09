@@ -64,7 +64,7 @@ class CitationStatusTests(FetcherTestCase):
             with open(cache_path, "r", encoding="utf-8") as f:
                 saved = json.load(f)
             self.assertEqual(saved["probed_year_counts"], {"2024": 1, "2025": 1})
-            summary = saved["year_fetch_diagnostics"]["summary"]
+            summary = saved["year_fetch_diagnostics"]
             self.assertEqual(summary["scholar_total"], summary["histogram_total"])
             self.assertEqual(saved["completed_years"], [2024])
             self.assertEqual(summary["histogram_total"], 2)
@@ -85,13 +85,11 @@ class CitationStatusTests(FetcherTestCase):
             "num_citations_on_scholar": 3,
             "num_citations_seen": 5,
             "direct_fetch_diagnostics": {
-                "summary": {
                     "scholar_total": 3,
                     "cached_total": 5,
                     "seen_total": 5,
                     "dedup_count": 0,
                     "termination_reason": "short_page_stop",
-                },
             },
         }
 
@@ -112,13 +110,11 @@ class CitationStatusTests(FetcherTestCase):
             "num_citations_on_scholar": 5,
             "num_citations_seen": 5,
             "direct_fetch_diagnostics": {
-                "summary": {
                     "scholar_total": 5,
                     "cached_total": 5,
                     "seen_total": 5,
                     "dedup_count": 0,
                     "termination_reason": "short_page_stop",
-                },
             },
         }
 
@@ -138,13 +134,11 @@ class CitationStatusTests(FetcherTestCase):
             "num_citations_cached": 48,
             "num_citations_seen": 48,
             "direct_fetch_diagnostics": {
-                "summary": {
                     "scholar_total": 48,
                     "cached_total": 48,
                     "seen_total": 48,
                     "dedup_count": 0,
                     "termination_reason": "short_page_stop",
-                },
             },
         }
 
@@ -448,13 +442,11 @@ class CitationStatusTests(FetcherTestCase):
             "num_citations_on_scholar": 10,
             "num_citations_seen": 10,
             "direct_fetch_diagnostics": {
-                "summary": {
                     "scholar_total": 10,
                     "cached_total": 9,
                     "seen_total": 10,
                     "dedup_count": 1,
                     "termination_reason": "target_reached",
-                },
             },
         }
 
@@ -480,14 +472,12 @@ class CitationStatusTests(FetcherTestCase):
                 "2024": {"year": 2024, "histogram_count": 17, "cached_total": 17, "seen_total": 17, "dedup_count": 0, "termination_reason": "short_page_stop"},
                 "2025": {"year": 2025, "histogram_count": 24, "cached_total": 23, "seen_total": 23, "dedup_count": 0, "termination_reason": "short_page_stop"},
                 "2026": {"year": 2026, "histogram_count": 1, "cached_total": 1, "seen_total": 1, "dedup_count": 0, "termination_reason": "short_page_stop"},
-                "summary": {
                     "histogram_total": 109,
                     "scholar_total": 109,
                     "cached_total": 105,
                     "cached_year_total": 105,
                     "seen_total": 109,
                     "dedup_count": 4,
-                },
             },
         }
 
@@ -557,7 +547,7 @@ class CitationStatusTests(FetcherTestCase):
             termination_reason="target_reached",
         )
 
-        s = diagnostics['summary']
+        s = diagnostics
         self.assertEqual(s["seen_total"], 10)
         self.assertEqual(s["scholar_total"], 10)
         # underfetched / underfetch_gap are derivable and no longer stored
@@ -662,7 +652,6 @@ class CitationStatusTests(FetcherTestCase):
             ],
             "num_citations_on_scholar": 1347,
             "year_fetch_diagnostics": {
-                "summary": {
                     "histogram_total": 1340,
                     "scholar_total": 1347,
                     "cached_total": 1339,
@@ -670,7 +659,6 @@ class CitationStatusTests(FetcherTestCase):
                     "seen_total": 1340,
                     "dedup_count": 1,
                     "scholar_unyeared_count": 7,
-                },
                 "2018": {"year": 2018, "scholar_total": 38, "cached_total": 38, "seen_total": 38, "dedup_count": 0, "termination_reason": "short_page_stop"},
                 "2019": {"year": 2019, "scholar_total": 108, "cached_total": 108, "seen_total": 108, "dedup_count": 0, "termination_reason": "short_page_stop"},
                 "2020": {"year": 2020, "scholar_total": 157, "cached_total": 157, "seen_total": 157, "dedup_count": 0, "termination_reason": "short_page_stop"},

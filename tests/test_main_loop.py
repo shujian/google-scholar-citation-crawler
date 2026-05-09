@@ -459,13 +459,11 @@ class MainLoopTests(FetcherTestCase):
         ]
         latest_cache = {
             "direct_fetch_diagnostics": {
-                "summary": {
                     "scholar_total": 98,
                     "cached_total": 77,
                     "seen_total": 77,
                     "dedup_count": 0,
                     "termination_reason": "target_reached",
-                },
             }
         }
         results = []

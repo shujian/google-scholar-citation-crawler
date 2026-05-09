@@ -458,10 +458,10 @@ class PaperCitationFetcher:
         # Derive seen total from diagnostics summary.
         num_seen = None
         if fetch_policy['strategy'] == 'year':
-            yfd_summary = (cached.get('year_fetch_diagnostics') or {}).get('summary') or {}
+            yfd_summary = cached.get('year_fetch_diagnostics') or {}
             num_seen = yfd_summary.get('seen_total')
         else:
-            dfd_summary = (cached.get('direct_fetch_diagnostics') or {}).get('summary') or {}
+            dfd_summary = cached.get('direct_fetch_diagnostics') or {}
             num_seen = dfd_summary.get('seen_total')
         try:
             num_seen = int(num_seen) if num_seen is not None else None
@@ -850,24 +850,21 @@ class PaperCitationFetcher:
                     # histogram reflects the previous probe; the new probe may
                     # have different per-year counts.
                     if old_total is not None and old_total != current_total:
-                        yfd = synthetic.get('year_fetch_diagnostics') or {}
-                        summary = yfd.get('summary')
-                        if isinstance(summary, dict):
-                            summary['scholar_total'] = current_total
-                            summary['histogram_total'] = 0
-                        dfd = synthetic.get('direct_fetch_diagnostics') or {}
-                        d_summary = dfd.get('summary')
-                        if isinstance(d_summary, dict):
-                            d_summary['scholar_total'] = current_total
+                        yfd = synthetic.get('year_fetch_diagnostics')
+                        if isinstance(yfd, dict):
+                            yfd['scholar_total'] = current_total
+                            yfd['histogram_total'] = 0
+                        dfd = synthetic.get('direct_fetch_diagnostics')
+                        if isinstance(dfd, dict):
+                            dfd['scholar_total'] = current_total
                 # Consistency check: if the citations array is empty but the
                 # diagnostics summary claims cached citations, the output file
                 # is inconsistent.  Reset completion flags so the next run
                 # fetches honestly.
                 if len(synthetic['citations']) == 0:
                     for diag_key in ('year_fetch_diagnostics', 'direct_fetch_diagnostics'):
-                        diag = synthetic.get(diag_key) or {}
-                        summary = diag.get('summary') or {}
-                        if summary.get('cached_total', 0) > 0:
+                        diag = synthetic.get(diag_key)
+                        if isinstance(diag, dict) and diag.get('cached_total', 0) > 0:
                             synthetic['complete_fetch_attempt'] = False
                             break
                 return st, synthetic
@@ -1168,11 +1165,10 @@ class PaperCitationFetcher:
                         print(f"  Year summary: {year_summary}{unyeared_suffix}", flush=True)
                     latest_cache_snapshot = self._load_citation_cache(title)
                     direct_fetch_diagnostics = (latest_cache_snapshot or {}).get('direct_fetch_diagnostics') or {}
-                    direct_summary = direct_fetch_diagnostics.get('summary') or {}
-                    has_direct_fetch_summary = direct_summary.get('scholar_total') is not None
+                    has_direct_fetch_summary = direct_fetch_diagnostics.get('scholar_total') is not None
                     direct_underfetched = (
                         has_direct_fetch_summary
-                        and (direct_summary.get('seen_total') or 0) < direct_summary['scholar_total']
+                        and (direct_fetch_diagnostics.get('seen_total') or 0) < direct_fetch_diagnostics['scholar_total']
                     )
                     if has_direct_fetch_summary:
                         if direct_underfetched:
@@ -1289,9 +1285,9 @@ class PaperCitationFetcher:
                 fetch_state['num_citations_on_scholar'] = current_total
                 for diag_key in ('year_fetch_diagnostics', 'direct_fetch_diagnostics'):
                     diag = fetch_state.get(diag_key)
-                    if isinstance(diag, dict) and 'summary' in diag:
-                        diag['summary']['scholar_total'] = current_total
-                        diag['summary']['cached_total'] = len(citations)
+                    if isinstance(diag, dict):
+                        diag['scholar_total'] = current_total
+                        diag['cached_total'] = len(citations)
             # Round-trip through dataclasses to strip unapproved keys.
             state_obj = PaperFetchState.from_dict(fetch_state)
             fetch_state = state_obj.to_dict()

@@ -86,13 +86,11 @@ class OutputStateTests(FetcherTestCase):
             "complete": True,
             "complete_fetch_attempt": True,
             "direct_fetch_diagnostics": {
-                "summary": {
                     "scholar_total": 10,
                     "cached_total": 10,
                     "seen_total": 10,
                     "dedup_count": 0,
                     "termination_reason": "page_end",
-                },
             },
         }
         self.assertEqual(
@@ -143,14 +141,12 @@ class OutputStateTests(FetcherTestCase):
                 "complete": True,
                 "complete_fetch_attempt": True,
                 "year_fetch_diagnostics": {
-                    "summary": {
                         "histogram_total": 100,
                         "scholar_total": 100,
                         "cached_total": 100,
                         "cached_year_total": 100,
                         "seen_total": 100,
                         "dedup_count": 0,
-                    },
                 },
             }
         }
@@ -177,13 +173,11 @@ class PaperFetchStateTests(unittest.TestCase):
             "complete_fetch_attempt": True,
             "year_fetch_diagnostics": None,
             "direct_fetch_diagnostics": {
-                "summary": {
                     "scholar_total": 42,
                     "cached_total": 42,
                     "seen_total": 42,
                     "dedup_count": 0,
                     "termination_reason": "iterator_exhausted",
-                },
             },
             "fetched_at": "2026-05-07T12:00:00",
         }
@@ -195,7 +189,7 @@ class PaperFetchStateTests(unittest.TestCase):
         out = fs.to_dict()
         self.assertEqual(out["title"], "Test Paper")
         self.assertEqual(out["num_citations_on_scholar"], 42)
-        self.assertEqual(out["direct_fetch_diagnostics"]["summary"]["scholar_total"], 42)
+        self.assertEqual(out["direct_fetch_diagnostics"]["scholar_total"], 42)
         self.assertEqual(set(out.keys()), {
             "title", "pub_url", "citedby_url", "fetch_strategy",
             "num_citations_on_scholar", "complete_fetch_attempt",
@@ -212,28 +206,28 @@ class PaperFetchStateTests(unittest.TestCase):
     def test_is_complete_direct_mode(self):
         fs = PaperFetchState.from_dict({
             "title": "T", "fetch_strategy": "direct",
-            "direct_fetch_diagnostics": {"summary": {"scholar_total": 10, "seen_total": 10}},
+            "direct_fetch_diagnostics": {"scholar_total": 10, "seen_total": 10},
         })
         self.assertTrue(fs.is_complete(current_scholar_total=10))
 
     def test_is_complete_direct_mode_partial(self):
         fs = PaperFetchState.from_dict({
             "title": "T", "fetch_strategy": "direct",
-            "direct_fetch_diagnostics": {"summary": {"scholar_total": 10, "seen_total": 5}},
+            "direct_fetch_diagnostics": {"scholar_total": 10, "seen_total": 5},
         })
         self.assertFalse(fs.is_complete(current_scholar_total=10))
 
     def test_is_complete_year_mode(self):
         fs = PaperFetchState.from_dict({
             "title": "T", "fetch_strategy": "year",
-            "year_fetch_diagnostics": {"summary": {"histogram_total": 100, "seen_total": 100}},
+            "year_fetch_diagnostics": {"histogram_total": 100, "seen_total": 100},
         })
         self.assertTrue(fs.is_complete(current_scholar_total=110, pub_year="2020"))
 
     def test_is_complete_year_mode_partial(self):
         fs = PaperFetchState.from_dict({
             "title": "T", "fetch_strategy": "year",
-            "year_fetch_diagnostics": {"summary": {"histogram_total": 100, "seen_total": 90}},
+            "year_fetch_diagnostics": {"histogram_total": 100, "seen_total": 90},
         })
         self.assertFalse(fs.is_complete(current_scholar_total=110, pub_year="2020"))
 
@@ -248,7 +242,7 @@ class PaperFetchStateTests(unittest.TestCase):
     def test_completeness_diag_direct_complete(self):
         fs = PaperFetchState.from_dict({
             "title": "T", "fetch_strategy": "direct",
-            "direct_fetch_diagnostics": {"summary": {"scholar_total": 10, "seen_total": 10}},
+            "direct_fetch_diagnostics": {"scholar_total": 10, "seen_total": 10},
         })
         self.assertIn("≥", fs.completeness_diag())
         self.assertIn("seen_total=10", fs.completeness_diag())
@@ -256,7 +250,7 @@ class PaperFetchStateTests(unittest.TestCase):
     def test_completeness_diag_direct_partial(self):
         fs = PaperFetchState.from_dict({
             "title": "T", "fetch_strategy": "direct",
-            "direct_fetch_diagnostics": {"summary": {"scholar_total": 10, "seen_total": 5}},
+            "direct_fetch_diagnostics": {"scholar_total": 10, "seen_total": 5},
         })
         diag = fs.completeness_diag()
         self.assertIn("<", diag)
@@ -274,16 +268,14 @@ class PaperFetchStateTests(unittest.TestCase):
         fs = PaperFetchState.from_dict({
             "title": "T", "fetch_strategy": "direct",
             "direct_fetch_diagnostics": {
-                "summary": {
                     "scholar_total": 10, "cached_total": 10, "seen_total": 10,
                     "dedup_count": 0, "termination_reason": "ok",
                     "histogram_total": 999,  # leaked year field
                     "cached_unyeared_count": 5,  # leaked year field
-                },
             },
         })
         out = fs.to_dict()
-        ds = out["direct_fetch_diagnostics"]["summary"]
+        ds = out["direct_fetch_diagnostics"]
         self.assertEqual(set(ds.keys()), {
             "scholar_total", "cached_total", "seen_total", "dedup_count", "termination_reason",
         })
@@ -297,9 +289,9 @@ class PaperFetchStateTests(unittest.TestCase):
             "year_fetch_diagnostics": {
                 "2023": {"year": 2023, "histogram_count": 10, "cached_total": 10, "seen_total": 10, "dedup_count": 0, "termination_reason": "ok"},
                 "2020": {"year": 2020, "histogram_count": 5, "cached_total": 5, "seen_total": 5, "dedup_count": 0, "termination_reason": "ok"},
-                "summary": {"histogram_total": 15, "seen_total": 15, "scholar_total": 20,
-                            "cached_total": 15, "cached_year_total": 15, "cached_unyeared_count": 0,
-                            "dedup_count": 0, "scholar_unyeared_count": 5},
+                "histogram_total": 15, "seen_total": 15, "scholar_total": 20,
+                "cached_total": 15, "cached_year_total": 15, "cached_unyeared_count": 0,
+                "dedup_count": 0, "scholar_unyeared_count": 5,
             },
         })
         out = fs.to_dict()
@@ -315,9 +307,9 @@ class PaperFetchStateTests(unittest.TestCase):
                 "2024": {"year": 2024, "histogram_count": 1, "cached_total": 1,
                          "seen_total": 1, "dedup_count": 0, "termination_reason": "ok",
                          "underfetched": True, "mode": "year"},
-                "summary": {"histogram_total": 1, "scholar_total": 1, "cached_total": 1,
-                            "cached_year_total": 1, "seen_total": 1, "cached_unyeared_count": 0,
-                            "dedup_count": 0, "scholar_unyeared_count": 0},
+                "histogram_total": 1, "scholar_total": 1, "cached_total": 1,
+                "cached_year_total": 1, "seen_total": 1, "cached_unyeared_count": 0,
+                "dedup_count": 0, "scholar_unyeared_count": 0,
             },
         })
         out = fs.to_dict()

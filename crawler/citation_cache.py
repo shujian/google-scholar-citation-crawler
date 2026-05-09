@@ -181,7 +181,8 @@ def rehydrate_probe_metadata(cached, current_scholar_total):
             histogram_total = None
         if histogram_total is None:
             year_diag = normalize_year_fetch_diagnostics((cached or {}).get('year_fetch_diagnostics'))
-            summary = (year_diag or {}).get('summary') or {}
+            # Diagnostics IS the summary; 'summary' sub-key is legacy compat
+            summary = (year_diag or {}).get('summary') or year_diag or {}
             try:
                 histogram_total = int(summary.get('histogram_total'))
             except (TypeError, ValueError):

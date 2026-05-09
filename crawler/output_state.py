@@ -126,22 +126,20 @@ class PaperFetchState:
             else:
                 return False
         if strategy == 'year':
-            yfd = self.year_fetch_diagnostics or {}
-            summary = yfd.get('summary', yfd)
+            summary = self.year_fetch_diagnostics or {}
         else:
-            summary = (self.direct_fetch_diagnostics or {}).get('summary') or {}
+            summary = self.direct_fetch_diagnostics or {}
         return is_data_complete(strategy, summary)
 
     def completeness_diag(self, citations_len=None):
         strategy = self.fetch_strategy or 'direct'
-        yfd = self.year_fetch_diagnostics or {}
         if strategy == 'year':
-            summary = yfd.get('summary', yfd)
+            summary = self.year_fetch_diagnostics or {}
             target = summary.get('histogram_total')
             seen = summary.get('seen_total')
             label = 'histogram_total'
         else:
-            summary = (self.direct_fetch_diagnostics or {}).get('summary') or {}
+            summary = self.direct_fetch_diagnostics or {}
             target = summary.get('scholar_total')
             seen = summary.get('seen_total')
             label = 'scholar_total'
@@ -161,19 +159,22 @@ def _coerce_int(value):
 
 
 def _normalize_direct_diagnostics(dfd):
+    """Return a normalized direct-fetch diagnostics dict.
+
+    Accepts both old format (with 'summary' sub-key) and current format
+    (diagnostics IS the summary).  Always returns the current format.
+    """
     if not isinstance(dfd, dict): return None
-    raw = dfd.get('summary')
+    raw = dfd.get('summary', dfd)  # accept both formats
     if not isinstance(raw, dict): return None
     dd = raw.get('dedup_count', 0) or 0
     ct = raw.get('cached_total', 0) or 0
     return {
-        'summary': {
-            'scholar_total': _coerce_int(raw.get('scholar_total')),
-            'cached_total': ct,
-            'seen_total': _coerce_int(raw.get('seen_total', ct + dd)) or (ct + dd),
-            'dedup_count': dd,
-            'termination_reason': raw.get('termination_reason', 'iterator_exhausted'),
-        },
+        'scholar_total': _coerce_int(raw.get('scholar_total')),
+        'cached_total': ct,
+        'seen_total': _coerce_int(raw.get('seen_total', ct + dd)) or (ct + dd),
+        'dedup_count': dd,
+        'termination_reason': raw.get('termination_reason', 'iterator_exhausted'),
     }
 
 
@@ -224,19 +225,12 @@ def _normalize_year_records(data):
 
 
 def _normalize_year_summary_dict(yfd):
-    """Extract the summary from year_fetch_diagnostics.
+    """Return a normalized year-fetch diagnostics dict from *yfd*.
 
-    Two formats coexist:
-    1. Nested summary: yfd['summary'] is the summary dict (current save_progress).
-    2. Inline summary: yfd IS the summary (post-migration output files where
-       year_records were separated from year_fetch_diagnostics).
+    *yfd* IS the summary — no 'summary' sub-key, no per-year entries.
     """
     if not isinstance(yfd, dict):
         return None
-    raw_summary = yfd.get('summary')
-    if isinstance(raw_summary, dict):
-        return _normalize_year_summary(raw_summary)
-    # Post-migration format: yfd IS the summary
     if 'histogram_total' in yfd or 'scholar_total' in yfd:
         return _normalize_year_summary(yfd)
     return None
