@@ -266,7 +266,7 @@ class PaperFetchStateTests(unittest.TestCase):
         fs = PaperFetchState.from_dict({
             "title": "T", "fetch_strategy": "direct", "num_citations_on_scholar": 10,
         })
-        self.assertIn("(no diagnostics)", fs.completeness_diag(citations_len=10))
+        self.assertIn("diagnostics summary absent", fs.completeness_diag(citations_len=10))
 
 
     def test_to_dict_normalizes_direct_summary(self):
