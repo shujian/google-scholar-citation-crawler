@@ -843,20 +843,14 @@ class PaperCitationFetcher:
                 # reflects the latest count even when the paper was skipped this run.
                 current_total = pub.get('num_citations')
                 if current_total is not None:
-                    old_total = synthetic.get('num_citations_on_scholar')
                     synthetic['num_citations_on_scholar'] = current_total
-                    # When the scholar total changed, reset histogram_total to 0
-                    # for year-mode papers so they are re-evaluated.  The old
-                    # histogram reflects the previous probe; the new probe may
-                    # have different per-year counts.
-                    if old_total is not None and old_total != current_total:
-                        yfd = synthetic.get('year_fetch_diagnostics')
-                        if isinstance(yfd, dict):
-                            yfd['scholar_total'] = current_total
-                            yfd['histogram_total'] = 0
-                        dfd = synthetic.get('direct_fetch_diagnostics')
-                        if isinstance(dfd, dict):
-                            dfd['scholar_total'] = current_total
+                    # Update scholar_total in diagnostics to the current value.
+                    yfd = synthetic.get('year_fetch_diagnostics')
+                    if isinstance(yfd, dict):
+                        yfd['scholar_total'] = current_total
+                    dfd = synthetic.get('direct_fetch_diagnostics')
+                    if isinstance(dfd, dict):
+                        dfd['scholar_total'] = current_total
                 # Consistency check: if the citations array is empty but the
                 # diagnostics summary claims cached citations, the output file
                 # is inconsistent.  Reset completion flags so the next run
