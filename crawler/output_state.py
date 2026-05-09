@@ -151,9 +151,16 @@ class PaperFetchState:
         """
         if not self.year_records:
             return self
-        self.year_fetch_diagnostics = _normalize_year_summary_from_records(
-            self.year_records
-        )
+        derived = _normalize_year_summary_from_records(self.year_records)
+        # Only update fields that records actually provide; keep existing
+        # values for scholar_total, cached_unyeared_count, scholar_unyeared_count
+        # which records cannot know.
+        existing = self._year_fetch_diagnostics or {}
+        for key in ('histogram_total', 'cached_total', 'cached_year_total',
+                     'seen_total', 'dedup_count'):
+            if derived.get(key) is not None:
+                existing[key] = derived[key]
+        self._year_fetch_diagnostics = existing
         return self
 
     def restore_direct_diag_from_citations(self, citations):
