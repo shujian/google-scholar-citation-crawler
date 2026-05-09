@@ -8,6 +8,7 @@ from tests.conftest import (
 import types
 import unittest
 import scholar_citation
+from crawler.output_state import PaperFetchState
 from crawler.citation_strategy import refresh_reconciliation_status as _cs_refresh_reconciliation_status
 
 class OutputAndReconciliationTests(FetcherTestCase):
@@ -93,10 +94,10 @@ class OutputAndReconciliationTests(FetcherTestCase):
         self.assertEqual(status["scholar_unyeared_count"], 2)
         self.assertEqual(status["cached_year_total"], 3)
 
-    def test_save_output_includes_fetch_state_from_cache(self):
+    def test_save_output_includes_fetch_state_from_output_state(self):
         pub = {
             "no": 1,
-            "title": "Paper With Cache",
+            "title": "Paper With State",
             "num_citations": 150,
             "year": "2020",
             "venue": "Venue",
@@ -107,8 +108,8 @@ class OutputAndReconciliationTests(FetcherTestCase):
                 {"title": "Citing Paper", "authors": "A", "venue": "CV", "year": "2024", "url": "https://example.com/cite"}
             ],
         }
-        cache_content = {
-            "title": "Paper With Cache",
+        state_dict = {
+            "title": "Paper With State",
             "num_citations_on_scholar": 150,
             "complete_fetch_attempt": True,
             "fetch_strategy": "year",
@@ -119,14 +120,12 @@ class OutputAndReconciliationTests(FetcherTestCase):
                     "seen_total": 50, "dedup_count": 0,
                     "termination_reason": "short_page_stop",
                 },
-                "summary": {
-                    "histogram_total": 50,
-                    "scholar_total": 150,
-                    "cached_total": 1,
-                    "cached_year_total": 1,
-                    "seen_total": 50,
-                    "dedup_count": 0,
-                },
+                "histogram_total": 50,
+                "scholar_total": 150,
+                "cached_total": 1,
+                "cached_year_total": 1,
+                "seen_total": 50,
+                "dedup_count": 0,
             },
             "citations": result["citations"],
         }
@@ -138,11 +137,10 @@ class OutputAndReconciliationTests(FetcherTestCase):
             self.fetcher._run_start_time = 0
             with open(self.fetcher.profile_json, "w", encoding="utf-8") as f:
                 json.dump({"publications": [pub]}, f)
-            # Seed the cache so _save_output can read it
-            cache_path = self.fetcher._citation_cache_path(pub["title"])
-            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-            with open(cache_path, "w", encoding="utf-8") as f:
-                json.dump(cache_content, f)
+            # Set output state (not cache)
+            self.fetcher._output_fetch_state = {
+                "Paper With State": PaperFetchState.from_dict(state_dict),
+            }
 
             with patch.object(scholar_citation.openpyxl, "Workbook", return_value=scholar_citation.openpyxl.Workbook()), \
                  patch.object(scholar_citation, "datetime") as fake_datetime:

@@ -1270,24 +1270,11 @@ class PaperCitationFetcher:
         def _build_entry(pub, citations):
             """Build output entry with correct _fetch_state."""
             title = pub.get('title', '') if pub else ''
-            # Prefer output state (cross-run), fall back to cache file (within-run)
             state = output_fetch_state.get(title)
             if state:
                 fetch_state = state.to_dict() if isinstance(state, PaperFetchState) else dict(state)
             else:
-                cached = self._load_citation_cache(title) if pub else None
-                fs = _os_extract_fetch_state(cached) if cached else None
-                fetch_state = fs.to_dict() if fs else {}
-            # For papers that were processed this run, the cache file has
-            # fresh diagnostics.  Merge them into the output state.
-            cached = self._load_citation_cache(title) if pub else None
-            if cached:
-                for key in ('fetch_strategy', 'year_fetch_diagnostics',
-                            'direct_fetch_diagnostics', 'fetched_at',
-                            'complete_fetch_attempt'):
-                    if key in cached:
-                        fetch_state[key] = cached[key]
-            # Update scholar total and cached_total from current state.
+                fetch_state = {}
             current_total = pub.get('num_citations') if pub else None
             if current_total is not None and fetch_state:
                 fetch_state['num_citations_on_scholar'] = current_total
@@ -1296,7 +1283,6 @@ class PaperCitationFetcher:
                     if isinstance(diag, dict):
                         diag['scholar_total'] = current_total
                         diag['cached_total'] = len(citations)
-            # Round-trip through dataclasses to strip unapproved keys.
             state_obj = PaperFetchState.from_dict(fetch_state)
             fetch_state = state_obj.to_dict()
             pub_out = PubInfo.from_dict(pub).to_dict() if pub else {}
@@ -1336,6 +1322,13 @@ class PaperCitationFetcher:
 
         self._save_xlsx(final_results, metadata=output_payload)
         print(f"Saved Excel: {self.out_xlsx}")
+
+        # Cache files are for within-run recovery only; delete them now
+        # that the output file is safely written.
+        import shutil
+        if os.path.exists(self.cache_dir):
+            shutil.rmtree(self.cache_dir)
+            os.makedirs(self.cache_dir, exist_ok=True)
 
         total_papers = len(results)  # includes None slots (total publications)
         fetched_str = f", {self._papers_fetched_count} fetched" if self._papers_fetched_count else ""
