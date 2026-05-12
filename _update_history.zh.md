@@ -9,7 +9,7 @@
 - `year_new_count` 之前用 `old_cache_identity_keys`（全局旧缓存）做 `is_new` 判断
 - 当某引用从旧缓存的 2024 年"移动"到 2026 年时，`is_new=False`，被错误地排除
 - 用户看到 `cached=20, probe=23` 期望 3 个 new，但实际只计入 1 个（跨年去重过滤了 2 个）
-- 修复：`year_new_count = max(0, len(batch.citations) - len(old_year_buckets[year]))`，只看年份桶增量
+- 修复：新增 `old_year_identity_keys`（仅包含该年份旧桶中引用的 identity key），`year_new_count` 计数时使用该年份范围的 key 集合 — `is_new=True`（全局新）或 citation 不在 `old_year_identity_keys` 中（年份桶新）均计入
 - `fetcher._new_citations_count` 保留跨年去重语义（真正的新引用），进度行同时显示两种计数
 - 同步修复：`_new_citations_count` 在每个 paper 前重置，避免跨 paper 累加
 
