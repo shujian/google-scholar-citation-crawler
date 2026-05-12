@@ -2506,3 +2506,11 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 > 检查一下文档是否已经更新
 
 > 如果空闲，请更新相关的文档，并进行提交。检查 _work_notes.zh.md、_update_history.zh.md、_user.zh.md、README.md 是否需要根据最近的变更进行更新。
+
+### 329
+
+> claude.me和其他文件当中的内容是不是有些冗余了？你看是不是可以通过引用的方式来说明项目结构？这样可以精简一些内容。
+
+> 不行，work_notes、README.md还有给读者阅读的功能，如果一定要保留一份，建议保留在这两个文件中。可以在CLAUDE.md中说明，要从work_notes中了解项目的基本结构和开发信息。
+
+### 330

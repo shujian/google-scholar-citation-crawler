@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-05-12: CLAUDE.md 去重 — 精简项目结构为引用
+
+- CLAUDE.md 中冗长的树形项目结构（55 行）替换为引用 `_work_notes.zh.md` 和 `README.md`
+- 保留 Architecture overview、dependency map、testing notes 等 CLAUDE.md 独有内容
+- 修正 Architecture overview 中过时引用：`FetchContext` → `PaperFetchState`/`YearFetchSession`、`--recheck-citations` → `--fetch-mode`、`publications.json` 缓存 → profile JSON
+- 关联：修正前次遗漏的 stale 模块引用和测试计数（fetch_context.py、121/107 → 127）
+
+---
+
 ## 2026-05-12: 文档修正 — 过期模块引用和测试计数
 
 - CLAUDE.md、`_work_notes.zh.md` 中 `fetch_context.py` → `fetch_session.py`（FetchContext 已删除）
