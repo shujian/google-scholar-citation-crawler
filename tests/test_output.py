@@ -253,37 +253,6 @@ class OutputAndReconciliationTests(FetcherTestCase):
         self.assertEqual(status["histogram_total"], 1)
         self.assertEqual(status["cached_unyeared_count"], 2)
 
-        counts, probe_complete = self.fetcher._rehydrate_probe_metadata(
-            {
-                "probed_year_counts": {"2024": 1, "2025": 2},
-                "probe_complete": True,
-            },
-            current_scholar_total=3,
-        )
-
-        self.assertEqual(counts, {2024: 1, 2025: 2})
-        self.assertTrue(probe_complete)
-
-    def test_rehydrate_probe_metadata_downgrades_legacy_or_stale_complete_flags(self):
-        legacy_counts, legacy_complete = self.fetcher._rehydrate_probe_metadata(
-            {
-                "probed_year_counts": {"2024": 1, "2025": 2},
-            },
-            current_scholar_total=3,
-        )
-        stale_counts, stale_complete = self.fetcher._rehydrate_probe_metadata(
-            {
-                "probed_year_counts": {"2024": 1, "2025": 2},
-                "probe_complete": True,
-            },
-            current_scholar_total=4,
-        )
-
-        self.assertEqual(legacy_counts, {2024: 1, 2025: 2})
-        self.assertTrue(legacy_complete)
-        self.assertEqual(stale_counts, {2024: 1, 2025: 2})
-        self.assertFalse(stale_complete)
-
 
 
 if __name__ == '__main__':

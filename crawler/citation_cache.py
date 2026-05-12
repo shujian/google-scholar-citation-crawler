@@ -160,40 +160,6 @@ def probed_year_counts_satisfied(cached_year_counts, probed_year_counts, year_fe
 
 # ---------------------------------------------------------------------------
 # Probe metadata rehydration
-# ---------------------------------------------------------------------------
-
-def rehydrate_probe_metadata(cached, current_scholar_total):
-    """
-    Load probed_year_counts and derive probe_complete from the cached data.
-    probe_complete is True iff the histogram total equals the scholar total
-    (all year-assignable citations are accounted for in the histogram).
-    Returns (normalized_counts_or_None, probe_complete_bool).
-    """
-    normalized_counts = normalize_year_count_map(
-        (cached or {}).get('probed_year_counts')
-    )
-    probe_complete = False
-    if normalized_counts:
-        histogram_total = (cached or {}).get('probed_year_total')
-        try:
-            histogram_total = int(histogram_total)
-        except (TypeError, ValueError):
-            histogram_total = None
-        if histogram_total is None:
-            year_diag = normalize_year_fetch_diagnostics((cached or {}).get('year_fetch_diagnostics'))
-            # Diagnostics IS the summary; 'summary' sub-key is legacy compat
-            summary = (year_diag or {}).get('summary') or year_diag or {}
-            try:
-                histogram_total = int(summary.get('histogram_total'))
-            except (TypeError, ValueError):
-                histogram_total = None
-        if histogram_total is None:
-            histogram_total = sum(normalized_counts.values())
-        if current_scholar_total is not None and histogram_total == current_scholar_total:
-            probe_complete = True
-    return normalized_counts or None, probe_complete
-
-
 def is_data_complete(strategy, summary):
     """Return whether *summary* indicates complete citation data.
 

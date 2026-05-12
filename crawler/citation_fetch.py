@@ -254,8 +254,8 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
         int(year): _page_aligned_start(idx)
         for year, idx in (partial_year_start or {}).items()
     }
-    ctx.probed_year_counts = fetcher._normalize_year_count_map(rehydrated_probed_year_counts) or None
-    ctx.probed_year_count_complete = bool(rehydrated_probe_complete and ctx.probed_year_counts)
+    ctx.probed_year_counts = None  # always probe fresh in fetch_by_year
+    ctx.probed_year_count_complete = False
     ctx.year_fetch_diagnostics = fetcher._normalize_year_fetch_diagnostics(
         rehydrated_year_fetch_diagnostics
     )
