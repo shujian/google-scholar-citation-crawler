@@ -2524,3 +2524,9 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 ### 330-b
 
 > 你搞反了，现在问题并不是year-done的数字大于实际，而是比实际数字小。
+
+### 331
+
+> 我发现在year-based逐年判断的时候，明明seen_total 321, histogram = 321, 但是还是进行了抓取，这是为什么？请先解释一下再判断怎么修改。
+
+> Year 2025: fetching (cached=320, probe=321) 这里的输出是这样的，但实际上应该判断seen和probe的关系。

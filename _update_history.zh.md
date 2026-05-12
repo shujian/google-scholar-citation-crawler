@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-05-12: 修复 year 跳过判断失效 — rehydrate_year_fetch_diagnostics 读取格式错配
+
+- 输出文件中 `year_fetch_diagnostics` 是 summary（8 个汇总字段），`year_records` 才是 per-year 条目
+- `normalize_year_fetch_diagnostics()` 期望 per-year 格式（`{year: diag_dict}`），收到 summary 后遍历其中的 histogram_total/scholar_total 等 int 值，`isinstance(int, dict)` 全部为 False → 返回 `{}`
+- `rehydrate_year_fetch_diagnostics` 返回 `{} or None` → `None` → `fetch_by_year` 中 sync 和 skip 检查均跳过
+- skip 回退到 `cached_year_counts.get(year)` 做比较，丢失了 `dedup_count`，导致 `seen_total >= histogram` 为 True 的年份无法跳过
+- 修复：`rehydrate_year_fetch_diagnostics` 优先读取 `year_records` 并转换为 `{year: diag}` 结构
+
+---
+
 ## 2026-05-12: 修复 year_new_count 统计为年份桶增量（而非跨年去重）
 
 - `year_new_count` 之前用 `old_cache_identity_keys`（全局旧缓存）做 `is_new` 判断
