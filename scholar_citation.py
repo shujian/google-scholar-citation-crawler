@@ -60,7 +60,6 @@ from crawler.citation_cache import (
     year_fetch_diagnostic_matches_total as _cc_year_fetch_diagnostic_matches_total,
     probed_year_counts_satisfied as _cc_probed_year_counts_satisfied,
     rehydrate_probe_metadata as _cc_rehydrate_probe_metadata,
-    rehydrate_year_fetch_diagnostics as _cc_rehydrate_year_fetch_diagnostics,
 )
 from crawler.citation_strategy import (
     normalize_pub_year as _cs_normalize_pub_year,
@@ -375,10 +374,6 @@ class PaperCitationFetcher:
         return _cc_rehydrate_probe_metadata(cached, current_scholar_total)
 
     @staticmethod
-    def _rehydrate_year_fetch_diagnostics(cached):
-        return _cc_rehydrate_year_fetch_diagnostics(cached)
-
-    @staticmethod
     def _format_year_fetch_diagnostics_summary(year_fetch_diagnostics):
         return _cs_format_year_fetch_diagnostics_summary(year_fetch_diagnostics)
 
@@ -446,10 +441,11 @@ class PaperCitationFetcher:
                 if isinstance(rec, dict) and rec.get('year') is not None:
                     per_year[rec['year']] = rec
             rehydrated_year_fetch_diagnostics = self._normalize_year_fetch_diagnostics(per_year) or None
-        # Fallback: old output files or cache files may use year_fetch_diagnostics
-        # (per-year or summary format) instead of year_records.
+        # Fallback: same-run cache files may lack year_records.
         if not rehydrated_year_fetch_diagnostics:
-            rehydrated_year_fetch_diagnostics = self._rehydrate_year_fetch_diagnostics(cached)
+            year_fetch_diag = cached.get('year_fetch_diagnostics')
+            if isinstance(year_fetch_diag, dict):
+                rehydrated_year_fetch_diagnostics = self._normalize_year_fetch_diagnostics(year_fetch_diag) or None
         # When transitioning from direct to year mode the cache has no year
         # diagnostics yet.  Synthesise per-year entries from the cached
         # citations so the year fetch path knows which years are already
@@ -1119,8 +1115,15 @@ class PaperCitationFetcher:
                                         # transitions) over a bare re-read from cache.
                                         rehydrated_year_fetch_diagnostics = (
                                             retry_attempt_state['rehydrated_year_fetch_diagnostics']
-                                            or self._rehydrate_year_fetch_diagnostics(latest_cache)
                                         )
+                                        if not rehydrated_year_fetch_diagnostics and latest_cache:
+                                            yr = latest_cache.get('year_records')
+                                            if isinstance(yr, list) and yr:
+                                                per_year = {}
+                                                for rec in yr:
+                                                    if isinstance(rec, dict) and rec.get('year') is not None:
+                                                        per_year[rec['year']] = rec
+                                                rehydrated_year_fetch_diagnostics = self._normalize_year_fetch_diagnostics(per_year) or None
                                     else:
                                         completed_years_in_current_run = retry_attempt_state['completed_years_in_current_run']
                                         rehydrated_probed_year_counts = retry_attempt_state['rehydrated_probed_year_counts']

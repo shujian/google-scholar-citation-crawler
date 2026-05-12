@@ -194,29 +194,6 @@ def rehydrate_probe_metadata(cached, current_scholar_total):
     return normalized_counts or None, probe_complete
 
 
-def rehydrate_year_fetch_diagnostics(cached):
-    """Load and normalize year_fetch_diagnostics from a cached dict.
-
-    Prefers ``year_records`` (per-year list) when available because
-    ``year_fetch_diagnostics`` in newer output files is a flat summary
-    (histogram_total / scholar_total / ...), not per-year entries.
-    """
-    if not cached:
-        return None
-    year_records = cached.get('year_records')
-    if year_records and isinstance(year_records, list) and len(year_records) > 0:
-        per_year = {}
-        for rec in year_records:
-            if isinstance(rec, dict) and rec.get('year') is not None:
-                per_year[rec['year']] = rec
-        result = normalize_year_fetch_diagnostics(per_year)
-        if result:
-            return result
-    return normalize_year_fetch_diagnostics(
-        cached.get('year_fetch_diagnostics')
-    ) or None
-
-
 def is_data_complete(strategy, summary):
     """Return whether *summary* indicates complete citation data.
 
