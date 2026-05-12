@@ -763,15 +763,17 @@ class PaperCitationFetcher:
         return 'missing'
 
     @staticmethod
-    def _format_completeness_diag(st, cached):
+    def _format_completeness_diag(st, cached, paper_state=None):
         """Return a one-line completeness diagnostic from cached state."""
         if st in ('skip_zero', None):
             return ''
         if st == 'missing':
             return '  no cached state → missing'
+        if isinstance(paper_state, PaperFetchState):
+            return paper_state.completeness_diag()
         if isinstance(cached, dict):
             cached = PaperFetchState.from_dict(cached)
-        return cached.completeness_diag()
+        return cached.completeness_diag() if isinstance(cached, PaperFetchState) else ''
 
     def has_pending_work(self):
         """Check if there are any papers with incomplete citation caches."""
@@ -992,7 +994,7 @@ class PaperCitationFetcher:
             if st == 'complete':
                 print(f"[{idx}/{len(publications)}] {title[:55]}... -> cached ({len(cached['citations'])} citations)")
                 if self.fetch_mode != 'force':
-                    print(PaperCitationFetcher._format_completeness_diag(st, cached))
+                    print(PaperCitationFetcher._format_completeness_diag(st, cached, paper_state=paper_state))
                 results[idx - 1] = {'pub': pub, 'citations': cached['citations']}
                 continue
 
@@ -1057,7 +1059,7 @@ class PaperCitationFetcher:
             action = attempt_state['action']
 
             print(f"[{idx}/{len(publications)}] {title[:55]}...")
-            print(PaperCitationFetcher._format_completeness_diag(st, cached))
+            print(PaperCitationFetcher._format_completeness_diag(st, cached, paper_state=paper_state))
             print(f"  {action}")
 
             # Skip year-based fetch when all cached citations are unyeared and
@@ -1201,12 +1203,13 @@ class PaperCitationFetcher:
                         d.get('histogram_count', d.get('scholar_total', 0))
                         for d in (year_fetch_diagnostics or {}).values()
                     ) if year_fetch_diagnostics else 0
+                    new_str = f", {self._new_citations_count} new this paper" if self._new_citations_count else ""
                     if histogram_total > 0:
                         unyeared = max(0, num_citations - histogram_total)
-                        print(f"  Done: {len(citations)} cached, {seen_total} seen{dedup_str} "
+                        print(f"  Done: {len(citations)} cached, {seen_total} seen{dedup_str}{new_str} "
                               f"(histogram: {histogram_total}, scholar: {num_citations}, unyeared: {unyeared})")
                     else:
-                        print(f"  Done: {len(citations)} cached, {seen_total} seen{dedup_str} "
+                        print(f"  Done: {len(citations)} cached, {seen_total} seen{dedup_str}{new_str} "
                               f"(Scholar: {num_citations})")
                     year_counts = self._year_count_map(citations)
                     if year_counts:

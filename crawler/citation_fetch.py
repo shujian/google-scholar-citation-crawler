@@ -750,6 +750,13 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
             resuming_partial_year = year in ctx.partial_year_start
             cached_count = cached_year_counts.get(year)
             live_count = probed_year_counts.get(year)
+            # Compute seen the same way as the skip check above so the log
+            # matches what was actually compared.
+            existing_diag_for_log = year_fetch_diagnostics.get(year)
+            seen_for_log = ((existing_diag_for_log or {}).get('seen_total')
+                            if existing_diag_for_log else None)
+            if seen_for_log is None:
+                seen_for_log = cached_count
 
             if not fetcher.interactive_captcha:
                 fetcher._refresh_scholarly_session()
@@ -763,11 +770,11 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                         f"(skip first {initial_in_page_skip})"
                     )
                 print(f"      Year {year}: resuming from {resume_note} "
-                      f"(cached={cached_count if cached_count is not None else '?'}, "
+                      f"(seen={seen_for_log}, "
                       f"probe={live_count if live_count is not None else '?'})", flush=True)
             else:
                 print(f"      Year {year}: fetching "
-                      f"(cached={cached_count if cached_count is not None else '?'}, "
+                      f"(seen={seen_for_log}, "
                       f"probe={live_count if live_count is not None else '?'})", flush=True)
 
             year_url = (f'/scholar?as_ylo={year}&as_yhi={year}&hl=en'

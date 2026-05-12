@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-05-12: 日志一致性修正 — 判断依据与打印值统一
+
+- Year `fetching` / `resuming` 日志之前显示 `cached=320`（不含 dedup），但跳过判断使用的是 `seen_total=321`（含 dedup）→ 改为显示 `seen`，与判断逻辑一致
+- Paper `Done` 日志加入 `N new this paper`，与 progress 行和 year-done 行形成完整的 per-year → per-paper → per-run 三级新引用计数
+- `_format_completeness_diag` 优先使用 PaperFetchState，避免重新从 dict 构建
+
+---
+
 ## 2026-05-12: 修复 year 跳过判断失效 — 从 year_records 直接读取 per-year 数据
 
 - 输出文件中 `year_fetch_diagnostics` 是 summary（8 个汇总字段），`year_records` 才是 per-year 条目
