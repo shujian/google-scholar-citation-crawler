@@ -1204,13 +1204,27 @@ class PaperCitationFetcher:
                         for d in (year_fetch_diagnostics or {}).values()
                     ) if year_fetch_diagnostics else 0
                     new_str = f", {self._new_citations_count} new this paper" if self._new_citations_count else ""
+                    # Show the fetch target comparison.
+                    if year_fetch_diagnostics:
+                        target = histogram_total
+                        target_label = 'histogram_total'
+                    else:
+                        target = num_citations
+                        target_label = 'scholar_total'
+                    if target is not None:
+                        cmp_sym = '≥' if seen_total >= target else '<'
+                        diag = f"  {fetch_policy.get('strategy', 'direct')}: seen_total={seen_total} {cmp_sym} {target_label}={target}"
+                    else:
+                        diag = "  target unavailable"
                     if histogram_total > 0:
                         unyeared = max(0, num_citations - histogram_total)
                         print(f"  Done: {len(citations)} cached, {seen_total} seen{dedup_str}{new_str} "
-                              f"(histogram: {histogram_total}, scholar: {num_citations}, unyeared: {unyeared})")
+                              f"(scholar={num_citations}, histogram={histogram_total}, unyeared={unyeared})")
+                        print(diag, flush=True)
                     else:
                         print(f"  Done: {len(citations)} cached, {seen_total} seen{dedup_str}{new_str} "
-                              f"(Scholar: {num_citations})")
+                              f"(scholar_total={num_citations})")
+                        print(diag, flush=True)
                     year_counts = self._year_count_map(citations)
                     if year_counts:
                         year_total = sum(year_counts.values())

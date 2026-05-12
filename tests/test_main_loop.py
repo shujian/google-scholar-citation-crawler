@@ -331,7 +331,7 @@ class MainLoopTests(FetcherTestCase):
             )
 
         output = fake_stdout.getvalue()
-        self.assertIn("Done: 3 cached, 3 seen (Scholar: 3)", output)
+        self.assertIn("Done: 3 cached, 3 seen (scholar_total=3)", output)
         self.assertIn("Year summary:", output)
         self.assertIn("years_with_citations=2", output)
         self.assertIn("range=2024-2025 [2024:1, 2025:1]", output)
@@ -551,7 +551,7 @@ class MainLoopTests(FetcherTestCase):
             )
 
         output = fake_stdout.getvalue()
-        self.assertIn("Done: 2 cached, 3 seen, 1 dupes (Scholar: 12)", output)
+        self.assertIn("Done: 2 cached, 3 seen, 1 dupes (scholar_total=12)", output)
         self.assertIn("Direct fetch summary (scholar_total=12, cached_total=11, seen_total=12, dedup_num=1, gap=0, termination=target_reached)", output)
         self.assertNotIn("Direct fetch under-fetched; recording current results", output)
         self.assertEqual(results[0]["citations"], final_citations)
