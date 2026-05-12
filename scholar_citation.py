@@ -1288,10 +1288,27 @@ class PaperCitationFetcher:
 
             results[idx - 1] = {'pub': pub, 'citations': citations or []}
             self._run_new_citations_total += self._new_citations_count
-            # Clear scholar_changed after a successful fetch.
+            # Clear scholar_changed and update diagnostics from the cache file
+            # written by save_progress during this fetch.
             output_state = getattr(self, '_output_fetch_state', {}).get(pub['title'])
             if isinstance(output_state, PaperFetchState):
                 output_state.clear_scholar_changed()
+                # Read the per-paper cache to get the diagnostics written by
+                # save_progress (seen_total, dedup_count, termination_reason, etc.)
+                cache_snapshot = self._load_citation_cache(title)
+                if cache_snapshot:
+                    # Update year_records and rebuild year_fetch_diagnostics.
+                    yr = cache_snapshot.get('year_records') or []
+                    if yr:
+                        output_state._year_records = yr
+                        output_state.restore_year_diag_from_year_records()
+                    # Pull in direct-fetch diagnostics from the cache snapshot.
+                    dfd = cache_snapshot.get('direct_fetch_diagnostics') or {}
+                    if isinstance(dfd, dict) and dfd.get('scholar_total') is not None:
+                        output_state._direct_fetch_diagnostics = dfd
+                    yfd = cache_snapshot.get('year_fetch_diagnostics') or {}
+                    if isinstance(yfd, dict) and yfd.get('scholar_total') is not None:
+                        output_state._year_fetch_diagnostics = yfd
 
             if fetch_idx < (self.limit or len(need_fetch)):
                 print(f"  {now_str()} Next paper... [{self._wait_status()}]", flush=True)
