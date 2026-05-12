@@ -652,8 +652,6 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
 
     year_range = range(start_year, current_year + 1)
 
-    paper_new_count = 0
-
     probed_year_counts = fetcher._normalize_year_count_map(ctx.probed_year_counts)
     is_year = True  # fetch_by_year is only entered in year mode
     count_summary = fetcher._build_citation_count_summary(
@@ -776,9 +774,9 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                         f'&as_sdt=2005&sciodt=0,5&cites={pub_id}&scipsc=')
             print(f"        URL: https://scholar.google.com{year_url}", flush=True)
 
-            year_new_count = 0
             year_dedup_count = 0
             year_progress_saved = False
+            old_year_bucket_count = len(old_year_buckets.get(year, []))
             existing_year_fresh = list(old_year_buckets.get(year, [])) if start_index > 0 else []
             year_seen_keys = {}
             for c in existing_year_fresh:
@@ -793,15 +791,12 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
             )
 
             def _on_year_citation(info, identity_keys, is_new, is_dupe, existing_label):
-                nonlocal year_new_count, paper_new_count
                 if is_dupe:
                     print(f"          [dedup] Skipping duplicate: {info['title'][:50]}... "
                           f"({info.get('venue', 'N/A')}, {info.get('year', '?')})\n"
                           f"                    Existing: {existing_label}", flush=True)
                 else:
                     if is_new:
-                        year_new_count += 1
-                        paper_new_count += 1
                         fetcher._new_citations_count += 1
                     fresh_year_buckets[year] = list(year_batch.citations)
                     fresh_citations[:] = current_citations(complete=True)
@@ -815,8 +810,9 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                 save_progress(fetch_finished=False, batch=batch)
                 year_progress_saved = True
                 if batch.items_on_page >= SCHOLAR_PAGE_SIZE:
+                    delta = len(batch.citations) - len(old_year_buckets.get(year, []))
                     print(f"        Progress saved: {len(batch.citations)} fetched for year {year}, "
-                          f"{fetcher._new_citations_count} new this paper", flush=True)
+                          f"{delta} new in year, {fetcher._new_citations_count} truly new this paper", flush=True)
 
             year_batch.run(
                 fetcher,
@@ -844,8 +840,9 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                 year_batch.termination_reason,
             )
             ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
+            year_new_count = max(0, len(year_batch.citations) - old_year_bucket_count)
             if year_new_count > 0:
-                print(f"      Year {year} done: {year_new_count} new citations", flush=True)
+                print(f"      Year {year} done: {year_new_count} new citations (year bucket {old_year_bucket_count} → {len(year_batch.citations)})", flush=True)
             else:
                 print(f"      Year {year} done: no new citations", flush=True)
             diag = year_fetch_diagnostics[year]

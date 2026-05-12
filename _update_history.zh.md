@@ -4,7 +4,22 @@
 
 ---
 
+## 2026-05-12: 修复 year_new_count 统计为年份桶增量（而非跨年去重）
+
+- `year_new_count` 之前用 `old_cache_identity_keys`（全局旧缓存）做 `is_new` 判断
+- 当某引用从旧缓存的 2024 年"移动"到 2026 年时，`is_new=False`，被错误地排除
+- 用户看到 `cached=20, probe=23` 期望 3 个 new，但实际只计入 1 个（跨年去重过滤了 2 个）
+- 修复：`year_new_count = max(0, len(batch.citations) - len(old_year_buckets[year]))`，只看年份桶增量
+- `fetcher._new_citations_count` 保留跨年去重语义（真正的新引用），进度行同时显示两种计数
+- 同步修复：`_new_citations_count` 在每个 paper 前重置，避免跨 paper 累加
+
+---
+
 ## 2026-05-12: 修复 new citations 跨 paper 累加导致进度日志计数偏差
+
+此问题仅为症状。真正的根因是 `year_new_count` 使用了错误的比较范围（全局旧缓存 vs 年份桶），详见上方条目。
+
+旧记录保留如下：
 
 - `_new_citations_count` 之前在整个 run 中只重置一次，导致第 N 篇 paper 的进度日志 `N new across run` 包含了前面 papers 的 new 总数
 - 而 `year_new_count` 是每个 paper 每个 year 独立计数 → 两者数值不一致
