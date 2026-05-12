@@ -62,8 +62,7 @@ class CitationStatusTests(FetcherTestCase):
                 )
 
             self.assertEqual(citations, [])
-            with open(cache_path, "r", encoding="utf-8") as f:
-                saved = json.load(f)
+            saved = self.fetcher._mid_paper_state.get("Paper", {})
             # Probe always runs fresh; pre-fetch probed_year_counts is empty.
             self.assertEqual(saved["probed_year_counts"], {})
             summary = saved["year_fetch_diagnostics"]

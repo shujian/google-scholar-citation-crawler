@@ -90,8 +90,7 @@ class DirectFetchTests(FetcherTestCase):
                     resume_from=[{"title": "Cached", "authors": "A", "venue": "V", "year": "2024", "url": "u0"}],
                 )
 
-        with open(cache_path, "r", encoding="utf-8") as f:
-            saved = json.load(f)
+        saved = self.fetcher._mid_paper_state.get("Paper", {})
 
         # next_index is page-aligned so the retry re-fetches the whole page;
         # already-saved items in the cache serve as old_citations for dedup.
@@ -124,9 +123,7 @@ class DirectFetchTests(FetcherTestCase):
                 },
             )
 
-        with open(cache_path, "r", encoding="utf-8") as f:
-            saved = json.load(f)
-
+        saved = self.fetcher._mid_paper_state.get("Paper", {})
         self.assertNotIn("direct_resume_state", saved)
 
     def test_fetch_citations_with_progress_direct_mode_passes_num_citations_to_scholarly(self):
@@ -664,8 +661,7 @@ class DirectFetchTests(FetcherTestCase):
 
             self.assertEqual([c["title"] for c in citations], ["Old-A", "Fresh-C"])
             self.assertEqual(citations[0]["url"], "new-a")
-            with open(cache_path, "r", encoding="utf-8") as f:
-                saved = json.load(f)
+            saved = self.fetcher._mid_paper_state.get("Paper", {})
             self.assertEqual([c["title"] for c in saved["citations"]], ["Old-A", "Fresh-C"])
             self.assertEqual(saved["citations"][0]["url"], "new-a")
             self.assertEqual(saved["citations"][0]["cites_id"], "cid-old-a")
@@ -822,8 +818,7 @@ class DirectFetchTests(FetcherTestCase):
                 )
                 mock_fetch_by_year.assert_not_called()
 
-            with open(cache_path, "r", encoding="utf-8") as f:
-                saved = json.load(f)
+            saved = self.fetcher._mid_paper_state.get("Paper", {})
 
         output = fake_stdout.getvalue()
         self.assertEqual([c["title"] for c in citations], ["Fresh-A", "Fresh-B", "Fresh-C"])
@@ -930,8 +925,7 @@ class DirectFetchTests(FetcherTestCase):
 
             self.assertEqual(len(citations), 3)
             self.assertEqual(pub["num_citations"], 2)
-            with open(cache_path, "r", encoding="utf-8") as f:
-                saved = json.load(f)
+            saved = self.fetcher._mid_paper_state.get("Paper", {})
             self.assertEqual(saved["num_citations_on_scholar"], 2)
             self.assertEqual(saved["direct_fetch_diagnostics"]["scholar_total"], 2)
 

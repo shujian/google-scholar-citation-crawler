@@ -75,7 +75,6 @@ from crawler.citation_identity import (
     extract_citation_info as _ci_extract_citation_info,
 )
 from crawler.citation_io import (
-    citation_cache_path as _cio_citation_cache_path,
     load_citation_cache as _cio_load_citation_cache,
     derive_citation_cache_state as _cio_derive_citation_cache_state,
     resolve_citation_status_from_state as _cio_resolve_citation_status_from_state,
@@ -134,12 +133,10 @@ class PaperCitationFetcher:
         self._papers_fetched_count = 0
 
         # Paths
-        self.cache_dir = os.path.join(output_dir, "scholar_cache", f"author_{author_id}", "citations")
         self.profile_json = os.path.join(output_dir, f"author_{author_id}_profile.json")
         self.out_json = os.path.join(output_dir, f"author_{author_id}_paper_citations.json")
         self.out_xlsx = os.path.join(output_dir, f"author_{author_id}_paper_citations.xlsx")
         self._curl_save_path = os.path.join(output_dir, "curl.txt")
-        os.makedirs(self.cache_dir, exist_ok=True)
 
         # Session context shared with the scholarly patch layer
         self._session_ctx = SessionContext(
@@ -583,9 +580,6 @@ class PaperCitationFetcher:
                 f"{self._session_ctx.total_page_count} pages, "
                 f"{self._captcha_solved_count} captcha solves")
 
-    def _citation_cache_path(self, title):
-        return _cio_citation_cache_path(self.cache_dir, title)
-
     @staticmethod
     def _normalize_cites_id(cites_id):
         return _ci_normalize_cites_id(cites_id)
@@ -743,7 +737,7 @@ class PaperCitationFetcher:
         )
 
     def _load_citation_cache(self, title):
-        return _cio_load_citation_cache(self.cache_dir, title)
+        return _cio_load_citation_cache(self, title)
 
     def _derive_citation_cache_state(self, pub, cached):
         return _cio_derive_citation_cache_state(pub, cached, YEAR_BASED_THRESHOLD)
@@ -1024,7 +1018,6 @@ class PaperCitationFetcher:
             urls        = url_map.get(title, {})
             citedby_url = urls.get('citedby_url', '')
             pub_url     = urls.get('pub_url', 'N/A')
-            cache_path  = self._citation_cache_path(title)
 
             # scholarly internally prepends 'https://scholar.google.com'
             if citedby_url.startswith('https://scholar.google.com'):
@@ -1166,7 +1159,7 @@ class PaperCitationFetcher:
                                 print(f"  {now_str()} Retrying with {len(resume_from)} cached citations from previous attempt{retry_suffix}")
                     if not fetch_completed:
                         citations = self._fetch_citations_with_progress(
-                            citedby_url, cache_path, title, num_citations,
+                            citedby_url, None, title, num_citations,
                             pub_url, pub.get('year', 'N/A'), resume_from,
                             completed_years_in_current_run=completed_years_in_current_run,
                             prev_scholar_count=prev_scholar_count,
@@ -1184,6 +1177,33 @@ class PaperCitationFetcher:
                         )
                         fetch_completed = True
                     num_citations = pub['num_citations']
+                    # Update in-memory state from the cache file written by
+                    # save_progress so Done log and _save_output use the
+                    # latest diagnostics (seen_total, dedup_count, etc.).
+                    cache_snapshot = self._load_citation_cache(title)
+                    if cache_snapshot:
+                        paper_state = getattr(self, '_output_fetch_state', {}) or {}
+                        pst = paper_state.get(title) if isinstance(paper_state, dict) else None
+                        if not isinstance(pst, PaperFetchState):
+                            pst = PaperFetchState.from_dict(cache_snapshot)
+                            if not getattr(self, '_output_fetch_state', None):
+                                self._output_fetch_state = {}
+                            self._output_fetch_state[title] = pst
+                        else:
+                            yr = cache_snapshot.get('year_records') or []
+                            if yr:
+                                pst._year_records = yr
+                                pst.restore_year_diag_from_year_records()
+                            dfd = cache_snapshot.get('direct_fetch_diagnostics') or {}
+                            if isinstance(dfd, dict) and dfd.get('scholar_total') is not None:
+                                pst._direct_fetch_diagnostics = dfd
+                            yfd = cache_snapshot.get('year_fetch_diagnostics') or {}
+                            if isinstance(yfd, dict) and yfd.get('scholar_total') is not None:
+                                pst._year_fetch_diagnostics = yfd
+                        # Keep citations in memory for _save_output fallback.
+                        if not getattr(self, '_output_citations', None):
+                            self._output_citations = {}
+                        self._output_citations[title] = citations or []
                     # Use per-year diagnostics for year-based fetch (authoritative, per-run).
                     # Only use them when fetch_policy is year to avoid stale state from
                     # a previous paper's year-based fetch polluting direct fetch totals.
@@ -1232,8 +1252,12 @@ class PaperCitationFetcher:
                         year_summary = self._format_year_count_summary(year_counts)
                         unyeared_suffix = f", unyeared={unyeared}" if unyeared else ""
                         print(f"  Year summary: {year_summary}{unyeared_suffix}", flush=True)
-                    latest_cache_snapshot = self._load_citation_cache(title)
-                    direct_fetch_diagnostics = (latest_cache_snapshot or {}).get('direct_fetch_diagnostics') or {}
+                    # Read diagnostics from in-memory PaperFetchState (updated above).
+                    pst = getattr(self, '_output_fetch_state', {}).get(title) if getattr(self, '_output_fetch_state', None) else None
+                    if isinstance(pst, PaperFetchState):
+                        direct_fetch_diagnostics = pst.direct_fetch_diagnostics or {}
+                    else:
+                        direct_fetch_diagnostics = {}
                     has_direct_fetch_summary = direct_fetch_diagnostics.get('scholar_total') is not None
                     direct_underfetched = (
                         has_direct_fetch_summary
@@ -1288,27 +1312,11 @@ class PaperCitationFetcher:
 
             results[idx - 1] = {'pub': pub, 'citations': citations or []}
             self._run_new_citations_total += self._new_citations_count
-            # Clear scholar_changed and update diagnostics from the cache file
-            # written by save_progress during this fetch.
-            output_state = getattr(self, '_output_fetch_state', {}).get(pub['title'])
-            if isinstance(output_state, PaperFetchState):
-                output_state.clear_scholar_changed()
-                # Read the per-paper cache to get the diagnostics written by
-                # save_progress (seen_total, dedup_count, termination_reason, etc.)
-                cache_snapshot = self._load_citation_cache(title)
-                if cache_snapshot:
-                    # Update year_records and rebuild year_fetch_diagnostics.
-                    yr = cache_snapshot.get('year_records') or []
-                    if yr:
-                        output_state._year_records = yr
-                        output_state.restore_year_diag_from_year_records()
-                    # Pull in direct-fetch diagnostics from the cache snapshot.
-                    dfd = cache_snapshot.get('direct_fetch_diagnostics') or {}
-                    if isinstance(dfd, dict) and dfd.get('scholar_total') is not None:
-                        output_state._direct_fetch_diagnostics = dfd
-                    yfd = cache_snapshot.get('year_fetch_diagnostics') or {}
-                    if isinstance(yfd, dict) and yfd.get('scholar_total') is not None:
-                        output_state._year_fetch_diagnostics = yfd
+            # Clear scholar_changed after a successful fetch (state was already
+            # updated above, inside the while loop).
+            pst = getattr(self, '_output_fetch_state', {}).get(title) if getattr(self, '_output_fetch_state', None) else None
+            if isinstance(pst, PaperFetchState):
+                pst.clear_scholar_changed()
 
             if fetch_idx < (self.limit or len(need_fetch)):
                 print(f"  {now_str()} Next paper... [{self._wait_status()}]", flush=True)
@@ -1387,9 +1395,6 @@ class PaperCitationFetcher:
                 title = pub.get('title', '')
                 # Citations from output state if available, else cache
                 citations = output_citations.get(title, [])
-                if not citations:
-                    cached = self._load_citation_cache(title) if pub else None
-                    citations = cached.get('citations', []) if cached else []
                 final_results.append(_build_entry(pub, citations))
         total_cites = sum(len(r['citations']) for r in final_results)
         output_payload = {
@@ -1406,12 +1411,8 @@ class PaperCitationFetcher:
         self._save_xlsx(final_results, metadata=output_payload)
         print(f"Saved Excel: {self.out_xlsx}")
 
-        # Cache files are for within-run recovery only; delete them now
-        # that the output file is safely written.
-        import shutil
-        if os.path.exists(self.cache_dir):
-            shutil.rmtree(self.cache_dir)
-            os.makedirs(self.cache_dir, exist_ok=True)
+        # Clear mid-paper state now that the output file is safely written.
+        self._mid_paper_state = {}
 
         total_papers = len(results)  # includes None slots (total publications)
         fetched_str = f", {self._papers_fetched_count} fetched" if self._papers_fetched_count else ""

@@ -6,31 +6,18 @@ testable without a PaperCitationFetcher instance.  The fetcher methods
 become thin wrappers that pass self.* attributes through.
 """
 
-import hashlib
-import json
-import os
-
 from crawler.citation_cache import normalize_year_fetch_diagnostics
 from crawler.citation_strategy import resolve_citation_fetch_policy
 
 
 # ---------------------------------------------------------------------------
-# Cache path + load
+# Mid-paper state
 # ---------------------------------------------------------------------------
 
-def citation_cache_path(cache_dir, title):
-    """Return the path to the per-paper citation cache JSON file."""
-    key = hashlib.md5(title.encode('utf-8')).hexdigest()[:16]
-    return os.path.join(cache_dir, f"{key}.json")
-
-
-def load_citation_cache(cache_dir, title):
-    """Load and return the cached citation dict for *title*, or None."""
-    path = citation_cache_path(cache_dir, title)
-    if os.path.exists(path):
-        with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return None
+def load_citation_cache(fetcher, title):
+    """Load mid-paper state dict for *title*, or None."""
+    mid_paper_state = getattr(fetcher, '_mid_paper_state', None)
+    return (mid_paper_state or {}).get(title) if mid_paper_state else None
 
 
 # ---------------------------------------------------------------------------

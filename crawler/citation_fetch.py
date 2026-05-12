@@ -12,7 +12,6 @@ Both functions accept:
 All direct-fetch helper functions are pure module-level functions.
 """
 
-import json
 import random
 import re
 import time
@@ -204,7 +203,7 @@ def _direct_fetch_log_message(diagnostics):
         f"termination={s.get('termination_reason')})"
     )
 
-def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
+def fetch_citations_with_progress(fetcher, ctx, citedby_url, _cache_path, title,
                                     num_citations, pub_url, pub_year, resume_from,
                                     completed_years_in_current_run=None, prev_scholar_count=0,
                                     partial_year_start=None, saved_dedup_count=0,
@@ -425,8 +424,9 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
         )
         if direct_resume is not None:
             cache_data['direct_resume_state'] = direct_resume
-        with open(cache_path, 'w', encoding='utf-8') as f:
-            json.dump(cache_data, f, ensure_ascii=False, indent=2)
+        if not getattr(fetcher, '_mid_paper_state', None):
+            fetcher._mid_paper_state = {}
+        fetcher._mid_paper_state[title] = cache_data
 
     fetch_policy = fetch_policy or fetcher._resolve_citation_fetch_policy(
         current_scholar_total(),
