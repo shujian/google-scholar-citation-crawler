@@ -386,7 +386,8 @@ class PaperCitationFetcher:
             if PaperCitationFetcher._citation_year_value(citation) is not None
         ]
 
-    def _resolve_refresh_strategy(self, pub, cached, cache_status, citedby_url=None):
+    def _resolve_refresh_strategy(self, pub, cached, cache_status, citedby_url=None,
+                                  paper_state=None):
         num_citations = pub['num_citations']
         fetch_policy = self._resolve_citation_fetch_policy(num_citations, pub.get('year', 'N/A'))
         if cache_status in ('missing', None):
@@ -410,8 +411,13 @@ class PaperCitationFetcher:
 
         resume_from = cached.get('citations', [])
         saved_dedup_count = 0  # always reset per run; dedup is not cumulative across runs
-        direct_fetch_diagnostics = cached.get('direct_fetch_diagnostics') or {}
-        old_scholar = cached.get('num_citations_on_scholar', cached.get('num_citations_cached', 0))
+        # Prefer PaperFetchState for stored diagnostics; fall back to cached dict.
+        if isinstance(paper_state, PaperFetchState):
+            direct_fetch_diagnostics = paper_state.direct_fetch_diagnostics or {}
+            old_scholar = paper_state.num_citations_on_scholar or 0
+        else:
+            direct_fetch_diagnostics = cached.get('direct_fetch_diagnostics') or {}
+            old_scholar = cached.get('num_citations_on_scholar', cached.get('num_citations_cached', 0))
         try:
             old_scholar_known = int(old_scholar)
         except (TypeError, ValueError):
@@ -429,14 +435,22 @@ class PaperCitationFetcher:
         # already includes this field).  year_records is a list of per-year dicts;
         # convert to {year: diag} map for fetch_by_year skip logic.
         rehydrated_year_fetch_diagnostics = None
-        year_records = cached.get('year_records')
-        if isinstance(year_records, list) and year_records:
+        # Read per-year diagnostics from PaperFetchState when available.
+        if isinstance(paper_state, PaperFetchState) and paper_state.year_records:
             per_year = {}
-            for rec in year_records:
+            for rec in paper_state.year_records:
                 if isinstance(rec, dict) and rec.get('year') is not None:
                     per_year[rec['year']] = rec
             rehydrated_year_fetch_diagnostics = self._normalize_year_fetch_diagnostics(per_year) or None
-        # Fallback: same-run cache files may lack year_records.
+        # Fallback: read from cached dict (same-run retry may lack PaperFetchState).
+        if not rehydrated_year_fetch_diagnostics:
+            year_records = cached.get('year_records')
+            if isinstance(year_records, list) and year_records:
+                per_year = {}
+                for rec in year_records:
+                    if isinstance(rec, dict) and rec.get('year') is not None:
+                        per_year[rec['year']] = rec
+                rehydrated_year_fetch_diagnostics = self._normalize_year_fetch_diagnostics(per_year) or None
         if not rehydrated_year_fetch_diagnostics:
             year_fetch_diag = cached.get('year_fetch_diagnostics')
             if isinstance(year_fetch_diag, dict):
@@ -464,11 +478,17 @@ class PaperCitationFetcher:
         # Derive seen total from diagnostics summary.
         num_seen = None
         if fetch_policy['strategy'] == 'year':
-            yfd_summary = cached.get('year_fetch_diagnostics') or {}
-            num_seen = yfd_summary.get('seen_total')
+            if isinstance(paper_state, PaperFetchState) and paper_state.year_fetch_diagnostics:
+                num_seen = paper_state.year_fetch_diagnostics.get('seen_total')
+            else:
+                yfd_summary = cached.get('year_fetch_diagnostics') or {}
+                num_seen = yfd_summary.get('seen_total')
         else:
-            dfd_summary = cached.get('direct_fetch_diagnostics') or {}
-            num_seen = dfd_summary.get('seen_total')
+            if isinstance(paper_state, PaperFetchState) and paper_state.direct_fetch_diagnostics:
+                num_seen = paper_state.direct_fetch_diagnostics.get('seen_total')
+            else:
+                dfd_summary = cached.get('direct_fetch_diagnostics') or {}
+                num_seen = dfd_summary.get('seen_total')
         try:
             num_seen = int(num_seen) if num_seen is not None else None
         except (TypeError, ValueError):
@@ -832,7 +852,7 @@ class PaperCitationFetcher:
         def cache_status(pub):
             st = self._citation_status(pub)
             if st == 'skip_zero':
-                return st, None
+                return st, None, None
             # Cross-run: always prefer output file state; ignore old cache files
             # from previous runs.  Per-paper cache files are still written during
             # the current run for within-run interruption recovery, but they are
@@ -887,13 +907,14 @@ class PaperCitationFetcher:
                         if isinstance(diag, dict) and diag.get('cached_total', 0) > 0:
                             synthetic['complete_fetch_attempt'] = False
                             break
-                return st, synthetic
+                return st, synthetic, output_state
             # No output state → missing.  Cache files are for within-run
             # recovery only and are not read on a fresh program start.
-            return st, None
+            return st, None, None
 
         statuses = [cache_status(p) for p in publications]
-        need_fetch = [(pub, st, cached) for pub, (st, cached) in zip(publications, statuses)
+        need_fetch = [(pub, st, cached) for pub, (st, cached, _)
+                      in zip(publications, statuses)
                       if st in ('missing', 'partial')]
 
         # Randomize fetch order only when skip/limit are not specified.
@@ -903,8 +924,8 @@ class PaperCitationFetcher:
             random.shuffle(need_fetch)
 
         print(f"Total papers: {len(publications)}")
-        print(f"  Zero citations (skip):     {sum(1 for s, _ in statuses if s == 'skip_zero')}")
-        print(f"  Cache complete (skip):     {sum(1 for s, _ in statuses if s == 'complete')}")
+        print(f"  Zero citations (skip):     {sum(1 for s, *_ in statuses if s == 'skip_zero')}")
+        print(f"  Cache complete (skip):     {sum(1 for s, *_ in statuses if s == 'complete')}")
         print(f"  Need fetch/resume:         {len(need_fetch)}")
         output_state_count = len(getattr(self, '_output_fetch_state', {}))
         if output_state_count:
@@ -942,7 +963,14 @@ class PaperCitationFetcher:
         for idx, pub in enumerate(publications, 1):
             title         = pub['title']
             num_citations = pub['num_citations']
-            st, cached    = cache_status(pub)
+            cache_result = cache_status(pub)
+            if len(cache_result) >= 3:
+                st, cached, paper_state = cache_result[:3]
+                if not isinstance(paper_state, PaperFetchState):
+                    paper_state = None
+            else:
+                st, cached = cache_result
+                paper_state = None
 
             # Papers before --skip position: store cached data, don't fetch, don't count
             if idx <= self.skip:
@@ -972,14 +1000,19 @@ class PaperCitationFetcher:
             # fetch ran to completion (complete_fetch_attempt=True).
             # If the previous fetch was interrupted, re-fetch regardless.
             if self.fetch_mode == 'rough' and cached:
-                last_known = cached.get('num_citations_on_scholar')
+                last_known = (paper_state.num_citations_on_scholar
+                              if paper_state
+                              else cached.get('num_citations_on_scholar'))
+                complete = (paper_state.complete_fetch_attempt
+                            if paper_state
+                            else cached.get('complete_fetch_attempt'))
                 try:
                     last_known_int = int(last_known) if last_known is not None else None
                 except (TypeError, ValueError):
                     last_known_int = None
                 if (last_known_int is not None
                         and last_known_int == num_citations
-                        and cached.get('complete_fetch_attempt')):
+                        and complete):
                     print(f"[{idx}/{len(publications)}] {title[:55]}... -> skip-rough ({num_citations} unchanged, fetch complete)")
                     results[idx - 1] = {'pub': pub, 'citations': cached.get('citations', [])}
                     continue
@@ -1003,7 +1036,7 @@ class PaperCitationFetcher:
             prev_scholar_count = 0
             # Use the synthetic cache from cache_status() directly; it already
             # contains the citations array (from output state or cache file).
-            attempt_state = self._resolve_refresh_strategy(pub, cached, st, citedby_url=citedby_url)
+            attempt_state = self._resolve_refresh_strategy(pub, cached, st, citedby_url=citedby_url, paper_state=paper_state)
             if attempt_state['prev_scholar_count']:
                 prev_scholar_count = attempt_state['prev_scholar_count']
             partial_year_start = attempt_state['partial_year_start']
@@ -1030,16 +1063,21 @@ class PaperCitationFetcher:
             # Skip year-based fetch when all cached citations are unyeared and
             # the previous fetch ran to completion.  Year-based diff cannot
             # improve citations that carry no year.
-            if (fetch_policy['strategy'] == 'year'
-                    and cached
-                    and cached.get('complete_fetch_attempt')
-                    and not resume_from
-                    and num_citations <= cached.get('num_citations_on_scholar', 0)):
-                all_citations = cached.get('citations', [])
-                if all_citations and not self._filter_citations_with_year(all_citations):
-                    print(f"  -> skip (all {len(all_citations)} cached citations are unyeared)")
-                    results[idx - 1] = {'pub': pub, 'citations': all_citations}
-                    continue
+            if fetch_policy['strategy'] == 'year' and cached:
+                complete_check = (paper_state.complete_fetch_attempt
+                                  if paper_state
+                                  else cached.get('complete_fetch_attempt'))
+                s_total_check = (paper_state.num_citations_on_scholar
+                                 if paper_state
+                                 else cached.get('num_citations_on_scholar', 0))
+                if (complete_check
+                        and not resume_from
+                        and num_citations <= s_total_check):
+                    all_citations = cached.get('citations', [])
+                    if all_citations and not self._filter_citations_with_year(all_citations):
+                        print(f"  -> skip (all {len(all_citations)} cached citations are unyeared)")
+                        results[idx - 1] = {'pub': pub, 'citations': all_citations}
+                        continue
 
             citations = None
             attempt = 0
