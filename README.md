@@ -74,7 +74,7 @@ Papers are sorted by citation count descending. `--skip M` skips the first M pap
 |------|----------|
 | `rough` | Skip papers whose Scholar count hasn't changed since the last fetch, even if the cache is incomplete. Use when you only care about truly new citations. |
 | `normal` *(default)* | Re-fetch any paper whose cache is missing or incomplete, using a seen-count comparison to decide completeness. |
-| `force` | Delete the cache and re-fetch from scratch. Recommended with `--skip`/`--limit` to limit scope. |
+| `force` | Clear the output state and re-fetch from scratch. Recommended with `--skip`/`--limit` to limit scope. |
 
 ```bash
 # Only fetch papers where Scholar count actually changed
@@ -93,7 +93,6 @@ python scholar_citation.py --author YOUR_AUTHOR_ID --fetch-mode force --skip 0 -
 | `author_<ID>_paper_citations.json` | Per-paper citation lists |
 | `author_<ID>_paper_citations.xlsx` | Excel: Summary, All Citations, Run Metadata |
 | `output/logs/author_<ID>_run_<ts>.log` | Full log of each run (mirrors stdout) |
-| `scholar_cache/` | Incremental cache (auto-managed) |
 
 ## Rate Limiting & Anti-Ban Strategies
 
@@ -138,7 +137,7 @@ In non-interactive mode, the program waits up to 24 hours, prompting hourly to s
 
 If the script is interrupted (Ctrl+C, timeout, or error):
 
-1. Progress is saved automatically to the per-paper cache (including which years have been fully fetched)
+1. Progress is saved automatically in memory (including which years have been fully fetched)
 2. Simply re-run the same command to resume
 3. Completed papers and completed year segments within a paper are skipped
 

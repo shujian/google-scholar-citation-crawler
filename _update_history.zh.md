@@ -4,6 +4,35 @@
 
 ---
 
+## 2026-05-13: 大规模重构 — 删除 cache 文件、rehydrate 函数，强化 PaperFetchState 封装
+
+### 删除 cache 文件体系
+
+- `save_progress` 不再写磁盘，改为存入 `fetcher._mid_paper_state[title]`（内存 dict）
+- `_load_citation_cache` 改为从 `_mid_paper_state` 读取，不再访问文件系统
+- 删除：`citation_cache_path()`、`cache_dir`、cache 目录创建和清理、`json.dump` 写入
+- 所有中间状态通过 `_mid_paper_state` + `_output_fetch_state` + `_output_citations` 管理
+
+### 删除 rehydrate 函数
+
+- 删除 `rehydrate_year_fetch_diagnostics`：`_resolve_refresh_strategy` 直接从 `year_records` 读取 per-year 列表
+- 删除 `rehydrate_probe_metadata`：probe 永远在 `fetch_by_year` 中新鲜执行，不再读缓存
+- `_resolve_refresh_strategy` 优先从 `PaperFetchState` 属性读取（`year_records`、`direct_fetch_diagnostics`、`num_citations_on_scholar` 等），dict 仅作为 fallback
+
+### Paper Done 日志增强
+
+- 显示 fetch target 比较：`year: seen_total=N ≥ histogram_total=M` 或 `direct: seen_total=N ≥ scholar_total=M`
+- 加入 per-paper new 计数
+
+### 其他修复
+
+- `year_new_count` 改为年份桶增量（比较 `old_year_identity_keys` 而非全局 `old_cache_identity_keys`）
+- Year fetch 日志显示 `seen`（判断依据）而非 `cached`（不含 dedup）
+- `_new_citations_count` 每篇论文重置，避免跨论文累加
+- Fetch 完成后将 diagnostics 从 `_mid_paper_state` 同步到 `_output_fetch_state`
+
+---
+
 ## 2026-05-12: 日志一致性修正 — 判断依据与打印值统一
 
 - Year `fetching` / `resuming` 日志之前显示 `cached=320`（不含 dedup），但跳过判断使用的是 `seen_total=321`（含 dedup）→ 改为显示 `seen`，与判断逻辑一致

@@ -47,9 +47,9 @@ The program always runs in two sequential phases from `main()`:
 - Writes both JSON and formatted Excel outputs
 
 **Phase 2 — Paper citations** (`PaperCitationFetcher` in `scholar_citation.py`):
-- Reads the saved profile JSON output (cross-run state) and cache files (same-run resume)
+- Reads the saved profile JSON output (cross-run state) and in-memory mid-paper state (same-run resume)
 - Decides per paper whether citation data is `missing`, `partial`, `complete`, or `skip_zero`
-- Resumes from partial per-paper cache files under `scholar_cache/author_<ID>/citations/`
+- Resumes from in-memory state (`_mid_paper_state`, `_output_fetch_state`)
 - Writes consolidated citation outputs to `author_<ID>_paper_citations.json` and `.xlsx`
 
 ### Citation fetch strategy
@@ -127,6 +127,5 @@ dependencies are stubbed in `tests/conftest.py`).
 - `httpx==0.27.2` is pinned for compatibility with the current scholarly integration.
 - Proxy handling relies on `https_proxy` / `http_proxy` environment variables;
   `scholarly`'s proxy API is intentionally not used (incompatible with httpx 0.27.x).
-- The default output directory is `./output`; cache correctness depends on files
-  inside `output/scholar_cache/`.
+- The default output directory is `./output`; state is maintained in memory during runs.
 - All development happens on `main` branch.

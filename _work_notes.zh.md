@@ -56,7 +56,6 @@ google-scholar-citation-crawler/
 
 - `author_{id}_profile.json` / `.xlsx` — 作者信息 + 论文列表
 - `author_{id}_paper_citations.json` / `.xlsx` — 逐篇引用列表
-- `scholar_cache/` — 增量缓存
 - `output/curl.txt` — Cookie 持久化
 
 ---
@@ -91,7 +90,7 @@ python scholar_citation.py --author YOUR_AUTHOR_ID --limit 1 --skip 1
 
 ## 运行流程
 
-**跨运行状态原则**：每次运行只从**输出文件**（profile JSON、citations JSON）读取上一轮状态；cache 文件（`scholar_cache/`）仅用于**同次运行内的中断恢复**，不在新一轮启动时作为状态来源。Profile 和 citation 阶段统一遵循此原则。
+**跨运行状态原则**：每次运行只从**输出文件**（profile JSON、citations JSON）读取上一轮状态。同次运行内的中断恢复通过内存 (`_mid_paper_state`、`_output_fetch_state`、`_output_citations`) 实现，不再使用磁盘缓存文件。
 
 1. **Profile 阶段**（每次都运行）
    - 阶段1：获取作者基本信息（name, affiliation, citation stats）
@@ -164,14 +163,17 @@ pub_obj = {
 
 ---
 
-## 缓存体系
+## 运行状态管理
 
-### 缓存结构
+### 三层内存结构
 
-- `output/scholar_cache/author_{id}/citations/{md5_16}.json` — 每篇论文的引用缓存（同次运行中断恢复；跨运行状态从 citations JSON 的 `_fetch_state` 读取）
-- `output/curl.txt` — Cookie 持久化
+所有中间状态通过三个内存结构管理，不使用磁盘缓存文件：
 
-> **已移除**：`basics.json` 和 `publications.json` 缓存文件。Basics 每次从网络拉取，publications 跨运行状态从 profile JSON 输出文件读取。两个缓存文件均为只写，不再保留。
+| 结构 | 类型 | 内容 | 生命周期 |
+|------|------|------|---------|
+| `_output_fetch_state` | `{title: PaperFetchState}` | 每篇论文的 diagnostics（`seen_total`、`year_records` 等） | 从输出 JSON 加载，运行中逐篇更新，结束时写回 JSON |
+| `_output_citations` | `{title: [citation]}` | 每篇论文的引用列表 | 从输出 JSON 加载，fetch 完成后更新 |
+| `_mid_paper_state` | `{title: cache_dict}` | 当前论文的中间进度（`save_progress` 写入） | 每页更新，retry 时读取，运行结束时清空 |
 
 ### 命名约定
 
@@ -277,7 +279,7 @@ save_progress:
 
 - 统一用 `ResumeState`（`next_index`, `source_scholar_total`, `citedby_url`）
 - `page_start()` 返回页对齐位置，`in_page_skip()` 返回页内偏移
-- Direct 模式：单个 `ResumeState` → cache 文件 `direct_resume_state`
+- Direct 模式：单个 `ResumeState` → 内存 `_mid_paper_state`
 - Year 模式：`completed_year_segments`（已完成年份集）+ `partial_year_start`（`{year: int}`，年份内断点位置）
 
 ---
