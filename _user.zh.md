@@ -2530,3 +2530,9 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 > 我发现在year-based逐年判断的时候，明明seen_total 321, histogram = 321, 但是还是进行了抓取，这是为什么？请先解释一下再判断怎么修改。
 
 > Year 2025: fetching (cached=320, probe=321) 这里的输出是这样的，但实际上应该判断seen和probe的关系。
+
+> 从输出文件中读取信息，不应该是fetch_state的from dict做的事情吗？只有在不存在year_record的时候才考虑从缓存中恢复吧？这些情况刚刚都没有发生啊。
+
+> 请理解我问的问题：为什么这里会调用rehydrate_year_fetch_diagnostics这个函数？
+
+> 当然应该改，应该保持跟我们使用的封装一致。

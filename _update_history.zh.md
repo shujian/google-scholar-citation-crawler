@@ -4,13 +4,13 @@
 
 ---
 
-## 2026-05-12: 修复 year 跳过判断失效 — rehydrate_year_fetch_diagnostics 读取格式错配
+## 2026-05-12: 修复 year 跳过判断失效 — 从 year_records 直接读取 per-year 数据
 
 - 输出文件中 `year_fetch_diagnostics` 是 summary（8 个汇总字段），`year_records` 才是 per-year 条目
-- `normalize_year_fetch_diagnostics()` 期望 per-year 格式（`{year: diag_dict}`），收到 summary 后遍历其中的 histogram_total/scholar_total 等 int 值，`isinstance(int, dict)` 全部为 False → 返回 `{}`
-- `rehydrate_year_fetch_diagnostics` 返回 `{} or None` → `None` → `fetch_by_year` 中 sync 和 skip 检查均跳过
-- skip 回退到 `cached_year_counts.get(year)` 做比较，丢失了 `dedup_count`，导致 `seen_total >= histogram` 为 True 的年份无法跳过
-- 修复：`rehydrate_year_fetch_diagnostics` 优先读取 `year_records` 并转换为 `{year: diag}` 结构
+- `_resolve_refresh_strategy` 原本调用 `rehydrate_year_fetch_diagnostics(cached)` 从 dict 中提取 per-year 数据，但函数读取了 summary 字段，格式错配返回 None
+- skip 逻辑回退到 `cached_year_counts`（丢失 dedup_count），导致 `seen_total >= histogram` 为 True 的年份无法跳过
+- 重构：`_resolve_refresh_strategy` 直接从 `cached.get('year_records')`（由 `PaperFetchState.to_dict()` 提供）读取 per-year 列表，转换为 `{year: diag}`，不再绕道 `rehydrate_year_fetch_diagnostics`
+- `rehydrate_year_fetch_diagnostics` 保留为 fallback（优先读 `year_records`），供旧格式数据和 retry 路径使用
 
 ---
 

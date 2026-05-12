@@ -435,7 +435,21 @@ class PaperCitationFetcher:
         selective_refresh_years = None
         rehydrated_probed_year_counts = None
         rehydrated_probe_complete = False
-        rehydrated_year_fetch_diagnostics = self._rehydrate_year_fetch_diagnostics(cached)
+        # Build per-year diagnostics from year_records (PaperFetchState.to_dict()
+        # already includes this field).  year_records is a list of per-year dicts;
+        # convert to {year: diag} map for fetch_by_year skip logic.
+        rehydrated_year_fetch_diagnostics = None
+        year_records = cached.get('year_records')
+        if isinstance(year_records, list) and year_records:
+            per_year = {}
+            for rec in year_records:
+                if isinstance(rec, dict) and rec.get('year') is not None:
+                    per_year[rec['year']] = rec
+            rehydrated_year_fetch_diagnostics = self._normalize_year_fetch_diagnostics(per_year) or None
+        # Fallback: old output files or cache files may use year_fetch_diagnostics
+        # (per-year or summary format) instead of year_records.
+        if not rehydrated_year_fetch_diagnostics:
+            rehydrated_year_fetch_diagnostics = self._rehydrate_year_fetch_diagnostics(cached)
         # When transitioning from direct to year mode the cache has no year
         # diagnostics yet.  Synthesise per-year entries from the cached
         # citations so the year fetch path knows which years are already
