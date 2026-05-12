@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-05-12: 文档修正 — 过期模块引用和测试计数
+
+- CLAUDE.md、`_work_notes.zh.md` 中 `fetch_context.py` → `fetch_session.py`（FetchContext 已删除）
+- 各文档项目结构中补充缺失模块：`fetch_session.py`、`page_visit.py`、`citation_models.py`、`output_state.py`、`pub_info.py`
+- 测试计数统一为 127（之前 CLAUDE.md/README 为 107，`_work_notes.zh.md` 为 121）
+- CLAUDE.md 移除过时的 `refactor/modularize` 分支引用，更新依赖映射
+
+---
+
 ## 2026-05-09: 状态封装 + cache 清除 + scholar_changed 标志
 
 ### 字段私有化

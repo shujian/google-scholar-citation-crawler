@@ -180,9 +180,11 @@ crawler/
   citation_fetch.py          # fetch_citations_with_progress + fetch_by_year engine
   scholarly_session.py       # SessionContext + scholarly monkey-patch + year probe
   interactive.py             # cURL cookie injection, captcha prompt, proxy-switch wait
+  citation_models.py         # Citation, YearRecord, diagnostics dataclasses
   output_state.py            # Output file _fetch_state read/write
+  pub_info.py                # PubInfo dataclass for publication field normalization
   cli.py                     # parse_args() + _run_main()
-tests/                       # 107 unit tests, no network required
+tests/                       # 127 unit tests, no network required
 ```
 
 ### Running Tests

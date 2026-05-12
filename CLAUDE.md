@@ -39,7 +39,6 @@ google-scholar-citation-crawler/
 ├── crawler/                     # All supporting modules
 │   ├── __init__.py
 │   ├── common.py                # Constants (delays, thresholds) + stateless utilities
-│   ├── fetch_context.py         # FetchContext dataclass: per-paper mutable fetch state
 │   │
 │   │   ── Author profile layer ──
 │   ├── author_fetcher.py        # AuthorProfileFetcher: fetch + cache author profile
@@ -50,16 +49,21 @@ google-scholar-citation-crawler/
 │   ├── citation_strategy.py     # Fetch policy, refresh strategy, reconciliation
 │   ├── citation_identity.py     # Citation dedup key and info extraction
 │   ├── citation_io.py           # Cache I/O, status derivation, citations Excel output
+│   ├── citation_models.py       # Citation, YearRecord, YearDiagnostics etc. dataclasses
+│   ├── output_state.py          # PaperFetchState dataclass + output file state read/write
+│   ├── pub_info.py              # PubInfo dataclass for publication field normalization
 │   │
 │   │   ── Fetch engine ──
 │   ├── citation_fetch.py        # fetch_citations_with_progress + fetch_by_year engine
+│   ├── fetch_session.py         # BatchFetchSession, DirectFetchSession, YearFetchSession
+│   ├── page_visit.py            # PageVisit — per-page captcha/proxy/retry recovery
 │   ├── scholarly_session.py     # SessionContext + scholarly monkey-patch + year probe
 │   ├── interactive.py           # cURL cookie injection, captcha prompt, proxy-switch wait
 │   │
 │   │   ── CLI ──
 │   └── cli.py                   # parse_args() + _run_main(args)
 │
-├── tests/                       # Unit tests (107 tests, no network required)
+├── tests/                       # Unit tests (127 tests, no network required)
 │   ├── conftest.py              # Shared stubs (scholarly/openpyxl mocks) + FetcherTestCase
 │   ├── test_scholar_patch.py    # scholarly patch URL logging, inject_curl, parse_args
 │   ├── test_year_fetch_early.py # fetch_by_year early-stop and histogram-authoritative mode
@@ -135,14 +139,18 @@ All patch state is held in `SessionContext`; per-paper fetch state is in `FetchC
 ```
 scholar_citation.py  (orchestrator + PaperCitationFetcher)
   ├── crawler.common              (constants, utilities)
-  ├── crawler.fetch_context       (FetchContext dataclass)
   ├── crawler.author_fetcher      ← crawler.profile_io
   ├── crawler.profile_io          ← (no crawler deps)
   ├── crawler.citation_cache      (pure year/diagnostics functions)
   ├── crawler.citation_strategy   ← crawler.citation_cache
   ├── crawler.citation_identity   (pure dedup / info extract)
   ├── crawler.citation_io         ← crawler.citation_cache, crawler.citation_strategy
-  ├── crawler.citation_fetch      ← crawler.common, crawler.fetch_context
+  ├── crawler.citation_models     (dataclasses for citations, diagnostics, resume state)
+  ├── crawler.output_state        (PaperFetchState dataclass + output file I/O)
+  ├── crawler.pub_info            (PubInfo dataclass)
+  ├── crawler.citation_fetch      ← crawler.common, crawler.fetch_session
+  ├── crawler.fetch_session       (BatchFetchSession, DirectFetchSession, YearFetchSession)
+  ├── crawler.page_visit          (per-page captcha/proxy/retry recovery)
   ├── crawler.scholarly_session   ← crawler.common
   ├── crawler.interactive         (no crawler deps)
   └── crawler.cli  [lazy import]  ← crawler.common, crawler.author_fetcher
@@ -163,7 +171,7 @@ dependencies are stubbed in `tests/conftest.py`).
 - When changing year-based fetching, resume behavior, or CLI flags, update the
   corresponding test file first rather than adding integration coverage.
 - The legacy `test_citation_page_stop.py` is kept as a compatibility fallback during
-  the transition period; both it and `tests/` run the same 105 tests.
+  the transition period; both it and `tests/` run the same 127 tests.
 
 ## Dependencies and runtime assumptions
 
@@ -172,5 +180,4 @@ dependencies are stubbed in `tests/conftest.py`).
   `scholarly`'s proxy API is intentionally not used (incompatible with httpx 0.27.x).
 - The default output directory is `./output`; cache correctness depends on files
   inside `output/scholar_cache/`.
-- Current active development branch: `refactor/modularize`
-  (main branch is one refactor commit behind).
+- All development happens on `main` branch.

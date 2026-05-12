@@ -18,7 +18,6 @@ google-scholar-citation-crawler/
 ├── crawler/                     # 所有支撑模块
 │   ├── __init__.py
 │   ├── common.py                # 常量 + 无状态工具函数
-│   ├── fetch_context.py         # FetchContext dataclass（per-paper 可变状态）
 │   ├── author_fetcher.py        # AuthorProfileFetcher
 │   ├── profile_io.py            # profile JSON / Excel 输出
 │   ├── citation_cache.py        # year-count / diagnostics 纯函数
@@ -26,13 +25,15 @@ google-scholar-citation-crawler/
 │   ├── citation_identity.py     # citation 去重键与信息提取
 │   ├── citation_io.py           # cache I/O、status 推导、citations Excel 输出
 │   ├── citation_fetch.py        # fetch_citations_with_progress + fetch_by_year
+│   ├── fetch_session.py         # BatchFetchSession, DirectFetchSession, YearFetchSession
+│   ├── page_visit.py            # PageVisit — 每页 captcha/proxy/retry 恢复
 │   ├── scholarly_session.py     # SessionContext + scholarly monkey-patch + year probe
 │   ├── interactive.py           # cURL cookie 注入、captcha 提示、proxy-switch 等待
 │   ├── citation_models.py       # Citation, YearRecord, YearDiagnostics, DirectDiagnostics, ResumeState, FetchPolicy
 │   ├── output_state.py          # PaperFetchState dataclass + 输出文件 _fetch_state 读写
 │   ├── pub_info.py              # PubInfo dataclass（pub 字段规范化）
 │   └── cli.py                   # parse_args() + _run_main(args)
-├── tests/                       # 单元测试（121 个，不需要网络）
+├── tests/                       # 单元测试（127 个，不需要网络）
 │   ├── conftest.py              # 共享 stubs + FetcherTestCase 基类
 │   ├── test_scholar_patch.py    # scholarly patch URL 日志、cookie 注入、CLI 解析
 │   ├── test_year_fetch_early.py # year fetch early-stop / histogram-authoritative
