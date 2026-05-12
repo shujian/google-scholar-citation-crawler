@@ -2514,3 +2514,9 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 > 不行，work_notes、README.md还有给读者阅读的功能，如果一定要保留一份，建议保留在这两个文件中。可以在CLAUDE.md中说明，要从work_notes中了解项目的基本结构和开发信息。
 
 ### 330
+
+> Year 2026: fetching (cached=20, probe=23) ... Progress saved: 20 fetched for year 2026, 3 new across run... Year 2026 done: 1 new citations
+
+> 发现一个new citation计数的bug：这里2026年获得了23个引用，其原先的引用数应该是20，因此应该新增了3个引用，但是日志里显示的事1个。
+
+> 类似的2024年明明获取了一个新引用（79-80），输出结果是no new citations，所以这里应该有些问题。

@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-05-12: 修复 new citations 跨 paper 累加导致进度日志计数偏差
+
+- `_new_citations_count` 之前在整个 run 中只重置一次，导致第 N 篇 paper 的进度日志 `N new across run` 包含了前面 papers 的 new 总数
+- 而 `year_new_count` 是每个 paper 每个 year 独立计数 → 两者数值不一致
+- 修复：每个 paper 处理前重置 `_new_citations_count`，新增 `_run_new_citations_total` 记录 run 级别总计
+- 进度日志文本 `new across run` → `new this paper` 以消除歧义
+
+---
+
 ## 2026-05-12: CLAUDE.md 去重 — 精简项目结构为引用
 
 - CLAUDE.md 中冗长的树形项目结构（55 行）替换为引用 `_work_notes.zh.md` 和 `README.md`

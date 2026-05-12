@@ -788,7 +788,7 @@ class DirectFetchTests(FetcherTestCase):
         output = fake_stdout.getvalue()
         self.assertEqual(output.count("Progress saved:"), 1)
         self.assertIn("10 fetched this paper", output)
-        self.assertIn("new across run", output)
+        self.assertIn("new this paper", output)
 
         fetched_items = [
             {"bib": {"title": "Fresh-A", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "new-a", "cites_id": "cid-a"},

@@ -483,7 +483,7 @@ def fetch_citations_with_progress(fetcher, ctx, citedby_url, cache_path, title,
         save_progress(fetch_finished=False, batch=batch)
         if batch.items_on_page >= SCHOLAR_PAGE_SIZE:
             print(f"        Progress saved: {len(batch.citations)} fetched this paper, "
-                  f"{fetcher._new_citations_count} new across run", flush=True)
+                  f"{fetcher._new_citations_count} new this paper", flush=True)
 
     direct_iterator = fetcher._iter_direct_citedby(
         citedby_url,
@@ -816,7 +816,7 @@ def fetch_by_year(fetcher, ctx, citedby_url, old_citations, fresh_citations, sav
                 year_progress_saved = True
                 if batch.items_on_page >= SCHOLAR_PAGE_SIZE:
                     print(f"        Progress saved: {len(batch.citations)} fetched for year {year}, "
-                          f"{fetcher._new_citations_count} new across run", flush=True)
+                          f"{fetcher._new_citations_count} new this paper", flush=True)
 
             year_batch.run(
                 fetcher,

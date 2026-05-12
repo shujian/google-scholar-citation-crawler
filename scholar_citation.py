@@ -132,6 +132,7 @@ class PaperCitationFetcher:
         self._session_patched = False
         self._run_start_time = time.time()
         self._new_citations_count = 0
+        self._run_new_citations_total = 0
         self._papers_fetched_count = 0
 
         # Paths
@@ -772,6 +773,7 @@ class PaperCitationFetcher:
         if not self._session_patched:
             self._patch_scholarly()
         self._new_citations_count = 0
+        self._run_new_citations_total = 0
         self._papers_fetched_count = 0
 
         # Load profile
@@ -978,6 +980,7 @@ class PaperCitationFetcher:
                     continue
 
             fetch_idx += 1
+            self._new_citations_count = 0  # reset per paper
             urls        = url_map.get(title, {})
             citedby_url = urls.get('citedby_url', '')
             pub_url     = urls.get('pub_url', 'N/A')
@@ -1231,6 +1234,7 @@ class PaperCitationFetcher:
                     print(f"  [{now}] Progress already saved to cache by PageVisit/batch")
 
             results[idx - 1] = {'pub': pub, 'citations': citations or []}
+            self._run_new_citations_total += self._new_citations_count
             # Clear scholar_changed after a successful fetch.
             output_state = getattr(self, '_output_fetch_state', {}).get(pub['title'])
             if isinstance(output_state, PaperFetchState):
@@ -1341,12 +1345,12 @@ class PaperCitationFetcher:
 
         total_papers = len(results)  # includes None slots (total publications)
         fetched_str = f", {self._papers_fetched_count} fetched" if self._papers_fetched_count else ""
-        new_str = f", {self._new_citations_count} new" if self._new_citations_count else ""
+        new_str = f", {self._run_new_citations_total} new" if self._run_new_citations_total else ""
         print(f"\nDone! {len(final_results)}/{total_papers} papers{fetched_str}, "
               f"{total_cites} collected citation records{new_str}")
         print(f"Run summary: elapsed {self._elapsed_str()}"
               f" | {self._session_ctx.total_page_count} pages accessed"
-              f" | {self._new_citations_count} new citations"
+              f" | {self._run_new_citations_total} new citations"
               f" | output total = collected per-paper citation records\n")
 
         return True
