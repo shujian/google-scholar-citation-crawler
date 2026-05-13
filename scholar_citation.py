@@ -1198,6 +1198,8 @@ class PaperCitationFetcher:
                             yfd = cache_snapshot.get('year_fetch_diagnostics') or {}
                             if isinstance(yfd, dict) and yfd.get('scholar_total') is not None:
                                 pst._year_fetch_diagnostics = yfd
+                        # Record the fetch timestamp.
+                        pst._fetched_at = cache_snapshot.get('fetched_at') or datetime.now().isoformat()
                         # Keep citations in memory for _save_output fallback.
                         if not getattr(self, '_output_citations', None):
                             self._output_citations = {}

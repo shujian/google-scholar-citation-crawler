@@ -256,7 +256,7 @@ class PaperFetchState:
         if target is not None and seen is not None:
             cmp_sym = '≥' if (seen or 0) >= (target or 0) else '<'
             return f'  {strategy}: seen_total={seen} {cmp_sym} {label}={target}'
-        return f'  {strategy}: diagnostics summary absent — will re-fetch'
+        return f'  {strategy}: diagnostics summary absent'
 
 
 # ---------------------------------------------------------------------------
