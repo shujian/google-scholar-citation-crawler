@@ -149,22 +149,22 @@ class PaperCitationFetcher:
 
     def _patch_scholarly(self):
         """Install scholarly patches via SessionContext."""
-        ctx = self._session_ctx
-        ctx.refresh_session_fn = self._refresh_scholarly_session
-        ctx.try_interactive_captcha_fn = self._try_interactive_captcha
-        ctx.wait_proxy_switch_fn = self._wait_proxy_switch
-        ctx.wait_status_fn = self._wait_status
-        ctx.format_year_count_summary_fn = self._format_year_count_summary
-        ctx.format_year_set_summary_fn = self._format_year_set_summary
-        _ss_patch_scholarly(ctx)
+        sctx = self._session_ctx
+        sctx.refresh_session_fn = self._refresh_scholarly_session
+        sctx.try_interactive_captcha_fn = self._try_interactive_captcha
+        sctx.wait_proxy_switch_fn = self._wait_proxy_switch
+        sctx.wait_status_fn = self._wait_status
+        sctx.format_year_count_summary_fn = self._format_year_count_summary
+        sctx.format_year_set_summary_fn = self._format_year_set_summary
+        _ss_patch_scholarly(sctx)
         # Sync back attributes that pre-existing code accesses directly on self
-        self._curl_header_allowlist = ctx.curl_header_allowlist
-        self._last_scholar_url = ctx.last_scholar_url
-        self._total_page_count = ctx.total_page_count
-        self._next_break_at = ctx.next_break_at
-        self._next_refresh_at = ctx.next_refresh_at
-        self._current_year_segment = ctx.current_year_segment
-        self._completed_year_segments = ctx.completed_year_segments
+        self._curl_header_allowlist = sctx.curl_header_allowlist
+        self._last_scholar_url = sctx.last_scholar_url
+        self._total_page_count = sctx.total_page_count
+        self._next_break_at = sctx.next_break_at
+        self._next_refresh_at = sctx.next_refresh_at
+        self._current_year_segment = sctx.current_year_segment
+        self._completed_year_segments = sctx.completed_year_segments
         self._session_patched = True
         self._run_start_time = time.time()
 
@@ -175,7 +175,7 @@ class PaperCitationFetcher:
             self._inject_cookies_from_curl(saved_curl)
         else:
             # Prompt once on first Scholar request (only in interactive TTY sessions)
-            ctx.first_page_prompt_fn = lambda: _int_prompt_first_curl(
+            sctx.first_page_prompt_fn = lambda: _int_prompt_first_curl(
                 inject_fn=self._inject_cookies_from_curl,
             )
 
@@ -648,7 +648,7 @@ class PaperCitationFetcher:
                                         fetch_policy=None,
                                         direct_resume_state=None):
         from crawler.fetch_session import YearFetchSession
-        ctx = YearFetchSession(
+        year_ctx = YearFetchSession(
             baseline=self._output_fetch_state.get(title) if hasattr(self, '_output_fetch_state') else None,
             completed_year_segments=set(completed_years_in_current_run or []),
             partial_year_start=dict(partial_year_start or {}),
@@ -658,7 +658,7 @@ class PaperCitationFetcher:
             year_fetch_diagnostics=self._normalize_year_fetch_diagnostics(rehydrated_year_fetch_diagnostics) or {},
             cached_year_counts=self._year_count_map(list(resume_from)),
         )
-        result = _cf.fetch_citations_with_progress(self, ctx, citedby_url, cache_path, title,
+        result = _cf.fetch_citations_with_progress(self, year_ctx, citedby_url, cache_path, title,
                                                    num_citations, pub_url, pub_year, resume_from,
                                                    completed_years_in_current_run=completed_years_in_current_run,
                                                    prev_scholar_count=prev_scholar_count,
@@ -673,13 +673,13 @@ class PaperCitationFetcher:
                                                    pub_obj=pub_obj,
                                                    fetch_policy=fetch_policy,
                                                    direct_resume_state=direct_resume_state)
-        # Sync per-paper ctx state back to self for code that reads these directly
-        self._dedup_count = ctx.dedup_count
-        self._cached_year_counts = ctx.cached_year_counts
-        self._completed_year_segments = ctx.completed_year_segments
-        self._probed_year_counts = ctx.probed_year_counts
-        self._probed_year_count_complete = ctx.probed_year_count_complete
-        self._year_fetch_diagnostics = ctx.year_fetch_diagnostics
+        # Sync per-paper year_ctx state back to self for code that reads these directly
+        self._dedup_count = year_ctx.dedup_count
+        self._cached_year_counts = year_ctx.cached_year_counts
+        self._completed_year_segments = year_ctx.completed_year_segments
+        self._probed_year_counts = year_ctx.probed_year_counts
+        self._probed_year_count_complete = year_ctx.probed_year_count_complete
+        self._year_fetch_diagnostics = year_ctx.year_fetch_diagnostics
         return result
     def _fetch_by_year(self, citedby_url, old_citations, fresh_citations, save_progress,
                        num_citations, pub_year, prev_scholar_count=0,
@@ -688,8 +688,8 @@ class PaperCitationFetcher:
                        selective_refresh_years=None,
                        year_fetch_diagnostics=None):
         from crawler.fetch_session import YearFetchSession
-        ctx = YearFetchSession(
-            baseline=None,  # inner ctx — baseline handled by outer _fetch_citations_with_progress
+        year_ctx = YearFetchSession(
+            baseline=None,  # inner year_ctx — baseline handled by outer _fetch_citations_with_progress
             completed_year_segments=self._completed_year_segments,
             partial_year_start=self._partial_year_start,
             dedup_count=self._dedup_count,
@@ -698,31 +698,29 @@ class PaperCitationFetcher:
             year_fetch_diagnostics=year_fetch_diagnostics or {},
             cached_year_counts=self._cached_year_counts,
         )
-        # Wrap save_progress to sync inner ctx's year_fetch_diagnostics to the fetcher
-        # attribute before each save.  build_materialized_year_fetch_diagnostics (defined
-        # in the outer fetch_citations_with_progress closure) reads that attribute so that
-        # per-year dedup counts from the inner ctx are not silently discarded.
+        # Wrap save_progress to sync inner year_ctx's year_fetch_diagnostics to the fetcher
+        # attribute before each save.
         _orig_save_progress = save_progress
         def _synced_save_progress(fetch_finished, batch=None):
-            self._live_year_fetch_diagnostics = ctx.year_fetch_diagnostics
-            self._live_dedup_count = ctx.dedup_count
-            self._live_probed_year_counts = ctx.probed_year_counts
-            self._live_probe_complete = ctx.probed_year_count_complete
+            self._live_year_fetch_diagnostics = year_ctx.year_fetch_diagnostics
+            self._live_dedup_count = year_ctx.dedup_count
+            self._live_probed_year_counts = year_ctx.probed_year_counts
+            self._live_probe_complete = year_ctx.probed_year_count_complete
             _orig_save_progress(fetch_finished, batch)
 
-        result = _cf.fetch_by_year(self, ctx, citedby_url, old_citations, fresh_citations, _synced_save_progress,
+        result = _cf.fetch_by_year(self, year_ctx, citedby_url, old_citations, fresh_citations, _synced_save_progress,
                                    num_citations, pub_year, prev_scholar_count,
                                    allow_incremental_early_stop=allow_incremental_early_stop,
                                    force_year_rebuild=force_year_rebuild,
                                    selective_refresh_years=selective_refresh_years,
                                    year_fetch_diagnostics=year_fetch_diagnostics)
-        self._dedup_count = ctx.dedup_count
-        self._cached_year_counts = ctx.cached_year_counts
-        self._completed_year_segments = ctx.completed_year_segments
-        self._probed_year_counts = ctx.probed_year_counts
-        self._probed_year_count_complete = ctx.probed_year_count_complete
-        self._year_fetch_diagnostics = ctx.year_fetch_diagnostics
-        self._partial_year_start = ctx.partial_year_start
+        self._dedup_count = year_ctx.dedup_count
+        self._cached_year_counts = year_ctx.cached_year_counts
+        self._completed_year_segments = year_ctx.completed_year_segments
+        self._probed_year_counts = year_ctx.probed_year_counts
+        self._probed_year_count_complete = year_ctx.probed_year_count_complete
+        self._year_fetch_diagnostics = year_ctx.year_fetch_diagnostics
+        self._partial_year_start = year_ctx.partial_year_start
         return result
     def _save_xlsx(self, results, metadata=None):
         _cio_save_citations_xlsx(
