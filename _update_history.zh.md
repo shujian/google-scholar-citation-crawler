@@ -4,6 +4,30 @@
 
 ---
 
+## 2026-05-12: 代码规范 — 消除 4 处冗余代码 + 1 个 Bug 修复
+
+### Issue 1: 删除 `_direct_fetch_diagnostics` 冗余包装器
+- 删除 `citation_fetch.py` 中的 `_direct_fetch_diagnostics()`（只是 `_build_direct_fetch_diagnostics()` 的平凡包装器）
+- 删除 `scholar_citation.py` 中对应包装器方法
+- `test_citation_status.py` 中相关测试改为直接调用 `_build_direct_fetch_diagnostics`
+
+### Issue 2: 合并 `_direct_fetch_summary_message` 和 `_direct_fetch_log_message`
+- 两个函数体完全相同，仅前缀字符串不同
+- 合并为 `_direct_fetch_diagnostics_message(diagnostics, prefix=...)`
+- `citation_fetch.py` 和 `scholar_citation.py` 中两处调用点改为使用新函数并传入不同 prefix
+
+### Issue 3: 提取 year_records 解析逻辑为共享函数
+- `scholar_citation.py` 中相同的 `for rec in yr` 解析模式出现了 3 次
+- 提取为 `index_year_records()` 放入 `crawler/output_state.py`
+- `scholar_citation.py` 导入为 `_os_index_year_records`，3 处调用点均已替换
+
+### Issue 4: 修复 `year_fetched_citations` 未定义变量 Bug
+- `crawler/citation_fetch.py:875,879` 中使用 `year_fetched_citations`，但该变量从未在 `fetch_by_year` 中赋值
+- 当 `stop_partial_resume_once_satisfied` 和 `resuming_partial_year` 都为 True 时会引发 NameError
+- 替换为 `year_batch.citations`（同一函数体内已在使用的正确变量）
+
+---
+
 ## 2026-05-12: 封装性修复 — PaperFetchState 私有字段不再被外部直接赋值
 
 ### 问题

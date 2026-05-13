@@ -2,6 +2,17 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 26. [2026-05-12]
+
+请处理 issues.md 中的前 4 个 issue：
+
+**Issue 1**：`_direct_fetch_diagnostics` 和 `_build_direct_fetch_diagnostics` 重复
+**Issue 2**：`_direct_fetch_summary_message` 和 `_direct_fetch_log_message` 几乎相同
+**Issue 3**：`year_records` 解析逻辑重复 3 次
+**Issue 4**：`year_fetched_citations` 变量未定义（Bug）
+
+---
+
 ## 1. [2026-03-08T08:11:11.247Z]
 
 [Request interrupted by user for tool use]

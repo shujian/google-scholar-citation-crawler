@@ -1,3 +1,123 @@
+### ✅ 已处理 [2026-05-12]
+
+> [Bug] year_fetched_citations 变量未定义
+> 文件: crawler/citation_fetch.py:875,879
+> 问题: 变量 `year_fetched_citations` 从未赋值，当条件为 True 时会引发 NameError
+
+- 将 `year_fetched_citations` 替换为 `year_batch.citations`（同一函数体内已在使用的正确变量）
+- 所有 119 个测试通过
+
+----
+
+### ✅ 已处理 [2026-05-12]
+
+> [代码规范] year_records 解析逻辑重复 3 次（冗余）
+> 文件: scholar_citation.py:438-440, 447-449, 1140-1142
+> 问题: 相同的 for 循环提取 year 记录的模式出现了 3 次
+
+- 提取为共享函数 `index_year_records()` 放入 `crawler/output_state.py`
+- `scholar_citation.py` 中导入为 `_os_index_year_records`，3 处调用点均已替换
+- 所有 119 个测试通过
+
+----
+
+### ✅ 已处理 [2026-05-12]
+
+> [代码规范] _direct_fetch_summary_message 和 _direct_fetch_log_message 几乎相同（冗余）
+> 文件: crawler/citation_fetch.py:182,194
+> 问题: 两个函数体完全相同，仅前缀字符串不同
+
+- 合并为 `_direct_fetch_diagnostics_message(diagnostics, prefix="Direct fetch summary ")`
+- 原两处调用点改为使用新函数并传入不同 prefix
+- `scholar_citation.py` 包装器和方法调用同步更新
+- 所有 119 个测试通过
+
+----
+
+### ✅ 已处理 [2026-05-12]
+
+> [代码规范] _direct_fetch_diagnostics 和 _build_direct_fetch_diagnostics 重复（冗余）
+> 文件: crawler/citation_fetch.py:138-170
+> 问题: `_direct_fetch_diagnostics()` 只是 `_build_direct_fetch_diagnostics()` 的平凡包装器
+
+- 删除 `_direct_fetch_diagnostics()` 包装器（citation_fetch.py）
+- 删除 `scholar_citation.py` 中对应包装器
+- `test_citation_status.py` 中测试改为调用 `_build_direct_fetch_diagnostics`
+- 所有 119 个测试通过
+
+----
+
+### ✅ 已处理 [2026-05-13]
+
+> [代码规范] _effective_scholar_total() 存在未使用的形参 cached
+> 文件: scholar_citation.py:255
+> 问题: `cached=None` 参数在函数体中完全被忽略
+
+- 删除 `_effective_scholar_total()` 的 `cached=None` 形参（`scholar_citation.py`）
+- 更新 `citation_fetch.py` 中 2 处调用（已无需修改，原来就不传 cached）
+- 更新 `tests/test_fetch_policy.py` 中测试方法（重命名为 `test_effective_scholar_total_returns_pub_num_citations`，移除 cached 参数）
+- 所有 119 个测试通过
+
+----
+
+### ✅ 已处理 [2026-05-13]
+
+> [代码规范] _resort_publications() 方法未被使用（死代码）
+> 文件: scholar_citation.py:259
+> 问题: 该方法存在 # noqa: F401 注释，未被调用
+
+- 删除 `_resort_publications()` 方法定义（`scholar_citation.py`）
+- 所有 119 个测试通过
+
+----
+
+### ✅ 已处理 [2026-05-13]
+
+> [代码规范] refresh_reconciliation_status() 函数未被使用（死代码）
+> 文件: crawler/citation_strategy.py:159
+> 问题: 该函数计算复杂的 reconciliation 状态，但没有任何地方调用
+
+- 删除 `refresh_reconciliation_status()` 函数定义（`crawler/citation_strategy.py`）
+- 删除 `tests/test_output.py` 中 6 处调用（1 处在 `test_save_output_writes_excel_run_metadata_from_json_payload` 中，5 个独立测试方法）
+- 删除 `tests/test_citation_status.py` 中 `test_refresh_reconciliation_uses_seen_total_completion_for_year_diagnostics` 测试
+- 所有 119 个测试通过
+
+----
+
+### ✅ 已处理 [2026-05-13]
+
+> [代码规范] citation_status() 函数未被使用（死代码）
+> 文件: crawler/citation_io.py:123
+> 问题: 该函数接受 cache_dir 参数（旧版路径），已不再使用
+
+- 删除 `citation_status()` 函数定义（`crawler/citation_io.py`）
+- 所有 125 个测试通过
+
+----
+
+### ✅ 已处理 [2026-05-13]
+
+> [代码规范] build_profile_payload() 和 save_profile_json() 未被使用（死代码）
+> 文件: crawler/profile_io.py:165,178
+> 问题: 这两个旧版函数已被 AuthorProfile.to_dict() 和 save_json() 替代，不再被调用
+
+- 删除 `build_profile_payload()` 函数定义（`crawler/profile_io.py`）
+- 删除 `save_profile_json()` 函数定义（`crawler/profile_io.py`）
+- 所有 125 个测试通过
+
+----
+
+### ✅ 已处理 [2026-05-12]
+
+> [代码规范] extract_fetch_state() 被导入但从未调用（死代码）
+> 文件: crawler/output_state.py:447, scholar_citation.py:87
+> 问题: `extract_fetch_state()` 作为 `_os_extract_fetch_state` 导入但从未被调用
+
+- 删除 `extract_fetch_state()` 函数定义（`crawler/output_state.py`）
+- 删除 `scholar_citation.py` 中的 `extract_fetch_state as _os_extract_fetch_state` 导入
+- 删除 `tests/test_output_state.py` 中对应的导入和 `test_extract_fetch_state_excludes_citations` 测试用例
+- 所有 125 个测试通过
+
 ### ✅ 已处理
 
 > direct: diagnostics summary absent — will re-fetch

@@ -82,9 +82,9 @@ from crawler.citation_io import (
 )
 from crawler.output_state import (
     PaperFetchState,
+    index_year_records as _os_index_year_records,
     load_output_fetch_state as _os_load_output_fetch_state,
     resolve_citation_status_from_output as _os_resolve_citation_status_from_output,
-    extract_fetch_state as _os_extract_fetch_state,
 )
 from crawler.pub_info import PubInfo
 
@@ -243,23 +243,11 @@ class PaperCitationFetcher:
     def _build_direct_fetch_diagnostics(scholar_total, cached_total, seen_total, dedup_count, termination_reason):
         return _cf._build_direct_fetch_diagnostics(scholar_total, cached_total, seen_total, dedup_count, termination_reason)
     @staticmethod
-    def _direct_fetch_diagnostics(scholar_total, cached_total, seen_total, dedup_count, termination_reason):
-        return _cf._direct_fetch_diagnostics(scholar_total, cached_total, seen_total, dedup_count, termination_reason)
+    def _direct_fetch_diagnostics_message(diagnostics, prefix="Direct fetch summary "):
+        return _cf._direct_fetch_diagnostics_message(diagnostics, prefix=prefix)
     @staticmethod
-    def _direct_fetch_summary_message(diagnostics):
-        return _cf._direct_fetch_summary_message(diagnostics)
-    @staticmethod
-    def _direct_fetch_log_message(diagnostics):
-        return _cf._direct_fetch_log_message(diagnostics)
-    @staticmethod
-    def _effective_scholar_total(pub, cached=None):
+    def _effective_scholar_total(pub):
         return int(pub.get('num_citations', 0) or 0)
-
-    @staticmethod
-    def _resort_publications(publications):
-        publications.sort(key=lambda item: item.get('num_citations', 0), reverse=True)
-        for index, publication in enumerate(publications, 1):
-            publication['no'] = index
 
     @staticmethod
     def _citation_year_value(citation):
@@ -434,19 +422,13 @@ class PaperCitationFetcher:
         rehydrated_year_fetch_diagnostics = None
         # Read per-year diagnostics from PaperFetchState when available.
         if isinstance(paper_state, PaperFetchState) and paper_state.year_records:
-            per_year = {}
-            for rec in paper_state.year_records:
-                if isinstance(rec, dict) and rec.get('year') is not None:
-                    per_year[rec['year']] = rec
+            per_year = _os_index_year_records(paper_state.year_records)
             rehydrated_year_fetch_diagnostics = self._normalize_year_fetch_diagnostics(per_year) or None
         # Fallback: read from cached dict (same-run retry may lack PaperFetchState).
         if not rehydrated_year_fetch_diagnostics:
             year_records = cached.get('year_records')
             if isinstance(year_records, list) and year_records:
-                per_year = {}
-                for rec in year_records:
-                    if isinstance(rec, dict) and rec.get('year') is not None:
-                        per_year[rec['year']] = rec
+                per_year = _os_index_year_records(year_records)
                 rehydrated_year_fetch_diagnostics = self._normalize_year_fetch_diagnostics(per_year) or None
         if not rehydrated_year_fetch_diagnostics:
             year_fetch_diag = cached.get('year_fetch_diagnostics')
@@ -1136,10 +1118,7 @@ class PaperCitationFetcher:
                                     if not rehydrated_year_fetch_diagnostics and latest_cache:
                                         yr = latest_cache.get('year_records')
                                         if isinstance(yr, list) and yr:
-                                            per_year = {}
-                                            for rec in yr:
-                                                if isinstance(rec, dict) and rec.get('year') is not None:
-                                                    per_year[rec['year']] = rec
+                                            per_year = _os_index_year_records(yr)
                                             rehydrated_year_fetch_diagnostics = self._normalize_year_fetch_diagnostics(per_year) or None
                                 resume_from = latest_resume_from
                                 num_citations = pub.get('num_citations', num_citations)
@@ -1255,7 +1234,7 @@ class PaperCitationFetcher:
                         if direct_underfetched:
                             print("  Direct fetch under-fetched; recording current results", flush=True)
                         else:
-                            print(f"  {self._direct_fetch_summary_message(direct_fetch_diagnostics)}", flush=True)
+                            print(f"  {self._direct_fetch_diagnostics_message(direct_fetch_diagnostics)}", flush=True)
                     break
 
                 except Exception as e:

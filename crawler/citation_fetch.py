@@ -160,15 +160,6 @@ def _build_direct_fetch_diagnostics(scholar_total, cached_total, seen_total, ded
         'termination_reason': termination_reason or 'iterator_exhausted',
     }
 
-def _direct_fetch_diagnostics(scholar_total, cached_total, seen_total, dedup_count, termination_reason):
-    return _build_direct_fetch_diagnostics(
-        scholar_total,
-        cached_total,
-        seen_total,
-        dedup_count,
-        termination_reason,
-    )
-
 def _direct_fetch_gap(diagnostics):
     """Compute the under-fetch gap from the summary sub-dict."""
     s = diagnostics
@@ -179,22 +170,10 @@ def _direct_fetch_is_underfetched(diagnostics):
     s = diagnostics
     return (s.get('seen_total') or 0) < (s.get('scholar_total') or 0)
 
-def _direct_fetch_summary_message(diagnostics):
+def _direct_fetch_diagnostics_message(diagnostics, prefix="Direct fetch summary "):
     s = diagnostics
     return (
-        "Direct fetch summary "
-        f"(scholar_total={s.get('scholar_total')}, "
-        f"cached_total={s.get('cached_total')}, "
-        f"seen_total={s.get('seen_total')}, "
-        f"dedup_num={s.get('dedup_count')}, "
-        f"gap={_direct_fetch_gap(diagnostics)}, "
-        f"termination={s.get('termination_reason')})"
-    )
-
-def _direct_fetch_log_message(diagnostics):
-    s = diagnostics
-    return (
-        "Direct fetch under-fetched "
+        f"{prefix}"
         f"(scholar_total={s.get('scholar_total')}, "
         f"cached_total={s.get('cached_total')}, "
         f"seen_total={s.get('seen_total')}, "
@@ -527,7 +506,7 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
     total_count = direct_materialized_total
     print(f"        Direct fetch totals: scholar_total={s['scholar_total']}, new={new_count}, total_cached={total_count}, seen_total={s['seen_total']}", flush=True)
     if _direct_fetch_is_underfetched(direct_fetch_diagnostics):
-        print(f"        {_direct_fetch_log_message(direct_fetch_diagnostics)}", flush=True)
+        print(f"        {_direct_fetch_diagnostics_message(direct_fetch_diagnostics, prefix='Direct fetch under-fetched ')}", flush=True)
     save_progress(fetch_finished=True, batch=direct_batch)
     return list(fresh_citations)
 
@@ -872,11 +851,11 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
             if not year_progress_saved:
                 save_progress(fetch_finished=False)
 
-            if stop_partial_resume_once_satisfied and resuming_partial_year and live_count is not None and len(year_fetched_citations) >= live_count:
+            if stop_partial_resume_once_satisfied and resuming_partial_year and live_count is not None and len(year_batch.citations) >= live_count:
                 year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
                     year,
                     live_count,
-                    len(year_fetched_citations),
+                    len(year_batch.citations),
                     year_dedup_count,
                     'partial_resume_completed',
                 )

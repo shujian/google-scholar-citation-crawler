@@ -2,6 +2,12 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
+## 2026-05-12: 代码规范修复
+
+- **`index_year_records()`**: 从 `scholar_citation.py` 中重复 3 次的 year_records 解析逻辑提取的共享函数，位于 `crawler/output_state.py`。接受一个 year records 列表，返回 `{year: record}` 字典。
+- **`_direct_fetch_diagnostics_message()`**: 合并了原 `_direct_fetch_summary_message` 和 `_direct_fetch_log_message`，通过 `prefix` 参数区分不同场景。
+- **Bug**: `fetch_by_year` 中的 `year_fetched_citations` 变量从未赋值，已替换为 `year_batch.citations`。
+
 ## 开发环境
 
 - **Conda 环境**: `scholar` (`/Users/huangshujian/miniforge3/envs/scholar`)

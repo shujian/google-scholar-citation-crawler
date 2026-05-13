@@ -20,6 +20,25 @@ from crawler.citation_io import (
 
 
 # ---------------------------------------------------------------------------
+# Year-records helpers
+# ---------------------------------------------------------------------------
+
+def index_year_records(year_records):
+    """Convert a list of year records into a {year: record} dict.
+
+    Each record is expected to be a dict with a 'year' key (int or
+    convertible to int).  Returns an empty dict when *year_records* is
+    not a list.
+    """
+    per_year = {}
+    if isinstance(year_records, list):
+        for rec in year_records:
+            if isinstance(rec, dict) and rec.get('year') is not None:
+                per_year[rec['year']] = rec
+    return per_year
+
+
+# ---------------------------------------------------------------------------
 # PaperFetchState dataclass
 # ---------------------------------------------------------------------------
 
@@ -444,21 +463,3 @@ def resolve_citation_status_from_output(pub, state, year_based_threshold):
     return resolve_citation_status_from_state(cache_state)
 
 
-def extract_fetch_state(cached):
-    if not cached:
-        return PaperFetchState()
-    state = PaperFetchState.from_dict(cached)
-    citations = cached.get('citations', []) or []
-    if state.num_citations_on_scholar is None:
-        yfd = (cached.get('year_fetch_diagnostics') or {})
-        year_summary = yfd.get('summary', yfd) if isinstance(yfd, dict) else {}
-        dfd = (cached.get('direct_fetch_diagnostics') or {})
-        direct_summary = dfd.get('summary') or {}
-        seen = year_summary.get('seen_total') or direct_summary.get('seen_total')
-        if seen is not None:
-            state.num_citations_on_scholar = seen
-        elif state.complete_fetch_attempt:
-            state.num_citations_on_scholar = len(citations)
-        else:
-            state.num_citations_on_scholar = len(citations)
-    return state

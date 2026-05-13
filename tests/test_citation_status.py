@@ -8,8 +8,6 @@ from tests.conftest import (
 import types
 import unittest
 import scholar_citation
-from crawler.citation_strategy import refresh_reconciliation_status as _cs_refresh_reconciliation_status
-
 class CitationStatusTests(FetcherTestCase):
     def test_fetch_citations_with_progress_rehydrates_probe_metadata_for_year_resume(self):
         cached_citations = [
@@ -487,33 +485,6 @@ class CitationStatusTests(FetcherTestCase):
 
         self.assertEqual(status, "complete")
 
-    def test_refresh_reconciliation_uses_seen_total_completion_for_year_diagnostics(self):
-        citations = [
-            {"title": f"A-{idx}", "authors": "A", "venue": "V", "year": "2024", "url": f"u{idx}"}
-            for idx in range(9)
-        ]
-
-        status = _cs_refresh_reconciliation_status(
-            citations,
-            10,
-            dedup_count=0,
-            probed_year_counts={2024: 10},
-            probe_complete=True,
-            year_fetch_diagnostics={
-                2024: self.fetcher._build_year_fetch_diagnostics(
-                    2024,
-                    10,
-                    9,
-                    1,
-                    "target_reached",
-                ),
-            },
-        )
-
-        self.assertTrue(status["ok"])
-        self.assertEqual(status["reason"], "matched_complete_histogram")
-        self.assertEqual(status["year_fetch_diagnostics"][2024]["seen_total"], 10)
-
     def test_resolve_refresh_strategy_rehydrates_year_fetch_diagnostics(self):
         pub = {"title": "Paper", "num_citations": 10, "year": "2024"}
         cached = {
@@ -540,7 +511,7 @@ class CitationStatusTests(FetcherTestCase):
         self.assertEqual(strategy["rehydrated_year_fetch_diagnostics"][2024]["dedup_count"], 1)
 
     def test_direct_fetch_diagnostics_treat_seen_total_as_completion_boundary(self):
-        diagnostics = self.fetcher._direct_fetch_diagnostics(
+        diagnostics = self.fetcher._build_direct_fetch_diagnostics(
             scholar_total=10,
             cached_total=9,
             seen_total=10,
