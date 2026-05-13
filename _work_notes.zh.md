@@ -31,15 +31,15 @@ google-scholar-citation-crawler/
 │   ├── citation_identity.py     # citation 去重键与信息提取
 │   ├── citation_io.py           # cache I/O、status 推导、citations Excel 输出
 │   ├── citation_fetch.py        # fetch_citations_with_progress + fetch_by_year
-│   ├── fetch_session.py         # BatchFetchSession, DirectFetchSession, YearFetchSession
+│   ├── fetch_session.py         # BatchFetchSession, YearFetchSession
 │   ├── page_visit.py            # PageVisit — 每页 captcha/proxy/retry 恢复
 │   ├── scholarly_session.py     # SessionContext + scholarly monkey-patch + year probe
 │   ├── interactive.py           # cURL cookie 注入、captcha 提示、proxy-switch 等待
-│   ├── citation_models.py       # Citation, YearRecord, YearDiagnostics, DirectDiagnostics, ResumeState, FetchPolicy
+│   ├── citation_models.py       # YearRecord, ResumeState, FetchPolicy
 │   ├── output_state.py          # PaperFetchState dataclass + 输出文件 _fetch_state 读写
 │   ├── pub_info.py              # PubInfo dataclass（pub 字段规范化）
 │   └── cli.py                   # parse_args() + _run_main(args)
-├── tests/                       # 单元测试（127 个，不需要网络）
+├── tests/                       # 单元测试（119 个，不需要网络）
 │   ├── conftest.py              # 共享 stubs + FetcherTestCase 基类
 │   ├── test_scholar_patch.py    # scholarly patch URL 日志、cookie 注入、CLI 解析
 │   ├── test_year_fetch_early.py # year fetch early-stop / histogram-authoritative
@@ -192,16 +192,13 @@ pub_obj = {
 | 类 | 位置 | 用途 | 字段数 |
 |-----|------|------|--------|
 | `AuthorProfile` | `profile_io.py` | 输出文件 author profile | 4 + 3 计算属性 |
-| `PaperFetchState` | `output_state.py` | 输出文件 `_fetch_state` | 10 |
+| `PaperFetchState` | `output_state.py` | 输出文件 `_fetch_state` | 11 |
 | `PubInfo` | `pub_info.py` | 输出文件 `pub` | 8 |
-| `Citation` | `citation_models.py` | 单条引用（I/O） | 6 |
 | `YearRecord` | `citation_models.py` | 单年抓取记录（I/O） | 6 |
-| `YearDiagnostics` | `citation_models.py` | 年份模式 summary（I/O） | 8 + records |
-| `DirectDiagnostics` | `citation_models.py` | 直接模式 summary（I/O） | 5 |
 | `ResumeState` | `citation_models.py` | 断点续传位置（运行时） | 3 |
 | `FetchPolicy` | `citation_models.py` | 抓取策略决策（运行时） | 3 |
 
-### 输出文件 `_fetch_state` 字段（10 个）
+### 输出文件 `_fetch_state` 字段（11 个）
 
 ```json
 {
@@ -210,6 +207,7 @@ pub_obj = {
   "citedby_url": "...",
   "fetch_strategy": "year" | "direct",
   "num_citations_on_scholar": 1200,
+  "scholar_changed": false,
   "complete_fetch_attempt": true,
   "year_fetch_diagnostics": {
     "histogram_total": 1200, "scholar_total": 1210,
@@ -248,7 +246,7 @@ fetch 过程:
 
 save_progress:
   YearRecord 列表 → build_citation_count_summary → year_fetch_diagnostics (summary)
-  direct fetch → _build_direct_fetch_diagnostics → direct_fetch_diagnostics.summary
+  direct fetch → _build_direct_fetch_diagnostics → direct_fetch_diagnostics
 
 输出:
   PaperFetchState.to_dict() → 规范化所有字段 → 写入 output JSON
@@ -286,7 +284,7 @@ save_progress:
 ### complete/partial 规则
 
 - **Year mode**: `year_fetch_diagnostics.histogram_total <= seen_total` → complete（`year_fetch_diagnostics` 自身就是 summary）
-- **Direct mode**: `direct_fetch_diagnostics.summary.scholar_total <= seen_total` → complete
+- **Direct mode**: `direct_fetch_diagnostics.scholar_total <= seen_total` → complete
 - 无 diagnostics → `PaperFetchState.is_complete()` 已封装，内部 fallback
 
 ### Fetch policy 选择

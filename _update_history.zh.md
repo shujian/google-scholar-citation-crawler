@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-05-14: 代码规范清理 — 删除死代码、消除冗余、修复 Bug、更新文档
+
+- **死代码删除**：`DirectFetchSession`、`Citation`、`YearDiagnostics`、`DirectDiagnostics`、`extract_fetch_state`、`build_profile_payload`/`save_profile_json`、`citation_status`、`refresh_reconciliation_status`、`_resort_publications`、`_effective_scholar_total` 的未使用参数
+- **冗余消除**：合并 `_direct_fetch_diagnostics` 包装器、`_direct_fetch_*_message` 函数；`year_records` 解析逻辑提取为 `index_year_records()`
+- **Bug 修复**：`year_fetched_citations` → `year_batch.citations`（未定义变量 NameError）
+- **封装性改进**：`restore_from_cache_snapshot()` 封装私有字段写入；`to_paper_fetch_state()` 统一类型分派
+- **参数精简**：删除 `rehydrated_probed_year_counts`/`rehydrated_probe_complete`/`rehydrated_year_fetch_diagnostics`（始终为 None/False/None）
+- **文档修正**：测试数 127→119、删除 test_citation_page_stop.py 引用、PaperFetchState 字段数 10→11、依赖映射补全、版本约束修正
+- 测试从 126 精简到 119（删除冗余/死代码相关测试）
+
+---
+
 ## 2026-05-12: 代码规范 — 消除 4 处冗余代码 + 1 个 Bug 修复
 
 ### Issue 1: 删除 `_direct_fetch_diagnostics` 冗余包装器

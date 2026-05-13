@@ -22,7 +22,7 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 ## Requirements
 
 - Python 3.8+
-- Dependencies: `scholarly`, `openpyxl`, `httpx==0.27.2`
+- Dependencies: `scholarly>=1.7, openpyxl>=3.1, httpx==0.27.2`
 
 ```bash
 pip install -r requirements.txt
@@ -168,7 +168,7 @@ Both files are committed to git and contain no personally identifiable informati
 scholar_citation.py          # CLI entry point + PaperCitationFetcher orchestrator
 crawler/
   common.py                  # Constants and stateless utilities
-  fetch_session.py           # BatchFetchSession, DirectFetchSession, YearFetchSession
+  fetch_session.py           # BatchFetchSession, YearFetchSession
   page_visit.py              # PageVisit — per-page error recovery
   author_fetcher.py          # AuthorProfileFetcher
   profile_io.py              # Profile JSON / Excel output
@@ -179,11 +179,11 @@ crawler/
   citation_fetch.py          # fetch_citations_with_progress + fetch_by_year engine
   scholarly_session.py       # SessionContext + scholarly monkey-patch + year probe
   interactive.py             # cURL cookie injection, captcha prompt, proxy-switch wait
-  citation_models.py         # Citation, YearRecord, diagnostics dataclasses
+  citation_models.py         # YearRecord, ResumeState, FetchPolicy dataclasses
   output_state.py            # Output file _fetch_state read/write
   pub_info.py                # PubInfo dataclass for publication field normalization
   cli.py                     # parse_args() + _run_main()
-tests/                       # 127 unit tests, no network required
+tests/                       # 119 unit tests, no network required
 ```
 
 ### Running Tests

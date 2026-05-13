@@ -2591,3 +2591,15 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 > 请修复项目中直接访问 `PaperFetchState` 私有字段 `_` 的封装性违规问题。这是 issues.md 中的第一个 issue。
 
 已在 `PaperFetchState` 中添加 `restore_from_cache_snapshot(cache_snapshot)` 方法，封装了 `_year_records`、`_year_fetch_diagnostics`、`_direct_fetch_diagnostics`、`_fetched_at` 四个私有字段的更新，`scholar_citation.py` 中改为调用该方法。
+
+### 338
+
+> 请建立一个新agent帮我检查一下当前代码的规范性方面的问题，主要看数据的使用是否满足封装性约束，是否有冗余代码、死代码。另请用一个agent检查当前代码跟work_notes以及readme不一致的地方。请只检查问题，所有查出的问题请加入到issues.md中，暂时不做代码的更新和修改。
+
+> 请用agent逐条解决issues中的问题，注意issues.md开头的相关说明。
+
+通过 agents 逐条处理了 19 个 issue：删除 8 处死代码、消除 3 处冗余、修复 1 个 Bug、改进 4 处封装性、修正 5 处文档不一致。测试从 126 精简到 119。
+
+### 339
+
+> 检查一下文档是否已经更新。如果空闲，请更新相关的文档，并进行提交。
