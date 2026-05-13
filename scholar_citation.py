@@ -1187,19 +1187,7 @@ class PaperCitationFetcher:
                             if not getattr(self, '_output_fetch_state', None):
                                 self._output_fetch_state = {}
                             self._output_fetch_state[title] = pst
-                        else:
-                            yr = cache_snapshot.get('year_records') or []
-                            if yr:
-                                pst._year_records = yr
-                                pst.restore_year_diag_from_year_records()
-                            dfd = cache_snapshot.get('direct_fetch_diagnostics') or {}
-                            if isinstance(dfd, dict) and dfd.get('scholar_total') is not None:
-                                pst._direct_fetch_diagnostics = dfd
-                            yfd = cache_snapshot.get('year_fetch_diagnostics') or {}
-                            if isinstance(yfd, dict) and yfd.get('scholar_total') is not None:
-                                pst._year_fetch_diagnostics = yfd
-                        # Record the fetch timestamp.
-                        pst._fetched_at = cache_snapshot.get('fetched_at') or datetime.now().isoformat()
+                        pst.restore_from_cache_snapshot(cache_snapshot)
                         # Keep citations in memory for _save_output fallback.
                         if not getattr(self, '_output_citations', None):
                             self._output_citations = {}

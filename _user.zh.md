@@ -2572,3 +2572,11 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 ### 336
 
 > 检查一下文档是否已经更新。如果空闲，请更新相关的文档，并进行提交。
+
+---
+
+### 337
+
+> 请修复项目中直接访问 `PaperFetchState` 私有字段 `_` 的封装性违规问题。这是 issues.md 中的第一个 issue。
+
+已在 `PaperFetchState` 中添加 `restore_from_cache_snapshot(cache_snapshot)` 方法，封装了 `_year_records`、`_year_fetch_diagnostics`、`_direct_fetch_diagnostics`、`_fetched_at` 四个私有字段的更新，`scholar_citation.py` 中改为调用该方法。

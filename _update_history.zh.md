@@ -4,6 +4,27 @@
 
 ---
 
+## 2026-05-12: 封装性修复 — PaperFetchState 私有字段不再被外部直接赋值
+
+### 问题
+`scholar_citation.py` 在 fetch 完成后有 4 处直接赋值 `PaperFetchState` 的私有字段：
+- `pst._year_records = yr`
+- `pst._direct_fetch_diagnostics = dfd`
+- `pst._year_fetch_diagnostics = yfd`
+- `pst._fetched_at = cache_snapshot.get('fetched_at') or datetime.now().isoformat()`
+
+这违反了封装原则。
+
+### 修复
+- 在 `crawler/output_state.py` 的 `PaperFetchState` 类中添加 `restore_from_cache_snapshot(cache_snapshot)` 方法，将所有私有字段更新集中在一个方法内
+- 修改 `scholar_citation.py` 中对应的代码，使用 `pst.restore_from_cache_snapshot(cache_snapshot)` 替换所有 4 处直接赋值
+- 新方法遵循 chainable 惯例（返回 self）
+
+### 影响文件
+- `crawler/output_state.py`: 添加 `restore_from_cache_snapshot()` 方法
+- `scholar_citation.py`: 替换直接私有字段赋值为方法调用
+
+---
 ## 2026-05-13: 大规模重构 — 删除 cache 文件、rehydrate 函数，强化 PaperFetchState 封装
 
 ### 删除 cache 文件体系

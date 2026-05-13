@@ -259,6 +259,20 @@ save_progress:
 - 必须是**页面对齐的**（10 的倍数）
 - 跨运行时永远为空 `{}`
 
+### PaperFetchState 封装原则
+
+`PaperFetchState` 所有字段以 `_` 前缀实现为私有字段，外部代码**禁止**直接赋值。访问和修改只能通过以下途径：
+
+- **初始化**: `from_dict()` 类方法
+- **更新**: `restore_from_cache_snapshot()` / `restore_year_diag_from_year_records()` / `restore_direct_diag_from_citations()`
+- **标志位**: `mark_scholar_changed()` / `clear_scholar_changed()`
+- **查询**: `need_fetch()` / `is_complete()` / 只读 property
+
+`restore_from_cache_snapshot(cache_snapshot)` 是统一入口，封装了所有运行时状态更新：
+`_year_records`, `_year_fetch_diagnostics`, `_direct_fetch_diagnostics`, `_fetched_at`。
+
+所有 restore 方法返回 `self` 以支持链式调用。
+
 ---
 
 ## Citation 状态判定
