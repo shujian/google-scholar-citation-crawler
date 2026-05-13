@@ -220,15 +220,21 @@ class PaperFetchState:
     def is_complete(self, current_scholar_total=None, pub_year='N/A',
                     year_based_threshold=50):
         from crawler.citation_cache import is_data_complete
+        strategy, summary = self._infer_strategy_and_summary()
+        if strategy is None:
+            return False
+        return is_data_complete(strategy, summary)
+
+    def _infer_strategy_and_summary(self):
+        """Return (strategy, summary) using the same inference rules as is_complete."""
         strategy = self.fetch_strategy
         if not strategy:
-            # Infer from which diagnostics are populated
-            if self.year_fetch_diagnostics:
+            if self.year_fetch_diagnostics or self.year_records:
                 strategy = 'year'
             elif self.direct_fetch_diagnostics:
                 strategy = 'direct'
             else:
-                return False
+                return None, None
         if strategy == 'year':
             summary = self.year_fetch_diagnostics
             if summary is None and self.year_records:
@@ -236,20 +242,17 @@ class PaperFetchState:
             summary = summary or {}
         else:
             summary = self.direct_fetch_diagnostics or {}
-        return is_data_complete(strategy, summary)
+        return strategy, summary
 
     def completeness_diag(self, citations_len=None):
-        strategy = self.fetch_strategy or 'direct'
+        strategy, summary = self._infer_strategy_and_summary()
+        if strategy is None:
+            return '  diagnostics summary absent'
         if strategy == 'year':
-            summary = self.year_fetch_diagnostics
-            if summary is None and self.year_records:
-                summary = _normalize_year_summary_from_records(self.year_records)
-            summary = summary or {}
             target = summary.get('histogram_total')
             seen = summary.get('seen_total')
             label = 'histogram_total'
         else:
-            summary = self.direct_fetch_diagnostics or {}
             target = summary.get('scholar_total')
             seen = summary.get('seen_total')
             label = 'scholar_total'
