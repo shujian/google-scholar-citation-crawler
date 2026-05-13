@@ -19,6 +19,33 @@
 
 ### ✅ 已处理 [2026-05-12]
 
+> [代码规范] DirectFetchSession 类未被使用（死代码）
+> 文件: crawler/fetch_session.py:203-227
+> 问题: DirectFetchSession dataclass 定义了但从未被实例化或导入
+
+- 删除 `DirectFetchSession` 类定义（`crawler/fetch_session.py`）
+- 更新模块 docstring，移除 `DirectFetchSession` 的提及
+- `crawler/__init__.py` 无导出需要删除（该文件为空）
+- 所有 126 个测试通过
+
+----
+
+### ✅ 已处理 [2026-05-12]
+
+> [代码规范] Citation、YearDiagnostics、DirectDiagnostics dataclass 未被使用（死代码）
+> 文件: crawler/citation_models.py
+> 问题: Citation、YearDiagnostics、DirectDiagnostics 三个 dataclass 定义了完整的 from_dict/to_dict 但从未被使用
+
+- 删除 `Citation` 类定义
+- 删除 `YearDiagnostics` 类定义
+- 删除 `DirectDiagnostics` 类定义
+- 更新模块 docstring，移除死代码的提及
+- 所有 126 个测试通过
+
+----
+
+### ✅ 已处理 [2026-05-12]
+
 > [代码规范] 直接访问 PaperFetchState 的 _private 字段
 > 文件: scholar_citation.py:1193,1197,1200,1202
 > 问题: `pst._year_records = yr`、`pst._direct_fetch_diagnostics = dfd`、`pst._year_fetch_diagnostics = yfd`、`pst._fetched_at = ...` 直接赋值私有字段

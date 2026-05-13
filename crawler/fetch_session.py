@@ -1,9 +1,8 @@
 """
 crawler/fetch_session.py — Per-fetch session dataclasses.
 
-BatchFetchSession  — single paginated fetch from one URL.
-DirectFetchSession — wraps a BatchFetchSession for direct-mode papers.
-YearFetchSession   — wraps one BatchFetchSession per year for year-mode papers.
+BatchFetchSession — single paginated fetch from one URL.
+YearFetchSession  — wraps one BatchFetchSession per year for year-mode papers.
 
 These replace the previous FetchContext + closure-based state management.
 """
@@ -193,37 +192,6 @@ class BatchFetchSession:
         else:
             self._termination_reason = 'iterator_exhausted'
         self._finished = True
-
-
-# ---------------------------------------------------------------------------
-# DirectFetchSession
-# ---------------------------------------------------------------------------
-
-@dataclass
-class DirectFetchSession:
-    """Direct-mode fetch for one paper — a single BatchFetchSession."""
-
-    baseline: PaperFetchState
-    batch: BatchFetchSession
-    resume_from: list = field(default_factory=list)
-    fetch_policy: FetchPolicy = field(default_factory=lambda: FetchPolicy(strategy='direct'))
-
-    @property
-    def all_citations(self):
-        """Merge resume_from with fresh batch citations via overlay."""
-        # The _overlay_citations_by_identity method lives on the fetcher,
-        # so this is called by the fetcher's fetch method.
-        return self.batch.citations
-
-    @classmethod
-    def from_baseline(cls, baseline, citedby_url, num_citations, resume_from=None):
-        """Create a DirectFetchSession from a PaperFetchState baseline."""
-        return cls(
-            baseline=baseline,
-            batch=BatchFetchSession(url=citedby_url),
-            resume_from=list(resume_from or []),
-            fetch_policy=FetchPolicy(strategy='direct'),
-        )
 
 
 # ---------------------------------------------------------------------------

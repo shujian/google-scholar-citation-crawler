@@ -1,17 +1,3 @@
-### [代码规范] DirectFetchSession 类未被使用（死代码）
-- 文件: crawler/fetch_session.py:203-227
-- 问题: DirectFetchSession dataclass 定义了但从未被实例化或导入
-- 建议: 删除该类
-
-====
-
-### [代码规范] Citation、YearDiagnostics、DirectDiagnostics dataclass 未被使用（死代码）
-- 文件: crawler/citation_models.py
-- 问题: Citation (L18-62)、YearDiagnostics (L126-232)、DirectDiagnostics (L239-289) 三个 dataclass 定义了完整的 from_dict/to_dict 但从未被使用
-- 建议: 删除这些类，或者迁移引用代码使用它们
-
-====
-
 ### [代码规范] extract_fetch_state() 被导入但从未调用（死代码）
 - 文件: crawler/output_state.py:415, scholar_citation.py:87
 - 问题: `extract_fetch_state()` 作为 `_os_extract_fetch_state` 导入但从未被调用
