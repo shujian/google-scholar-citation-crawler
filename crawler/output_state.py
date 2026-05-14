@@ -242,6 +242,23 @@ class PaperFetchState:
         if isinstance(yfd, dict) and yfd.get('scholar_total') is not None:
             self._year_fetch_diagnostics = yfd
 
+        # completion flag
+        if cache_snapshot.get('complete_fetch_attempt'):
+            self._complete_fetch_attempt = True
+
+        # fetch_strategy (may change when citation count crosses threshold)
+        fs = cache_snapshot.get('fetch_strategy')
+        if fs in ('year', 'direct'):
+            self._fetch_strategy = fs
+
+        # num_citations_on_scholar (may differ from the stored value)
+        nc = cache_snapshot.get('num_citations_on_scholar')
+        if nc is not None:
+            try:
+                self._num_citations_on_scholar = int(nc)
+            except (TypeError, ValueError):
+                pass
+
         # fetched_at timestamp
         self._fetched_at = cache_snapshot.get('fetched_at') or datetime.now().isoformat()
 
@@ -311,6 +328,24 @@ class PaperFetchState:
             cmp_sym = '≥' if (seen or 0) >= (target or 0) else '<'
             return f'  {strategy}: seen_total={seen} {cmp_sym} {label}={target}'
         return f'  {strategy}: diagnostics summary absent'
+
+
+# ---------------------------------------------------------------------------
+# Type dispatch helper
+# ---------------------------------------------------------------------------
+
+def to_paper_fetch_state(obj):
+    """Convert *obj* to a PaperFetchState, or return None.
+
+    - If already a PaperFetchState, return it as-is.
+    - If a dict, convert via PaperFetchState.from_dict().
+    - Otherwise return None.
+    """
+    if isinstance(obj, PaperFetchState):
+        return obj
+    if isinstance(obj, dict):
+        return PaperFetchState.from_dict(obj)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -454,9 +489,10 @@ def load_output_fetch_state(output_path):
 def resolve_citation_status_from_output(pub, state, year_based_threshold):
     if pub.get('num_citations') == 0:
         return 'skip_zero'
-    if isinstance(state, PaperFetchState):
-        if state.need_fetch(pub.get('num_citations'), pub.get('year', 'N/A'),
-                            year_based_threshold):
+    pst = to_paper_fetch_state(state)
+    if pst:
+        if pst.need_fetch(pub.get('num_citations'), pub.get('year', 'N/A'),
+                           year_based_threshold):
             return 'partial'
         return 'complete'
     cache_state = derive_citation_cache_state(pub, state, year_based_threshold)
