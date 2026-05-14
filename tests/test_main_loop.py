@@ -59,8 +59,6 @@ class MainLoopTests(FetcherTestCase):
                     "resume_from": resume_from,
                     "completed_years_in_current_run": list(kwargs["completed_years_in_current_run"]),
                     "saved_dedup_count": kwargs["saved_dedup_count"],
-                    "rehydrated_probed_year_counts": kwargs["rehydrated_probed_year_counts"],
-                    "rehydrated_probe_complete": kwargs["rehydrated_probe_complete"],
                     "rehydrated_year_fetch_diagnostics": kwargs["rehydrated_year_fetch_diagnostics"],
                 }
             )
@@ -131,8 +129,6 @@ class MainLoopTests(FetcherTestCase):
                     "resume_from": resume_from,
                     "completed_years_in_current_run": list(kwargs["completed_years_in_current_run"]),
                     "saved_dedup_count": kwargs["saved_dedup_count"],
-                    "rehydrated_probed_year_counts": kwargs["rehydrated_probed_year_counts"],
-                    "rehydrated_probe_complete": kwargs["rehydrated_probe_complete"],
                     "rehydrated_year_fetch_diagnostics": kwargs["rehydrated_year_fetch_diagnostics"],
                     "direct_resume_state": kwargs.get("direct_resume_state"),
                 }
@@ -162,8 +158,6 @@ class MainLoopTests(FetcherTestCase):
         self.assertEqual([c["title"] for c in fetch_calls[1]["resume_from"]], ["Cached-2025"])
         self.assertEqual(fetch_calls[1]["completed_years_in_current_run"], [])
         self.assertEqual(fetch_calls[1]["saved_dedup_count"], 0)
-        self.assertEqual(fetch_calls[1]["rehydrated_probed_year_counts"], None)
-        self.assertFalse(fetch_calls[1]["rehydrated_probe_complete"])
         # direct→year transition: synthesised from latest_cache citations
         self.assertEqual(fetch_calls[1]["rehydrated_year_fetch_diagnostics"][2025]["histogram_count"], 1)
     def test_run_main_loop_retry_does_not_restore_direct_resume_state(self):
@@ -310,8 +304,6 @@ class MainLoopTests(FetcherTestCase):
                 "allow_incremental_early_stop": True,
                 "force_year_rebuild": False,
                 "selective_refresh_years": None,
-                "rehydrated_probed_year_counts": None,
-                "rehydrated_probe_complete": False,
                 "rehydrated_year_fetch_diagnostics": None,
                 "action": "first fetch",
                 "prev_scholar_count": 0,
@@ -385,8 +377,6 @@ class MainLoopTests(FetcherTestCase):
                     "selective_refresh_years": kwargs["selective_refresh_years"],
                     "prev_scholar_count": kwargs["prev_scholar_count"],
                     "saved_dedup_count": kwargs["saved_dedup_count"],
-                    "rehydrated_probed_year_counts": kwargs["rehydrated_probed_year_counts"],
-                    "rehydrated_probe_complete": kwargs["rehydrated_probe_complete"],
                     "rehydrated_year_fetch_diagnostics": kwargs["rehydrated_year_fetch_diagnostics"],
                 }
             )
@@ -427,8 +417,6 @@ class MainLoopTests(FetcherTestCase):
         self.assertEqual(fetch_calls[1]["resume_from"], stale_retry_cache["citations"])
         self.assertEqual(fetch_calls[1]["completed_years_in_current_run"], [])
         self.assertEqual(fetch_calls[1]["saved_dedup_count"], 0)
-        self.assertIsNone(fetch_calls[1]["rehydrated_probed_year_counts"])
-        self.assertFalse(fetch_calls[1]["rehydrated_probe_complete"])
         # direct→year transition: synthesised from stale_retry_cache citations
         self.assertEqual(fetch_calls[1]["rehydrated_year_fetch_diagnostics"][2024]["histogram_count"], 1)
         self.assertEqual(mock_load_cache.call_count, 2)
@@ -529,8 +517,6 @@ class MainLoopTests(FetcherTestCase):
                 "allow_incremental_early_stop": True,
                 "force_year_rebuild": False,
                 "selective_refresh_years": None,
-                "rehydrated_probed_year_counts": None,
-                "rehydrated_probe_complete": False,
                 "rehydrated_year_fetch_diagnostics": None,
                 "action": "first fetch",
                 "prev_scholar_count": 0,
@@ -628,8 +614,6 @@ class MainLoopTests(FetcherTestCase):
                 "allow_incremental_early_stop": True,
                 "force_year_rebuild": False,
                 "selective_refresh_years": None,
-                "rehydrated_probed_year_counts": None,
-                "rehydrated_probe_complete": False,
                 "rehydrated_year_fetch_diagnostics": None,
                 "action": "first fetch",
                 "prev_scholar_count": 0,

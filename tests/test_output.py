@@ -9,8 +9,6 @@ import types
 import unittest
 import scholar_citation
 from crawler.output_state import PaperFetchState
-from crawler.citation_strategy import refresh_reconciliation_status as _cs_refresh_reconciliation_status
-
 class OutputAndReconciliationTests(FetcherTestCase):
     def test_save_output_writes_excel_run_metadata_from_json_payload(self):
         pub = {
@@ -75,24 +73,6 @@ class OutputAndReconciliationTests(FetcherTestCase):
         citations_sheet = workbook.sheets[1]
         self.assertEqual(citations_sheet.title, "All Citations")
         self.assertEqual(citations_sheet.cells[(2, 5)].value, payload["papers"][0]["citations"][0]["year"])
-
-        status = _cs_refresh_reconciliation_status(
-            [
-                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
-                {"title": "B", "authors": "B", "venue": "V", "year": "2025", "url": "u2"},
-                {"title": "C", "authors": "C", "venue": "V", "year": "2025", "url": "u3"},
-            ],
-            5,
-            dedup_count=0,
-            probed_year_counts={2024: 1, 2025: 2},
-            probe_complete=True,
-        )
-
-        self.assertTrue(status["ok"])
-        self.assertEqual(status["reason"], "matched_complete_histogram")
-        self.assertEqual(status["histogram_total"], 3)
-        self.assertEqual(status["scholar_unyeared_count"], 2)
-        self.assertEqual(status["cached_year_total"], 3)
 
     def test_save_output_includes_fetch_state_from_output_state(self):
         pub = {
@@ -165,94 +145,6 @@ class OutputAndReconciliationTests(FetcherTestCase):
         self.assertEqual(yr["histogram_count"], 50)
         # citations should NOT be duplicated inside _fetch_state
         self.assertNotIn("citations", fs)
-
-    def test_refresh_reconciliation_requests_escalation_on_histogram_mismatch(self):
-        status = _cs_refresh_reconciliation_status(
-            [
-                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
-                {"title": "B", "authors": "B", "venue": "V", "year": "2025", "url": "u2"},
-                {"title": "C", "authors": "C", "venue": "V", "year": "2025", "url": "u3"},
-            ],
-            5,
-            dedup_count=0,
-            probed_year_counts={2024: 2, 2025: 1},
-            probe_complete=True,
-        )
-
-        self.assertFalse(status["ok"])
-        self.assertEqual(status["reason"], "year_count_mismatch")
-        self.assertEqual(status["histogram_total"], 3)
-
-    def test_refresh_reconciliation_accepts_matching_year_histogram_when_probe_incomplete(self):
-        status = _cs_refresh_reconciliation_status(
-            [
-                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
-                {"title": "B", "authors": "B", "venue": "V", "year": "N/A", "url": "u2"},
-                {"title": "C", "authors": "C", "venue": "V", "year": "N/A", "url": "u3"},
-            ],
-            5,
-            dedup_count=0,
-            probed_year_counts={2024: 1},
-            probe_complete=False,
-        )
-
-        self.assertTrue(status["ok"])
-        self.assertEqual(status["reason"], "matched_incomplete_histogram")
-        self.assertEqual(status["histogram_total"], 1)
-        self.assertEqual(status["cached_unyeared_count"], 2)
-
-    def test_refresh_reconciliation_keeps_histogram_incomplete_status_when_probe_incomplete_histogram_mismatches(self):
-        status = _cs_refresh_reconciliation_status(
-            [
-                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
-            ],
-            3,
-            dedup_count=0,
-            probed_year_counts={2024: 2},
-            probe_complete=False,
-        )
-
-        self.assertFalse(status["ok"])
-        self.assertEqual(status["reason"], "histogram_incomplete")
-        self.assertEqual(status["histogram_total"], 2)
-        self.assertEqual(status["cached_total"], 1)
-
-    def test_refresh_reconciliation_accepts_count_match_without_probe_histogram(self):
-        status = _cs_refresh_reconciliation_status(
-            [
-                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
-                {"title": "B", "authors": "B", "venue": "V", "year": "N/A", "url": "u2"},
-                {"title": "C", "authors": "C", "venue": "V", "year": "N/A", "url": "u3"},
-            ],
-            3,
-            dedup_count=0,
-            probed_year_counts=None,
-            probe_complete=False,
-        )
-
-        self.assertTrue(status["ok"])
-        self.assertEqual(status["reason"], "count_matched_without_histogram")
-        self.assertEqual(status["histogram_total"], 0)
-        self.assertEqual(status["cached_unyeared_count"], 2)
-
-    def test_refresh_reconciliation_accepts_count_match_when_probe_incomplete(self):
-        status = _cs_refresh_reconciliation_status(
-            [
-                {"title": "A", "authors": "A", "venue": "V", "year": "2024", "url": "u1"},
-                {"title": "B", "authors": "B", "venue": "V", "year": "N/A", "url": "u2"},
-                {"title": "C", "authors": "C", "venue": "V", "year": "N/A", "url": "u3"},
-            ],
-            3,
-            dedup_count=0,
-            probed_year_counts={2024: 1},
-            probe_complete=False,
-        )
-
-        self.assertTrue(status["ok"])
-        self.assertEqual(status["reason"], "matched_incomplete_histogram")
-        self.assertEqual(status["histogram_total"], 1)
-        self.assertEqual(status["cached_unyeared_count"], 2)
-
 
 
 if __name__ == '__main__':

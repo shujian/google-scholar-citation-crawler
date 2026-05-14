@@ -153,66 +153,6 @@ def build_citation_count_summary(citations, scholar_total=None, probed_year_coun
 
 
 # ---------------------------------------------------------------------------
-# Reconciliation status
-# ---------------------------------------------------------------------------
-
-def refresh_reconciliation_status(
-    citations,
-    num_citations,
-    dedup_count=0,
-    probed_year_counts=None,
-    probe_complete=False,
-    year_fetch_diagnostics=None,
-):
-    """
-    Return a status dict indicating whether the current cached citations are
-    consistent with the Scholar total and probed histogram.
-    """
-    count_summary = build_citation_count_summary(
-        citations,
-        scholar_total=num_citations,
-        probed_year_counts=probed_year_counts,
-        probe_complete=probe_complete,
-        dedup_count=dedup_count,
-        year_fetch_diagnostics=year_fetch_diagnostics,
-    )
-    normalized_year_fetch_diagnostics = normalize_year_fetch_diagnostics(year_fetch_diagnostics)
-    status = {
-        'ok': False,
-        'reason': 'histogram_incomplete',
-        **count_summary,
-        'year_fetch_diagnostics': normalized_year_fetch_diagnostics,
-    }
-
-    if probe_complete:
-        if probed_year_counts_satisfied(
-            count_summary['cached_year_counts'],
-            count_summary['probed_year_counts'],
-            normalized_year_fetch_diagnostics,
-        ):
-            status.update({'ok': True, 'reason': 'matched_complete_histogram'})
-        else:
-            status.update({'reason': 'year_count_mismatch'})
-        return status
-
-    if count_summary['probed_year_counts']:
-        if probed_year_counts_satisfied(
-            count_summary['cached_year_counts'],
-            count_summary['probed_year_counts'],
-            normalized_year_fetch_diagnostics,
-        ):
-            status.update({'ok': True, 'reason': 'matched_incomplete_histogram'})
-            return status
-        return status
-
-    if count_summary['cached_total'] == count_summary['scholar_total']:
-        status.update({'ok': True, 'reason': 'count_matched_without_histogram'})
-        return status
-
-    return status
-
-
-# ---------------------------------------------------------------------------
 # Diagnostics formatting
 # ---------------------------------------------------------------------------
 

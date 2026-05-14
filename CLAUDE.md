@@ -27,13 +27,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Run all tests: `python -m unittest discover -s tests -p "test_*.py"`
 - Run a single test file: `python -m unittest tests.test_citation_status`
 - Run a single test: `python -m unittest tests.test_citation_status.CitationStatusTests.test_citation_status_stays_complete_when_seen_matches_current_total`
-- Legacy monolithic test file (still valid): `python -m unittest test_citation_page_stop.py`
 
 ## Project structure
 
 详细项目结构见 `_work_notes.zh.md` 的「项目结构」节（含各模块中文说明），对外简介见 `README.md` 的「Development Notes → Project Structure」节。
 
-简况：`crawler/` 有 16 个模块（author profile 层、citation data 层、fetch engine 层、CLI）；`tests/` 有 127 个测试，10 个文件。
+简况：`crawler/` 有 16 个模块（author profile 层、citation data 层、fetch engine 层、CLI）；`tests/` 有 119 个测试，10 个文件。
 
 ## Architecture overview
 
@@ -74,7 +73,7 @@ Patches `scholarly` internals rather than treating it as a black box:
 - Performs soft session refresh every 10–20 pages
 - Tracks year-segment switches in `_citedby_long` for resume support
 
-All patch state is held in `SessionContext`; per-paper cross-run state is in `PaperFetchState` (`crawler/output_state.py`), and runtime fetch state is in `YearFetchSession`/`DirectFetchSession` (`crawler/fetch_session.py`).
+All patch state is held in `SessionContext`; per-paper cross-run state is in `PaperFetchState` (`crawler/output_state.py`), and runtime fetch state is in `YearFetchSession` (`crawler/fetch_session.py`).
 
 ### Interactive recovery (`crawler/interactive.py`)
 
@@ -95,12 +94,12 @@ scholar_citation.py  (orchestrator + PaperCitationFetcher)
   ├── crawler.citation_identity   (pure dedup / info extract)
   ├── crawler.citation_io         ← crawler.citation_cache, crawler.citation_strategy
   ├── crawler.citation_models     (dataclasses for citations, diagnostics, resume state)
-  ├── crawler.output_state        (PaperFetchState dataclass + output file I/O)
+  ├── crawler.output_state        ← crawler.citation_io, crawler.citation_cache
   ├── crawler.pub_info            (PubInfo dataclass)
-  ├── crawler.citation_fetch      ← crawler.common, crawler.fetch_session
-  ├── crawler.fetch_session       (BatchFetchSession, DirectFetchSession, YearFetchSession)
+  ├── crawler.citation_fetch      ← crawler.common, crawler.fetch_session, crawler.citation_cache, crawler.citation_models
+  ├── crawler.fetch_session       ← crawler.citation_models, crawler.output_state, crawler.common
   ├── crawler.page_visit          (per-page captcha/proxy/retry recovery)
-  ├── crawler.scholarly_session   ← crawler.common
+  ├── crawler.scholarly_session   ← crawler.common, crawler.page_visit
   ├── crawler.interactive         (no crawler deps)
   └── crawler.cli  [lazy import]  ← crawler.common, crawler.author_fetcher
                                      + scholar_citation [lazy, inside _run_main]
@@ -119,8 +118,6 @@ dependencies are stubbed in `tests/conftest.py`).
 - Each test file covers one functional area; see `_work_notes.zh.md` 项目结构 for the mapping.
 - When changing year-based fetching, resume behavior, or CLI flags, update the
   corresponding test file first rather than adding integration coverage.
-- The legacy `test_citation_page_stop.py` is kept as a compatibility fallback during
-  the transition period; both it and `tests/` run the same 127 tests.
 
 ## Dependencies and runtime assumptions
 

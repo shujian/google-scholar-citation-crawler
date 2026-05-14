@@ -215,55 +215,6 @@ class PaperFetchState:
         }
         return self
 
-    def restore_from_cache_snapshot(self, cache_snapshot):
-        """Restore all private fetch-state fields from a cache snapshot dict.
-
-        Intended for updating an in-memory PaperFetchState after a fetch
-        completes.  Encapsulates every private-field write so callers never
-        reach into the leading-underscore fields directly.
-
-        Returns self for chaining.
-        """
-        from datetime import datetime
-
-        # year_records + derived year_fetch_diagnostics
-        yr = cache_snapshot.get('year_records') or []
-        if yr:
-            self._year_records = yr
-            self.restore_year_diag_from_year_records()
-
-        # direct_fetch_diagnostics
-        dfd = cache_snapshot.get('direct_fetch_diagnostics') or {}
-        if isinstance(dfd, dict) and dfd.get('scholar_total') is not None:
-            self._direct_fetch_diagnostics = dfd
-
-        # year_fetch_diagnostics (standalone summary)
-        yfd = cache_snapshot.get('year_fetch_diagnostics') or {}
-        if isinstance(yfd, dict) and yfd.get('scholar_total') is not None:
-            self._year_fetch_diagnostics = yfd
-
-        # completion flag
-        if cache_snapshot.get('complete_fetch_attempt'):
-            self._complete_fetch_attempt = True
-
-        # fetch_strategy (may change when citation count crosses threshold)
-        fs = cache_snapshot.get('fetch_strategy')
-        if fs in ('year', 'direct'):
-            self._fetch_strategy = fs
-
-        # num_citations_on_scholar (may differ from the stored value)
-        nc = cache_snapshot.get('num_citations_on_scholar')
-        if nc is not None:
-            try:
-                self._num_citations_on_scholar = int(nc)
-            except (TypeError, ValueError):
-                pass
-
-        # fetched_at timestamp
-        self._fetched_at = cache_snapshot.get('fetched_at') or datetime.now().isoformat()
-
-        return self
-
     def mark_scholar_changed(self):
         """Mark that the Scholar total has changed since the last run."""
         self._scholar_changed = True

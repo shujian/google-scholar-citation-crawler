@@ -175,3 +175,50 @@
 - 所有 126 个测试通过
 
 ----
+
+====
+
+### ✅ 已处理 [2026-05-13] _fetch_citations_with_progress 参数过多
+- 文件: scholar_citation.py:637 和 crawler/citation_fetch.py:185
+- 处理: 从 citation_fetch.py:fetch_citations_with_progress 删除 `rehydrated_probed_year_counts`、`rehydrated_probe_complete`、`rehydrated_year_fetch_diagnostics` 三个参数（它们始终被 None/False/None 覆盖），同时移除内部使用。从 scholar_citation.py 的方法签名和 pass-through 调用中同步删除。
+
+====
+
+### ✅ 已处理 [2026-05-13] 测试数量 127 → 119
+- 文件: README.md:186, _work_notes.zh.md:36, CLAUDE.md:36
+- 处理: 将三处文档中的 "127" 修改为 "119"（当前实际测试数）
+
+====
+
+### ✅ 已处理 [2026-05-13] CLAUDE.md 引用了不存在的 test_citation_page_stop.py
+- 文件: CLAUDE.md:30,122-123
+- 处理: 删除开发命令中的 test_citation_page_stop.py 命令和 Testing notes 中的遗留说明
+
+====
+
+### ✅ 已处理 [2026-05-13] PaperFetchState 字段数 10 → 11
+- 文件: _work_notes.zh.md:189
+- 处理: 字段数更新为 11，JSON schema 中补上 `scholar_changed` 字段
+
+====
+
+### ✅ 已处理 [2026-05-13] CLAUDE.md 模块依赖映射不完整
+- 文件: CLAUDE.md:88-107
+- 处理: 补全依赖：citation_fetch ← citation_cache, citation_models；fetch_session ← citation_models, output_state, common；output_state ← citation_io, citation_cache；scholarly_session ← page_visit
+
+====
+
+### ✅ 已处理 [2026-05-13] README.md 依赖描述缺少版本约束
+- 文件: README.md:25
+- 处理: 更新为 `scholarly>=1.7, openpyxl>=3.1, httpx==0.27.2` 与 requirements.txt 一致
+
+====
+
+### ✅ 已处理 [2026-05-13] isinstance(PaperFetchState) 类型检查散落各处 + CLAUDE.md DirectFetchSession 引用
+- 文件: scholar_citation.py (14处), crawler/output_state.py (1处), CLAUDE.md (1处)
+- 处理: 
+  - 在 crawler/output_state.py 新增 `to_paper_fetch_state(obj)` 辅助函数，统一 PaperFetchState 类型分派逻辑
+  - 替换 scholar_citation.py 中所有 14 处 `isinstance(..., PaperFetchState)` 为辅助函数调用
+  - 替换 crawler/output_state.py 中 1 处 `isinstance(state, PaperFetchState)` 为辅助函数调用
+  - 修正 CLAUDE.md 第 76 行：移除已删除的 DirectFetchSession 引用，仅保留 YearFetchSession
+  - 运行 `python -m unittest discover` 全部 119 测试通过

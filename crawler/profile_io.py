@@ -162,33 +162,6 @@ def build_profile_count_summary(basics):
     }
 
 
-def build_profile_payload(basics, publications, change_history=None, fetch_time=None, *, datetime_module):
-    resolved_fetch_time = fetch_time or datetime_module.now().isoformat()
-    return {
-        'author_info': basics,
-        'publications': publications,
-        'fetch_time': resolved_fetch_time,
-        'total_publications': len(publications),
-        'total_citations': basics.get('citedby', 0),
-        'citation_count_summary': build_profile_count_summary(basics),
-        'change_history': change_history or [],
-    }
-
-
-def save_profile_json(profile_path, basics, publications, change_history=None, fetch_time=None, *, datetime_module, print_fn=print):
-    profile = build_profile_payload(
-        basics,
-        publications,
-        change_history=change_history,
-        fetch_time=fetch_time,
-        datetime_module=datetime_module,
-    )
-    with open(profile_path, 'w', encoding='utf-8') as f:
-        json.dump(profile, f, ensure_ascii=False, indent=2)
-    print_fn(f'Saved JSON: {profile_path}')
-    return profile
-
-
 def save_profile_xlsx(
     profile_xlsx_path,
     profile,

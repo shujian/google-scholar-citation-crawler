@@ -45,8 +45,6 @@ class CitationStatusTests(FetcherTestCase):
                     resume_from=cached_citations,
                     completed_years_in_current_run=[2024],
                     prev_scholar_count=2,
-                    rehydrated_probed_year_counts={2024: 1, 2025: 1},
-                    rehydrated_probe_complete=True,
                     rehydrated_year_fetch_diagnostics={
                         2024: self.fetcher._build_year_fetch_diagnostics(
                             2024,
@@ -559,8 +557,6 @@ class CitationStatusTests(FetcherTestCase):
                     "resume_from": resume_from,
                     "completed_years_in_current_run": list(kwargs["completed_years_in_current_run"]),
                     "saved_dedup_count": kwargs["saved_dedup_count"],
-                    "rehydrated_probed_year_counts": kwargs["rehydrated_probed_year_counts"],
-                    "rehydrated_probe_complete": kwargs["rehydrated_probe_complete"],
                     "rehydrated_year_fetch_diagnostics": kwargs["rehydrated_year_fetch_diagnostics"],
                     "direct_resume_state": kwargs.get("direct_resume_state"),
                 }
@@ -585,15 +581,10 @@ class CitationStatusTests(FetcherTestCase):
             )
 
         self.assertEqual(len(fetch_calls), 2)
-        self.assertIsNone(fetch_calls[0]["rehydrated_probed_year_counts"])
-        self.assertFalse(fetch_calls[0]["rehydrated_probe_complete"])
         # direct→year transition: synthesised from cached citations
         self.assertEqual(fetch_calls[0]["rehydrated_year_fetch_diagnostics"][2024]["histogram_count"], 1)
         self.assertEqual(fetch_calls[1]["resume_from"], latest_cache["citations"])
         self.assertEqual(fetch_calls[1]["saved_dedup_count"], 0)
-        # Probe always runs fresh; rehydrated data is always None/False.
-        self.assertIsNone(fetch_calls[1]["rehydrated_probed_year_counts"])
-        self.assertFalse(fetch_calls[1]["rehydrated_probe_complete"])
         # direct→year transition: synthesised from latest_cache citations
         self.assertEqual(fetch_calls[1]["rehydrated_year_fetch_diagnostics"][2024]["histogram_count"], 1)
 

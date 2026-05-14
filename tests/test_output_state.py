@@ -10,7 +10,6 @@ from crawler.output_state import (
     PaperFetchState,
     load_output_fetch_state,
     resolve_citation_status_from_output,
-    extract_fetch_state,
 )
 
 
@@ -115,18 +114,6 @@ class OutputStateTests(FetcherTestCase):
             "partial",
         )
 
-    def test_extract_fetch_state_excludes_citations(self):
-        cached = {
-            "title": "T",
-            "num_citations_on_scholar": 10,
-            "citations": [{"title": "Cite"}],
-            "extra_field": "should be excluded",
-        }
-        state = extract_fetch_state(cached)
-        self.assertEqual(state.title, "T")
-        self.assertEqual(state.num_citations_on_scholar, 10)
-        self.assertNotIn("citations", state.to_dict())
-        self.assertNotIn("extra_field", state.to_dict())
 
     def test_citation_status_prefers_output_state_over_cache(self):
         """When _output_fetch_state contains a paper, _citation_status should use it."""

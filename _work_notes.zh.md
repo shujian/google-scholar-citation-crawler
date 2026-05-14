@@ -268,15 +268,11 @@ save_progress:
 `PaperFetchState` 所有字段以 `_` 前缀实现为私有字段，外部代码**禁止**直接赋值。访问和修改只能通过以下途径：
 
 - **初始化**: `from_dict()` 类方法
-- **更新**: `restore_from_cache_snapshot()` / `restore_year_diag_from_year_records()` / `restore_direct_diag_from_citations()`
+- **更新**: `from_dict()` 整体重建 / `restore_year_diag_from_year_records()` / `restore_direct_diag_from_citations()`
 - **标志位**: `mark_scholar_changed()` / `clear_scholar_changed()`
 - **查询**: `need_fetch()` / `is_complete()` / 只读 property
 
-`restore_from_cache_snapshot(cache_snapshot)` 是统一入口，封装了所有运行时状态更新：
-`_year_records`, `_year_fetch_diagnostics`, `_direct_fetch_diagnostics`, `_complete_fetch_attempt`,
-`_fetch_strategy`, `_num_citations_on_scholar`, `_fetched_at`（共 7 个字段）。
-
-所有 restore 方法返回 `self` 以支持链式调用。
+Fetch 完成后用 `PaperFetchState.from_dict(cache_snapshot)` 整体替换实例；字段级恢复方法返回 `self` 以支持链式调用。
 
 ---
 

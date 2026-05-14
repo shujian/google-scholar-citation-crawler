@@ -85,6 +85,7 @@ from crawler.output_state import (
     index_year_records as _os_index_year_records,
     load_output_fetch_state as _os_load_output_fetch_state,
     resolve_citation_status_from_output as _os_resolve_citation_status_from_output,
+    to_paper_fetch_state,
 )
 from crawler.pub_info import PubInfo
 
@@ -386,8 +387,6 @@ class PaperCitationFetcher:
                 'allow_incremental_early_stop': True,
                 'force_year_rebuild': False,
                 'selective_refresh_years': None,
-                'rehydrated_probed_year_counts': None,
-                'rehydrated_probe_complete': False,
                 'rehydrated_year_fetch_diagnostics': None,
                 'action': 'first fetch',
                 'fetch_policy': fetch_policy,
@@ -397,9 +396,10 @@ class PaperCitationFetcher:
         resume_from = cached.get('citations', [])
         saved_dedup_count = 0  # always reset per run; dedup is not cumulative across runs
         # Prefer PaperFetchState for stored diagnostics; fall back to cached dict.
-        if isinstance(paper_state, PaperFetchState):
-            direct_fetch_diagnostics = paper_state.direct_fetch_diagnostics or {}
-            old_scholar = paper_state.num_citations_on_scholar or 0
+        pst = to_paper_fetch_state(paper_state)
+        if pst:
+            direct_fetch_diagnostics = pst.direct_fetch_diagnostics or {}
+            old_scholar = pst.num_citations_on_scholar or 0
         else:
             direct_fetch_diagnostics = cached.get('direct_fetch_diagnostics') or {}
             old_scholar = cached.get('num_citations_on_scholar', cached.get('num_citations_cached', 0))
@@ -414,15 +414,13 @@ class PaperCitationFetcher:
         partial_year_start = {}
         force_year_rebuild = False
         selective_refresh_years = None
-        rehydrated_probed_year_counts = None
-        rehydrated_probe_complete = False
         # Build per-year diagnostics from year_records (PaperFetchState.to_dict()
         # already includes this field).  year_records is a list of per-year dicts;
         # convert to {year: diag} map for fetch_by_year skip logic.
         rehydrated_year_fetch_diagnostics = None
         # Read per-year diagnostics from PaperFetchState when available.
-        if isinstance(paper_state, PaperFetchState) and paper_state.year_records:
-            per_year = _os_index_year_records(paper_state.year_records)
+        if pst and pst.year_records:
+            per_year = _os_index_year_records(pst.year_records)
             rehydrated_year_fetch_diagnostics = self._normalize_year_fetch_diagnostics(per_year) or None
         # Fallback: read from cached dict (same-run retry may lack PaperFetchState).
         if not rehydrated_year_fetch_diagnostics:
@@ -457,14 +455,14 @@ class PaperCitationFetcher:
         # Derive seen total from diagnostics summary.
         num_seen = None
         if fetch_policy['strategy'] == 'year':
-            if isinstance(paper_state, PaperFetchState) and paper_state.year_fetch_diagnostics:
-                num_seen = paper_state.year_fetch_diagnostics.get('seen_total')
+            if pst and pst.year_fetch_diagnostics:
+                num_seen = pst.year_fetch_diagnostics.get('seen_total')
             else:
                 yfd_summary = cached.get('year_fetch_diagnostics') or {}
                 num_seen = yfd_summary.get('seen_total')
         else:
-            if isinstance(paper_state, PaperFetchState) and paper_state.direct_fetch_diagnostics:
-                num_seen = paper_state.direct_fetch_diagnostics.get('seen_total')
+            if pst and pst.direct_fetch_diagnostics:
+                num_seen = pst.direct_fetch_diagnostics.get('seen_total')
             else:
                 dfd_summary = cached.get('direct_fetch_diagnostics') or {}
                 num_seen = dfd_summary.get('seen_total')
@@ -479,10 +477,6 @@ class PaperCitationFetcher:
             action = (f"fetch ({len(resume_from)} cached{seen_str}, "
                       f"scholar {old_scholar} -> {num_citations}{unyeared_note})")
         else:
-            # Probe always runs fresh in fetch_by_year; cached probe data is
-            # never used because probe is a lightweight histogram page request.
-            rehydrated_probed_year_counts = None
-            rehydrated_probe_complete = False
             unyeared_note = "; drop unyeared" if drop_cached_unyeared else ""
             if fetch_policy['strategy'] == 'year':
                 action = (f"fetch ({len(resume_from)} cached{seen_str}, "
@@ -509,8 +503,6 @@ class PaperCitationFetcher:
             'allow_incremental_early_stop': allow_incremental_early_stop,
             'force_year_rebuild': force_year_rebuild,
             'selective_refresh_years': selective_refresh_years,
-            'rehydrated_probed_year_counts': rehydrated_probed_year_counts,
-            'rehydrated_probe_complete': rehydrated_probe_complete,
             'rehydrated_year_fetch_diagnostics': rehydrated_year_fetch_diagnostics,
             'action': action,
             'fetch_policy': fetch_policy,
@@ -623,8 +615,6 @@ class PaperCitationFetcher:
                                         allow_incremental_early_stop=True,
                                         force_year_rebuild=False,
                                         selective_refresh_years=None,
-                                        rehydrated_probed_year_counts=None,
-                                        rehydrated_probe_complete=False,
                                         rehydrated_year_fetch_diagnostics=None,
                                         pub_obj=None,
                                         fetch_policy=None,
@@ -649,9 +639,6 @@ class PaperCitationFetcher:
                                                    allow_incremental_early_stop=allow_incremental_early_stop,
                                                    force_year_rebuild=force_year_rebuild,
                                                    selective_refresh_years=selective_refresh_years,
-                                                   rehydrated_probed_year_counts=rehydrated_probed_year_counts,
-                                                   rehydrated_probe_complete=rehydrated_probe_complete,
-                                                   rehydrated_year_fetch_diagnostics=rehydrated_year_fetch_diagnostics,
                                                    pub_obj=pub_obj,
                                                    fetch_policy=fetch_policy,
                                                    direct_resume_state=direct_resume_state)
@@ -743,11 +730,13 @@ class PaperCitationFetcher:
             return ''
         if st == 'missing':
             return '  no cached state → missing'
-        if isinstance(paper_state, PaperFetchState):
-            return paper_state.completeness_diag()
-        if isinstance(cached, dict):
-            cached = PaperFetchState.from_dict(cached)
-        return cached.completeness_diag() if isinstance(cached, PaperFetchState) else ''
+        pst = to_paper_fetch_state(paper_state)
+        if pst:
+            return pst.completeness_diag()
+        cached_pst = to_paper_fetch_state(cached)
+        if cached_pst:
+            return cached_pst.completeness_diag()
+        return ''
 
     def has_pending_work(self):
         """Check if there are any papers with incomplete citation caches."""
@@ -837,10 +826,8 @@ class PaperCitationFetcher:
             if output_state:
                 # PaperFetchState or legacy dict; build synthetic dict for
                 # _resolve_refresh_strategy compatibility.
-                if isinstance(output_state, PaperFetchState):
-                    synthetic = output_state.to_dict()
-                else:
-                    synthetic = dict(output_state)
+                pst = to_paper_fetch_state(output_state)
+                synthetic = pst.to_dict() if pst else dict(output_state)
                 synthetic['citations'] = getattr(self, '_output_citations', {}).get(pub['title'], [])
                 # Always update scholar total from current profile so the state
                 # reflects the latest count even when the paper was skipped this run.
@@ -850,8 +837,8 @@ class PaperCitationFetcher:
                     synthetic['num_citations_on_scholar'] = current_total
                     if old_total is not None and old_total != current_total:
                         synthetic['scholar_changed'] = True
-                        if isinstance(output_state, PaperFetchState):
-                            output_state.mark_scholar_changed()
+                        if pst:
+                            pst.mark_scholar_changed()
                     # Update scholar_total in diagnostics to the current value.
                     yfd = synthetic.get('year_fetch_diagnostics')
                     if isinstance(yfd, dict):
@@ -942,8 +929,7 @@ class PaperCitationFetcher:
             cache_result = cache_status(pub)
             if len(cache_result) >= 3:
                 st, cached, paper_state = cache_result[:3]
-                if not isinstance(paper_state, PaperFetchState):
-                    paper_state = None
+                paper_state = to_paper_fetch_state(paper_state)
             else:
                 st, cached = cache_result
                 paper_state = None
@@ -1021,8 +1007,6 @@ class PaperCitationFetcher:
             completed_years_in_current_run = attempt_state['completed_years_in_current_run']
             force_year_rebuild = attempt_state['force_year_rebuild']
             selective_refresh_years = attempt_state['selective_refresh_years']
-            rehydrated_probed_year_counts = attempt_state['rehydrated_probed_year_counts']
-            rehydrated_probe_complete = attempt_state['rehydrated_probe_complete']
             rehydrated_year_fetch_diagnostics = attempt_state['rehydrated_year_fetch_diagnostics']
             direct_resume_state = attempt_state.get('direct_resume_state')
             fetch_policy = attempt_state.get('fetch_policy') or self._resolve_citation_fetch_policy(
@@ -1079,8 +1063,9 @@ class PaperCitationFetcher:
                             # output state (which lacks the citations array).
                             # _resolve_refresh_strategy expects a dict; convert
                             # PaperFetchState if needed.
-                            if latest_output_state is not None and not isinstance(latest_output_state, dict):
-                                latest_output_state = latest_output_state.to_dict() if isinstance(latest_output_state, PaperFetchState) else dict(latest_output_state)
+                            if latest_output_state is not None:
+                                pst = to_paper_fetch_state(latest_output_state)
+                                latest_output_state = pst.to_dict() if pst else dict(latest_output_state)
                             retry_strategy_cached = latest_cache if latest_cache else latest_output_state
                             if retry_strategy_cached:
                                 retry_attempt_state = self._resolve_refresh_strategy(
@@ -1100,8 +1085,6 @@ class PaperCitationFetcher:
                                     retry_mode = 'update'
                                     latest_resume_from = self._filter_citations_with_year(latest_cache.get('citations', []))
                                     completed_years_in_current_run = []
-                                    rehydrated_probed_year_counts = None
-                                    rehydrated_probe_complete = False
                                     # Keep synthesised year diagnostics from the
                                     # retry strategy call (e.g. direct→year transition)
                                     # rather than discarding them.
@@ -1110,10 +1093,6 @@ class PaperCitationFetcher:
                                     )
                                 else:
                                     completed_years_in_current_run = retry_attempt_state['completed_years_in_current_run']
-                                    # Probe always runs fresh; rely on attempt_state
-                                    # values set by _resolve_refresh_strategy.
-                                    rehydrated_probed_year_counts = retry_attempt_state['rehydrated_probed_year_counts']
-                                    rehydrated_probe_complete = retry_attempt_state['rehydrated_probe_complete']
                                     rehydrated_year_fetch_diagnostics = retry_attempt_state['rehydrated_year_fetch_diagnostics']
                                     if not rehydrated_year_fetch_diagnostics and latest_cache:
                                         yr = latest_cache.get('year_records')
@@ -1145,8 +1124,6 @@ class PaperCitationFetcher:
                             allow_incremental_early_stop=allow_incremental_early_stop,
                             force_year_rebuild=force_year_rebuild,
                             selective_refresh_years=selective_refresh_years,
-                            rehydrated_probed_year_counts=rehydrated_probed_year_counts,
-                            rehydrated_probe_complete=rehydrated_probe_complete,
                             rehydrated_year_fetch_diagnostics=rehydrated_year_fetch_diagnostics,
                             pub_obj=pub,
                             fetch_policy=fetch_policy,
@@ -1154,20 +1131,13 @@ class PaperCitationFetcher:
                         )
                         fetch_completed = True
                     num_citations = pub['num_citations']
-                    # Update in-memory state from the cache file written by
-                    # save_progress so Done log and _save_output use the
-                    # latest diagnostics (seen_total, dedup_count, etc.).
+                    # Update in-memory state from save_progress so Done log
+                    # and _save_output use the latest diagnostics.
                     cache_snapshot = self._load_citation_cache(title)
                     if cache_snapshot:
-                        paper_state = getattr(self, '_output_fetch_state', {}) or {}
-                        pst = paper_state.get(title) if isinstance(paper_state, dict) else None
-                        if not isinstance(pst, PaperFetchState):
-                            pst = PaperFetchState.from_dict(cache_snapshot)
-                            if not getattr(self, '_output_fetch_state', None):
-                                self._output_fetch_state = {}
-                            self._output_fetch_state[title] = pst
-                        pst.restore_from_cache_snapshot(cache_snapshot)
-                        # Keep citations in memory for _save_output fallback.
+                        if not getattr(self, '_output_fetch_state', None):
+                            self._output_fetch_state = {}
+                        self._output_fetch_state[title] = PaperFetchState.from_dict(cache_snapshot)
                         if not getattr(self, '_output_citations', None):
                             self._output_citations = {}
                         self._output_citations[title] = citations or []
@@ -1220,11 +1190,8 @@ class PaperCitationFetcher:
                         unyeared_suffix = f", unyeared={unyeared}" if unyeared else ""
                         print(f"  Year summary: {year_summary}{unyeared_suffix}", flush=True)
                     # Read diagnostics from in-memory PaperFetchState (updated above).
-                    pst = getattr(self, '_output_fetch_state', {}).get(title) if getattr(self, '_output_fetch_state', None) else None
-                    if isinstance(pst, PaperFetchState):
-                        direct_fetch_diagnostics = pst.direct_fetch_diagnostics or {}
-                    else:
-                        direct_fetch_diagnostics = {}
+                    pst = to_paper_fetch_state(getattr(self, '_output_fetch_state', {}).get(title) if getattr(self, '_output_fetch_state', None) else None)
+                    direct_fetch_diagnostics = (pst.direct_fetch_diagnostics or {}) if pst else {}
                     has_direct_fetch_summary = direct_fetch_diagnostics.get('scholar_total') is not None
                     direct_underfetched = (
                         has_direct_fetch_summary
@@ -1281,8 +1248,8 @@ class PaperCitationFetcher:
             self._run_new_citations_total += self._new_citations_count
             # Clear scholar_changed after a successful fetch (state was already
             # updated above, inside the while loop).
-            pst = getattr(self, '_output_fetch_state', {}).get(title) if getattr(self, '_output_fetch_state', None) else None
-            if isinstance(pst, PaperFetchState):
+            pst = to_paper_fetch_state(getattr(self, '_output_fetch_state', {}).get(title) if getattr(self, '_output_fetch_state', None) else None)
+            if pst:
                 pst.clear_scholar_changed()
 
             if fetch_idx < (self.limit or len(need_fetch)):
@@ -1330,7 +1297,8 @@ class PaperCitationFetcher:
             title = pub.get('title', '') if pub else ''
             state = output_fetch_state.get(title)
             if state:
-                fetch_state = state.to_dict() if isinstance(state, PaperFetchState) else dict(state)
+                pst = to_paper_fetch_state(state)
+                fetch_state = pst.to_dict() if pst else dict(state)
             else:
                 fetch_state = {}
             current_total = pub.get('num_citations') if pub else None

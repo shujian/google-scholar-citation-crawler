@@ -120,22 +120,6 @@ def resolve_citation_status_from_state(state):
     return 'partial'
 
 
-def citation_status(pub, cache_dir, year_based_threshold):
-    """
-    Return the completeness status for *pub*: 'skip_zero' | 'missing' |
-    'complete' | 'partial'.
-
-    Reads the cache from *cache_dir* via load_citation_cache.
-    """
-    if pub['num_citations'] == 0:
-        return 'skip_zero'
-    cached = load_citation_cache(cache_dir, pub['title'])
-    if not cached:
-        return 'missing'
-    state = derive_citation_cache_state(pub, cached, year_based_threshold)
-    return resolve_citation_status_from_state(state)
-
-
 # ---------------------------------------------------------------------------
 # XLSX output
 # ---------------------------------------------------------------------------

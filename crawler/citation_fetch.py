@@ -189,9 +189,6 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
                                     allow_incremental_early_stop=True,
                                     force_year_rebuild=False,
                                     selective_refresh_years=None,
-                                    rehydrated_probed_year_counts=None,
-                                    rehydrated_probe_complete=False,
-                                    rehydrated_year_fetch_diagnostics=None,
                                     pub_obj=None,
                                     fetch_policy=None,
                                     direct_resume_state=None):
@@ -232,11 +229,6 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
         int(year): _page_aligned_start(idx)
         for year, idx in (partial_year_start or {}).items()
     }
-    year_ctx.probed_year_counts = None  # always probe fresh in fetch_by_year
-    year_ctx.probed_year_count_complete = False
-    year_ctx.year_fetch_diagnostics = fetcher._normalize_year_fetch_diagnostics(
-        rehydrated_year_fetch_diagnostics
-    )
     fetcher._live_year_fetch_diagnostics = None  # reset; set by _fetch_by_year wrapper during year-based fetch
     fetcher._live_dedup_count = None             # reset; set by _fetch_by_year wrapper during year-based fetch
     fetcher._live_probed_year_counts = None      # reset; set by _fetch_by_year wrapper

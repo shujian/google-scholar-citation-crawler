@@ -28,14 +28,10 @@ class FetchPolicyAndStrategyTests(FetcherTestCase):
         self.assertEqual(policy["pub_year"], 2026)
         self.assertEqual(policy["reason"], "at_or_above_year_threshold")
 
-    def test_effective_scholar_total_ignores_historical_cache_high_watermark(self):
+    def test_effective_scholar_total_returns_pub_num_citations(self):
         pub = {"title": "Paper", "num_citations": 109, "year": "2020"}
-        cached = {
-            "num_citations_on_scholar": 120,
-            "num_citations_seen": 109,
-        }
 
-        self.assertEqual(self.fetcher._effective_scholar_total(pub, cached), 109)
+        self.assertEqual(self.fetcher._effective_scholar_total(pub), 109)
 
     def test_resolve_refresh_strategy_does_not_restore_direct_resume_state(self):
         pub = {"title": "Paper", "num_citations": 25, "year": "2024"}
