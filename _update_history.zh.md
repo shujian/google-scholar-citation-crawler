@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-05-15: 修复 `restore_from_cache_snapshot` 遗漏字段
+
+- `restore_from_cache_snapshot()` 漏掉了 `complete_fetch_attempt`、`fetch_strategy`、`num_citations_on_scholar` 三个字段
+- 导致 fetch 成功后输出 JSON 中 `complete_fetch_attempt` 始终为 false，`fetch_strategy` 不随阈值变化更新
+- 修复：从 `cache_snapshot` 中同步这三个字段
+
+---
+
 ## 2026-05-14: 代码规范清理 — 删除死代码、消除冗余、修复 Bug、更新文档
 
 - **死代码删除**：`DirectFetchSession`、`Citation`、`YearDiagnostics`、`DirectDiagnostics`、`extract_fetch_state`、`build_profile_payload`/`save_profile_json`、`citation_status`、`refresh_reconciliation_status`、`_resort_publications`、`_effective_scholar_total` 的未使用参数

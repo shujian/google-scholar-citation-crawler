@@ -273,7 +273,8 @@ save_progress:
 - **查询**: `need_fetch()` / `is_complete()` / 只读 property
 
 `restore_from_cache_snapshot(cache_snapshot)` 是统一入口，封装了所有运行时状态更新：
-`_year_records`, `_year_fetch_diagnostics`, `_direct_fetch_diagnostics`, `_fetched_at`。
+`_year_records`, `_year_fetch_diagnostics`, `_direct_fetch_diagnostics`, `_complete_fetch_attempt`,
+`_fetch_strategy`, `_num_citations_on_scholar`, `_fetched_at`（共 7 个字段）。
 
 所有 restore 方法返回 `self` 以支持链式调用。
 

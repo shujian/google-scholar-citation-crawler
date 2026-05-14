@@ -2603,3 +2603,13 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 ### 339
 
 > 检查一下文档是否已经更新。如果空闲，请更新相关的文档，并进行提交。
+
+### 340
+
+> 日志输出的 Need fetch/resume: 1 数量不对。可能没有更新？
+
+`restore_from_cache_snapshot()` 在上次 fetch 完成后漏掉了 `complete_fetch_attempt`、`fetch_strategy`、`num_citations_on_scholar` 三个字段的同步，导致输出 JSON 中的状态不完整。
+
+### 341
+
+> 检查一下文档是否已经更新。如果空闲，请更新相关的文档，并进行提交。
