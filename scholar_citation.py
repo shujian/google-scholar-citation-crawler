@@ -818,62 +818,47 @@ class PaperCitationFetcher:
             st = self._citation_status(pub)
             if st == 'skip_zero':
                 return st, None, None
-            # Cross-run: always prefer output file state; ignore old cache files
-            # from previous runs.  Per-paper cache files are still written during
-            # the current run for within-run interruption recovery, but they are
-            # NOT read on a fresh program start.
             output_state = getattr(self, '_output_fetch_state', {}).get(pub['title'])
-            if output_state:
-                # PaperFetchState or legacy dict; build synthetic dict for
-                # _resolve_refresh_strategy compatibility.
-                pst = to_paper_fetch_state(output_state)
-                synthetic = pst.to_dict() if pst else dict(output_state)
-                synthetic['citations'] = getattr(self, '_output_citations', {}).get(pub['title'], [])
-                # Always update scholar total from current profile so the state
-                # reflects the latest count even when the paper was skipped this run.
-                current_total = pub.get('num_citations')
+            if not output_state:
+                return st, None, None
+            pst = to_paper_fetch_state(output_state)
+            if not pst:
+                return st, None, None
+            # Build dict from PaperFetchState + extra runtime fields.
+            cached = pst.to_dict()
+            citations = getattr(self, '_output_citations', {}).get(pub['title'], [])
+            cached['citations'] = citations
+            # Update scholar total from current profile on the PaperFetchState
+            # object directly, then reflect in the dict.
+            current_total = pub.get('num_citations')
+            if current_total is not None:
+                try:
+                    current_total = int(current_total)
+                except (TypeError, ValueError):
+                    current_total = None
                 if current_total is not None:
-                    old_total = synthetic.get('num_citations_on_scholar')
-                    synthetic['num_citations_on_scholar'] = current_total
+                    old_total = pst.num_citations_on_scholar
+                    pst._num_citations_on_scholar = current_total
+                    cached['num_citations_on_scholar'] = current_total
                     if old_total is not None and old_total != current_total:
-                        synthetic['scholar_changed'] = True
-                        if pst:
-                            pst.mark_scholar_changed()
-                    # Update scholar_total in diagnostics to the current value.
-                    yfd = synthetic.get('year_fetch_diagnostics')
-                    if isinstance(yfd, dict):
-                        yfd['scholar_total'] = current_total
-                    dfd = synthetic.get('direct_fetch_diagnostics')
-                    if isinstance(dfd, dict):
-                        dfd['scholar_total'] = current_total
-                # Consistency check: if the citations array is empty but the
-                # diagnostics summary claims cached citations, the output file
-                # is inconsistent.  Reset completion flags so the next run
-                # fetches honestly.
-                # For direct-mode papers, derive diagnostics from citations
-                # when direct_fetch_diagnostics is absent.
-                if (len(synthetic['citations']) > 0
-                        and synthetic.get('fetch_strategy') != 'year'):
-                    dfd = synthetic.get('direct_fetch_diagnostics')
-                    if not isinstance(dfd, dict):
-                        n = len(synthetic['citations'])
-                        synthetic['direct_fetch_diagnostics'] = {
-                            'scholar_total': synthetic.get('num_citations_on_scholar'),
-                            'cached_total': n,
-                            'seen_total': n,
-                            'dedup_count': 0,
-                            'termination_reason': 'derived_from_citations',
-                        }
-                if len(synthetic['citations']) == 0:
-                    for diag_key in ('year_fetch_diagnostics', 'direct_fetch_diagnostics'):
-                        diag = synthetic.get(diag_key)
-                        if isinstance(diag, dict) and diag.get('cached_total', 0) > 0:
-                            synthetic['complete_fetch_attempt'] = False
-                            break
-                return st, synthetic, output_state
-            # No output state → missing.  Cache files are for within-run
-            # recovery only and are not read on a fresh program start.
-            return st, None, None
+                        pst.mark_scholar_changed()
+                # Sync scholar_total in diagnostics.
+                for diag_key in ('year_fetch_diagnostics', 'direct_fetch_diagnostics'):
+                    diag = cached.get(diag_key)
+                    if isinstance(diag, dict):
+                        diag['scholar_total'] = current_total
+            # Consistency check: empty citations but diagnostics claims data.
+            if len(citations) == 0 and pst.complete_fetch_attempt:
+                pst._complete_fetch_attempt = False
+                cached['complete_fetch_attempt'] = False
+            # For direct-mode papers without diagnostics, derive from citations.
+            if (len(citations) > 0 and pst.fetch_strategy != 'year'
+                    and not isinstance(pst.direct_fetch_diagnostics, dict)):
+                pst.restore_direct_diag_from_citations(citations)
+                cached['direct_fetch_diagnostics'] = pst.to_dict().get('direct_fetch_diagnostics')
+            # Bubble scholar_changed into the dict.
+            cached['scholar_changed'] = pst.scholar_changed
+            return st, cached, pst
 
         statuses = [cache_status(p) for p in publications]
         need_fetch = [(pub, st, cached) for pub, (st, cached, _)
