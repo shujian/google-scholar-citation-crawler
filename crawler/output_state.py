@@ -10,7 +10,7 @@ absent.
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from crawler.citation_io import (
@@ -206,7 +206,7 @@ class PaperFetchState:
         if isinstance(self.direct_fetch_diagnostics, dict):
             return self
         n = len(citations)
-        self.direct_fetch_diagnostics = {
+        self._direct_fetch_diagnostics = {
             'scholar_total': self.num_citations_on_scholar,
             'cached_total': n,
             'seen_total': n,
@@ -289,6 +289,7 @@ def to_paper_fetch_state(obj):
     """Convert *obj* to a PaperFetchState, or return None.
 
     - If already a PaperFetchState, return it as-is.
+    - If a PaperState (defined below), return its fetch attribute.
     - If a dict, convert via PaperFetchState.from_dict().
     - Otherwise return None.
     """
@@ -296,7 +297,18 @@ def to_paper_fetch_state(obj):
         return obj
     if isinstance(obj, dict):
         return PaperFetchState.from_dict(obj)
+    # Handle PaperState (defined after this function in this file).
+    fetch = getattr(obj, 'fetch', None)
+    if isinstance(fetch, PaperFetchState):
+        return fetch
     return None
+
+
+@dataclass
+class PaperState:
+    """Fetch state + citations for one paper."""
+    fetch: PaperFetchState = field(default_factory=PaperFetchState)
+    citations: list = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +446,30 @@ def load_output_fetch_state(output_path):
         raw = paper.get('_fetch_state')
         if isinstance(raw, dict) and raw.get('title'):
             result[raw['title']] = PaperFetchState.from_dict(raw)
+    return result
+
+
+def load_paper_states(output_path):
+    """Load {title: PaperState} from output JSON, combining _fetch_state and citations."""
+    if not os.path.exists(output_path):
+        return {}
+    try:
+        with open(output_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError, TypeError, AttributeError):
+        return {}
+    result = {}
+    for paper in data.get('papers', []):
+        pub = paper.get('pub', {})
+        title = pub.get('title') or ''
+        raw = paper.get('_fetch_state')
+        if not title and isinstance(raw, dict):
+            title = raw.get('title', '')
+        if not title:
+            continue
+        fetch_state = PaperFetchState.from_dict(raw) if isinstance(raw, dict) else PaperFetchState()
+        citations = paper.get('citations', [])
+        result[title] = PaperState(fetch=fetch_state, citations=citations)
     return result
 
 
