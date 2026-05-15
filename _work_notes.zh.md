@@ -173,13 +173,14 @@ pub_obj = {
 
 ### 三层内存结构
 
-所有中间状态通过三个内存结构管理，不使用磁盘缓存文件：
+所有中间状态通过两个内存结构管理，不使用磁盘缓存文件：
 
 | 结构 | 类型 | 内容 | 生命周期 |
 |------|------|------|---------|
-| `_output_fetch_state` | `{title: PaperFetchState}` | 每篇论文的 diagnostics（`seen_total`、`year_records` 等） | 从输出 JSON 加载，运行中逐篇更新，结束时写回 JSON |
-| `_output_citations` | `{title: [citation]}` | 每篇论文的引用列表 | 从输出 JSON 加载，fetch 完成后更新 |
+| `_paper_states` | `{title: PaperState}` | `PaperState(fetch=PaperFetchState, citations=list)` — 每篇论文的 diagnostics + 引用列表 | 从输出 JSON 加载，运行中逐篇更新，结束时写回 JSON |
 | `_mid_paper_state` | `{title: cache_dict}` | 当前论文的中间进度（`save_progress` 写入） | 每页更新，retry 时读取，运行结束时清空 |
+
+`PaperState` 是一次查询即可获取全部论文数据的封装类，取代了之前 `_output_fetch_state` + `_output_citations` 两个需要分别按相同 key 查询的 dict。
 
 ### 命名约定
 
@@ -192,6 +193,7 @@ pub_obj = {
 | 类 | 位置 | 用途 | 字段数 |
 |-----|------|------|--------|
 | `AuthorProfile` | `profile_io.py` | 输出文件 author profile | 4 + 3 计算属性 |
+| `PaperState` | `output_state.py` | 运行时论文状态容器（fetch + citations） | 2 |
 | `PaperFetchState` | `output_state.py` | 输出文件 `_fetch_state` | 11 |
 | `PubInfo` | `pub_info.py` | 输出文件 `pub` | 8 |
 | `YearRecord` | `citation_models.py` | 单年抓取记录（I/O） | 6 |

@@ -2621,3 +2621,21 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 > 再检查一下代码中有没有其他类似零散赋值的情况。我建议把批量获取状态的功能也进行封装。
 
 > 更新相关文档。特别注意设计方面的变化要记录在work_notes
+
+### 343
+
+> cached_dict什么时候被使用呢？
+
+> 关于citation列表有一些状态控制或者功能吗？我觉得可以把它也封装起来。然后这个跟output_citations的关系是什么？是否可以合并成一个类？
+
+新增 `PaperState` dataclass，合并 `_output_fetch_state` + `_output_citations` 为单个 `_paper_states` dict。
+
+### 344
+
+> 遇到bug：Error: property 'direct_fetch_diagnostics' of 'PaperFetchState' object has no setter
+
+修复 `restore_direct_diag_from_citations` 中对只读 property 的错误赋值。
+
+### 345
+
+> 如果空闲，请更新相关的文档，并进行提交。

@@ -48,7 +48,7 @@ The program always runs in two sequential phases from `main()`:
 **Phase 2 — Paper citations** (`PaperCitationFetcher` in `scholar_citation.py`):
 - Reads the saved profile JSON output (cross-run state) and in-memory mid-paper state (same-run resume)
 - Decides per paper whether citation data is `missing`, `partial`, `complete`, or `skip_zero`
-- Resumes from in-memory state (`_mid_paper_state`, `_output_fetch_state`)
+- Resumes from in-memory state (`_mid_paper_state`, `_paper_states`)
 - Writes consolidated citation outputs to `author_<ID>_paper_citations.json` and `.xlsx`
 
 ### Citation fetch strategy

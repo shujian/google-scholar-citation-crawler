@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-05-16: PaperState 封装 — 合并 fetch state 与 citations
+
+- 新增 `PaperState` dataclass（`crawler/output_state.py`）：包含 `fetch: PaperFetchState` + `citations: list`
+- `_output_fetch_state` + `_output_citations` 两个独立 dict → 单个 `_paper_states: {title: PaperState}`
+- `cache_status` 简化为直接读取 `PaperState.fetch` 和 `PaperState.citations`
+- 修复 `restore_direct_diag_from_citations` 中对只读 property 的错误赋值
+
 ## 2026-05-15: 删除 `restore_from_cache_snapshot`，`cache_status` 直接更新 PaperFetchState
 
 - `restore_from_cache_snapshot` 被删除——其功能完全等同于 `PaperFetchState.from_dict(cache_snapshot)`，存在多余
