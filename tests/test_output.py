@@ -118,7 +118,7 @@ class OutputAndReconciliationTests(FetcherTestCase):
             with open(self.fetcher.profile_json, "w", encoding="utf-8") as f:
                 json.dump({"publications": [pub]}, f)
             # Set output state (not cache)
-            self.fetcher._output_fetch_state = {
+            self.fetcher._paper_states = {
                 "Paper With State": PaperFetchState.from_dict(state_dict),
             }
 

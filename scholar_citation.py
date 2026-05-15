@@ -82,8 +82,9 @@ from crawler.citation_io import (
 )
 from crawler.output_state import (
     PaperFetchState,
+    PaperState,
     index_year_records as _os_index_year_records,
-    load_output_fetch_state as _os_load_output_fetch_state,
+    load_paper_states as _os_load_paper_states,
     resolve_citation_status_from_output as _os_resolve_citation_status_from_output,
     to_paper_fetch_state,
 )
@@ -621,7 +622,7 @@ class PaperCitationFetcher:
                                         direct_resume_state=None):
         from crawler.fetch_session import YearFetchSession
         year_ctx = YearFetchSession(
-            baseline=self._output_fetch_state.get(title) if hasattr(self, '_output_fetch_state') else None,
+            baseline=(ps.fetch if (ps := self._paper_states.get(title)) else None) if hasattr(self, '_paper_states') else None,
             completed_year_segments=set(completed_years_in_current_run or []),
             partial_year_start=dict(partial_year_start or {}),
             dedup_count=int(saved_dedup_count or 0),
@@ -716,10 +717,8 @@ class PaperCitationFetcher:
         # Cross-run state comes exclusively from the output file.
         # Cache files are only for within-run interruption recovery
         # and are never read on a fresh program start.
-        output_state = getattr(self, '_output_fetch_state', {}).get(pub['title'])
+        output_state = getattr(self, '_paper_states', {}).get(pub['title'])
         if output_state:
-            if isinstance(output_state, dict):
-                output_state = PaperFetchState.from_dict(output_state)
             return _os_resolve_citation_status_from_output(pub, output_state, YEAR_BASED_THRESHOLD)
         return 'missing'
 
@@ -787,21 +786,7 @@ class PaperCitationFetcher:
 
         # Load previous output file state so cross-run decisions are based on
         # the output file, not on stale per-paper cache files.
-        self._output_fetch_state = _os_load_output_fetch_state(self.out_json)
-        # Also build a {title: citations} map from the output file so that
-        # cache_status can synthesise a full cache dict when the per-paper
-        # cache file is missing but the output file still has the data.
-        self._output_citations = {}
-        if os.path.exists(self.out_json):
-            try:
-                with open(self.out_json, 'r', encoding='utf-8') as f:
-                    out_data = json.load(f)
-                for paper in out_data.get('papers', []):
-                    title = paper.get('pub', {}).get('title')
-                    if title:
-                        self._output_citations[title] = paper.get('citations', [])
-            except (json.JSONDecodeError, OSError, TypeError, AttributeError):
-                pass
+        self._paper_states = _os_load_paper_states(self.out_json)
 
         # force mode: clear _fetch_state from output file so every in-range
         # paper is treated as 'missing' and re-fetched from scratch.
@@ -809,24 +794,23 @@ class PaperCitationFetcher:
             end_idx = self.skip + self.limit if self.limit else len(publications)
             for pub in publications[self.skip:end_idx]:
                 title = pub['title']
-                if title in self._output_fetch_state:
-                    del self._output_fetch_state[title]
-                self._output_citations.pop(title, None)
-                print(f"  Force mode: cleared output state for '{title[:55]}'")
+                if title in self._paper_states:
+                    del self._paper_states[title]
+                    print(f"  Force mode: cleared output state for '{title[:55]}'")
 
         def cache_status(pub):
             st = self._citation_status(pub)
             if st == 'skip_zero':
                 return st, None, None
-            output_state = getattr(self, '_output_fetch_state', {}).get(pub['title'])
-            if not output_state:
+            paper_state = getattr(self, '_paper_states', {}).get(pub['title'])
+            if not paper_state:
                 return st, None, None
-            pst = to_paper_fetch_state(output_state)
+            pst = to_paper_fetch_state(paper_state)
             if not pst:
                 return st, None, None
             # Build dict from PaperFetchState + extra runtime fields.
             cached = pst.to_dict()
-            citations = getattr(self, '_output_citations', {}).get(pub['title'], [])
+            citations = paper_state.citations
             cached['citations'] = citations
             # Update scholar total from current profile on the PaperFetchState
             # object directly, then reflect in the dict.
@@ -875,7 +859,7 @@ class PaperCitationFetcher:
         print(f"  Zero citations (skip):     {sum(1 for s, *_ in statuses if s == 'skip_zero')}")
         print(f"  Cache complete (skip):     {sum(1 for s, *_ in statuses if s == 'complete')}")
         print(f"  Need fetch/resume:         {len(need_fetch)}")
-        output_state_count = len(getattr(self, '_output_fetch_state', {}))
+        output_state_count = len(getattr(self, '_paper_states', {}))
         if output_state_count:
             print(f"  Output state loaded:       {output_state_count} papers")
         else:
@@ -1042,7 +1026,7 @@ class PaperCitationFetcher:
                             # partial_year_start is kept from memory (in-memory only, not persisted)
                             # so same-run retries resume from the exact page where the error occurred.
                             latest_cache = self._load_citation_cache(title)
-                            latest_output_state = getattr(self, '_output_fetch_state', {}).get(title)
+                            latest_output_state = getattr(self, '_paper_states', {}).get(title)
                             # Within-run retry: prefer cache file (written by
                             # save_progress with the most recent citations) over
                             # output state (which lacks the citations array).
@@ -1120,12 +1104,12 @@ class PaperCitationFetcher:
                     # and _save_output use the latest diagnostics.
                     cache_snapshot = self._load_citation_cache(title)
                     if cache_snapshot:
-                        if not getattr(self, '_output_fetch_state', None):
-                            self._output_fetch_state = {}
-                        self._output_fetch_state[title] = PaperFetchState.from_dict(cache_snapshot)
-                        if not getattr(self, '_output_citations', None):
-                            self._output_citations = {}
-                        self._output_citations[title] = citations or []
+                        if not getattr(self, '_paper_states', None):
+                            self._paper_states = {}
+                        self._paper_states[title] = PaperState(
+                            fetch=PaperFetchState.from_dict(cache_snapshot),
+                            citations=citations or [],
+                        )
                     # Use per-year diagnostics for year-based fetch (authoritative, per-run).
                     # Only use them when fetch_policy is year to avoid stale state from
                     # a previous paper's year-based fetch polluting direct fetch totals.
@@ -1175,7 +1159,7 @@ class PaperCitationFetcher:
                         unyeared_suffix = f", unyeared={unyeared}" if unyeared else ""
                         print(f"  Year summary: {year_summary}{unyeared_suffix}", flush=True)
                     # Read diagnostics from in-memory PaperFetchState (updated above).
-                    pst = to_paper_fetch_state(getattr(self, '_output_fetch_state', {}).get(title) if getattr(self, '_output_fetch_state', None) else None)
+                    pst = to_paper_fetch_state(getattr(self, '_paper_states', {}).get(title) if getattr(self, '_paper_states', None) else None)
                     direct_fetch_diagnostics = (pst.direct_fetch_diagnostics or {}) if pst else {}
                     has_direct_fetch_summary = direct_fetch_diagnostics.get('scholar_total') is not None
                     direct_underfetched = (
@@ -1233,7 +1217,7 @@ class PaperCitationFetcher:
             self._run_new_citations_total += self._new_citations_count
             # Clear scholar_changed after a successful fetch (state was already
             # updated above, inside the while loop).
-            pst = to_paper_fetch_state(getattr(self, '_output_fetch_state', {}).get(title) if getattr(self, '_output_fetch_state', None) else None)
+            pst = to_paper_fetch_state(getattr(self, '_paper_states', {}).get(title) if getattr(self, '_paper_states', None) else None)
             if pst:
                 pst.clear_scholar_changed()
 
@@ -1274,16 +1258,15 @@ class PaperCitationFetcher:
             with open(self.profile_json, 'r', encoding='utf-8') as f:
                 profile = json.load(f)
         publications = profile.get('publications', []) if profile else []
-        output_fetch_state = getattr(self, '_output_fetch_state', {})
-        output_citations = getattr(self, '_output_citations', {})
+        paper_states = getattr(self, '_paper_states', {})
 
         def _build_entry(pub, citations):
             """Build output entry with correct _fetch_state."""
             title = pub.get('title', '') if pub else ''
-            state = output_fetch_state.get(title)
-            if state:
-                pst = to_paper_fetch_state(state)
-                fetch_state = pst.to_dict() if pst else dict(state)
+            ps = paper_states.get(title)
+            if ps:
+                pst = to_paper_fetch_state(ps)
+                fetch_state = pst.to_dict() if pst else {}
             else:
                 fetch_state = {}
             current_total = pub.get('num_citations') if pub else None
@@ -1313,8 +1296,9 @@ class PaperCitationFetcher:
             else:
                 pub = publications[i] if i < len(publications) else {}
                 title = pub.get('title', '')
-                # Citations from output state if available, else cache
-                citations = output_citations.get(title, [])
+                # Citations from PaperState if available
+                ps = paper_states.get(title)
+                citations = ps.citations if ps else []
                 final_results.append(_build_entry(pub, citations))
         total_cites = sum(len(r['citations']) for r in final_results)
         output_payload = {

@@ -116,10 +116,10 @@ class OutputStateTests(FetcherTestCase):
 
 
     def test_citation_status_prefers_output_state_over_cache(self):
-        """When _output_fetch_state contains a paper, _citation_status should use it."""
+        """When _paper_states contains a paper, _citation_status should use it."""
         pub = {"title": "Output Paper", "num_citations": 100, "year": "2024"}
         # No cache file
-        self.fetcher._output_fetch_state = {
+        self.fetcher._paper_states = {
             "Output Paper": {
                 "title": "Output Paper",
                 "num_citations_on_scholar": 100,
@@ -141,10 +141,10 @@ class OutputStateTests(FetcherTestCase):
         self.assertEqual(status, "complete")
 
     def test_citation_status_returns_missing_when_output_state_absent(self):
-        """When _output_fetch_state does not contain a paper, status is 'missing'.
+        """When _paper_states does not contain a paper, status is 'missing'.
         Cache files are for within-run recovery only and are not read here."""
         pub = {"title": "Unknown Paper", "num_citations": 10, "year": "2024"}
-        self.fetcher._output_fetch_state = {}
+        self.fetcher._paper_states = {}
         status = self.fetcher._citation_status(pub)
         self.assertEqual(status, "missing")
 

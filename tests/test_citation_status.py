@@ -90,7 +90,7 @@ class CitationStatusTests(FetcherTestCase):
             },
         }
 
-        self.fetcher._output_fetch_state = {"Paper": cached}
+        self.fetcher._paper_states = {"Paper": cached}
         status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "complete")
@@ -115,7 +115,7 @@ class CitationStatusTests(FetcherTestCase):
             },
         }
 
-        self.fetcher._output_fetch_state = {"Paper": cached}
+        self.fetcher._paper_states = {"Paper": cached}
         status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "complete")
@@ -139,7 +139,7 @@ class CitationStatusTests(FetcherTestCase):
             },
         }
 
-        self.fetcher._output_fetch_state = {"Paper": cached}
+        self.fetcher._paper_states = {"Paper": cached}
         status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "complete")
@@ -161,7 +161,7 @@ class CitationStatusTests(FetcherTestCase):
             "num_citations_seen": 3,
         }
 
-        self.fetcher._output_fetch_state = {"Paper": cached}
+        self.fetcher._paper_states = {"Paper": cached}
         status = self.fetcher._citation_status(pub)
 
         # With simplified logic: num_seen (3) < current (5), no diagnostics summary → partial
@@ -191,7 +191,7 @@ class CitationStatusTests(FetcherTestCase):
             "num_citations_seen": 1331,
         }
 
-        self.fetcher._output_fetch_state = {"Paper": cached}
+        self.fetcher._paper_states = {"Paper": cached}
         status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "partial")
@@ -208,7 +208,7 @@ class CitationStatusTests(FetcherTestCase):
             "num_citations_seen": 1,
         }
 
-        self.fetcher._output_fetch_state = {"Paper": cached}
+        self.fetcher._paper_states = {"Paper": cached}
         status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "partial")
@@ -227,7 +227,7 @@ class CitationStatusTests(FetcherTestCase):
             "num_citations_seen": 3,
         }
 
-        self.fetcher._output_fetch_state = {"Paper": cached}
+        self.fetcher._paper_states = {"Paper": cached}
         status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "partial")
@@ -256,7 +256,7 @@ class CitationStatusTests(FetcherTestCase):
             "num_citations_seen": 1327,
         }
 
-        self.fetcher._output_fetch_state = {"Paper": cached}
+        self.fetcher._paper_states = {"Paper": cached}
         status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "partial")
@@ -276,7 +276,7 @@ class CitationStatusTests(FetcherTestCase):
             ],
         }
 
-        self.fetcher._output_fetch_state = {"Paper": cached}
+        self.fetcher._paper_states = {"Paper": cached}
         status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "partial")
@@ -305,7 +305,7 @@ class CitationStatusTests(FetcherTestCase):
             },
         }
 
-        self.fetcher._output_fetch_state = {"Paper": cached}
+        self.fetcher._paper_states = {"Paper": cached}
         status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "partial")
@@ -424,7 +424,7 @@ class CitationStatusTests(FetcherTestCase):
             },
         }
 
-        self.fetcher._output_fetch_state = {"Paper": cached}
+        self.fetcher._paper_states = {"Paper": cached}
         status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "partial")
@@ -447,7 +447,7 @@ class CitationStatusTests(FetcherTestCase):
             },
         }
 
-        self.fetcher._output_fetch_state = {"Paper": cached}
+        self.fetcher._paper_states = {"Paper": cached}
         status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "complete")
@@ -478,7 +478,7 @@ class CitationStatusTests(FetcherTestCase):
             },
         }
 
-        self.fetcher._output_fetch_state = {"Paper": cached}
+        self.fetcher._paper_states = {"Paper": cached}
         status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "complete")
@@ -634,7 +634,7 @@ class CitationStatusTests(FetcherTestCase):
             },
         }
 
-        self.fetcher._output_fetch_state = {"Paper": cached}
+        self.fetcher._paper_states = {"Paper": cached}
         status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "complete")

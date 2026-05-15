@@ -671,7 +671,7 @@ class MainLoopTests(FetcherTestCase):
             state_cleared = []
 
             def fake_loop(*args, **kwargs):
-                state_cleared.append("Cached Paper" not in fetcher._output_fetch_state)
+                state_cleared.append("Cached Paper" not in fetcher._paper_states)
 
             with patch.object(fetcher, '_patch_scholarly'), \
                  patch.object(fetcher, '_run_main_loop', side_effect=fake_loop), \
