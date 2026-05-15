@@ -274,6 +274,16 @@ save_progress:
 
 Fetch 完成后用 `PaperFetchState.from_dict(cache_snapshot)` 整体替换实例；字段级恢复方法返回 `self` 以支持链式调用。
 
+### cache_status 与 PaperFetchState 的关系
+
+`cache_status(pub)` 闭包是获取 paper 状态的统一入口，返回 `(st, cached_dict, paper_state)` 三元组：
+
+- **`paper_state`**（`PaperFetchState`）：权威对象。所有字段更新（`num_citations_on_scholar`、`mark_scholar_changed()`、diagnostics 修正）都直接作用于它
+- **`cached_dict`**（`dict`）：从 `paper_state.to_dict()` 派生，额外包含 `citations` 列表（来自 `_output_citations`），仅用于传递给 `_resolve_refresh_strategy` 的接口兼容
+- **`st`**（`str`）：`missing` | `complete` | `partial` | `skip_zero`，由 `_citation_status()` → `need_fetch()` → `is_complete()` 决定
+
+关键设计：`paper_state` 是 `_output_fetch_state` 中的同一个对象引用，所以 `cache_status` 对它的修改会直接影响内存状态，即使该 paper 被跳过（`complete`）也会保持数据一致。
+
 ---
 
 ## Citation 状态判定

@@ -4,7 +4,13 @@
 
 ---
 
-## 2026-05-15: 修复 `restore_from_cache_snapshot` 遗漏字段
+## 2026-05-15: 删除 `restore_from_cache_snapshot`，`cache_status` 直接更新 PaperFetchState
+
+- `restore_from_cache_snapshot` 被删除——其功能完全等同于 `PaperFetchState.from_dict(cache_snapshot)`，存在多余
+- `cache_status` 现在直接在 `PaperFetchState` 对象上更新 `num_citations_on_scholar`、`complete_fetch_attempt` 和 diagnostics，不再只修补临时的 synthetic dict
+- 设计原则：`_output_fetch_state` 中的 `PaperFetchState` 是唯一权威对象，dict 仅用于接口兼容
+
+## 2026-05-15: 修复 `restore_from_cache_snapshot` 遗漏字段（已被后续重构替换）
 
 - `restore_from_cache_snapshot()` 漏掉了 `complete_fetch_attempt`、`fetch_strategy`、`num_citations_on_scholar` 三个字段
 - 导致 fetch 成功后输出 JSON 中 `complete_fetch_attempt` 始终为 false，`fetch_strategy` 不随阈值变化更新
