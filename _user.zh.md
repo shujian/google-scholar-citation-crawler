@@ -2,6 +2,12 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 346. [2026-05-17]
+
+如果空闲，请更新相关的文档，并进行提交。检查 _work_notes.zh.md、_update_history.zh.md、_user.zh.md、README.md 是否需要根据最近的变更进行更新。
+
+---
+
 ## 26. [2026-05-12]
 
 请处理 issues.md 中的前 4 个 issue：

@@ -180,7 +180,7 @@ crawler/
   scholarly_session.py       # SessionContext + scholarly monkey-patch + year probe
   interactive.py             # cURL cookie injection, captcha prompt, proxy-switch wait
   citation_models.py         # YearRecord, ResumeState, FetchPolicy dataclasses
-  output_state.py            # Output file _fetch_state read/write
+  output_state.py            # PaperFetchState / PaperState + output file _fetch_state read/write
   pub_info.py                # PubInfo dataclass for publication field normalization
   cli.py                     # parse_args() + _run_main()
 tests/                       # 119 unit tests, no network required

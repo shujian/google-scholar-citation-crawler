@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-05-17: 文档修正 — 过期引用和错误示例
+
+- `_work_notes.zh.md`：修正 7 处过期/错误内容
+  - `_output_fetch_state` / `_output_citations` → `_paper_states`
+  - "三层内存结构" → "两层内存结构"
+  - `direct_fetch_diagnostics` 示例从旧嵌套格式改为当前扁平格式
+  - `direct_summary` → `direct_fetch_diagnostics`
+- `README.md`：`output_state.py` 描述加入 `PaperState`
+
 ## 2026-05-16: PaperState 封装 — 合并 fetch state 与 citations
 
 - 新增 `PaperState` dataclass（`crawler/output_state.py`）：包含 `fetch: PaperFetchState` + `citations: list`
