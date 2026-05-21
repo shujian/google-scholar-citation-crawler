@@ -825,8 +825,9 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                 year_batch.termination_reason,
             )
             year_ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
-            if year_new_count > 0:
-                print(f"      Year {year} done: {year_new_count} new citations", flush=True)
+            if year_new_count > 0 or fetcher._new_citations_count > 0:
+                print(f"      Year {year} done: {year_new_count} new in year, "
+                      f"{fetcher._new_citations_count} truly new this paper", flush=True)
             else:
                 print(f"      Year {year} done: no new citations", flush=True)
             diag = year_fetch_diagnostics[year]

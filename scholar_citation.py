@@ -799,21 +799,15 @@ class PaperCitationFetcher:
                     print(f"  Force mode: cleared output state for '{title[:55]}'")
 
         def cache_status(pub):
-            st = self._citation_status(pub)
-            if st == 'skip_zero':
-                return st, None, None
+            # Update PaperFetchState with current profile counts BEFORE
+            # computing status, so that scholar_changed takes effect
+            # within the same run.
             paper_state = getattr(self, '_paper_states', {}).get(pub['title'])
-            if not paper_state:
-                return st, None, None
-            pst = to_paper_fetch_state(paper_state)
+            pst = to_paper_fetch_state(paper_state) if paper_state else None
+            if pub['num_citations'] == 0:
+                return 'skip_zero', None, None
             if not pst:
-                return st, None, None
-            # Build dict from PaperFetchState + extra runtime fields.
-            cached = pst.to_dict()
-            citations = paper_state.citations
-            cached['citations'] = citations
-            # Update scholar total from current profile on the PaperFetchState
-            # object directly, then reflect in the dict.
+                return self._citation_status(pub), None, None
             current_total = pub.get('num_citations')
             if current_total is not None:
                 try:
@@ -823,14 +817,22 @@ class PaperCitationFetcher:
                 if current_total is not None:
                     old_total = pst.num_citations_on_scholar
                     pst._num_citations_on_scholar = current_total
-                    cached['num_citations_on_scholar'] = current_total
                     if old_total is not None and old_total != current_total:
                         pst.mark_scholar_changed()
-                # Sync scholar_total in diagnostics.
-                for diag_key in ('year_fetch_diagnostics', 'direct_fetch_diagnostics'):
-                    diag = cached.get(diag_key)
-                    if isinstance(diag, dict):
-                        diag['scholar_total'] = current_total
+            # Now compute status with the up-to-date PaperFetchState.
+            st = self._citation_status(pub)
+            if st == 'skip_zero':
+                return st, None, None
+            # Build dict from PaperFetchState + extra runtime fields.
+            cached = pst.to_dict()
+            citations = paper_state.citations
+            cached['citations'] = citations
+            cached['num_citations_on_scholar'] = current_total
+            # Sync scholar_total in diagnostics.
+            for diag_key in ('year_fetch_diagnostics', 'direct_fetch_diagnostics'):
+                diag = cached.get(diag_key)
+                if isinstance(diag, dict) and current_total is not None:
+                    diag['scholar_total'] = current_total
             # Consistency check: empty citations but diagnostics claims data.
             if len(citations) == 0 and pst.complete_fetch_attempt:
                 pst._complete_fetch_attempt = False

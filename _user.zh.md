@@ -2,6 +2,14 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 348. [2026-05-21]
+
+处理issues.md
+
+## 347. [2026-05-19]
+
+Progress saved: 140 fetched for year 2020, 1 new in year, 0 truly new this paper / Year 2020 done: 1 new citations — 这里对获得的citation计数不一致，请检查一下。
+
 ## 346. [2026-05-17]
 
 如果空闲，请更新相关的文档，并进行提交。检查 _work_notes.zh.md、_update_history.zh.md、_user.zh.md、README.md 是否需要根据最近的变更进行更新。

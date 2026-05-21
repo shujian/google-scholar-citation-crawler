@@ -4,6 +4,11 @@
 
 ---
 
+## 2026-05-19: 修复 scholar_changed 同次运行失效 + Year done 日志歧义
+
+- **`cache_status` 中 `scholar_changed` 同次运行不生效**：`_citation_status()` 在 `mark_scholar_changed()` 之前被调用，导致本次检测到引用数变化的论文仍需等到下一次运行才会被重新抓取。修复：重构 `cache_status`，先更新 `PaperFetchState`（`num_citations_on_scholar` + `scholar_changed`）再调用 `_citation_status()`。
+- **Year done 日志只显示 year_new_count**：`Year XX done: N new citations` 中的 N 是年份桶新增（`year_new_count`），而非真正的新引用（`_new_citations_count`），与 Paper Done 和 wait status 中显示的计数不一致。修复：改为同时显示两个值：`N new in year, M truly new this paper`。
+
 ## 2026-05-17: 文档修正 — 过期引用和错误示例
 
 - `_work_notes.zh.md`：修正 7 处过期/错误内容
