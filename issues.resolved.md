@@ -1,3 +1,15 @@
+### ✅ 已处理 [2026-05-21]
+
+> [Bug] scholar_changed 同次运行不生效 + 引用变化论文未被计入 Need fetch
+> 问题: 3 篇论文引用数变化（974→979、309→310、2→16），但 Need fetch/resume 只显示了 1。原因是 `cache_status` 中 `_citation_status()` 在 `mark_scholar_changed()` 之前调用，导致本次检测到引用变化的论文状态仍为 `complete`，要等到下一次运行才会重新抓取。
+> 附带修复: Year done 日志只显示 year_new_count（年份桶新增），与 Paper Done / wait status 的 _new_citations_count（真正的新引用）不一致。
+
+- 重构 `cache_status()`：先更新 `PaperFetchState`（`num_citations_on_scholar` + `scholar_changed`）再调用 `_citation_status()`
+- Year done 日志改为同时显示两个值：`N new in year, M truly new this paper`
+- 所有 119 个测试通过
+
+----
+
 ### ✅ 已处理 [2026-05-12]
 
 > [Bug] year_fetched_citations 变量未定义
