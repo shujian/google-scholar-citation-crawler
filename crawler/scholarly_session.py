@@ -240,16 +240,20 @@ def patch_scholarly(ctx: SessionContext) -> None:
             print(f"        Request URL: {request_url}{referer_str}", flush=True)
 
         # Wrap original_get_page so that scholarly's internal 60-120 s
-        # sleeps are replaced by our 45-90 s rand_delay, and after
-        # MAX_SLEEPS_PER_PAGE sleeps the loop is aborted so PageVisit
-        # handles all higher-level recovery.  Without this, scholarly's
-        # built-in retry sleeps stack with PageVisit's and can turn a
-        # single blocked page into an hour-long stall.
+        # sleeps are replaced by our 45-90 s rand_delay, and excessive
+        # retries are aborted so PageVisit handles higher-level recovery.
+        # Without this, scholarly's built-in retry sleeps stack with
+        # PageVisit's and can turn a single blocked page into an
+        # hour-long stall.
+        #
+        # MAX_SLEEPS_PER_PAGE = 2: scholarly's _get_page does one 1-2 s
+        # pre-request sleep + optionally one 60-120 s recovery sleep on
+        # error.  With _max_retries=0 the loop never needs more than 2.
         is_first_page = (ctx.total_page_count == 1)
         if is_first_page:
             print(f"        {now_str()} Fetching (first page, no delay)...", flush=True)
 
-        MAX_SLEEPS_PER_PAGE = 1
+        MAX_SLEEPS_PER_PAGE = 2
 
         def _fetch_with_sleep_limit():
             original_sleep = time.sleep
