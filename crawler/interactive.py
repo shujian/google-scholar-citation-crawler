@@ -64,23 +64,31 @@ def inject_cookies_from_curl(
     *_ref parameters are mutable containers whose first element/key set is
     updated in-place so the caller's state is reflected after the call.
     """
+    def _parse_cookies(raw):
+        cookies = {}
+        for pair in raw.split(';'):
+            pair = pair.strip()
+            if '=' in pair:
+                k, v = pair.split('=', 1)
+                cookies[k.strip()] = v.strip()
+        return cookies
+
     m = (re.search(r"(?:-b|--cookie) '([^']+)'", curl_str) or
          re.search(r'(?:-b|--cookie) "([^"]+)"', curl_str))
-    if not m:
-        print("  (Could not find -b/--cookie '...' string in input)", flush=True)
+    cookies = {}
+    if m:
+        cookies = _parse_cookies(m.group(1))
+    else:
+        # Modern browsers (Chrome/Edge) use -H 'cookie: ...' format
+        cookie_header = (re.search(r"(?:-H|--header)\s+'cookie:\s*([^']+)'", curl_str, re.IGNORECASE) or
+                         re.search(r'(?:-H|--header)\s+"cookie:\s*([^"]+)"', curl_str, re.IGNORECASE))
+        if cookie_header:
+            cookies = _parse_cookies(cookie_header.group(1))
+    if not cookies:
+        print("  (Could not find cookies in input — expected -b/--cookie or -H 'cookie:' format)", flush=True)
         return 0
 
     nav = scholarly._Scholarly__nav
-    cookies = {}
-    for pair in m.group(1).split(';'):
-        pair = pair.strip()
-        if '=' in pair:
-            k, v = pair.split('=', 1)
-            cookies[k.strip()] = v.strip()
-    if not cookies:
-        print("  (No valid cookies found in pasted input)", flush=True)
-        return 0
-
     header_overrides = {}
     header_matches = re.findall(
         r"(?:-H|--header) '([^']+)'|(?:-H|--header) \"([^\"]+)\"", curl_str
