@@ -132,6 +132,7 @@ _CURL_HEADER_ALLOWLIST = frozenset({
     'sec-ch-ua-platform',
     'sec-ch-ua-platform-version',
     'sec-ch-ua-wow64',
+    'user-agent',
 })
 
 

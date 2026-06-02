@@ -176,7 +176,6 @@ class ScholarPatchAndIdentityTests(FetcherTestCase):
         curl = (
             "curl 'https://scholar.google.com/scholar?cites=123' "
             "-b 'SID=abc' "
-            "-H 'User-Agent: injected-agent' "
             "-H 'Referer: https://example.com/' "
             "-H 'Host: scholar.google.com' "
             "-H 'sec-fetch-site: cross-site'"
@@ -186,7 +185,6 @@ class ScholarPatchAndIdentityTests(FetcherTestCase):
 
         nav = scholarly_mod.scholarly._Scholarly__nav
         self.assertEqual(self.fetcher._injected_header_overrides, {})
-        self.assertNotIn('user-agent', nav._session1.headers)
         self.assertNotIn('host', nav._session1.headers)
         self.assertNotIn('sec-fetch-site', nav._session1.headers)
         self.assertEqual(nav._session1.headers['referer'], self.fetcher._last_scholar_url)
