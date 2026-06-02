@@ -68,12 +68,7 @@ class PageVisit:
                         and self.ctx.try_interactive_captcha_fn
                         and not captcha_attempted):
                     captcha_attempted = True
-                    d = rand_delay(self.ctx.delay_scale)
-                    wait_str = self.ctx.wait_status_fn() if self.ctx.wait_status_fn else ""
                     print(f"        {now_str()} Blocked fetching {label}: {e}", flush=True)
-                    print(f"        {now_str()} Waiting {d:.0f}s before captcha prompt... [{wait_str}]",
-                          flush=True)
-                    time.sleep(d)
                     solved = self.ctx.try_interactive_captcha_fn(url)
                     if solved:
                         retries = 0
