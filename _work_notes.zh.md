@@ -400,6 +400,22 @@ scholarly 的自动分页与手动分页冲突，`original_next` 自动加载下
 
 `retry_strategy_cached` 优先使用 output state（不含 citations）。修复：缓存文件优先。
 
+### _max_retries=0 导致 scholarly 循环不执行（2026-06-02）
+
+**错误理解**：以为 `nav._max_retries` 是“重试次数”，设成 0 让 scholarly 不重试。
+
+**实际情况**：scholarly `_get_page`（`_navigator.py:110`）的 while 条件是 `while tries < self._max_retries`。`_max_retries=0` 导致 `0 < 0` → False，循环体完全不执行，HTTP 请求从未发出，直接抛 `MaxTriesExceededException("Cannot Fetch from Google Scholar.")`。
+
+**正确做法**：`_max_retries=1`（`nav._set_retries(1)`）确保循环至少执行一次。403/captcha 重试试用 `continue`（不增加 `tries`），不消耗重试预算。睡眠限制由 `_limited_sleep` 通过 `MAX_SLEEPS_PER_PAGE` 实现。
+
+### curl 浏览器指纹一致性问题（2026-06-02）
+
+**问题**：cookies 从浏览器 cURL 加载时，`sec-ch-ua` 被 allowlist 覆盖为正确版本（如 Edge/146），但 `user-agent` 不在 allowlist 中，保持硬编码的旧版本（Edge/145）。Google 检测到两个 header 声明的浏览器版本不一致，判定为机器人。
+
+**修复**：将 `user-agent` 加入 `_CURL_HEADER_ALLOWLIST`。
+
+**cookie 解析**：原始代码只识别 `-b '...'` / `--cookie '...'` 格式，现代浏览器输出 `-H 'cookie: ...'` 格式被忽略。增加 `-H 'cookie:'` 回退解析。
+
 ---
 
 ## 环境说明

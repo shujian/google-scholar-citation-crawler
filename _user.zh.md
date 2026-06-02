@@ -2,6 +2,28 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 353. [2026-06-02]
+
+太离谱了，什么时候开始有这个问题的？
+
+请根据这次的情况更新文档。
+
+## 352. [2026-06-02]
+
+还是不对，我们的crawler不能访问给定的页面。请检查还有哪里有问题。
+
+## 351. [2026-06-02]
+
+现在输入的curl保存在curl.txt中吗？你看一下最新更新的这个curl能不能完成访问。
+
+既然测试正常，为什么我们现在的爬虫程序访问不了这个页面？是什么地方弄错了嘛？也请检查一下，如果需要对比一下之前的代码版本。
+
+这个似乎也不需要等待：[16:55:28] Waiting 77s before captcha prompt...
+
+Too many retries (2) for single page request — 这个问题该怎么解决？我的浏览器的web访问是正常的。
+
+我怀疑加载curl的部分也损坏了，请检查一下代码。
+
 ## 350. [2026-06-02]
 
 为什么系统在执行到这个位置的时候卡死了？（附带日志：Request URL 后无输出 / Waiting 54s 到 Blocked fetching 间隔 1 小时 / 以前好像不是这么处理的）

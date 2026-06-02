@@ -4,16 +4,24 @@
 
 ---
 
-## 2026-06-02: 恢复 unified_sleep — 修复 PageVisit 丢失 scholarly 内部 sleep 拦截
+## 2026-06-02: 页面等待与重试机制修复 + _max_retries=0 回退
 
-- **问题**：PageVisit 引入时（`384e240`）删除了 `unified_sleep` 机制。该机制拦截 scholarly `_get_page` 内部的 60-120s 等待并将其替换为 45-90s `rand_delay`，同时限制每页最多 1 次 sleep。丢失后，scholarly 的 60-120s 等待和 PageVisit 的 45-90s 等待叠加，加上 proxy switch 阻塞，单次页面失败可延迟 1 小时以上。
-- **修复**：恢复 `unified_sleep` 为 `_fetch_with_sleep_limit()` 闭包，包裹在传给 `PageVisit.fetch()` 的函数中。同时保留 `_max_retries=0`（上一提交）作为安全网。
-- 移除独立的预请求等待（已被 `_limited_sleep` 替代）
+### 问题链路
+用户报告爬虫在 profile 阶段长时间卡住（从 "Waiting 54s" 到 "Blocked fetching" 间隔 1 小时），以及无法访问 Scholar 页面。
 
-## 2026-06-02: 移除第一个页面访问前的无效等待
+### 根因分析（按发现顺序）
+1. **PageVisit 丢失 unified_sleep**：`384e240` 引入 PageVisit 时删除了 `unified_sleep` 机制——该机制拦截 scholarly `_get_page` 内部的 60-120s 等待，替换为 45-90s `rand_delay`，并限制每页最多 1 次 sleep。丢失后 scholarly 和 PageVisit 的等待叠加。
+2. **`_max_retries=0` 的致命错误**：处理问题 1 时，误以为 `_max_retries` 是重试次数，设成 0 想禁止 scholarly 内部重试。但 scholarly `_get_page` 的 while 条件是 `while tries < self._max_retries`，0 导致 `0 < 0` 永远为 False，HTTP 请求从未发出。
+3. **curl cookie 解析只支持 `-b` 格式**：现代浏览器（Chrome/Edge）输出的 cURL 使用 `-H 'cookie: ...'` 格式，解析器不认识，直接返回 0。
+4. **user-agent 指纹不一致**：curl 中的 `user-agent` 不在 allowlist，cookies 来自 Edge/146 但 user-agent 仍是硬编码的 Edge/145，Google 检测到浏览器版本冲突。
 
-- `patched_get_page` 中每次页面访问前都有 45-90s 随机等待，但第一个页面之前没有任何历史请求，等待没有意义
-- 修复：`ctx.total_page_count > 1` 时才执行等待，第一个页面跳过
+### 修复列表
+- 恢复 `unified_sleep` 为 `_fetch_with_sleep_limit()` 闭包，拦截 scholarly 内部 sleep，替换为 `rand_delay`，限制每页 2 次 sleep
+- **回退 `_max_retries=0`** 为 `_max_retries=1`（即 `nav._set_retries(1)`），确保 while 循环至少执行一次
+- 第一个页面跳过等待（`total_page_count == 1` 时 `_limited_sleep` 的第一个 sleep 不做 rand_delay）
+- captcha 提示前移除无效的 45-90s 等待
+- curl cookie 解析增加 `-H 'cookie:'` 格式支持
+- `user-agent` 加入 curl header allowlist，保持浏览器指纹一致
 
 ## 2026-05-19: 修复 scholar_changed 同次运行失效 + Year done 日志歧义
 
