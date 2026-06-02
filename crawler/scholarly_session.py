@@ -150,6 +150,11 @@ def patch_scholarly(ctx: SessionContext) -> None:
     nav = scholarly._Scholarly__nav
     nav._set_retries(1)
     original_get_page = nav._get_page
+    # After capturing original_get_page, disable its internal retries so
+    # that PageVisit is the sole retry/recovery path.  Scholarly's built-in
+    # 60-120s waits on 403s compound with PageVisit's 45-90s waits and can
+    # turn a simple block into an hour-long stall.
+    nav._max_retries = 0
 
     profile_url = f'https://scholar.google.com/citations?user={ctx.author_id}&hl=en'
     ctx.last_scholar_url = profile_url
@@ -239,6 +244,8 @@ def patch_scholarly(ctx: SessionContext) -> None:
             wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""
             print(f"        {now_str()} Waiting {d:.0f}s before request... [{wait_str}]", flush=True)
             time.sleep(d)
+        elif ctx.total_page_count == 1:
+            print(f"        {now_str()} Fetching (first page, no delay)...", flush=True)
 
         page_visit = PageVisit(ctx)
         label = request_url[:80] if request_url else "scholar page"
