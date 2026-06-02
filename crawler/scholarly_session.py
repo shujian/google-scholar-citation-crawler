@@ -22,6 +22,7 @@ from datetime import datetime
 from typing import Optional
 
 from scholarly import scholarly
+from scholarly._proxy_generator import MaxTriesExceededException
 from scholarly.publication_parser import _SearchScholarIterator, PublicationParser
 
 from crawler.common import (
@@ -238,19 +239,53 @@ def patch_scholarly(ctx: SessionContext) -> None:
             referer_str = f" (referer: {referer})" if show_referer else ""
             print(f"        Request URL: {request_url}{referer_str}", flush=True)
 
-        # Pre-request random delay (skip first page — no prior request to space apart from)
-        if ctx.total_page_count > 1:
-            d = rand_delay(ctx.delay_scale)
-            wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""
-            print(f"        {now_str()} Waiting {d:.0f}s before request... [{wait_str}]", flush=True)
-            time.sleep(d)
-        elif ctx.total_page_count == 1:
+        # Wrap original_get_page so that scholarly's internal 60-120 s
+        # sleeps are replaced by our 45-90 s rand_delay, and after
+        # MAX_SLEEPS_PER_PAGE sleeps the loop is aborted so PageVisit
+        # handles all higher-level recovery.  Without this, scholarly's
+        # built-in retry sleeps stack with PageVisit's and can turn a
+        # single blocked page into an hour-long stall.
+        is_first_page = (ctx.total_page_count == 1)
+        if is_first_page:
             print(f"        {now_str()} Fetching (first page, no delay)...", flush=True)
+
+        MAX_SLEEPS_PER_PAGE = 1
+
+        def _fetch_with_sleep_limit():
+            original_sleep = time.sleep
+            sleep_count = [0]
+
+            def _limited_sleep(seconds):
+                sleep_count[0] += 1
+                if sleep_count[0] > MAX_SLEEPS_PER_PAGE:
+                    time.sleep = original_sleep
+                    raise MaxTriesExceededException(
+                        f"Too many retries ({sleep_count[0]}) "
+                        f"for single page request")
+                # First sleep on the very first page: keep it short
+                # (scholarly's 1-2 s pre-request pause) instead of
+                # inserting a full rand_delay.
+                if is_first_page and sleep_count[0] == 1:
+                    original_sleep(seconds)
+                    return
+                d = rand_delay(ctx.delay_scale)
+                retry_note = (f" (retry {sleep_count[0]})"
+                              if sleep_count[0] > 1 else "")
+                wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""
+                print(f"        {now_str()} Waiting {d:.0f}s before request"
+                      f"{retry_note}... [{wait_str}]", flush=True)
+                original_sleep(d)
+
+            time.sleep = _limited_sleep
+            try:
+                return original_get_page(pagerequest, premium)
+            finally:
+                time.sleep = original_sleep
 
         page_visit = PageVisit(ctx)
         label = request_url[:80] if request_url else "scholar page"
         return page_visit.fetch(
-            lambda: original_get_page(pagerequest, premium),
+            _fetch_with_sleep_limit,
             url=request_url or f'https://scholar.google.com{ctx.last_scholar_url}',
             label=label,
         )

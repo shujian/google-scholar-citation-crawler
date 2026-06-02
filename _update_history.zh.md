@@ -4,6 +4,12 @@
 
 ---
 
+## 2026-06-02: 恢复 unified_sleep — 修复 PageVisit 丢失 scholarly 内部 sleep 拦截
+
+- **问题**：PageVisit 引入时（`384e240`）删除了 `unified_sleep` 机制。该机制拦截 scholarly `_get_page` 内部的 60-120s 等待并将其替换为 45-90s `rand_delay`，同时限制每页最多 1 次 sleep。丢失后，scholarly 的 60-120s 等待和 PageVisit 的 45-90s 等待叠加，加上 proxy switch 阻塞，单次页面失败可延迟 1 小时以上。
+- **修复**：恢复 `unified_sleep` 为 `_fetch_with_sleep_limit()` 闭包，包裹在传给 `PageVisit.fetch()` 的函数中。同时保留 `_max_retries=0`（上一提交）作为安全网。
+- 移除独立的预请求等待（已被 `_limited_sleep` 替代）
+
 ## 2026-06-02: 移除第一个页面访问前的无效等待
 
 - `patched_get_page` 中每次页面访问前都有 45-90s 随机等待，但第一个页面之前没有任何历史请求，等待没有意义

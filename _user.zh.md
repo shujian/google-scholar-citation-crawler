@@ -2,6 +2,12 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 350. [2026-06-02]
+
+为什么系统在执行到这个位置的时候卡死了？（附带日志：Request URL 后无输出 / Waiting 54s 到 Blocked fetching 间隔 1 小时 / 以前好像不是这么处理的）
+
+请仔细看一下代码，我觉得不应该等1个小时的。以前的实现里也不会等这么久。你可以找一个历史代码比较一下。
+
 ## 349. [2026-06-02]
 
 第一个页面访问等待没有意义，请帮我更新一下代码，在访问第一个页面时不需要等待。
