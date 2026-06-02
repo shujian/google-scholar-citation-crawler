@@ -4,6 +4,11 @@
 
 ---
 
+## 2026-06-02: 移除第一个页面访问前的无效等待
+
+- `patched_get_page` 中每次页面访问前都有 45-90s 随机等待，但第一个页面之前没有任何历史请求，等待没有意义
+- 修复：`ctx.total_page_count > 1` 时才执行等待，第一个页面跳过
+
 ## 2026-05-19: 修复 scholar_changed 同次运行失效 + Year done 日志歧义
 
 - **`cache_status` 中 `scholar_changed` 同次运行不生效**：`_citation_status()` 在 `mark_scholar_changed()` 之前被调用，导致本次检测到引用数变化的论文仍需等到下一次运行才会被重新抓取。修复：重构 `cache_status`，先更新 `PaperFetchState`（`num_citations_on_scholar` + `scholar_changed`）再调用 `_citation_status()`。

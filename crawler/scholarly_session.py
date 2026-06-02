@@ -233,11 +233,12 @@ def patch_scholarly(ctx: SessionContext) -> None:
             referer_str = f" (referer: {referer})" if show_referer else ""
             print(f"        Request URL: {request_url}{referer_str}", flush=True)
 
-        # Pre-request random delay (before every page visit)
-        d = rand_delay(ctx.delay_scale)
-        wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""
-        print(f"        {now_str()} Waiting {d:.0f}s before request... [{wait_str}]", flush=True)
-        time.sleep(d)
+        # Pre-request random delay (skip first page — no prior request to space apart from)
+        if ctx.total_page_count > 1:
+            d = rand_delay(ctx.delay_scale)
+            wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""
+            print(f"        {now_str()} Waiting {d:.0f}s before request... [{wait_str}]", flush=True)
+            time.sleep(d)
 
         page_visit = PageVisit(ctx)
         label = request_url[:80] if request_url else "scholar page"

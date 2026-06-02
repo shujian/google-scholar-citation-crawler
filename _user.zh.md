@@ -2,6 +2,10 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 349. [2026-06-02]
+
+第一个页面访问等待没有意义，请帮我更新一下代码，在访问第一个页面时不需要等待。
+
 ## 348. [2026-05-21]
 
 处理issues.md
