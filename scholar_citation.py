@@ -550,8 +550,9 @@ class PaperCitationFetcher:
 
     def _wait_status(self):
         """Return a status string for wait messages."""
+        total = self._run_new_citations_total + max(0, self._new_citations_count)
         return (f"elapsed {self._elapsed_str()}, "
-                f"{self._new_citations_count} new citations, "
+                f"{total} new citations, "
                 f"{self._session_ctx.total_page_count} pages, "
                 f"{self._captcha_solved_count} captcha solves")
 
