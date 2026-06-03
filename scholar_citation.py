@@ -551,9 +551,12 @@ class PaperCitationFetcher:
     def _wait_status(self):
         """Return a status string for wait messages."""
         total = self._run_new_citations_total + max(0, self._new_citations_count)
+        run_pages = self._session_ctx.total_page_count
+        curl_pages = self._session_ctx.curl_page_count
+        pages_str = f"{run_pages} pages ({curl_pages} this curl)"
         return (f"elapsed {self._elapsed_str()}, "
                 f"{total} new citations, "
-                f"{self._session_ctx.total_page_count} pages, "
+                f"{pages_str}, "
                 f"{self._captcha_solved_count} captcha solves")
 
     @staticmethod
@@ -1191,9 +1194,11 @@ class PaperCitationFetcher:
                     # mode show X/MAX_RETRIES so the user knows when it will give up.
                     attempt_str = (str(attempt) if self.interactive_captcha
                                    else f"{attempt}/{MAX_RETRIES}")
+                    total_new = self._run_new_citations_total + max(0, self._new_citations_count)
                     print(f"  [{now}] Error (attempt {attempt_str}, "
-                          f"total pages: {self._session_ctx.total_page_count}, "
-                          f"new citations: {self._new_citations_count}): {e}")
+                          f"pages: {self._session_ctx.total_page_count} total / "
+                          f"{self._session_ctx.curl_page_count} this curl, "
+                          f"new citations: {total_new}): {e}")
                     if is_post_fetch_failure:
                         continue
                     # Non-interactive: give up after MAX_RETRIES attempts
@@ -1240,6 +1245,8 @@ class PaperCitationFetcher:
             curl_save_path=self._curl_save_path,
         )
         self._captcha_solved_count = counter[0]
+        if result > 0:
+            self._session_ctx.curl_page_count = 0
         return result
 
     def _try_interactive_captcha(self, url):
@@ -1326,8 +1333,11 @@ class PaperCitationFetcher:
         new_str = f", {self._run_new_citations_total} new" if self._run_new_citations_total else ""
         print(f"\nDone! {len(final_results)}/{total_papers} papers{fetched_str}, "
               f"{total_cites} collected citation records{new_str}")
+        curl_pages = self._session_ctx.curl_page_count
+        pages_info = (f"{self._session_ctx.total_page_count} pages "
+                      f"({curl_pages} this curl)")
         print(f"Run summary: elapsed {self._elapsed_str()}"
-              f" | {self._session_ctx.total_page_count} pages accessed"
+              f" | {pages_info}"
               f" | {self._run_new_citations_total} new citations"
               f" | output total = collected per-paper citation records\n")
 

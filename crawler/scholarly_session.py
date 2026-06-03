@@ -59,6 +59,7 @@ class SessionContext:
 
     # pagination / session health
     total_page_count: int = 0
+    curl_page_count: int = 0       # pages accessed with current curl/cookies
     current_paper_page_count: int = 0  # resets per paper, not per year-segment or retry
     next_break_at: int = 0
     next_refresh_at: int = 0
@@ -226,6 +227,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
             if referer:
                 break
         ctx.total_page_count += 1
+        ctx.curl_page_count += 1
         if ctx.total_page_count == 1 and ctx.first_page_prompt_fn:
             fn = ctx.first_page_prompt_fn
             ctx.first_page_prompt_fn = None
@@ -238,14 +240,11 @@ def patch_scholarly(ctx: SessionContext) -> None:
         # Wrap original_get_page so that scholarly's internal 60-120 s
         # sleeps are replaced by our 45-90 s rand_delay, and excessive
         # retries are aborted so PageVisit handles higher-level recovery.
-        # Without this, scholarly's built-in retry sleeps stack with
-        # PageVisit's and can turn a single blocked page into an
-        # hour-long stall.
         #
-        # MAX_SLEEPS_PER_PAGE = 2: scholarly's _get_page does one 1-2 s
-        # pre-request sleep + optionally one 60-120 s recovery sleep on
-        # error.  With _max_retries=0 the loop never needs more than 2.
-        is_first_page = (ctx.total_page_count == 1)
+        # Skip the pre-request delay on the very first page of the run
+        # AND on the first page after injecting fresh cookies — no prior
+        # request with those credentials exists to space apart from.
+        is_first_page = (ctx.total_page_count == 1 or ctx.curl_page_count == 1)
         if is_first_page:
             print(f"        {now_str()} Fetching (first page, no delay)...", flush=True)
 
