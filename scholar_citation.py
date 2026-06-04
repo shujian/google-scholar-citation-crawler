@@ -1223,6 +1223,7 @@ class PaperCitationFetcher:
 
             results[idx - 1] = {'pub': pub, 'citations': citations or []}
             self._run_new_citations_total += self._new_citations_count
+            self._new_citations_count = 0  # consumed by _run_new_citations_total
             # Clear scholar_changed after a successful fetch (state was already
             # updated above, inside the while loop).
             pst = to_paper_fetch_state(getattr(self, '_paper_states', {}).get(title) if getattr(self, '_paper_states', None) else None)
