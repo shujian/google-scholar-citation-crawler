@@ -375,19 +375,12 @@ def patch_scholarly(ctx: SessionContext) -> None:
         result = original_load_url(self_iter, url)
 
         # scholarly's _load_url only captures 'gs_r gs_or gs_scl' and
-        # 'gsc_mpat_ttl'.  Some results (often the last one on a page)
-        # use slightly different classes and are silently dropped.
-        # Catch them here so no item goes missing.
+        # 'gsc_mpat_ttl'.  Replace with every div.gs_r (any additional
+        # classes) so no result row is missed regardless of its CSS.
         try:
             soup = getattr(self_iter, '_soup', None)
             if soup:
-                existing = getattr(self_iter, '_rows', []) or []
-                extra = (soup.find_all('div', class_='gs_r gs_or')
-                         + soup.find_all('div', class_='gsc_ocit_ttl'))
-                for item in extra:
-                    if item not in existing:
-                        existing.append(item)
-                self_iter._rows = existing
+                self_iter._rows = soup.find_all('div', class_='gs_r')
         except Exception:
             pass
 
