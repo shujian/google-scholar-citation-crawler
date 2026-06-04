@@ -224,6 +224,7 @@ class YearFetchSession:
     # --- dedup / progress counters -----------------------------------------
     dedup_count: int = 0
     year_fetch_diagnostics: dict = field(default_factory=dict)
+    counted_new_keys: set = field(default_factory=set)  # cross-year dedup within this paper
 
     # --- additional session state ------------------------------------------
     pending_years: list = field(default_factory=list)

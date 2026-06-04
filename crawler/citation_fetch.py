@@ -438,6 +438,7 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
     old_cache_id_keys = set()
     for citation in old_citations:
         old_cache_id_keys.update(fetcher._citation_identity_keys(citation))
+    counted_new_keys = set()  # prevent double-counting across retries
 
     def _direct_on_citation(info, identity_keys, is_new, is_dupe, existing_label):
         if is_dupe:
@@ -446,7 +447,10 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
                   f"                    Existing: {existing_label}", flush=True)
         else:
             if is_new:
-                fetcher._new_citations_count += 1
+                if not any(k in counted_new_keys for k in identity_keys):
+                    fetcher._new_citations_count += 1
+                    for k in identity_keys:
+                        counted_new_keys.add(k)
             count = len(direct_batch.citations)
             print(f"          [{count}] {info['title'][:55]}...", flush=True)
 
@@ -755,6 +759,7 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
             year_new_count = 0
             year_dedup_count = 0
             year_progress_saved = False
+            counted_new_keys = year_ctx.counted_new_keys  # cross-year dedup within this run
             existing_year_fresh = list(old_year_buckets.get(year, [])) if start_index > 0 else []
             year_seen_keys = {}
             for c in existing_year_fresh:
@@ -780,7 +785,12 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                           f"                    Existing: {existing_label}", flush=True)
                 else:
                     if is_new:
-                        fetcher._new_citations_count += 1
+                        # Cross-year dedup within this run: only count if not
+                        # already counted as new in another year.
+                        if not any(k in counted_new_keys for k in identity_keys):
+                            fetcher._new_citations_count += 1
+                            for k in identity_keys:
+                                counted_new_keys.add(k)
                         year_new_count += 1
                     elif not any(k in old_year_identity_keys for k in identity_keys):
                         year_new_count += 1
