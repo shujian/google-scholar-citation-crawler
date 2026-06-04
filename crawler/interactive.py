@@ -103,6 +103,12 @@ def inject_cookies_from_curl(
             header_overrides[header_name] = value.strip()
 
     for session in (nav._session1, nav._session2):
+        # Clear stale cookies from previous (failed) requests so only
+        # the freshly injected cookies are sent.
+        try:
+            session.cookies.clear()
+        except Exception:
+            pass
         for k, v in cookies.items():
             session.cookies.set(k, v)
         session.headers.update(header_overrides)
