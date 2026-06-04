@@ -1245,8 +1245,12 @@ class PaperCitationFetcher:
             curl_save_path=self._curl_save_path,
         )
         self._captcha_solved_count = counter[0]
+        # Set to 1 so the next patched_get_page call (which increments
+        # before checking) sees count=2 and treats it as a normal page.
+        # The immediate PageVisit retry still sees count=1 (≤1) and skips
+        # the delay correctly.
         if result > 0:
-            self._session_ctx.curl_page_count = 0
+            self._session_ctx.curl_page_count = 1
         return result
 
     def _try_interactive_captcha(self, url):
