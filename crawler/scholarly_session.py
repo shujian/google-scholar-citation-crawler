@@ -244,9 +244,8 @@ def patch_scholarly(ctx: SessionContext) -> None:
         # Skip the pre-request delay on the very first page of the run
         # AND on the first page after injecting fresh cookies — no prior
         # request with those credentials exists to space apart from.
-        is_first_page = (ctx.total_page_count == 1 or ctx.curl_page_count == 1)
-        if is_first_page:
-            print(f"        {now_str()} Fetching (first page, no delay)...", flush=True)
+        if ctx.total_page_count == 1 or ctx.curl_page_count <= 1:
+            print(f"        {now_str()} Fetching (first page with these credentials, no delay)...", flush=True)
 
         MAX_SLEEPS_PER_PAGE = 2
 
@@ -261,10 +260,17 @@ def patch_scholarly(ctx: SessionContext) -> None:
                     raise MaxTriesExceededException(
                         f"Too many retries ({sleep_count[0]}) "
                         f"for single page request")
-                # First sleep on the very first page: keep it short
-                # (scholarly's 1-2 s pre-request pause) instead of
-                # inserting a full rand_delay.
-                if is_first_page and sleep_count[0] == 1:
+                # First sleep on the very first page of the run, or the
+                # first sleep after injecting fresh cookies — no prior
+                # request with those credentials exists.  Check ctx
+                # dynamically so that a cookie reset between PageVisit
+                # retries takes effect immediately.
+                #   total_page_count == 1  → first page of the run
+                #   curl_page_count  <= 1  → first page with these cookies
+                #     (0 = just reset, retry within PageVisit;
+                #      1 = first patched_get_page call after reset)
+                if sleep_count[0] == 1 and (ctx.total_page_count == 1
+                                            or ctx.curl_page_count <= 1):
                     original_sleep(seconds)
                     return
                 d = rand_delay(ctx.delay_scale)
