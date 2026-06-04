@@ -73,12 +73,16 @@ Papers are sorted by citation count descending. `--skip M` skips the first M pap
 | Mode | Behavior |
 |------|----------|
 | `rough` | Skip papers whose Scholar count hasn't changed since the last fetch, even if the cache is incomplete. Use when you only care about truly new citations. |
-| `normal` *(default)* | Re-fetch any paper whose cache is missing or incomplete, using a seen-count comparison to decide completeness. |
+| `normal` *(default)* | Re-fetch any paper whose cache is missing or incomplete, using `seen >= probe` to decide year-level completeness (conservative). |
+| `exact` | Like `normal`, but also re-fetch years where `seen > probe` (cached count exceeds histogram). Catches citation reclassification between years. |
 | `force` | Clear the output state and re-fetch from scratch. Recommended with `--skip`/`--limit` to limit scope. |
 
 ```bash
 # Only fetch papers where Scholar count actually changed
 python scholar_citation.py --author YOUR_AUTHOR_ID --fetch-mode rough
+
+# Catch year reclassification drift
+python scholar_citation.py --author YOUR_AUTHOR_ID --fetch-mode exact --skip 0 --limit 5
 
 # Re-fetch papers 1–5 from scratch
 python scholar_citation.py --author YOUR_AUTHOR_ID --fetch-mode force --skip 0 --limit 5

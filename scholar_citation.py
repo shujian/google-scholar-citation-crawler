@@ -687,7 +687,8 @@ class PaperCitationFetcher:
                                    allow_incremental_early_stop=allow_incremental_early_stop,
                                    force_year_rebuild=force_year_rebuild,
                                    selective_refresh_years=selective_refresh_years,
-                                   year_fetch_diagnostics=year_fetch_diagnostics)
+                                   year_fetch_diagnostics=year_fetch_diagnostics,
+                                   fetch_mode=self.fetch_mode)
         self._dedup_count = year_ctx.dedup_count
         self._cached_year_counts = year_ctx.cached_year_counts
         self._completed_year_segments = year_ctx.completed_year_segments

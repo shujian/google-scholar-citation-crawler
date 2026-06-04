@@ -41,12 +41,13 @@ examples:
                         help='Process exactly N papers after --skip (papers M+1 to M+N), '
                              'regardless of whether each needs fetching')
     parser.add_argument('--fetch-mode', dest='fetch_mode',
-                        choices=['rough', 'normal', 'force'], default='normal',
+                        choices=['rough', 'normal', 'exact', 'force'], default='normal',
                         help='Controls citation re-fetch aggressiveness. '
-                             'rough: skip papers whose Scholar count has not changed since last fetch, '
-                             'even if the cache is incomplete. '
+                             'rough: skip papers whose Scholar count has not changed since last fetch. '
                              'normal (default): fetch papers with missing or incomplete caches. '
-                             'force: delete the cache and re-fetch from scratch; '
+                             'exact: like normal, but also re-fetch years whose cached count '
+                             'exceeds the probe histogram (seen > probe). '
+                             'force: clear output state and re-fetch from scratch; '
                              'recommended with --skip/--limit to limit scope.')
     parser.add_argument('--interactive-captcha', action='store_true',
                         help='When blocked by Scholar, pause and prompt you to paste a browser '

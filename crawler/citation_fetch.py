@@ -535,7 +535,8 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                     allow_incremental_early_stop=True,
                     force_year_rebuild=False,
                     selective_refresh_years=None,
-                    year_fetch_diagnostics=None):
+                    year_fetch_diagnostics=None,
+                    fetch_mode='normal'):
     """
     Fetch citations year-by-year. Skips completed years and uses
     start_index within partially completed years for efficient resume.
@@ -699,24 +700,47 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                 continue
 
             live_count = (probed_year_counts or {}).get(year)
+            existing_diag = year_fetch_diagnostics.get(year)
+            prev_seen = (existing_diag or {}).get('seen_total') if existing_diag else None
+            if prev_seen is None:
+                prev_seen = cached_year_counts.get(year, 0)
             if live_count is not None:
-                existing_diag = year_fetch_diagnostics.get(year)
-                prev_seen = (existing_diag or {}).get('seen_total') if existing_diag else None
-                if prev_seen is None:
-                    prev_seen = cached_year_counts.get(year, 0)
-                if prev_seen >= live_count:
+                if fetch_mode == 'exact':
+                    should_skip = (prev_seen == live_count)
+                else:
+                    should_skip = (prev_seen >= live_count)
+                if should_skip:
                     skipped_years += 1
+                    reason = 'seen_total_exact_match' if fetch_mode == 'exact' else 'seen_total_match_skip'
                     year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
                         year,
                         live_count,
                         cached_year_counts.get(year, 0),
                         (existing_diag or {}).get('dedup_count', 0),
-                        'seen_total_match_skip',
+                        reason,
                     )
                     year_ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
-                    print(f"      Year {year}: skip (seen={prev_seen} >= probe={live_count})", flush=True)
+                    verb = '==' if fetch_mode == 'exact' else '>='
+                    print(f"      Year {year}: skip (seen={prev_seen} {verb} probe={live_count})", flush=True)
                     save_progress(fetch_finished=False)
                     continue
+            elif (prev_seen is not None and prev_seen > 0
+                  and year_ctx.probed_year_count_complete):
+                # Probe is complete (covers all citations) but does not
+                # include this year — nothing new to discover.
+                skipped_years += 1
+                year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
+                    year,
+                    prev_seen,
+                    cached_year_counts.get(year, 0),
+                    (existing_diag or {}).get('dedup_count', 0),
+                    'no_probe_data_skip',
+                )
+                year_ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
+                print(f"      Year {year}: skip (seen={prev_seen}, "
+                      f"not in complete histogram)", flush=True)
+                save_progress(fetch_finished=False)
+                continue
 
             year_ctx.current_paper_page_count = 0  # reset per year in year-based mode
             start_index = year_ctx.partial_year_start.get(year, 0)

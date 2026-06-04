@@ -4,6 +4,13 @@
 
 ---
 
+## 2026-06-05: `--fetch-mode exact` + CSS 选择器修正 + no-probe 年份 skip
+
+- **新增 `--fetch-mode exact`**：年份级别精确匹配，`seen == probe` 才跳过（而非 `>=`）。`seen > probe` 时也会重新抓取，捕获 Scholar 年份归类漂移。
+- **CSS 选择器修正**：`patched_load_url` 中用 `div.gs_r` 替代 scholarly 原生的 `gs_r gs_or gs_scl`，不再按 CSS class 白名单过滤，确保所有结果行都被捕获。
+- **无 probe 数据的年份 skip**：当 histogram 完整但不包含某年份时，若缓存已有数据则跳过，避免无效访问。
+- **跨年份新引用去重**：`counted_new_keys` 集合防止同一引用跨多个年份桶重复计数。
+
 ## 2026-06-02: 页面等待与重试机制修复 + _max_retries=0 回退
 
 ### 问题链路
