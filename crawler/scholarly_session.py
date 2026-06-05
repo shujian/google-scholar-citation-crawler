@@ -381,6 +381,22 @@ def patch_scholarly(ctx: SessionContext) -> None:
 
         result = original_load_url(self_iter, url)
 
+        # scholarly's _load_url only captures 'gs_r gs_or gs_scl' and
+        # 'gsc_mpat_ttl'.  Some results use 'gs_r gs_or' without the
+        # 'gs_scl' suffix and are silently dropped.  Expand to 'gs_r gs_or'
+        # (which also matches gs_r gs_or gs_scl) + 'gsc_mpat_ttl'.
+        # Keep it narrower than plain 'div.gs_r' so error-page elements
+        # are not mistaken for result rows.
+        try:
+            soup = getattr(self_iter, '_soup', None)
+            if soup:
+                self_iter._rows = (
+                    soup.find_all('div', class_='gs_r gs_or')
+                    + soup.find_all('div', class_='gsc_mpat_ttl')
+                )
+        except Exception:
+            pass
+
         page_size = None
         try:
             page_size = len(getattr(self_iter, '_rows', []) or [])
