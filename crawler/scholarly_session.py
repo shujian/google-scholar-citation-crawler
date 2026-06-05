@@ -391,7 +391,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
             soup = getattr(self_iter, '_soup', None)
             if soup:
                 self_iter._rows = (
-                    soup.find_all('div', class_='gs_r gs_or')
+                    soup.select('div.gs_r.gs_or')
                     + soup.find_all('div', class_='gsc_mpat_ttl')
                 )
         except Exception:
