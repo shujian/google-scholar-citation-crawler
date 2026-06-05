@@ -724,10 +724,9 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                     print(f"      Year {year}: skip (seen={prev_seen} {verb} probe={live_count})", flush=True)
                     save_progress(fetch_finished=False)
                     continue
-            elif (prev_seen is not None and prev_seen > 0
-                  and year_ctx.probed_year_count_complete):
-                # Probe is complete (covers all citations) but does not
-                # include this year — nothing new to discover.
+            elif prev_seen is not None and prev_seen > 0:
+                # Probe has no data for this year — the histogram
+                # doesn't list it at all, so there's nothing new.
                 skipped_years += 1
                 year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
                     year,
@@ -738,7 +737,7 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                 )
                 year_ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
                 print(f"      Year {year}: skip (seen={prev_seen}, "
-                      f"not in complete histogram)", flush=True)
+                      f"not in histogram)", flush=True)
                 save_progress(fetch_finished=False)
                 continue
 

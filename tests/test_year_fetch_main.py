@@ -30,7 +30,7 @@ class YearFetchMainTests(FetcherTestCase):
             ["Keep-2023", "New-2024-A", "New-2024-B", "Keep-NY"],
         )
 
-    def test_all_years_in_range_are_processed_individually(self):
+    def test_years_without_probe_data_are_skipped_when_cache_exists(self):
         self.fetcher._probe_citation_start_year = lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2024
         pages = {
             (2025, 0): [
@@ -81,8 +81,10 @@ class YearFetchMainTests(FetcherTestCase):
                 prev_scholar_count=1,
             )
 
-        self.assertEqual(requests, [(2024, 0), (2025, 0), (2026, 0)])
-        self.assertEqual([c["title"] for c in citations], ["New-2024", "Cached-2025"])
+        # Year 2025 has no probe data + cached data → skipped.
+        # Year 2026 has no probe data + no cached data → fetched (conservative).
+        self.assertEqual(requests, [(2024, 0), (2026, 0)])
+        self.assertEqual([c["title"] for c in citations], ["Cached-2025", "New-2024"])
 
     def test_force_year_rebuild_uses_replaced_year_totals_for_status_and_stop(self):
         self.fetcher._probed_year_counts = {2018: 37, 2019: 27}
