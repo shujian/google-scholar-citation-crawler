@@ -11,6 +11,7 @@ KeyboardInterrupt always propagates immediately so the caller can save
 state before exiting.
 """
 
+import random
 import time
 from datetime import datetime
 
@@ -86,13 +87,16 @@ class PageVisit:
                     time.sleep(d)
                     continue
 
-                # -- proxy switch (non-interactive mode) ------------------
-                if self.ctx.wait_proxy_switch_fn:
-                    print(f"        {now_str()} All retries exhausted for {label}: {e}",
-                          flush=True)
-                    self.ctx.wait_proxy_switch_fn(max_hours=24)
-                    retries = 0
-                    captcha_attempted = False
-                    continue
-
-                raise
+                # -- rate-limit cooldown ----------------------------------
+                # All retries exhausted — likely a 429 rate limit, not a
+                # captcha.  Wait 5-10 min before retrying instead of
+                # immediately asking for a proxy switch.
+                d = random.uniform(300, 600) * self.ctx.delay_scale
+                wait_str = self.ctx.wait_status_fn() if self.ctx.wait_status_fn else ""
+                print(f"        {now_str()} Rate-limit cooldown after "
+                      f"{label} failures: waiting {d/60:.0f} min... [{wait_str}]",
+                      flush=True)
+                time.sleep(d)
+                retries = 0
+                captcha_attempted = False
+                continue
