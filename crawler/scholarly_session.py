@@ -166,7 +166,9 @@ def patch_scholarly(ctx: SessionContext) -> None:
     ctx.injected_header_overrides = {}
 
     def _make_http2_session():
-        return __import__('httpx').Client(http2=True)
+        # Use curl_cffi to impersonate Chrome's TLS fingerprint so Google
+        # cannot distinguish our requests from a real browser at the TLS layer.
+        return __import__('curl_cffi').requests.Session(impersonate='chrome124')
 
     def _apply_browser_headers(session):
         session.headers.update(_BROWSER_HEADERS)
@@ -378,16 +380,6 @@ def patch_scholarly(ctx: SessionContext) -> None:
             f'https://scholar.google.com{url}' if url.startswith('/') else url)
 
         result = original_load_url(self_iter, url)
-
-        # scholarly's _load_url only captures 'gs_r gs_or gs_scl' and
-        # 'gsc_mpat_ttl'.  Replace with every div.gs_r (any additional
-        # classes) so no result row is missed regardless of its CSS.
-        try:
-            soup = getattr(self_iter, '_soup', None)
-            if soup:
-                self_iter._rows = soup.find_all('div', class_='gs_r')
-        except Exception:
-            pass
 
         page_size = None
         try:
