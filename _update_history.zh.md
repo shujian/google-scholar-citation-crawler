@@ -4,7 +4,17 @@
 
 ---
 
-## 2026-06-05: `--fetch-mode exact` + CSS 选择器修正 + no-probe 年份 skip
+## 2026-06-05: 429 频率限制处理 + curl header 同步 + cookie 清理 + no-probe 年份 skip
+
+- **429 频率限制特殊处理**：Google 返回 "unusual traffic" (429) 而非 captcha 时，不再弹出验证码提示。所有重试耗尽后进入 5-10 分钟静默冷却等待，而非 24 小时 proxy switch 阻塞。直接测试验证 cookies + URL 均正确，问题仅在请求频率。
+- **`sec-fetch-*` header 同步**：将 `sec-fetch-site` 等 5 个 header 加入 curl allowlist。浏览器 curl 的 `sec-fetch-site: none` 与 crawler 硬编码的 `same-origin` 不一致，Google 据此判断非浏览器访问。
+- **cookie 注入前清理旧 cookie**：`inject_cookies_from_curl` 注入前先 `session.cookies.clear()`，防止失败请求残留的追踪 cookie 污染新会话。
+- **no-probe 年份 skip**：probe 没有数据的年份不再尝试抓取，直接跳过。
+- **`--fetch-mode exact`**：年份级别精确匹配，`seen == probe` 才跳过。
+- **CSS 选择器**：`div.gs_r` 替代 `gs_r gs_or gs_scl`，确保所有结果行都被捕获。
+- **跨年份新引用去重**：`counted_new_keys` 集合防止重复计数。
+
+## 2026-06-05: `--fetch-mode exact` + CSS 选择器修正 + no-probe 年份 skip (initial)
 
 - **新增 `--fetch-mode exact`**：年份级别精确匹配，`seen == probe` 才跳过（而非 `>=`）。`seen > probe` 时也会重新抓取，捕获 Scholar 年份归类漂移。
 - **CSS 选择器修正**：`patched_load_url` 中用 `div.gs_r` 替代 scholarly 原生的 `gs_r gs_or gs_scl`，不再按 CSS class 白名单过滤，确保所有结果行都被捕获。

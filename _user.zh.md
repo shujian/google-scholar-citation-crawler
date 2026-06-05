@@ -2,6 +2,10 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 355. [2026-06-05]
+
+又出现edge browser可以访问，但是crawler不可以的情况了。难道不能做到让server看不出这两个访问有什么差异吗？但是我记得我们做过monkey patching？为什么这里仍然在尝试获取2017年的引用？记得更新日志。
+
 ## 354. [2026-06-05]
 
 部分page访问又缺少了最后一个元素，请检查一下。为什么结果跟css有关，我认为应该按照条目选择，不管是什么css。如果probe histogram没有获得对应的信息，是否可以考虑不要访问这个页面？我们可以执行一个更精细的策略，只要year probe/scholar total 与已经获取的内容不一致，就进行数据获取。是不是可以加一个参数控制一下？好的，那我们就加一个exact模式。记得要更新相关文档。
