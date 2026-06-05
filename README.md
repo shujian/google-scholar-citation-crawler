@@ -12,7 +12,7 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 - **Year-Based Fetching**: Papers with many citations (configurable threshold, default ≥ 50) are fetched year-by-year (oldest → newest), skipping years whose cached count already matches Scholar's histogram
 - **Dedup Handling**: Deduplicates citations using Scholar-native `cites_id` when available, falling back to `title + venue/authors` metadata; tolerates Scholar self-duplicates
 - **Resume Support**: Interrupted fetches resume from the last checkpoint; per-year progress is saved so mid-paper interruptions recover gracefully
-- **Anti-Ban Strategies**: Randomized 45–90 s delays, mandatory 3–6 min breaks every 8–12 pages, browser header simulation (Edge 145, sec-ch-ua-*, dynamic Referer), and HTTP/2
+- **Anti-Ban Strategies**: Browser TLS fingerprint via `curl_cffi` (Chrome 124 impersonation), randomized 45–90 s delays, mandatory 3–6 min breaks every 8–12 pages, browser header simulation
 - **Interactive Captcha Bypass**: `--interactive-captcha` lets you paste a browser cURL to inject real cookies and resume without restarting
 - **Proxy Switch Wait**: On non-interactive failure, prompts hourly to switch proxy/IP until you type `ok`
 - **Change Tracking**: Records per-run citation-count history in the profile JSON
@@ -22,7 +22,7 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 ## Requirements
 
 - Python 3.8+
-- Dependencies: `scholarly>=1.7, openpyxl>=3.1, httpx==0.27.2`
+- Dependencies: `scholarly>=1.7, openpyxl>=3.1, curl_cffi>=0.7, httpx==0.27.2`
 
 ```bash
 pip install -r requirements.txt
@@ -105,12 +105,12 @@ Google Scholar aggressively rate-limits automated requests. This tool uses multi
 - **Randomized delays**: 45–90 s between requests
 - **Mandatory long breaks**: Every 8–12 pages, a 3–6 minute break resets Scholar's sliding-window rate limit
 - **Browser header simulation**: Full `sec-fetch-*`, `sec-ch-ua-*`, `user-agent`, `accept`, `accept-language`, and dynamic `Referer` headers matching a real Edge 145 session
-- **HTTP/2**: Requests use HTTP/2 (`httpx` with `h2`) for an authentic browser TLS profile
+- **Browser TLS fingerprint**: `curl_cffi` impersonates Chrome 124 TLS handshake — Google cannot distinguish crawler from a real browser at the transport layer
 - **Session refresh**: Soft-resets the session every 10–20 pages (preserves cookies, clears `got_403` flag)
-- **Shared session**: Profile and citation fetches share the same HTTP/2 session, so citation requests start with a warm session history
 - **Fast failure**: `scholarly` retries limited to 1 per page so failures reach the paper-level retry quickly
+- **Rate-limit cooldown**: 429 responses trigger a 5–10 min cooldown instead of a captcha prompt
 
-**Proxy support**: Set `https_proxy` / `http_proxy` environment variables; `httpx`'s `trust_env=True` picks them up automatically.
+**Proxy support**: Set `https_proxy` / `http_proxy` environment variables.
 
 ```bash
 export https_proxy=http://your-proxy-host:port

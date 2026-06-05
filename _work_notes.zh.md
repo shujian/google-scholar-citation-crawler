@@ -54,7 +54,7 @@ google-scholar-citation-crawler/
 ├── fix_output_fetch_state.py    # 输出文件 _fetch_state 迁移/修复脚本
 ├── _update_history.zh.md        # 按时间顺序的更新历史
 ├── _user.zh.md                  # 用户输入记录
-├── requirements.txt             # scholarly>=1.7, openpyxl>=3.1, httpx==0.27.2
+├── requirements.txt             # scholarly>=1.7, openpyxl>=3.1, curl_cffi>=0.7, httpx==0.27.2
 └── README.md                    # 对外功能说明
 ```
 
@@ -421,5 +421,6 @@ scholarly 的自动分页与手动分页冲突，`original_next` 自动加载下
 ## 环境说明
 
 - **Conda 环境**：`scholar`
-- **关键包**：`scholarly==1.7.11`、`openpyxl==3.1.5`、`httpx==0.27.2`
-- **代理**：scholarly 自身代理 API 与 httpx 0.28+ 不兼容，通过系统 `https_proxy` 环境变量生效
+- **关键包**：`scholarly==1.7.11`、`openpyxl==3.1.5`、`curl_cffi>=0.7`、`httpx==0.27.2`
+- **TLS 指纹**：`curl_cffi.requests.Session(impersonate='chrome124')` 模拟 Chrome 124 的 TLS 握手签名，Google 无法从传输层区分 crawler 和浏览器
+- **代理**：通过系统 `https_proxy` 环境变量生效，`curl_cffi` 自动读取

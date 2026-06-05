@@ -4,7 +4,15 @@
 
 ---
 
-## 2026-06-05: 429 频率限制处理 + curl header 同步 + cookie 清理 + no-probe 年份 skip
+## 2026-06-05: curl_cffi TLS 指纹 + 选择器修正 + 429 处理 + header 同步
+
+- **`curl_cffi` 替换 `httpx`**：`_make_http2_session()` 改用 `curl_cffi.requests.Session(impersonate='chrome124')`，模拟 Chrome 124 的 TLS 握手。Google 从 TLS 层面无法区分 crawler 和真实浏览器，不再需要 cookie/header 的各种 workaround。
+- **CSS 选择器修正**：`patched_load_url` 中用 `gs_r gs_or`（至少两个 class）替代 scholarly 原生的 `gs_r gs_or gs_scl`（要求三个 class）。比原始宽（捕获末尾元素），比 `div.gs_r` 窄（不匹配错误页面元素）。
+- **429 频率限制处理**：所有重试耗尽后进入 5-10 分钟静默冷却，而非 proxy switch 或 captcha 提示。
+- **`sec-fetch-*` header 同步**：加入 curl allowlist，消除 `sec-fetch-site: same-origin` vs `none` 的不一致。
+- **cookie 注入前清理旧 cookie**。
+- **no-probe 年份 skip**。
+- **`--fetch-mode exact`**。
 
 - **429 频率限制特殊处理**：Google 返回 "unusual traffic" (429) 而非 captcha 时，不再弹出验证码提示。所有重试耗尽后进入 5-10 分钟静默冷却等待，而非 24 小时 proxy switch 阻塞。直接测试验证 cookies + URL 均正确，问题仅在请求频率。
 - **`sec-fetch-*` header 同步**：将 `sec-fetch-site` 等 5 个 header 加入 curl allowlist。浏览器 curl 的 `sec-fetch-site: none` 与 crawler 硬编码的 `same-origin` 不一致，Google 据此判断非浏览器访问。
