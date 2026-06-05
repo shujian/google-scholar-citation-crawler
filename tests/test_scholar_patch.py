@@ -178,7 +178,7 @@ class ScholarPatchAndIdentityTests(FetcherTestCase):
             "-b 'SID=abc' "
             "-H 'Referer: https://example.com/' "
             "-H 'Host: scholar.google.com' "
-            "-H 'sec-fetch-site: cross-site'"
+            "-H 'cookie: injected=yes'"
         )
 
         self.fetcher._inject_cookies_from_curl(curl)
@@ -186,7 +186,6 @@ class ScholarPatchAndIdentityTests(FetcherTestCase):
         nav = scholarly_mod.scholarly._Scholarly__nav
         self.assertEqual(self.fetcher._injected_header_overrides, {})
         self.assertNotIn('host', nav._session1.headers)
-        self.assertNotIn('sec-fetch-site', nav._session1.headers)
         self.assertEqual(nav._session1.headers['referer'], self.fetcher._last_scholar_url)
 
     def test_inject_curl_without_cookie_still_fails(self):
