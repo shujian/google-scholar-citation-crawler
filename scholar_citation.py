@@ -413,7 +413,7 @@ class PaperCitationFetcher:
             cached.get('completed_years', []),
         )
         partial_year_start = {}
-        force_year_rebuild = False
+        force_year_rebuild = (self.fetch_mode == 'exact')
         selective_refresh_years = None
         # Build per-year diagnostics from year_records (PaperFetchState.to_dict()
         # already includes this field).  year_records is a list of per-year dicts;
