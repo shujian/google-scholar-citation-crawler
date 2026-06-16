@@ -1236,27 +1236,27 @@ class PaperCitationFetcher:
 
     def _inject_cookies_from_curl(self, curl_str):
         """Parse cookies and selected headers from a pasted cURL command."""
-        counter = [self._captcha_solved_count]
         result = _int_inject_cookies(
             curl_str,
             curl_header_allowlist=self._curl_header_allowlist,
             last_scholar_url=self._last_scholar_url,
             injected_cookies_ref=self._injected_cookies,
             injected_header_overrides_ref=self._injected_header_overrides,
-            captcha_solved_count_ref=counter,
             curl_save_path=self._curl_save_path,
         )
-        self._captcha_solved_count = counter[0]
         if result > 0:
             self._session_ctx.curl_page_count = 1
         return result
 
     def _try_interactive_captcha(self, url):
         """Prompt user to solve captcha manually and inject resulting cookies."""
-        return _int_try_interactive_captcha(
+        result = _int_try_interactive_captcha(
             url,
             inject_fn=self._inject_cookies_from_curl,
         )
+        if result:
+            self._captcha_solved_count += 1
+        return result
 
     def _wait_proxy_switch(self, max_hours=24):
         """Wait up to max_hours for the user to switch proxy/IP."""

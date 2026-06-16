@@ -52,7 +52,6 @@ def inject_cookies_from_curl(
     last_scholar_url,
     injected_cookies_ref,       # dict to update in-place
     injected_header_overrides_ref,  # dict to update in-place
-    captcha_solved_count_ref,   # list[int] as a mutable counter
     curl_save_path=None,        # if set, save curl_str here after success
 ):
     """
@@ -121,13 +120,11 @@ def inject_cookies_from_curl(
     injected_header_overrides_ref.update(header_overrides)
 
     nav.got_403 = False
-    captcha_solved_count_ref[0] += 1
 
     header_note = (f", {len(header_overrides)} allowlisted headers"
                    if header_overrides else '')
     print(
-        f"  Injected {len(cookies)} cookies{header_note} (no domain restriction). "
-        f"Captcha solves: {captcha_solved_count_ref[0]}",
+        f"  Injected {len(cookies)} cookies{header_note} (no domain restriction).",
         flush=True,
     )
     if curl_save_path:

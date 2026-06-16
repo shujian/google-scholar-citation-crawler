@@ -4,8 +4,9 @@
 
 ---
 
-## 2026-06-16: exact 模式 year 数据替换 + year_records 保存
+## 2026-06-16: captcha 计数修正 + year_records 保存
 
+- **captcha 计数修正**：`inject_cookies_from_curl` 在每次注入 cookie 时都会递增 `captcha_solved_count`，但该函数不仅在 captcha 恢复时被调用，也在程序启动加载 `curl.txt` 和首次 curl 提示时被调用。修复：将计数器递增从 `inject_cookies_from_curl`（`crawler/interactive.py`）移至 `_try_interactive_captcha`（`scholar_citation.py`），只在 captcha 成功解决后才递增。同时移除 `inject_cookies_from_curl` 的 `captcha_solved_count_ref` 参数和日志中的 `Captcha solves: N` 输出。
 - **exact 模式 `force_year_rebuild`**：`force_year_rebuild = (self.fetch_mode == 'exact')`。在 exact 模式下，重新抓取的年份完全替换旧缓存数据，而非与旧数据合并。防止旧引用超过 probe 数量后持续存在——例如上次多抓了 3 条引用（seen > probe），normal mode 会保留它们，但 exact mode 会丢弃，以 probe 为准。
 - **`save_progress` 补充 `year_records` 字段**：进度保存时写入 `year_records`（`year_records_to_save`），确保断点续传时 year_records 数据不丢失。
 

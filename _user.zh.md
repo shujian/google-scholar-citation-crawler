@@ -8,6 +8,12 @@ All user messages from the Google Scholar Citation Crawler development conversat
 
 好的，请更新相关内容。
 
+好的，提交吧。
+
+目前还有一个问题，在程序开始运行的时候会加载curl，此时应该并没有处理过captcha，但是log计数里记了1，得处理一下。
+
+请更新文档和commit。
+
 ---
 
 ## 355. [2026-06-05]
