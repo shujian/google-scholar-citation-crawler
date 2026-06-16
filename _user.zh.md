@@ -2,6 +2,14 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 356. [2026-06-16]
+
+检查一下文档是否已经更新。
+
+好的，请更新相关内容。
+
+---
+
 ## 355. [2026-06-05]
 
 又出现edge browser可以访问，但是crawler不可以的情况了。难道不能做到让server看不出这两个访问有什么差异吗？但是我记得我们做过monkey patching？为什么这里仍然在尝试获取2017年的引用？记得更新日志。

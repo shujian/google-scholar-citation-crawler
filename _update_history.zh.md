@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-06-16: exact 模式 year 数据替换 + year_records 保存
+
+- **exact 模式 `force_year_rebuild`**：`force_year_rebuild = (self.fetch_mode == 'exact')`。在 exact 模式下，重新抓取的年份完全替换旧缓存数据，而非与旧数据合并。防止旧引用超过 probe 数量后持续存在——例如上次多抓了 3 条引用（seen > probe），normal mode 会保留它们，但 exact mode 会丢弃，以 probe 为准。
+- **`save_progress` 补充 `year_records` 字段**：进度保存时写入 `year_records`（`year_records_to_save`），确保断点续传时 year_records 数据不丢失。
+
+## 2026-06-05: CSS 选择器 `class_` 精确匹配修正
+
+- **`class_='gs_r gs_or'` → `soup.select('div.gs_r.gs_or')`**：BeautifulSoup 的 `class_='gs_r gs_or'` 做的是 class 属性的**精确字符串匹配**，只匹配 `class="gs_r gs_or"` 的元素。但很多结果行还包含 `gs_scl`，实际 class 为 `"gs_r gs_or gs_scl"`，被精确匹配误判为不匹配。修改为 CSS 选择器 `div.gs_r.gs_or`，浏览器语义：同时拥有 `gs_r` 和 `gs_or` 两个 class 即匹配（真正的 AND 语义）。
+
 ## 2026-06-05: curl_cffi TLS 指纹 + 选择器修正 + 429 处理 + header 同步
 
 - **`curl_cffi` 替换 `httpx`**：`_make_http2_session()` 改用 `curl_cffi.requests.Session(impersonate='chrome124')`，模拟 Chrome 124 的 TLS 握手。Google 从 TLS 层面无法区分 crawler 和真实浏览器，不再需要 cookie/header 的各种 workaround。

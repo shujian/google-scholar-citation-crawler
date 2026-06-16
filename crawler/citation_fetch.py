@@ -377,6 +377,7 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
                 None
             ),
             'year_fetch_diagnostics': year_fetch_diagnostics_save,
+            'year_records': year_records_to_save,
             'direct_fetch_diagnostics': diagnostics_to_save,
             'fetched_at': datetime.now().isoformat(),
             'citations': citations_to_save,

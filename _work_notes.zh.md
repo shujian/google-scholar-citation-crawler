@@ -2,6 +2,30 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
+## 2026-06-16: exact 模式 `force_year_rebuild` + `year_records` 修复
+
+- **exact 模式年份数据替换而非合并**：normal 模式下，年份重新抓取后新旧数据合并（`materialized_citations(fetch_finished=False)` 合并 new + old）。但 exact 模式要求 `seen == probe` 才跳过，如果 `seen > probe` 就重抓，重抓后应该以新数据为准，丢弃旧数据中超出 probe 的部分。修复：`force_year_rebuild = (self.fetch_mode == 'exact')`，materialize 阶段用 `force_year_rebuild=True` 触发完全替换。
+- **`save_progress` 中的 `year_records` 补充**：`year_records_to_save` 在 progress save 时缺失，导致断点续传时 year_records 数据无法从 `_mid_paper_state` 恢复。已补充到 `save_data` dict 中。
+
+## 2026-06-05: BeautifulSoup `class_` 精确匹配陷阱
+
+### 问题
+
+`cea24c7` 中将 CSS 选择器从 `div.gs_r`（过宽，匹配错误页面元素）改为 `class_='gs_r gs_or'`。但 BeautifulSoup 的 `class_` 参数做的是**精确字符串匹配**：
+
+- `class="gs_r gs_or"` → 匹配
+- `class="gs_r gs_or gs_scl"` → **不匹配**（多了 `gs_scl`）
+
+Google Scholar 的结果行 class 经常包含第三个 class `gs_scl`，导致部分结果行被漏掉（每页最后一条）。
+
+### 修复
+
+`2fa9c58`：`soup.find_all('div', class_='gs_r gs_or')` → `soup.select('div.gs_r.gs_or')`。CSS 选择器 `div.gs_r.gs_or` 匹配同时拥有 `gs_r` 和 `gs_or` 两个 class 的元素，不管还有没有其他 class（真正的 AND 语义）。
+
+### curl_cffi TLS 指纹
+
+`04d5797`：`_make_http2_session()` 从 `httpx` 切换到 `curl_cffi.requests.Session(impersonate='chrome124')`。`curl_cffi` 模拟 Chrome 124 的 TLS 握手签名（包括 cipher suites、extensions 顺序等），Google 无法从传输层区分 crawler 和浏览器。这解决了即使 cookies/headers 完全正确，crawler 仍被阻止的问题——根因在 TLS 指纹不一致。
+
 ## 2026-05-12: 代码规范修复
 
 - **`index_year_records()`**: 从 `scholar_citation.py` 中重复 3 次的 year_records 解析逻辑提取的共享函数，位于 `crawler/output_state.py`。接受一个 year records 列表，返回 `{year: record}` 字典。
