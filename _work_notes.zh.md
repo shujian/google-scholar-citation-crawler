@@ -2,8 +2,9 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
-## 2026-06-16: exact 模式 `force_year_rebuild` + `year_records` 修复
+## 2026-06-16: exact 模式 `force_year_rebuild` + `year_records` 修复 + captcha 计数修正
 
+- **captcha 计数修正**：`inject_cookies_from_curl` 是 cookie 注入的通用入口，在三种场景下被调用：程序启动加载 `curl.txt`、首次 curl 提示、captcha 恢复。之前该函数每次调用都递增 `captcha_solved_count`，导致启动加载 cookie 被误计为 1 次 captcha solve。修复：将计数器递增从通用注入函数移至 `_try_interactive_captcha`（仅在实际 captcha 恢复时调用），同时移除 `inject_cookies_from_curl` 的 `captcha_solved_count_ref` 参数。
 - **exact 模式年份数据替换而非合并**：normal 模式下，年份重新抓取后新旧数据合并（`materialized_citations(fetch_finished=False)` 合并 new + old）。但 exact 模式要求 `seen == probe` 才跳过，如果 `seen > probe` 就重抓，重抓后应该以新数据为准，丢弃旧数据中超出 probe 的部分。修复：`force_year_rebuild = (self.fetch_mode == 'exact')`，materialize 阶段用 `force_year_rebuild=True` 触发完全替换。
 - **`save_progress` 中的 `year_records` 补充**：`year_records_to_save` 在 progress save 时缺失，导致断点续传时 year_records 数据无法从 `_mid_paper_state` 恢复。已补充到 `save_data` dict 中。
 
