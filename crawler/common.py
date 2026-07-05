@@ -3,28 +3,23 @@ import random
 import re
 from datetime import datetime
 
-# Unified delay: all deliberate waits use a random value in this range
-DELAY_MIN = 45
-DELAY_MAX = 90
-
-# Proactively refresh session every N pages to avoid session-based blocking
-SESSION_REFRESH_MIN = 10
-SESSION_REFRESH_MAX = 20
-
-# Mandatory long break every 8-12 pages to let Scholar's rate-limit window reset
-MANDATORY_BREAK_EVERY_MIN = 8
-MANDATORY_BREAK_EVERY_MAX = 12
-MANDATORY_BREAK_MIN = 180
-MANDATORY_BREAK_MAX = 360
-
-# Papers with >= this many citations use year-based fetching for better resume
-YEAR_BASED_THRESHOLD = 50
-
-# Google Scholar citation pages are paginated in fixed 10-result chunks.
-SCHOLAR_PAGE_SIZE = 10
-
-# Retry: when Scholar blocks a citation fetch, retry with fresh session
-MAX_RETRIES = 3
+# ---- Backward-compatible re-exports from crawler.config ----
+# Constants have been centralised in crawler.config.  Existing imports from
+# crawler.common continue to work.  New code should import from crawler.config
+# directly.
+from crawler.config import (   # noqa: F401 — re-exported for compatibility
+    DELAY_MAX,
+    DELAY_MIN,
+    MANDATORY_BREAK_EVERY_MAX,
+    MANDATORY_BREAK_EVERY_MIN,
+    MANDATORY_BREAK_MAX,
+    MANDATORY_BREAK_MIN,
+    MAX_RETRIES,
+    SCHOLAR_PAGE_SIZE,
+    SESSION_REFRESH_MAX,
+    SESSION_REFRESH_MIN,
+    YEAR_BASED_THRESHOLD,
+)
 
 
 def rand_delay(scale=1.0):

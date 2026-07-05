@@ -5,16 +5,20 @@ Run via:  python scholar_citation.py --author AUTHOR_ID
 """
 
 import argparse
+import logging
 import os
 import sys
 import traceback
 from datetime import datetime
 
 from crawler.common import extract_author_id, TeeStream, setup_proxy
+from crawler.log_utils import setup_logging, get_logger
 from crawler.author_fetcher import AuthorProfileFetcher
 # PaperCitationFetcher is imported lazily inside _run_main() to avoid a
 # circular import: scholar_citation imports crawler.cli, and if crawler.cli
 # imported scholar_citation at module level the two would deadlock.
+
+logger = get_logger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -57,6 +61,8 @@ examples:
     parser.add_argument('--accelerate', type=float, default=1.0, metavar='SCALE',
                         help='Scale all deliberate waits by SCALE. Example: --accelerate 0.1 '
                              'runs waits at 1/10 of the normal duration. Default: 1.0')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='Enable debug-level logging for troubleshooting')
     return parser.parse_args()
 
 
@@ -76,6 +82,9 @@ def _run_main(args):
         log_name = f"author_{author_id}_run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
         log_path = os.path.join(logs_dir, log_name)
         log_file = open(log_path, 'w', encoding='utf-8')
+        # TeeStream still captures all print() output to the log file.
+        # The logging.FileHandler (set up below) writes structured logger
+        # records to the same file without duplication.
         sys.stdout = TeeStream(original_stdout, log_file)
         print(f"Run log: {log_path}")
     except OSError as e:
@@ -84,8 +93,15 @@ def _run_main(args):
         log_file = None
         log_path = None
 
+    # Configure structured logging: console (stderr) + optional file.
+    setup_logging(verbose=args.verbose, log_file=log_path)
+
     try:
         setup_proxy()
+        logger.info("Author ID: %s", author_id)
+        logger.debug("Fetch mode: %s, skip=%s, limit=%s, interactive=%s, accelerate=%s",
+                      args.fetch_mode, args.skip, args.limit,
+                      args.interactive_captcha, args.accelerate)
         print(f"Author ID: {author_id}")
 
         delay_scale = args.accelerate if args.interactive_captcha else 1.0
@@ -119,12 +135,15 @@ def _run_main(args):
 
             if prev_citations == curr_citations and prev_pubs == curr_pubs and args.fetch_mode != 'force':
                 if not citation_fetcher.has_pending_work():
+                    logger.info("No changes detected (citations: %s, publications: %s) — skipping citation fetch",
+                                curr_citations, curr_pubs)
                     print("\n" + "=" * 70)
                     print(f"  No changes detected (citations: {curr_citations}, publications: {curr_pubs})")
                     print("  All citation caches are complete. Skipping citation fetch.")
                     print("=" * 70 + "\n")
                     return
                 else:
+                    logger.info("No changes in totals but some caches incomplete — continuing fetch")
                     print("\nNo changes in totals, but some citations are incomplete. Continuing fetch...")
 
         # Run citation fetcher

@@ -19,9 +19,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Development commands
 
 - Install deps: `pip install -r requirements.txt`
-- Run the CLI: `python scholar_citation.py --author YOUR_AUTHOR_ID`
+- Run the CLI: `./run.sh --author YOUR_AUTHOR_ID` or `python scholar_citation.py --author YOUR_AUTHOR_ID`
 - Run a small targeted crawl: `python scholar_citation.py --author YOUR_AUTHOR_ID --skip 2 --limit 3`
 - Force re-fetch specific papers: `python scholar_citation.py --author YOUR_AUTHOR_ID --fetch-mode force --skip 2 --limit 3`
+- Enable debug logging: `python scholar_citation.py --author YOUR_AUTHOR_ID -v`
 - Use interactive captcha recovery: `python scholar_citation.py --author YOUR_AUTHOR_ID --interactive-captcha`
 - Speed up waits for debugging: `python scholar_citation.py --author YOUR_AUTHOR_ID --interactive-captcha --accelerate 0.1`
 - Run all tests: `python -m unittest discover -s tests -p "test_*.py"`
@@ -32,7 +33,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 详细项目结构见 `_work_notes.zh.md` 的「项目结构」节（含各模块中文说明），对外简介见 `README.md` 的「Development Notes → Project Structure」节。
 
-简况：`crawler/` 有 16 个模块（author profile 层、citation data 层、fetch engine 层、CLI）；`tests/` 有 119 个测试，10 个文件。
+简况：`crawler/` 有 18 个模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志）；`tests/` 有 119 个测试，10 个文件。
+
+### 新增模块（2025-07）
+
+- **`crawler/config.py`**：集中配置。所有可调优参数（延迟、阈值、路径）的单一入口。`crawler/common.py` 中的常量已迁移至此并保持向后兼容 re-export。
+- **`crawler/log_utils.py`**：结构化日志系统。`setup_logging(verbose, log_file)` 配置 console + file handler，与 `crawler/cli.py` 的 `--verbose` / `-v` 参数配合使用。现有 `print()` 调用仍通过 `TeeStream` 写入日志文件；新增代码应使用 `get_logger()` 获取 logger 并调用结构化日志方法。
+- **`run.sh`**：便捷入口，自动检测 conda 环境后执行 `python scholar_citation.py`。
 
 ## Architecture overview
 
@@ -86,7 +93,9 @@ All patch state is held in `SessionContext`; per-paper cross-run state is in `Pa
 
 ```
 scholar_citation.py  (orchestrator + PaperCitationFetcher)
-  ├── crawler.common              (constants, utilities)
+  ├── crawler.config              (centralised constants — all tunables)
+  ├── crawler.common              (utilities, backward-compat re-exports from config)
+  ├── crawler.log_utils           (structured logging — setup_logging, get_logger)
   ├── crawler.author_fetcher      ← crawler.profile_io
   ├── crawler.profile_io          ← (no crawler deps)
   ├── crawler.citation_cache      (pure year/diagnostics functions)

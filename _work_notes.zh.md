@@ -2,6 +2,42 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
+## 2026-07-05: 结构化日志系统 + 配置集中化
+
+### `crawler/log_utils.py` — 日志架构
+
+**背景**：项目原先使用 `TeeStream` 类 + `sys.stdout` 替换来同时输出到控制台和日志文件。这导致所有 `print()` 输出混在一起，无法区分日志级别，没有 `--verbose` 控制。跨项目评审（与 citation_analysis_content 对比）建议迁移到 Python `logging` 模块。
+
+**设计决策**：
+1. **双路径并存，逐步迁移**。TeeStream 继续捕获所有 `print()` → stdout + log file。Logging `FileHandler` 写入同一 log 文件，但仅处理 logger 输出。两者不重复（logger → FileHandler，print → TeeStream，独立路径）。全部迁移完成后再移除 TeeStream。
+2. **Console 使用 stderr**。`StreamHandler(sys.stderr)` 输出结构化日志到 stderr，避免污染 stdout（stdout 仍由 TeeStream 管理，用于 `print()` 输出）。
+3. **文件 handler 始终写 DEBUG 级别**。即使 console 为 INFO，文件始终记录完整日志，便于后期排查。
+4. **日期格式区分**。Console 用 `%H:%M:%S`（简洁），文件用 `%Y-%m-%d %H:%M:%S`（多天运行可辨识）。
+
+### `crawler/config.py` — 配置集中化
+
+**背景**：原先所有调优常量散落在 `crawler/common.py` 顶部，没有单一配置入口。
+
+**实现方式**：
+- `crawler/config.py` 为配置的 canonical 来源
+- `crawler/common.py` 通过 `from crawler.config import ...` 重新导出所有常量
+- 所有现有 `from crawler.common import DELAY_MIN, ...` 无需修改
+- 新增代码建议直接 `from crawler.config import ...`
+
+### `run.sh` — 便捷入口
+
+自动检测 conda 环境，若无 conda 则使用系统 python。
+
+### 项目结构更新
+
+```
+crawler/
+  ├── config.py          # 新增：集中配置（canonical 来源）
+  ├── log_utils.py       # 新增：结构化日志
+  ├── common.py          # 修改：常量迁移至 config.py，保持 re-export
+  └── cli.py             # 修改：新增 --verbose / -v 参数，setup_logging() 集成
+```
+
 ## 2026-06-16: exact 模式 `force_year_rebuild` + `year_records` 修复 + captcha 计数修正
 
 - **captcha 计数修正**：`inject_cookies_from_curl` 是 cookie 注入的通用入口，在三种场景下被调用：程序启动加载 `curl.txt`、首次 curl 提示、captcha 恢复。之前该函数每次调用都递增 `captcha_solved_count`，导致启动加载 cookie 被误计为 1 次 captcha solve。修复：将计数器递增从通用注入函数移至 `_try_interactive_captcha`（仅在实际 captcha 恢复时调用），同时移除 `inject_cookies_from_curl` 的 `captcha_solved_count_ref` 参数。

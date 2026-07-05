@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-07-05: 结构化日志 + 配置集中化 + 项目规范化
+
+- **`crawler/log_utils.py` 新增**：`setup_logging(verbose, log_file)` 配置 console + file handler，支持日志级别过滤。`--verbose` / `-v` 参数开启 DEBUG 级别输出（走 stderr，不干扰 stdout 通过 TeeStream 写入日志文件）。新增 `get_logger()` 工具函数。现有 `print()` 调用全部保留，通过 TeeStream 继续写入日志文件；新增代码使用 `logger.info()` / `logger.debug()` / `logger.warning()` / `logger.error()`。
+- **`crawler/config.py` 新增**：集中管理所有可调优参数（延迟、阈值、路径），提供单一配置入口。`crawler/common.py` 中的常量已迁移至此并保持向后兼容 re-export，现有代码无需修改。
+- **`run.sh` 新增**：便捷入口，自动检测 conda 环境。
+- **`.gitignore` 修正**：移除 `CLAUDE.md`（纳入版本控制），`.claude/` 目录已足够保护敏感配置。
+- **CLAUDE.md 更新**：新增模块文档、`-v` 示例、`run.sh` 用法；依赖图更新。
+
 ## 2026-06-16: captcha 计数修正 + year_records 保存
 
 - **captcha 计数修正**：`inject_cookies_from_curl` 在每次注入 cookie 时都会递增 `captcha_solved_count`，但该函数不仅在 captcha 恢复时被调用，也在程序启动加载 `curl.txt` 和首次 curl 提示时被调用。修复：将计数器递增从 `inject_cookies_from_curl`（`crawler/interactive.py`）移至 `_try_interactive_captcha`（`scholar_citation.py`），只在 captcha 成功解决后才递增。同时移除 `inject_cookies_from_curl` 的 `captcha_solved_count_ref` 参数和日志中的 `Captcha solves: N` 输出。

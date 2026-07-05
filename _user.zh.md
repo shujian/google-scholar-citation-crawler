@@ -2,6 +2,16 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 357. [2026-07-05]
+
+因为目前确实是四个独立的项目，所以他们的依赖不一致我觉得很正常。但是是不是每个项目的风格和管理应该统一一下？比如requirements文件，输入输出控制，等等。他们之间也可以互相借鉴参考一下，在代码设计方面有没有可以进一步优化的地方。我想你可以总体上设计，然后给每个项目生成一个update_suggention.md，然后交给每个项目自己去更新。
+
+请进入crawler项目，落实一下suggention中的修改意见。
+
+请更新文档并提交。
+
+---
+
 ## 356. [2026-06-16]
 
 检查一下文档是否已经更新。

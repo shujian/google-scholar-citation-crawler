@@ -23,7 +23,6 @@ Thumbs.db
 .worktrees/
 
 # Local working notes and scratch files
-CLAUDE.md
 conversation.md
 curl.txt
 docs/
