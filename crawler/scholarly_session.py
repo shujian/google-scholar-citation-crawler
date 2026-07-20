@@ -93,20 +93,30 @@ class SessionContext:
 # scholarly monkey-patch
 # ---------------------------------------------------------------------------
 
+# TLS impersonation target used by curl_cffi.  Keep in sync with the
+# Chrome version in _BROWSER_HEADERS so HTTP headers and TLS fingerprint
+# describe the same browser (mismatches are a bot-detection signal).
+#
+# NOTE: curl_cffi 0.15.0 supports edge101 as the highest Edge target, but
+# edge145/chrome145 are supported as Chrome targets.  Chrome and Edge share
+# the same Chromium TLS stack — so chrome145 is equivalent to Edge 145 for
+# TLS fingerprinting purposes.  Prefer the highest supported chrome version.
+_IMPERSONATE_TARGET = 'chrome145'
+
 _BROWSER_HEADERS = {
     'user-agent': ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
                    'AppleWebKit/537.36 (KHTML, like Gecko) '
-                   'Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0'),
+                   'Chrome/145.0.0.0 Safari/537.36'),
     'accept': ('text/html,application/xhtml+xml,application/xml;q=0.9,'
                'image/avif,image/webp,image/apng,*/*;q=0.8,'
                'application/signed-exchange;v=b3;q=0.7'),
     'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6',
     'priority': 'u=0, i',
-    'sec-ch-ua': '"Not:A-Brand";v="99", "Microsoft Edge";v="145", "Chromium";v="145"',
+    'sec-ch-ua': '"Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"',
     'sec-ch-ua-arch': '"arm"',
     'sec-ch-ua-bitness': '"64"',
     'sec-ch-ua-full-version-list': ('"Not:A-Brand";v="99.0.0.0", '
-                                    '"Microsoft Edge";v="145.0.3800.97", '
+                                    '"Google Chrome";v="145.0.3800.97", '
                                     '"Chromium";v="145.0.7632.160"'),
     'sec-ch-ua-mobile': '?0',
     'sec-ch-ua-model': '""',
@@ -115,19 +125,27 @@ _BROWSER_HEADERS = {
     'sec-ch-ua-wow64': '?0',
     'sec-fetch-dest': 'document',
     'sec-fetch-mode': 'navigate',
-    'sec-fetch-site': 'same-origin',
+    # Start with 'none' — the first request is a direct navigation
+    # (address bar / bookmark).  After the first successful page load
+    # patched_get_page switches this to 'same-origin' because all
+    # subsequent Scholar pages share the same origin.
+    'sec-fetch-site': 'none',
     'sec-fetch-user': '?1',
     'upgrade-insecure-requests': '1',
 }
 
 _CURL_HEADER_ALLOWLIST = frozenset({
+    # Only headers that do NOT identify the browser brand/version are
+    # allowed from user-pasted cURL commands.  user-agent, sec-ch-ua,
+    # and sec-ch-ua-full-version-list MUST stay in sync with the TLS
+    # impersonation target (_IMPERSONATE_TARGET), so they are supplied
+    # by _BROWSER_HEADERS and never overridden from cURL.
+    # sec-fetch-site is managed dynamically (none → same-origin).
     'accept',
     'accept-language',
     'priority',
-    'sec-ch-ua',
     'sec-ch-ua-arch',
     'sec-ch-ua-bitness',
-    'sec-ch-ua-full-version-list',
     'sec-ch-ua-mobile',
     'sec-ch-ua-model',
     'sec-ch-ua-platform',
@@ -135,10 +153,8 @@ _CURL_HEADER_ALLOWLIST = frozenset({
     'sec-ch-ua-wow64',
     'sec-fetch-dest',
     'sec-fetch-mode',
-    'sec-fetch-site',
     'sec-fetch-user',
     'upgrade-insecure-requests',
-    'user-agent',
 })
 
 
@@ -168,7 +184,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
     def _make_http2_session():
         # Use curl_cffi to impersonate Chrome's TLS fingerprint so Google
         # cannot distinguish our requests from a real browser at the TLS layer.
-        return __import__('curl_cffi').requests.Session(impersonate='chrome124')
+        return __import__('curl_cffi').requests.Session(impersonate=_IMPERSONATE_TARGET)
 
     def _apply_browser_headers(session):
         session.headers.update(_BROWSER_HEADERS)
@@ -193,7 +209,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
         _apply_browser_headers(session)
         for k, v in old_cookies.items():
             session.cookies.set(k, v)
-    print(f"  Browser headers applied (HTTP/2, Edge/145, sec-ch-ua-*, referer; "
+    print(f"  Browser headers applied (HTTP/2, Chrome/145, sec-ch-ua-*, referer; "
           f"{len(old_cookies)} profile cookies preserved)", flush=True)
 
     # Patch _new_session: re-apply browser identity after 403-triggered rebuild
@@ -296,11 +312,18 @@ def patch_scholarly(ctx: SessionContext) -> None:
 
         page_visit = PageVisit(ctx)
         label = request_url[:80] if request_url else "scholar page"
-        return page_visit.fetch(
+        result = page_visit.fetch(
             _fetch_with_sleep_limit,
             url=request_url or f'https://scholar.google.com{ctx.last_scholar_url}',
             label=label,
         )
+        # After first successful Scholar page, switch to same-origin for
+        # subsequent requests (real browsers only send 'none' on the
+        # very first navigation from outside the origin).
+        if ctx.total_page_count == 1:
+            for session in (nav._session1, nav._session2):
+                session.headers['sec-fetch-site'] = 'same-origin'
+        return result
 
     nav._get_page = patched_get_page
 
