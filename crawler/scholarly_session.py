@@ -270,7 +270,10 @@ def patch_scholarly(ctx: SessionContext) -> None:
         if ctx.total_page_count == 1 or ctx.curl_page_count <= 1:
             print(f"        {now_str()} Fetching (first page with these credentials, no delay)...", flush=True)
 
-        MAX_SLEEPS_PER_PAGE = 0
+        # Allow 1 sleep (the normal pre-request delay).  The second sleep
+        # is scholarly's internal retry — kill it so PageVisit takes over
+        # and triggers captcha recovery immediately instead of waiting.
+        MAX_SLEEPS_PER_PAGE = 1
 
         def _fetch_with_sleep_limit():
             original_sleep = time.sleep
