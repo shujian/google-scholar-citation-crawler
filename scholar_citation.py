@@ -822,7 +822,7 @@ class PaperCitationFetcher:
                 if current_total is not None:
                     old_total = pst.num_citations_on_scholar
                     pst._num_citations_on_scholar = current_total
-                    if old_total is not None and old_total != current_total:
+                    if old_total is not None and old_total < current_total:
                         pst.mark_scholar_changed()
             # Now compute status with the up-to-date PaperFetchState.
             st = self._citation_status(pub)
