@@ -4,6 +4,51 @@
 
 ---
 
+## 2026-08-11: TLS 指纹对齐 chrome131 + sec-fetch-site 修复 + Fetch plan + 环境 conda 化
+
+### 根因排查：curl_cffi 版本与 TLS 指纹不匹配
+
+用户报告「浏览器可以访问，但 crawler 仍被 block」。深入排查发现三个叠加问题：
+
+1. **curl_cffi 0.15.0 在 macOS arm64 上损坏**：`import curl_cffi` 即崩溃（`dlopen ... symbol not found in flat namespace '_CFRelease'`）。此前代码注释声称 0.15.0 支持 `chrome145`，但该版本根本无法运行。
+2. **当前可用版本不支持 `chrome145`**：降级到 0.14.0 后实测 `chrome145` 抛 `ImpersonateError`，TLS 指纹回退到无伪装状态 → Google 在 TLS 层识别出爬虫。0.14.0 支持的最高 Chrome 目标为 **`chrome131`**。
+3. **Cookie 注入后 `sec-fetch-site` 不一致**：从浏览器粘贴 cURL 注入 cookie 后，`sec-fetch-site` 仍为 `'none'`（跨站导航），但 cookie 来自已在 Scholar 页面上的浏览器（应发 `same-origin`）。"有 session cookie" + "声称跨站访问" = 自相矛盾，触发反爬检测。
+
+### 修改
+
+- **`crawler/scholarly_session.py`**：
+  - `_IMPERSONATE_TARGET` 从 `chrome145` → `chrome131`
+  - `_BROWSER_HEADERS` 全部对齐 Chrome 131（user-agent、sec-ch-ua、sec-ch-ua-full-version-list、sec-ch-ua-platform-version）
+  - `_full_session_setup()` 增加 `if ctx.injected_cookies:` 时覆盖 `sec-fetch-site: same-origin`
+- **`crawler/interactive.py`**：`inject_cookies_from_curl()` cookie 注入成功后设置 `sec-fetch-site: same-origin`
+- **`requirements.txt`**：`curl_cffi>=0.7,<0.15`（防止误装损坏的 0.15.0）
+
+### 新增：Fetch plan 预检清单
+
+- **`scholar_citation.py`** `run()` 汇总统计后新增 Fetch plan 段落：逐篇列出论文、策略（YEAR/DIRECT）、已缓存数、目标引用数、缺口（+N needed）、Scholar 计数变化（old→new）。仅在有需要抓取的论文时显示。
+
+### 环境 conda 化
+
+按用户要求，scholar 环境中 requirements.txt 依赖从 pip 版转为 conda-forge 版：
+
+| 包 | 之前 | 现在 |
+|----|------|------|
+| scholarly | pip 1.7.11 | conda-forge 1.7.11 |
+| openpyxl | pip 3.1.5 | conda-forge 3.1.5 |
+| httpx | conda 0.28.1 | **conda-forge 0.27.2**（对齐 requirements.txt）|
+| requests | pip 2.32.5 | conda-forge 2.34.2 |
+| selenium | pip 4.41.0 | conda-forge 4.46.0 |
+| free-proxy | pip 1.1.3 | conda-forge 1.2.2 |
+| curl-cffi | pip 0.14.0 | **保留 pip**（conda-forge 仅 0.15.0，已确认损坏）|
+
+**踩坑**：pip 卸载后直接 `conda install` 会报 "already installed" 但实际文件缺失（pip 删除了 site-packages 文件，conda 只更新了 metadata）。修复方法：`conda remove --force` 清理不一致的 metadata 后再 `conda install`。涉及的三个包（requests、selenium、free-proxy）均按此流程处理。
+
+### 其他清理
+
+- 删除根目录残留的过期 `curl.txt`（74 字节，内含假 cookie `SID=abc`）。代码只读 `output/curl.txt`，不会误读，但该文件易造成混淆。
+
+---
+
 ## 2026-07-05: 结构化日志 + 配置集中化 + 项目规范化
 
 - **`crawler/log_utils.py` 新增**：`setup_logging(verbose, log_file)` 配置 console + file handler，支持日志级别过滤。`--verbose` / `-v` 参数开启 DEBUG 级别输出（走 stderr，不干扰 stdout 通过 TeeStream 写入日志文件）。新增 `get_logger()` 工具函数。现有 `print()` 调用全部保留，通过 TeeStream 继续写入日志文件；新增代码使用 `logger.info()` / `logger.debug()` / `logger.warning()` / `logger.error()`。

@@ -112,6 +112,10 @@ def inject_cookies_from_curl(
             session.cookies.set(k, v)
         session.headers.update(header_overrides)
         session.headers['referer'] = last_scholar_url
+        # Cookies come from a browser already on Scholar → same-origin.
+        # Sending 'none' (cross-site) with valid session cookies is an
+        # inconsistency that Google's bot detection flags.
+        session.headers['sec-fetch-site'] = 'same-origin'
 
     # Persist so patched session rebuilds can reuse them after a 403
     injected_cookies_ref.clear()

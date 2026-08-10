@@ -2,6 +2,26 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 358. [2026-08-11]
+
+又发生 浏览器 可以访问，但是cookies不对的情况，你帮我检查一下。
+
+注意我新写入的cookies保存在output目录下，是不是误读了根目录下的curl.txt导致错误了？
+
+请用中文跟我交流。
+
+我希望在 Google Scholar Paper Citation Fetcher (incremental + resume) 每次开始具体任务前都列出需要更新的论文以及目标，这段代码应该是有的，但是并不是每次都显示。
+
+我仍然在被block，你能再具体检查一下吗？
+
+我是使用conda进行的包管理，所有dependency装在scholar这个环境下。
+
+我在conda环境里没发现curl_cffi我当前的这个库是怎么安装的 ？
+
+帮我更新一下环境，如果conda里有的package，就不要使用pip的版本了。
+
+---
+
 ## 357. [2026-07-05]
 
 因为目前确实是四个独立的项目，所以他们的依赖不一致我觉得很正常。但是是不是每个项目的风格和管理应该统一一下？比如requirements文件，输入输出控制，等等。他们之间也可以互相借鉴参考一下，在代码设计方面有没有可以进一步优化的地方。我想你可以总体上设计，然后给每个项目生成一个update_suggention.md，然后交给每个项目自己去更新。

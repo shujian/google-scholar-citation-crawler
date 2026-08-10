@@ -877,6 +877,36 @@ class PaperCitationFetcher:
             print(f"  Processing limit (--limit): {self.limit}")
         print()
 
+        # Pre-flight plan: list every paper that will be fetched with its target
+        if need_fetch:
+            print("-" * 70)
+            print("  Fetch plan (papers to process in this run):")
+            print("-" * 70)
+            for pub, st, cached in need_fetch:
+                title = pub.get('title', '(unknown)')[:55]
+                scholar_total = pub.get('num_citations', 0)
+                cached_count = len(cached.get('citations', [])) if cached else 0
+                old_total = cached.get('num_citations_on_scholar') if cached else None
+                fetch_policy = self._resolve_citation_fetch_policy(
+                    scholar_total, pub.get('year', 'N/A'))
+                strategy = fetch_policy['strategy'] if isinstance(fetch_policy, dict) else fetch_policy.strategy
+
+                if st == 'missing':
+                    gap = f"target={scholar_total} (first fetch)"
+                else:
+                    gap = f"cached={cached_count}, target={scholar_total}"
+                    if scholar_total > cached_count:
+                        gap += f", +{scholar_total - cached_count} needed"
+
+                change_note = ""
+                if old_total is not None and old_total != scholar_total:
+                    change_note = f" [Scholar {old_total}→{scholar_total}]"
+
+                print(f"  [{strategy.upper():6s}] {title}")
+                print(f"            {gap}{change_note}")
+            print("-" * 70)
+            print()
+
         results   = []
         fetch_idx = 0
 

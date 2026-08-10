@@ -2,6 +2,45 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
+## 2026-08-11: curl_cffi TLS 指纹与 conda 环境踩坑
+
+### curl_cffi 版本与 TLS 目标的关系
+
+| curl_cffi | 支持的最高 Chrome | 备注 |
+|-----------|------------------|------|
+| 0.13.0 | chrome131 | 仅 Python 3.9（base env 实测）|
+| 0.14.0 | chrome131 | **scholar 环境当前版本**，macOS arm64 可正常导入 |
+| 0.15.0 | chrome150+ | **在 macOS arm64 上损坏**：`_CFRelease` 符号缺失，`import curl_cffi` 即崩溃 |
+
+关键教训：
+- `Session(impersonate='chrome145')` **创建 session 不报错**，但发起实际请求时才抛 `ImpersonateError`。因此**必须实测请求**（`s.get('https://httpbin.org/ip')`）验证目标可用，仅创建 session 不够。
+- 不支持的目标会静默回退到无 TLS 伪装 → Google 在 TLS 层直接识别爬虫。这与 headers/cookies 是否正确无关。
+- `_BROWSER_HEADERS` 的 user-agent / sec-ch-ua / sec-ch-ua-full-version-list 必须与 `_IMPERSONATE_TARGET` 版本严格一致（如 chrome131 → Chrome/131.0.6778.86）。
+
+### sec-fetch-site 一致性规则
+
+`sec-fetch-site` 取值与是否已建立会话强相关：
+- **冷启动**（无 cookie）：`'none'`（首次导航从外部进入）
+- **已注入浏览器 cookie 或已访问过 Scholar 页面**：`'same-origin'`（后续都是同源导航）
+
+Cookie 注入和 session 重建（`_full_session_setup`）时必须显式覆盖为 `same-origin`，否则"有 session cookie" + "声称跨站"的自相矛盾会成为反爬信号。
+
+### conda 环境中 pip→conda 迁移的坑
+
+**场景**：`pip install` 的包卸载后，`conda install` 报 "All requested packages already installed"，但实际 `site-packages` 文件缺失。
+
+**根因**：pip 卸载删除了 site-packages 中的实际文件，但 conda 的 `conda-meta/*.json` 记录仍存在（或 conda 求解器把已卸载的包视为已满足版本约束）。conda 不会主动替换/补全被 pip 删掉的文件。
+
+**修复**：`conda remove --force <pkg>` 清理不一致的 metadata → `conda install <pkg>` 重新完整安装。涉及包：requests、selenium、free-proxy。
+
+**验证技巧**：`conda list` 显示 conda-forge 来源 ≠ 文件完整。用 `importlib.util.find_spec` 或直接 `import` 验证；检查 `site-packages/<pkg>/` 是否存在实际 `.py` 实现（曾出现 selenium 只剩 `.pyi` 存根、requests 只剩 `_types.py` 的情况）。
+
+### curl-cffi 无法 conda 化的原因
+
+conda-forge 上 curl-cffi **仅有 0.15.0**（py310-314），恰好是 macOS 上损坏的版本。0.14.0（可用）只能通过 pip 安装。因此 curl-cffi 保留 pip 版本，`requirements.txt` 用 `>=0.7,<0.15` 限制。
+
+---
+
 ## 2026-07-05: 结构化日志系统 + 配置集中化
 
 ### `crawler/log_utils.py` — 日志架构

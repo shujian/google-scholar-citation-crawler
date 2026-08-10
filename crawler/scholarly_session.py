@@ -97,31 +97,30 @@ class SessionContext:
 # Chrome version in _BROWSER_HEADERS so HTTP headers and TLS fingerprint
 # describe the same browser (mismatches are a bot-detection signal).
 #
-# NOTE: curl_cffi 0.15.0 supports edge101 as the highest Edge target, but
-# edge145/chrome145 are supported as Chrome targets.  Chrome and Edge share
-# the same Chromium TLS stack — so chrome145 is equivalent to Edge 145 for
-# TLS fingerprinting purposes.  Prefer the highest supported chrome version.
-_IMPERSONATE_TARGET = 'chrome145'
+# NOTE: curl_cffi 0.14.0 is the latest version that runs correctly in this
+# conda environment (0.15.0 has a CoreFoundation linking issue on macOS).
+# The highest Chrome target supported by 0.14.0 is chrome131.
+_IMPERSONATE_TARGET = 'chrome131'
 
 _BROWSER_HEADERS = {
     'user-agent': ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
                    'AppleWebKit/537.36 (KHTML, like Gecko) '
-                   'Chrome/145.0.0.0 Safari/537.36'),
+                   'Chrome/131.0.0.0 Safari/537.36'),
     'accept': ('text/html,application/xhtml+xml,application/xml;q=0.9,'
                'image/avif,image/webp,image/apng,*/*;q=0.8,'
                'application/signed-exchange;v=b3;q=0.7'),
     'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6',
     'priority': 'u=0, i',
-    'sec-ch-ua': '"Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"',
+    'sec-ch-ua': '"Not:A-Brand";v="99", "Google Chrome";v="131", "Chromium";v="131"',
     'sec-ch-ua-arch': '"arm"',
     'sec-ch-ua-bitness': '"64"',
     'sec-ch-ua-full-version-list': ('"Not:A-Brand";v="99.0.0.0", '
-                                    '"Google Chrome";v="145.0.3800.97", '
-                                    '"Chromium";v="145.0.7632.160"'),
+                                    '"Google Chrome";v="131.0.6778.86", '
+                                    '"Chromium";v="131.0.6778.86"'),
     'sec-ch-ua-mobile': '?0',
     'sec-ch-ua-model': '""',
     'sec-ch-ua-platform': '"macOS"',
-    'sec-ch-ua-platform-version': '"15.7.4"',
+    'sec-ch-ua-platform-version': '"27.0.0"',
     'sec-ch-ua-wow64': '?0',
     'sec-fetch-dest': 'document',
     'sec-fetch-mode': 'navigate',
@@ -195,6 +194,14 @@ def patch_scholarly(ctx: SessionContext) -> None:
         _apply_browser_headers(session)
         for k, v in ctx.injected_cookies.items():
             session.cookies.set(k, v)
+        # When cookies from a real browser session are injected, the
+        # session is already established on Scholar — subsequent
+        # requests are same-origin navigations, not cross-site.
+        # _BROWSER_HEADERS defaults sec-fetch-site to 'none' (correct
+        # for a cold start), but a rebuilt session with injected
+        # cookies must advertise 'same-origin'.
+        if ctx.injected_cookies:
+            session.headers['sec-fetch-site'] = 'same-origin'
 
     # Replace HTTP/1.1 sessions with HTTP/2, preserving existing cookies
     old_cookies = {}
@@ -209,7 +216,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
         _apply_browser_headers(session)
         for k, v in old_cookies.items():
             session.cookies.set(k, v)
-    print(f"  Browser headers applied (HTTP/2, Chrome/145, sec-ch-ua-*, referer; "
+    print(f"  Browser headers applied (HTTP/2, Chrome/131, sec-ch-ua-*, referer; "
           f"{len(old_cookies)} profile cookies preserved)", flush=True)
 
     # Patch _new_session: re-apply browser identity after 403-triggered rebuild
