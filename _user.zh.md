@@ -2,6 +2,14 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 359. [2026-08-11]
+
+那pip能装curl-cffi的0.15吗？
+
+scholar的python环境也可以升级
+
+---
+
 ## 358. [2026-08-11]
 
 又发生 浏览器 可以访问，但是cookies不对的情况，你帮我检查一下。

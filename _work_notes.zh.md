@@ -35,9 +35,13 @@ Cookie 注入和 session 重建（`_full_session_setup`）时必须显式覆盖�
 
 **验证技巧**：`conda list` 显示 conda-forge 来源 ≠ 文件完整。用 `importlib.util.find_spec` 或直接 `import` 验证；检查 `site-packages/<pkg>/` 是否存在实际 `.py` 实现（曾出现 selenium 只剩 `.pyi` 存根、requests 只剩 `_types.py` 的情况）。
 
-### curl-cffi 无法 conda 化的原因
+### curl-cffi 必须用 conda-forge 版本（关键发现）
 
-conda-forge 上 curl-cffi **仅有 0.15.0**（py310-314），恰好是 macOS 上损坏的版本。0.14.0（可用）只能通过 pip 安装。因此 curl-cffi 保留 pip 版本，`requirements.txt` 用 `>=0.7,<0.15` 限制。
+**pip 版 0.15.0/0.16.0 在 macOS arm64 上全部损坏**：`import curl_cffi` 崩溃，0.15.0 报 `_CFRelease` 符号缺失、0.16.0 报 `_CFArrayAppendValue` 符号缺失。这是 PyPI wheel 编译时未正确链接 CoreFoundation 框架。
+
+**但 conda-forge 编译的 0.15.0 完全可用**！conda-forge 用自己的编译链（正确链接了 CoreFoundation），`import` 正常，且支持 `chrome145`（0.15.0 最高目标）。已通过临时 conda 环境实测验证。
+
+**结论**：curl-cffi 必须用 `conda install -n scholar curl-cffi=0.15.0 -c conda-forge` 安装，不能用 pip。代码 `_IMPERSONATE_TARGET` 用 `chrome145`（最高支持目标）。若用 pip 0.14.0（可用但最高仅 chrome131），需把 TLS 目标和 headers 一起降回 131。
 
 ---
 

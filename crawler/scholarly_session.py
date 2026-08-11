@@ -97,26 +97,27 @@ class SessionContext:
 # Chrome version in _BROWSER_HEADERS so HTTP headers and TLS fingerprint
 # describe the same browser (mismatches are a bot-detection signal).
 #
-# NOTE: curl_cffi 0.14.0 is the latest version that runs correctly in this
-# conda environment (0.15.0 has a CoreFoundation linking issue on macOS).
-# The highest Chrome target supported by 0.14.0 is chrome131.
-_IMPERSONATE_TARGET = 'chrome131'
+# NOTE: use conda-forge's curl-cffi build.  The PyPI wheel for 0.15.0+ has a
+# CoreFoundation linking bug on macOS arm64 (import fails with `_CFRelease`
+# / `_CFArrayAppendValue` symbol errors), but conda-forge's 0.15.0 build works
+# and supports chrome145.  Prefer the highest supported chrome target.
+_IMPERSONATE_TARGET = 'chrome145'
 
 _BROWSER_HEADERS = {
     'user-agent': ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
                    'AppleWebKit/537.36 (KHTML, like Gecko) '
-                   'Chrome/131.0.0.0 Safari/537.36'),
+                   'Chrome/145.0.0.0 Safari/537.36'),
     'accept': ('text/html,application/xhtml+xml,application/xml;q=0.9,'
                'image/avif,image/webp,image/apng,*/*;q=0.8,'
                'application/signed-exchange;v=b3;q=0.7'),
     'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6',
     'priority': 'u=0, i',
-    'sec-ch-ua': '"Not:A-Brand";v="99", "Google Chrome";v="131", "Chromium";v="131"',
+    'sec-ch-ua': '"Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"',
     'sec-ch-ua-arch': '"arm"',
     'sec-ch-ua-bitness': '"64"',
     'sec-ch-ua-full-version-list': ('"Not:A-Brand";v="99.0.0.0", '
-                                    '"Google Chrome";v="131.0.6778.86", '
-                                    '"Chromium";v="131.0.6778.86"'),
+                                    '"Google Chrome";v="145.0.3800.97", '
+                                    '"Chromium";v="145.0.7632.160"'),
     'sec-ch-ua-mobile': '?0',
     'sec-ch-ua-model': '""',
     'sec-ch-ua-platform': '"macOS"',
@@ -216,7 +217,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
         _apply_browser_headers(session)
         for k, v in old_cookies.items():
             session.cookies.set(k, v)
-    print(f"  Browser headers applied (HTTP/2, Chrome/131, sec-ch-ua-*, referer; "
+    print(f"  Browser headers applied (HTTP/2, Chrome/145, sec-ch-ua-*, referer; "
           f"{len(old_cookies)} profile cookies preserved)", flush=True)
 
     # Patch _new_session: re-apply browser identity after 403-triggered rebuild

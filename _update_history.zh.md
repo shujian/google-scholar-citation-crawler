@@ -4,24 +4,32 @@
 
 ---
 
-## 2026-08-11: TLS 指纹对齐 chrome131 + sec-fetch-site 修复 + Fetch plan + 环境 conda 化
+## 2026-08-11: TLS 指纹对齐 chrome145（conda-forge 0.15.0）+ sec-fetch-site 修复 + Fetch plan + 环境 conda 化
 
 ### 根因排查：curl_cffi 版本与 TLS 指纹不匹配
 
-用户报告「浏览器可以访问，但 crawler 仍被 block」。深入排查发现三个叠加问题：
+用户报告「浏览器可以访问，但 crawler 仍被 block」。深入排查发现的问题：
 
-1. **curl_cffi 0.15.0 在 macOS arm64 上损坏**：`import curl_cffi` 即崩溃（`dlopen ... symbol not found in flat namespace '_CFRelease'`）。此前代码注释声称 0.15.0 支持 `chrome145`，但该版本根本无法运行。
-2. **当前可用版本不支持 `chrome145`**：降级到 0.14.0 后实测 `chrome145` 抛 `ImpersonateError`，TLS 指纹回退到无伪装状态 → Google 在 TLS 层识别出爬虫。0.14.0 支持的最高 Chrome 目标为 **`chrome131`**。
+1. **pip 版 curl_cffi 0.15.0/0.16.0 在 macOS arm64 上损坏**：`import curl_cffi` 即崩溃（0.15.0 报 `_CFRelease` 符号缺失，0.16.0 报 `_CFArrayAppendValue` 符号缺失）。这是 PyPI wheel 编译时未链接 CoreFoundation 框架。
+2. **pip 0.14.0 不支持 `chrome145`**：降级到 0.14.0 后实测 `chrome145` 抛 `ImpersonateError`，TLS 指纹回退到无伪装状态 → Google 在 TLS 层识别出爬虫。pip 0.14.0 支持的最高 Chrome 目标为 `chrome131`。
 3. **Cookie 注入后 `sec-fetch-site` 不一致**：从浏览器粘贴 cURL 注入 cookie 后，`sec-fetch-site` 仍为 `'none'`（跨站导航），但 cookie 来自已在 Scholar 页面上的浏览器（应发 `same-origin`）。"有 session cookie" + "声称跨站访问" = 自相矛盾，触发反爬检测。
+
+### 关键发现：conda-forge 版 curl-cffi 0.15.0 完全可用
+
+**初版方案误以为 conda-forge 的 0.15.0 与 pip 版同样损坏，将 TLS 目标降为 chrome131。实测发现 conda-forge 用自己的编译链正确链接了 CoreFoundation，`import` 正常且支持 `chrome145`**（0.15.0 最高目标）。因此最终方案：
+
+- 用 `conda install -n scholar curl-cffi=0.15.0 -c conda-forge` 安装（弃用 pip 0.14.0）
+- `_IMPERSONATE_TARGET` 保持 `chrome145`，`_BROWSER_HEADERS` 对齐 Chrome 145
 
 ### 修改
 
 - **`crawler/scholarly_session.py`**：
-  - `_IMPERSONATE_TARGET` 从 `chrome145` → `chrome131`
-  - `_BROWSER_HEADERS` 全部对齐 Chrome 131（user-agent、sec-ch-ua、sec-ch-ua-full-version-list、sec-ch-ua-platform-version）
+  - `_IMPERSONATE_TARGET` 最终为 `chrome145`（与 conda-forge 0.15.0 匹配）
+  - `_BROWSER_HEADERS` 对齐 Chrome 145（user-agent、sec-ch-ua、sec-ch-ua-full-version-list、sec-ch-ua-platform-version）
   - `_full_session_setup()` 增加 `if ctx.injected_cookies:` 时覆盖 `sec-fetch-site: same-origin`
+  - 代码注释记录 pip/conda-forge 版本差异
 - **`crawler/interactive.py`**：`inject_cookies_from_curl()` cookie 注入成功后设置 `sec-fetch-site: same-origin`
-- **`requirements.txt`**：`curl_cffi>=0.7,<0.15`（防止误装损坏的 0.15.0）
+- **`requirements.txt`**：`curl_cffi==0.15.0`（附注释：macOS arm64 必须用 conda-forge 版）
 
 ### 新增：Fetch plan 预检清单
 
@@ -39,7 +47,7 @@
 | requests | pip 2.32.5 | conda-forge 2.34.2 |
 | selenium | pip 4.41.0 | conda-forge 4.46.0 |
 | free-proxy | pip 1.1.3 | conda-forge 1.2.2 |
-| curl-cffi | pip 0.14.0 | **保留 pip**（conda-forge 仅 0.15.0，已确认损坏）|
+| curl-cffi | pip 0.14.0 | **conda-forge 0.15.0**（chrome145）|
 
 **踩坑**：pip 卸载后直接 `conda install` 会报 "already installed" 但实际文件缺失（pip 删除了 site-packages 文件，conda 只更新了 metadata）。修复方法：`conda remove --force` 清理不一致的 metadata 后再 `conda install`。涉及的三个包（requests、selenium、free-proxy）均按此流程处理。
 
