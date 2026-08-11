@@ -2,6 +2,14 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 360. [2026-08-11]
+
+之前要求输出更新的论文列表，但是没有更新的论文不需要输出，我看到有很多target和cached相等的情况，请检查一下。
+
+另外，现在换成curl-cffi 0.15.0但是仍然不可以下载。你可以运行程序帮我测试一下。
+
+---
+
 ## 359. [2026-08-11]
 
 那pip能装curl-cffi的0.15吗？

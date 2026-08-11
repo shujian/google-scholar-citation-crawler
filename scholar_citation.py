@@ -613,6 +613,35 @@ class PaperCitationFetcher:
             parts.append('...')
         return ', '.join(parts)
 
+    @staticmethod
+    def _plan_fetch_gap(strategy, cached, scholar_total, cached_count):
+        """Return (needed, seen, target) for a paper in the fetch plan.
+
+        `needed` is the number of citations that still must be fetched before
+        the paper is complete.  Uses diagnostics when available (seen_total vs
+        histogram/scholar_total), falling back to cached-count vs scholar_total.
+        `needed <= 0` means no new data is required.
+        """
+        if cached:
+            if strategy == 'year':
+                yfd = cached.get('year_fetch_diagnostics') or {}
+                seen = yfd.get('seen_total')
+                target = yfd.get('histogram_total')
+            else:
+                dfd = cached.get('direct_fetch_diagnostics') or {}
+                seen = dfd.get('seen_total')
+                target = dfd.get('scholar_total')
+            if seen is not None and target is not None:
+                try:
+                    return max(0, int(target) - int(seen)), int(seen), int(target)
+                except (TypeError, ValueError):
+                    pass
+        # Fallback: cached count vs scholar total.
+        try:
+            return max(0, int(scholar_total) - int(cached_count)), None, int(scholar_total)
+        except (TypeError, ValueError):
+            return 0, None, 0
+
     def _fetch_citations_with_progress(self, citedby_url, cache_path, title,
                                         num_citations, pub_url, pub_year, resume_from,
                                         completed_years_in_current_run=None, prev_scholar_count=0,
@@ -877,11 +906,12 @@ class PaperCitationFetcher:
             print(f"  Processing limit (--limit): {self.limit}")
         print()
 
-        # Pre-flight plan: list every paper that will be fetched with its target
+        # Pre-flight plan: list every paper that actually needs new data.
+        # A paper whose cached data already meets the target (no gap) needs
+        # no update and is omitted — e.g. a stale scholar_changed flag left on
+        # otherwise complete data must not clutter the plan.
         if need_fetch:
-            print("-" * 70)
-            print("  Fetch plan (papers to process in this run):")
-            print("-" * 70)
+            plan_lines = []
             for pub, st, cached in need_fetch:
                 title = pub.get('title', '(unknown)')[:55]
                 scholar_total = pub.get('num_citations', 0)
@@ -889,23 +919,39 @@ class PaperCitationFetcher:
                 old_total = cached.get('num_citations_on_scholar') if cached else None
                 fetch_policy = self._resolve_citation_fetch_policy(
                     scholar_total, pub.get('year', 'N/A'))
-                strategy = fetch_policy['strategy'] if isinstance(fetch_policy, dict) else fetch_policy.strategy
+                strategy = (fetch_policy['strategy']
+                            if isinstance(fetch_policy, dict) else fetch_policy.strategy)
+
+                needed, seen, target = self._plan_fetch_gap(
+                    strategy, cached, scholar_total, cached_count)
+                # Skip papers with no real gap: data is already complete.
+                if st != 'missing' and needed <= 0:
+                    continue
 
                 if st == 'missing':
-                    gap = f"target={scholar_total} (first fetch)"
+                    gap = f"target={target} (first fetch)"
                 else:
-                    gap = f"cached={cached_count}, target={scholar_total}"
-                    if scholar_total > cached_count:
-                        gap += f", +{scholar_total - cached_count} needed"
+                    gap = f"cached={cached_count}"
+                    if seen is not None and seen != cached_count:
+                        gap += f", seen={seen}"
+                    gap += f", target={target}"
+                    if needed > 0:
+                        gap += f", +{needed} needed"
 
                 change_note = ""
                 if old_total is not None and old_total != scholar_total:
                     change_note = f" [Scholar {old_total}→{scholar_total}]"
 
-                print(f"  [{strategy.upper():6s}] {title}")
-                print(f"            {gap}{change_note}")
-            print("-" * 70)
-            print()
+                plan_lines.append(f"  [{strategy.upper():6s}] {title}\n"
+                                  f"            {gap}{change_note}")
+            if plan_lines:
+                print("-" * 70)
+                print(f"  Fetch plan ({len(plan_lines)} paper(s) need new data):")
+                print("-" * 70)
+                for line in plan_lines:
+                    print(line)
+                print("-" * 70)
+                print()
 
         results   = []
         fetch_idx = 0

@@ -4,6 +4,35 @@
 
 ---
 
+## 2026-08-11: Fetch plan 过滤无缺口论文 + 下载问题根因定位（代理 IP 限流）
+
+### Fetch plan 不再输出 cached==target 的无更新论文
+
+**问题**：Fetch plan 列出了大量 `cached=N, target=N`（无缺口）的论文，看起来"没有更新需求"却出现在列表中。
+
+**根因**：部分论文 `cached == scholar_total` 且 `is_complete() == True`，但 `scholar_changed` 标志残留（上次运行引用数变化时标记，未随 fetch 完成清除），导致 `need_fetch()` 返回 True → 进入抓取计划。这些论文数据实际完整，无真实缺口。
+
+**修复**（`scholar_citation.py`）：
+- 新增 `_plan_fetch_gap(strategy, cached, scholar_total, cached_count)`：基于 diagnostics 计算真实缺口 `needed = max(0, target - seen)`（year: histogram_total - seen_total；direct: scholar_total - seen_total），无 diagnostics 时回退到 `scholar_total - len(citations)`
+- Fetch plan 循环跳过 `needed <= 0` 的论文（非 missing），只显示真正需要获取新数据的论文
+- 显示格式增强：`cached=X, seen=Y, target=Z, +N needed`，`missing` 显示 `target=N (first fetch)`
+
+**效果**：75 篇需抓取论文中，52 篇有真实缺口（显示），23 篇无缺口（过滤）。此前 5 篇 cached==target 的论文（Adaptive NNMT 139/139、Question translation 63/63 等）全部正确过滤。
+
+### 下载问题根因定位：代理 IP 被 Scholar 限流（429）
+
+**问题**：换 curl_cffi 0.15.0（conda-forge，chrome145）后仍无法下载 citations。
+
+**排查过程**（运行真实爬虫测试）：
+1. Profile 页面正常（HTTP 200，含 "Shujian Huang (黄书剑)"）→ **TLS/headers/cookies 全部正确**
+2. Citations 页面 HTTP 429（`unusual traffic`）→ **IP 级限流**
+3. 出口 IP 对比：代理 185.94.29.86（海外）vs 直连 202.119.41.110（南京）
+4. 直连 Google 超时（被墙），必须走代理
+
+**结论**：下载失败的根因**不是** TLS/cookies/headers（都已对齐 Chrome 145），而是**代理出口 IP 185.94.29.86 被 Scholar 限流**。用户浏览器能访问是因为浏览器走了不同的代理节点（不同出口 IP）。**解决方案：在代理工具（Clash 等）中切换节点，更换出口 IP**。
+
+---
+
 ## 2026-08-11: TLS 指纹对齐 chrome145（conda-forge 0.15.0）+ sec-fetch-site 修复 + Fetch plan + 环境 conda 化
 
 ### 根因排查：curl_cffi 版本与 TLS 指纹不匹配

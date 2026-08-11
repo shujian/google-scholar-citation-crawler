@@ -2,6 +2,40 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
+## 2026-08-11: 下载失败定位 = 代理 IP 限流（非 TLS/cookie）+ Fetch plan 缺口语义
+
+### 429 限流的排查方法论
+
+**现象**：浏览器能访问 Scholar，但爬虫 citations 页面报 `Cannot Fetch from Google Scholar`。
+
+**排查层次**（从协议栈自顶向下）：
+1. **TLS/headers/cookies** → 用爬虫的 patched session（curl_cffi chrome145 + 注入 cookies）直接请求：
+   - Profile 页面 HTTP 200，含作者名 → TLS/headers/cookies **正确**
+   - Citations 页面 HTTP 429 → **IP 级限流**
+2. **网络路径** → 对比出口 IP：
+   - 代理出口：185.94.29.86（海外，被 Scholar 限流）
+   - 直连：202.119.41.110（南京，Google 被墙，连接超时）
+
+**结论**：爬虫必须走代理（直连被墙），但当前代理节点 IP 已被 Scholar 标记（429）。换代理节点即可。**这不是代码问题**——profile 200 已证明整条 TLS/header/cookie 链路正确。
+
+**区分手段**：profile 页面 vs citations 页面。Scholar 对普通页面和 citations 搜索结果页的限流策略不同——citations 页（`/scholar?cites=`）触发频率限制更敏感。测试时务必分别请求两类 URL，不要只测首页。
+
+### scholar_changed 残留导致完整论文被重复抓取
+
+`cached == scholar_total` 且 `is_complete() == True` 的论文，因 `scholar_changed` 标志残留（上次引用数变化时 `mark_scholar_changed`，fetch 中断未 `clear`），`need_fetch()` 仍返回 True。这些论文数据完整、无真实缺口，重抓只是浪费请求（且加重限流）。
+
+Fetch plan 修复仅过滤了**显示**。深层问题（`scholar_changed` 残留导致重复抓取）仍在——完整论文仍会被程序重抓。若后续需要，可在 `cache_status` 中对 `is_complete()` 且 `seen >= target` 的论文清除残留的 `scholar_changed`。
+
+### Fetch plan 缺口语义
+
+真实缺口 `needed = max(0, target - seen)`，其中：
+- year 模式：`target = histogram_total`，`seen = seen_total`
+- direct 模式：`target = scholar_total`，`seen = seen_total`
+
+**不要用 `len(citations) vs scholar_total` 算缺口**——year 模式下 cached 可能含 unyeared 条目（不算 seen），direct 模式下 dedup 使 `seen > cached`。基于 diagnostics 的 seen/target 才是权威。
+
+---
+
 ## 2026-08-11: curl_cffi TLS 指纹与 conda 环境踩坑
 
 ### curl_cffi 版本与 TLS 目标的关系
