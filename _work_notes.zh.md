@@ -2,6 +2,26 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
+## 2026-08-11: 交互式 cookie 粘贴的误操作防护
+
+### 设计
+
+`_inject_with_cookie_retry()` 是共享的"粘贴直到成功或跳过"循环：
+
+- **成功判定**：`inject_fn` 返回注入的 cookies 数 > 0
+- **跳过**：按 Enter（空输入）→ 返回 False
+- **重试**：`inject_fn` 返回 0（无 cookies）→ 打印重试提示，重新进入读取循环
+
+### 为什么用无限重试而不是次数上限
+
+交互式场景下用户随时可 Ctrl+C 退出或按 Enter 跳过，无限循环不会卡死。次数上限反而可能让用户在关键 captcha 恢复时被迫放弃。每次重试提示都说明"可能复制了错误的请求"，引导用户从 DevTools 重新复制。
+
+### 与 scholar_citation.py 的接线
+
+`prompt_first_curl` / `try_interactive_captcha` 接收的 `inject_fn` 是 `PaperCitationFetcher._inject_cookies_from_curl`（返回 cookies 数），辅助函数用它判定成功/重试，无需改动调用方签名。
+
+---
+
 ## 2026-08-11: curl_cffi 全面失败 → 改用 scholarly 原生 httpx（最终结论）
 
 ### 为什么 curl_cffi 无论如何都被 429

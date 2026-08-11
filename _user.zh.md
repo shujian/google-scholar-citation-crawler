@@ -2,6 +2,16 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 362. [2026-08-11]
+
+请介绍一下curl_cffi和httpx两个库，他们这样的表现是临时的还是持续的？
+
+你的意思是我们可以切换到pycurl吗，这是个更好的解决方案吗？
+
+我发现我粘贴curl的时候有可能会误操作。如果等待用户粘贴之后，用户的输入里没有检测到cookies，请再让用户输入一次。
+
+---
+
 ## 361. [2026-08-11]
 
 为什么浏览器和我的命令行会走两个不一样的代理？

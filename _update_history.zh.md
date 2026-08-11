@@ -4,6 +4,26 @@
 
 ---
 
+## 2026-08-11: 交互式 cookie 粘贴失败重试
+
+### 问题
+
+用户在粘贴 cURL 时可能误操作（复制了错误的请求，如非 Scholar 资源或缺少 cookie 头）。此前 `prompt_first_curl` / `try_interactive_captcha` 在检测不到 cookies 时直接跳过，导致 cookies 注入失败、后续请求被 Scholar 拦截，用户只能重启程序。
+
+### 修复（`crawler/interactive.py`）
+
+- 新增共享辅助函数 `_inject_with_cookie_retry(inject_fn, skip_message, retry_message)`：循环读取粘贴内容，直到检测到 cookies（`inject_fn` 返回 > 0）或用户按 Enter 跳过
+- `prompt_first_curl` / `try_interactive_captcha` 重构为调用该辅助函数，不再单次读取即放弃
+- 重试提示语明确说明可能复制了错误的请求，引导用户从 DevTools 重新复制
+
+### 验证
+
+- 场景 1（误操作→重试成功）：第一次粘贴无 cookies → 提示重试 → 第二次粘贴有 cookies → 注入成功，读取 2 次
+- 场景 2（用户跳过）：按 Enter → 立即返回 False，读取 1 次
+- 119 个测试全部通过
+
+---
+
 ## 2026-08-11: HTTP 客户端从 curl_cffi 改为 httpx（解决引用页 429）
 
 ### 根因：curl_cffi 被 Scholar 的 `/scholar?cites=` 端点识别

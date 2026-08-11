@@ -211,6 +211,30 @@ def _read_multiline_input(timeout_after_silence=3.0):
     return lines
 
 
+def _inject_with_cookie_retry(inject_fn, skip_message, retry_message):
+    """
+    Read a pasted cURL and inject its cookies, re-prompting if the paste
+    contains no cookies (a common mis-copy).
+
+    *inject_fn* returns the number of cookies injected (0 = none found).
+    Pressing Enter immediately skips and returns False.  Otherwise loops
+    until cookies are found (returns True) or the user skips.
+    """
+    while True:
+        print("  > ", end='', flush=True)
+        lines = _read_multiline_input()
+        if not lines:
+            print(f"  {skip_message}", flush=True)
+            return False
+        print(f"  Received {len(lines)} lines. Processing...", flush=True)
+        result = inject_fn('\n'.join(lines))
+        if result > 0:
+            return True
+        # inject_fn returned 0 — no cookies in the paste.  Re-prompt so a
+        # mis-copied request (e.g. a non-Scholar resource) can be re-entered.
+        print(f"  {retry_message}", flush=True)
+
+
 # ---------------------------------------------------------------------------
 # First-page proactive cookie prompt
 # ---------------------------------------------------------------------------
@@ -222,6 +246,9 @@ def prompt_first_curl(*, inject_fn):
     Called automatically when no saved cookies are available.  The user can
     press Enter immediately to skip; the program then proceeds without cookies
     (possibly receiving fewer results from Scholar).
+
+    If the paste contains no cookies (a common mis-copy), the prompt repeats
+    until the user pastes a valid cURL or presses Enter to skip.
 
     Returns True if cookies were successfully injected.
     """
@@ -238,14 +265,14 @@ def prompt_first_curl(*, inject_fn):
     print(f"  3. Paste here (detected automatically after 3s silence)", flush=True)
     print(f"     Press Enter immediately to skip.", flush=True)
     print(f"{sep}", flush=True)
-    print("  > ", end='', flush=True)
 
-    lines = _read_multiline_input()
-    if not lines:
-        print("  (Skipped — proceeding without cookies)", flush=True)
-        return False
-    print(f"  Received {len(lines)} lines. Processing...", flush=True)
-    return inject_fn('\n'.join(lines)) > 0
+    return _inject_with_cookie_retry(
+        inject_fn,
+        skip_message="(Skipped — proceeding without cookies)",
+        retry_message=("(No cookies found in your paste — you may have copied "
+                        "the wrong request.  Re-copy from DevTools and paste "
+                        "again, or press Enter to skip.)"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +287,9 @@ def try_interactive_captcha(url, *, inject_fn):
     *inject_fn* is a callable that accepts a raw cURL string and returns the
     number of cookies injected (0 = failure).  Passing a lambda lets callers
     bind their session state without this module knowing about it.
+
+    If the paste contains no cookies (a common mis-copy), the prompt repeats
+    until the user pastes a valid cURL or presses Enter to skip.
 
     Returns True if cookies were successfully injected.
     """
@@ -278,14 +308,14 @@ def try_interactive_captcha(url, *, inject_fn):
     )
     print(f"     (Press Enter on blank line to skip)", flush=True)
     print(f"{sep}", flush=True)
-    print("  > ", end='', flush=True)
 
-    lines = _read_multiline_input()
-    if not lines:
-        print("  (Skipped — using automatic wait)", flush=True)
-        return False
-    print(f"  Received {len(lines)} lines. Processing...", flush=True)
-    return inject_fn('\n'.join(lines)) > 0
+    return _inject_with_cookie_retry(
+        inject_fn,
+        skip_message="(Skipped — using automatic wait)",
+        retry_message=("(No cookies found in your paste — you may have copied "
+                        "the wrong request.  Re-copy from DevTools and paste "
+                        "again, or press Enter to skip.)"),
+    )
 
 
 # ---------------------------------------------------------------------------

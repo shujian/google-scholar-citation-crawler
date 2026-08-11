@@ -134,6 +134,10 @@ When a block is detected:
 4. Paste the cURL into the terminal; the program detects the end automatically (last line has no `\`)
 5. Cookies and selected headers are extracted and injected; the program retries immediately
 
+If the pasted request contains no cookies (a common mis-copy, e.g. the wrong
+resource from DevTools), the program re-prompts you to paste again instead of
+giving up. Press Enter to skip pasting and fall back to automatic waiting.
+
 In interactive mode, the program **never exits on failure** — it keeps prompting until you solve the captcha or switch proxies.
 
 In non-interactive mode, the program waits up to 24 hours, prompting hourly to switch your proxy/IP. Type `ok` and press Enter to retry immediately.
