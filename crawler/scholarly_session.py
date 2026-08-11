@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
+import httpx
+
 from scholarly import scholarly
 from scholarly._proxy_generator import MaxTriesExceededException
 from scholarly.publication_parser import _SearchScholarIterator, PublicationParser
@@ -93,16 +95,11 @@ class SessionContext:
 # scholarly monkey-patch
 # ---------------------------------------------------------------------------
 
-# TLS impersonation target used by curl_cffi.  Keep in sync with the
-# Chrome version in _BROWSER_HEADERS so HTTP headers and TLS fingerprint
-# describe the same browser (mismatches are a bot-detection signal).
-#
-# NOTE: use conda-forge's curl-cffi build.  The PyPI wheel for 0.15.0+ has a
-# CoreFoundation linking bug on macOS arm64 (import fails with `_CFRelease`
-# / `_CFArrayAppendValue` symbol errors), but conda-forge's 0.15.0 build works
-# and supports chrome145.  Prefer the highest supported chrome target.
-_IMPERSONATE_TARGET = 'chrome145'
-
+# Browser identity headers.  These are applied on top of scholarly's native
+# httpx.Client — no TLS impersonation library is used (curl_cffi was dropped
+# because Scholar's /scholar?cites= endpoint returns 429 for every curl_cffi
+# impersonation target, while scholarly's own httpx client is accepted).
+# Keep the Chrome version consistent across user-agent and sec-ch-ua-*.
 _BROWSER_HEADERS = {
     'user-agent': ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
                    'AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -137,9 +134,8 @@ _BROWSER_HEADERS = {
 _CURL_HEADER_ALLOWLIST = frozenset({
     # Only headers that do NOT identify the browser brand/version are
     # allowed from user-pasted cURL commands.  user-agent, sec-ch-ua,
-    # and sec-ch-ua-full-version-list MUST stay in sync with the TLS
-    # impersonation target (_IMPERSONATE_TARGET), so they are supplied
-    # by _BROWSER_HEADERS and never overridden from cURL.
+    # and sec-ch-ua-full-version-list are supplied by _BROWSER_HEADERS and
+    # never overridden from cURL (they must stay in sync with each other).
     # sec-fetch-site is managed dynamically (none → same-origin).
     'accept',
     'accept-language',
@@ -182,9 +178,11 @@ def patch_scholarly(ctx: SessionContext) -> None:
     ctx.injected_header_overrides = {}
 
     def _make_http2_session():
-        # Use curl_cffi to impersonate Chrome's TLS fingerprint so Google
-        # cannot distinguish our requests from a real browser at the TLS layer.
-        return __import__('curl_cffi').requests.Session(impersonate=_IMPERSONATE_TARGET)
+        # Use httpx (scholarly's native client, HTTP/2) instead of curl_cffi.
+        # Scholar's citation-search endpoint (/scholar?cites=) rate-limits
+        # curl_cffi sessions regardless of impersonation target, but accepts
+        # httpx — verified empirically via 7890 proxy.
+        return httpx.Client(http2=True, follow_redirects=True)
 
     def _apply_browser_headers(session):
         session.headers.update(_BROWSER_HEADERS)

@@ -1,7 +1,3 @@
 scholarly>=1.7
 openpyxl>=3.1
 httpx==0.27.2
-# Use conda-forge's build: the PyPI wheel for curl_cffi 0.15.0+ is broken on
-# macOS arm64 (CoreFoundation symbol errors).  conda-forge 0.15.0 supports
-# chrome145; pip 0.14.0 (max chrome131) also works.
-curl_cffi==0.15.0

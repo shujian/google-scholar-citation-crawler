@@ -2,6 +2,16 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 361. [2026-08-11]
+
+为什么浏览器和我的命令行会走两个不一样的代理？
+
+浏览器走的也是7890这个代理，这个是一致的。
+
+请继续
+
+---
+
 ## 360. [2026-08-11]
 
 之前要求输出更新的论文列表，但是没有更新的论文不需要输出，我看到有很多target和cached相等的情况，请检查一下。

@@ -2,6 +2,42 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
+## 2026-08-11: curl_cffi 全面失败 → 改用 scholarly 原生 httpx（最终结论）
+
+### 为什么 curl_cffi 无论如何都被 429
+
+**现象**：crawler 引用页（`/scholar?cites=`）429，但 profile 页（`/citations`）正常；浏览器和命令行走同一代理。
+
+**对照实验**（同一代理 185.94.29.86、同一 header、同一 cookies）：
+- 标准 curl (libcurl) → 引用页 200 ✅
+- httpx 0.27.2 → 引用页 200 ✅
+- **curl_cffi（所有 impersonation 目标）→ 引用页 429/超时** ❌
+
+**结论**：curl_cffi 的 TLS/HTTP2 指纹在 Scholar 的引用搜索端点（`/scholar?cites=`）被识别。这个端点反爬检测比 profile 页严格得多。TLS 指纹模拟（chrome145 等）无法通过——**问题在库本身，不在指纹目标选择**。
+
+**教训**：TLS 指纹模拟不是万能的。Google 的反爬除了看 TLS 指纹，还会综合 HTTP/2 帧细节、请求时序等。curl_cffi 模拟 Chrome 145 指纹与真实 Chrome 存在微小差异（如 ECH 扩展配置不完整），在宽松端点不触发、在严格端点（引用搜索）触发。
+
+### httpx 替代方案
+
+scholarly 原生就用 httpx.Client（`_session1`/`_session2`）。改造极简：
+
+```python
+def _make_http2_session():
+    return httpx.Client(http2=True, follow_redirects=True)
+```
+
+- httpx 的 `session.headers.update()` / `session.cookies.set()` / `cookies.clear()` 与 curl_cffi 完全兼容（interactive.py 的 cookie 注入无需改动）
+- `_BROWSER_HEADERS`（Chrome 145 headers）照常注入
+- httpx 已在 scholarly 依赖链中，无需新增
+
+### 经验总结
+
+1. **排查顺序**：先排除 TLS/header/cookie（profile 页 200 证明链路对），再怀疑 HTTP 客户端库。对照实验（不同库同配置）是决定性手段。
+2. **不要迷信 TLS 指纹模拟**：curl_cffi 声称"浏览器不可区分"，实际在 Scholar 引用端点上失败。scholarly 原生的 httpx 反而成功。
+3. **proxy 出口 IP 的验证方法**：`httpbin.org/ip` 看出口 IP，`--noproxy '*'` 绕代理看真实 IP，`scutil --proxy` 看系统代理，FlClash 控制 API（`127.0.0.1:9090/configs`）看 TUN 状态。
+
+---
+
 ## 2026-08-11: 下载失败定位 = 代理 IP 限流（非 TLS/cookie）+ Fetch plan 缺口语义
 
 ### 429 限流的排查方法论

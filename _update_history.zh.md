@@ -4,6 +4,48 @@
 
 ---
 
+## 2026-08-11: HTTP 客户端从 curl_cffi 改为 httpx（解决引用页 429）
+
+### 根因：curl_cffi 被 Scholar 的 `/scholar?cites=` 端点识别
+
+用户澄清浏览器和命令行走同一个 7890 代理后，之前的"代理 IP 限流"结论被推翻。通过对照实验彻底定位：
+
+| 客户端 | profile 页 `/citations` | 引用页 `/scholar?cites=` |
+|--------|------------------------|------------------------|
+| 标准 curl (libcurl) | ✅ 200 | ✅ 200 |
+| **httpx 0.27.2** (scholarly 原生) | ✅ 200 | ✅ **200** |
+| **curl_cffi** (所有指纹: chrome110/124/131/145/edge101/safari) | ✅ 200 | ❌ **429/超时** |
+| 浏览器 Edge 150 | ✅ | ✅ |
+
+**同一代理（185.94.29.86）、同一 header、同一 cookies**，唯一差异是 HTTP 客户端库。Scholar 的引用搜索端点有更严格的反爬检测，能识别出 curl_cffi 的 TLS/HTTP2 指纹与真实浏览器/标准库的差异——而 profile 端点不查。
+
+**关键发现**：之前投入的 chrome145/conda-forge/sec-fetch-site 修复都是对的（profile 页 200 证明链路正确），但 curl_cffi 本身是瓶颈——任何 impersonation 目标都无法通过引用端点检测。
+
+### 修复：保留 scholarly 原生 httpx，移除 curl_cffi
+
+`crawler/scholarly_session.py`：
+- `_make_http2_session()` 从 `curl_cffi.Session(impersonate=chrome145)` 改为 `httpx.Client(http2=True, follow_redirects=True)`
+- 移除 `_IMPERSONATE_TARGET`，`_BROWSER_HEADERS` 保留（注入到 httpx session）
+- 移除 curl_cffi 依赖（requirements.txt 删除 `curl_cffi==0.15.0`）
+- `_CURL_HEADER_ALLOWLIST` 注释更新
+
+### 验证（真实运行）
+
+`./run.sh --author HF3-E9kAAAAJ --limit 1 --fetch-mode force`：
+- Profile 页 200，cookies 注入 2 个
+- **引用页探测成功**：`histogram incomplete (hist_total=1340, scholar_total=1347)`
+- **年份直方图完整读取**：`2018:37, 2019:107, ..., 2026:55`
+- **2017 年抓取成功**：`Year 2017 done: 3 new in year`（采集到 3 条真实引用）
+- 逐年份继续抓取正常
+
+**对比之前 curl_cffi**：同样 URL 直接 429，引用页探测、年份抓取全部失败。
+
+### 环境说明
+
+curl_cffi 0.14.0（pip）/ 0.15.0（conda-forge）均已验证在引用端点上失败。httpx 0.27.2（scholarly 原生，conda-forge）成功。scholarly 依赖链中 httpx 本来就存在，无需新增依赖。
+
+---
+
 ## 2026-08-11: Fetch plan 过滤无缺口论文 + 下载问题根因定位（代理 IP 限流）
 
 ### Fetch plan 不再输出 cached==target 的无更新论文
