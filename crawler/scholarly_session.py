@@ -169,6 +169,11 @@ def patch_scholarly(ctx: SessionContext) -> None:
     """
     nav = scholarly._Scholarly__nav
     nav._set_retries(1)
+    # Scholar pages can take >5 s through a proxy.  scholarly's default
+    # timeout is 5 s, which causes false-positive timeouts → MaxTries.
+    # Set the attribute directly (not via set_timeout) so that test mocks
+    # without set_timeout don't break.
+    nav._TIMEOUT = 30
     original_get_page = nav._get_page
 
     profile_url = f'https://scholar.google.com/citations?user={ctx.author_id}&hl=en'

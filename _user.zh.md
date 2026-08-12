@@ -2,6 +2,14 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 363. [2026-08-12]
+
+好像又不行了，你再测试一下呢
+
+我确定浏览器是可以的。
+
+---
+
 ## 362. [2026-08-11]
 
 请介绍一下curl_cffi和httpx两个库，他们这样的表现是临时的还是持续的？

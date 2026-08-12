@@ -4,6 +4,38 @@
 
 ---
 
+## 2026-08-12: scholarly 超时从 5s 提升到 30s（修复 "Cannot Fetch"）
+
+### 根因
+
+用户报告"又不行了"。排查发现 httpx + cookies + headers 全部正常（三个端点 200），但爬虫实际运行时 profile 页也有 "Cannot Fetch from Google Scholar" 错误。
+
+根因：**scholarly 的 `_TIMEOUT` 默认值 5 秒**，通过代理访问 Scholar 时偶发超过 5 秒即触发 TimeoutException → scholarly 内部 timeout 递增重试（5→10→15）→ 最终 `MaxTriesExceededException`。之前的 curl_cffi 429 问题叠加这个 5s timeout，导致一直以为是 TLS 指纹的锅——实际 curl_cffi 换了 httpx 后，429 没了但 5s timeout 还在。
+
+### 修复
+
+`crawler/scholarly_session.py` `patch_scholarly()` 中 `nav._TIMEOUT = 30`（直接设置属性，不用 `set_timeout` 方法以兼容测试 mock）。
+
+### 验证（真实运行）
+
+新运行（`_TIMEOUT=30`）vs 旧运行（`_TIMEOUT=5`）：
+
+| | 旧（5s） | 新（30s） |
+|---|---|---|
+| Profile 页 1 | ✅ 200 | ✅ 200 |
+| Profile 页 2 | ❌ "Cannot Fetch" | ✅ 200 |
+| Profile 页 3 | ❌ "Cannot Fetch" | ✅ 200 |
+| 引用页 probe | 未到达 | ✅ histogram 完整 |
+| 年份抓取 | 未到达 | ✅ 采集到实际引用 |
+
+完整 profile 3 页翻页 + 引用页 probe + 年份抓取全部成功，真正采集到了引用数据。
+
+### 为什么之前没发现
+
+之前 curl_cffi 429 时日志也报 "Cannot Fetch"，但那个是 curl_cffi 的 429 被 scholarly 的 403 处理路径吞没 + PageVisit retry 后最终 MaxTries。两个问题（curl_cffi 429 + scholarly 5s timeout）叠加，换了 httpx 后还剩 timeout 问题。这次对照实验（直接 httpx 200 vs 爬虫失败）精准定位了残余的 timeout。
+
+---
+
 ## 2026-08-11: 交互式 cookie 粘贴失败重试
 
 ### 问题
