@@ -201,20 +201,10 @@ class FetcherTestCase(unittest.TestCase):
         self.fetcher._try_interactive_captcha = lambda url: False
         self.fetcher._injected_cookies = {}
         self.fetcher._injected_header_overrides = {}
-        self.fetcher._curl_header_allowlist = {
-            'accept',
-            'accept-language',
-            'priority',
-            'sec-ch-ua',
-            'sec-ch-ua-arch',
-            'sec-ch-ua-bitness',
-            'sec-ch-ua-full-version-list',
-            'sec-ch-ua-mobile',
-            'sec-ch-ua-model',
-            'sec-ch-ua-platform',
-            'sec-ch-ua-platform-version',
-            'sec-ch-ua-wow64',
-        }
+        # Mirror the production allowlist (including the browser-identity trio)
+        # so tests exercise the same header-adoption rules as real runs.
+        from crawler.scholarly_session import _CURL_HEADER_ALLOWLIST
+        self.fetcher._curl_header_allowlist = set(_CURL_HEADER_ALLOWLIST)
 
     def _paged_direct_iterator(self, pages):
         class FakeDirectIterator:

@@ -2,6 +2,41 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
+## 2026-08-13: 浏览器指纹（UA/sec-ch-ua）从 cURL 联动采用的设计
+
+### 为什么之前写死 Chrome 145
+
+`_CURL_HEADER_ALLOWLIST` 的原设计注释：user-agent / sec-ch-ua / sec-ch-ua-full-version-list "必须保持彼此同步"，所以禁止从 curl 覆盖。这个顾虑本身成立，但结论错误——真正该做的是把它们**作为一组整体**从 curl 采用，而不是永远写死默认值。
+
+### 新设计：全有或全无 + 版本一致性
+
+`complete_browser_fingerprint(header_overrides)`（在 `crawler/scholarly_session.py`）：
+
+1. **完整性**：三者任一缺失 → 整组丢弃（保留硬编码默认指纹），避免部分覆盖产生新的矛盾
+2. **版本一致性**：正则 `\b(?:Edg|Edge|Firefox|OPR|Chrome)/(\d+)` 提取 UA 主版本，与 `sec-ch-ua` 中所有 `v="(\d+)"` 比对；UA 版本不在集合中 → 整组丢弃
+3. **通过**：打印 `Adopted browser fingerprint from cURL`，三者在 session headers 中生效
+
+### 覆盖的三条路径
+
+- 启动 `_patch_scholarly` → `_inject_cookies_from_curl(saved_curl)`（从 curl.txt 自动加载）
+- 交互式粘贴（`prompt_first_curl` / `try_interactive_captcha`）
+- 403 重建 session：`_full_session_setup` → `_apply_browser_headers` 先应用硬编码默认、再 `update(ctx.injected_header_overrides)`，注入值覆盖默认值
+
+### 测试与实现不一致的修复
+
+`tests/conftest.py` 手工维护的 allowlist 已包含 `sec-ch-ua` / `sec-ch-ua-full-version-list` 但不含 `user-agent`，与生产 `_CURL_HEADER_ALLOWLIST` 漂移。改为 setUp 时直接引用 `_CURL_HEADER_ALLOWLIST` 常量，避免再次漂移。
+
+### 排查方法论沉淀：cookie vs IP 级封锁的判别
+
+当"刚注入另一台电脑的新鲜 cookie，下一条请求立即仍被 block"时，说明封锁对象是 **IP**（Scholar 的 sorry/429 是 IP 级累计计数），cookie 无法解除。判别依据：注入 cookie 后 `curl_page_count` 从 1 开始，第一个请求无延迟立即发出仍被拒。换 IP 才能解除。
+
+### 操作注意（非代码）
+
+- 当前 `output/curl.txt` 是登录账号 cookie（SID 全家桶 15 个），抓引用不需要登录，建议改用**未登录浏览器**的匿名 cookie（NID/AEC 即可），并注意勿把真实凭据留在仓库。
+- 同一 IP 换 cookie 无法解除封锁，必须换代理 IP。
+
+---
+
 ## 2026-08-11: 交互式 cookie 粘贴的误操作防护
 
 ### 设计

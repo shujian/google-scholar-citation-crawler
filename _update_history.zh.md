@@ -4,6 +4,37 @@
 
 ---
 
+## 2026-08-13: 每次粘贴 cURL 时联动更新整套浏览器指纹（修复 Edge/Chrome 版本矛盾）
+
+### 问题
+
+用户粘贴了另一台电脑（Edge 151）的 cookie，但请求里浏览器指纹仍是硬编码的 Chrome 145：
+
+- `_CURL_HEADER_ALLOWLIST` 故意排除了 `user-agent` / `sec-ch-ua` / `sec-ch-ua-full-version-list`（原注释：三者"必须保持彼此同步"），导致这三项永远不会从 curl 里更新
+- 结果：Edge 151 签发的 cookie + Chrome 145 的 UA/sec-ch-ua → 指纹自相矛盾，属于风控可识别异常
+- 日志证据：最新运行 `16:19` 注入新 cookie 后下一条请求仍立即 "Cannot Fetch" → **当前代理 IP 已被 Scholar 按 IP 级累计封锁**，cookie 换多少次都救不了当前 IP
+
+### 修复
+
+`crawler/scholarly_session.py`：
+- 新增 `_BROWSER_IDENTITY_HEADERS`（user-agent / sec-ch-ua / sec-ch-ua-full-version-list），三者加入 `_CURL_HEADER_ALLOWLIST`
+- 新增 `complete_browser_fingerprint()`：三者**全有或全无**整体采用 + UA↔sec-ch-ua 主版本一致性校验；不完整或版本矛盾时整组丢弃，回退到硬编码默认指纹，绝不产生部分覆盖的矛盾指纹
+
+`crawler/interactive.py`：`inject_cookies_from_curl()` 在应用 header 前调用 `complete_browser_fingerprint()`。
+
+启动自动加载（`curl.txt`）、交互式粘贴、403 重建 session（`_full_session_setup`）三条路径均采用最新指纹。
+
+### 验证
+
+- 新增 3 个测试（完整采用 / 部分缺失回退 / 版本矛盾回退），全量 122 个测试通过
+- 用真实 `output/curl.txt` 模拟注入：user-agent → Edge 151、sec-ch-ua → Microsoft Edge v=151、full-version-list → 151.0.4129.72、sec-ch-ua-arch → x86、platform-version → 15.7.9，与 cookie 的浏览器完全一致
+
+### 附注
+
+当前 `output/curl.txt` 仍是完整登录态（SID / __Secure-*PSID / HSID / SSID / APISID / SAPISID / SIDCC 等 15 个账号认证 cookie），用户想用的"未登录" cookie 未生效。
+
+---
+
 ## 2026-08-12: scholarly 超时从 5s 提升到 30s（修复 "Cannot Fetch"）
 
 ### 根因

@@ -172,6 +172,65 @@ class ScholarPatchAndIdentityTests(FetcherTestCase):
         self.assertEqual(nav._session2.headers['priority'], 'u=1, i')
         self.assertEqual(nav._session1.headers['referer'], self.fetcher._last_scholar_url)
 
+    def test_inject_curl_adopts_full_browser_fingerprint(self):
+        # user-agent + sec-ch-ua + sec-ch-ua-full-version-list, all Edge 151:
+        # the whole trio must be adopted so the fingerprint matches the browser
+        # that issued the cookies.
+        curl = (
+            "curl 'https://scholar.google.com/scholar?cites=123' "
+            "-b 'SID=abc' "
+            "-H 'user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 "
+            "Safari/537.36 Edg/151.0.0.0' "
+            "-H 'sec-ch-ua: \"Not=A?Brand\";v=\"99\", \"Microsoft Edge\";v=\"151\", \"Chromium\";v=\"151\"' "
+            "-H 'sec-ch-ua-full-version-list: \"Not=A?Brand\";v=\"99.0.0.0\", "
+            "\"Microsoft Edge\";v=\"151.0.4129.72\", \"Chromium\";v=\"151.0.7922.76\"'"
+        )
+
+        injected = self.fetcher._inject_cookies_from_curl(curl)
+
+        nav = scholarly_mod.scholarly._Scholarly__nav
+        self.assertEqual(injected, 1)
+        self.assertIn('user-agent', self.fetcher._injected_header_overrides)
+        self.assertIn('sec-ch-ua', self.fetcher._injected_header_overrides)
+        self.assertIn('sec-ch-ua-full-version-list', self.fetcher._injected_header_overrides)
+        self.assertIn('Edg/151.0.0.0', nav._session1.headers['user-agent'])
+        self.assertEqual(nav._session2.headers['sec-ch-ua'], self.fetcher._injected_header_overrides['sec-ch-ua'])
+
+    def test_inject_curl_partial_identity_falls_back_to_default(self):
+        # Only user-agent + sec-ch-ua present, sec-ch-ua-full-version-list
+        # missing → the whole trio is dropped (all-or-nothing), so the
+        # hardcoded default fingerprint stays in force.
+        curl = (
+            "curl 'https://scholar.google.com/scholar?cites=123' "
+            "-b 'SID=abc' "
+            "-H 'user-agent: Mozilla/5.0 Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0' "
+            "-H 'sec-ch-ua: \"Microsoft Edge\";v=\"151\", \"Chromium\";v=\"151\"'"
+        )
+
+        self.fetcher._inject_cookies_from_curl(curl)
+
+        self.assertNotIn('user-agent', self.fetcher._injected_header_overrides)
+        self.assertNotIn('sec-ch-ua', self.fetcher._injected_header_overrides)
+        self.assertNotIn('sec-ch-ua-full-version-list', self.fetcher._injected_header_overrides)
+
+    def test_inject_curl_identity_version_mismatch_falls_back_to_default(self):
+        # All three present but user-agent is Chrome/145 while sec-ch-ua is
+        # Edge/151 → contradictory fingerprint, dropped entirely.
+        curl = (
+            "curl 'https://scholar.google.com/scholar?cites=123' "
+            "-b 'SID=abc' "
+            "-H 'user-agent: Mozilla/5.0 Chrome/145.0.0.0 Safari/537.36' "
+            "-H 'sec-ch-ua: \"Microsoft Edge\";v=\"151\", \"Chromium\";v=\"151\"' "
+            "-H 'sec-ch-ua-full-version-list: \"Microsoft Edge\";v=\"151.0.4129.72\"'"
+        )
+
+        self.fetcher._inject_cookies_from_curl(curl)
+
+        self.assertNotIn('user-agent', self.fetcher._injected_header_overrides)
+        self.assertNotIn('sec-ch-ua', self.fetcher._injected_header_overrides)
+        self.assertNotIn('sec-ch-ua-full-version-list', self.fetcher._injected_header_overrides)
+
     def test_inject_curl_ignores_disallowed_headers(self):
         curl = (
             "curl 'https://scholar.google.com/scholar?cites=123' "

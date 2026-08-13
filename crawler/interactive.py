@@ -13,6 +13,10 @@ from datetime import datetime
 
 from scholarly import scholarly
 
+from crawler.scholarly_session import (
+    complete_browser_fingerprint as _int_complete_browser_fingerprint,
+)
+
 
 # ---------------------------------------------------------------------------
 # Cookie file persistence
@@ -100,6 +104,11 @@ def inject_cookies_from_curl(
         header_name = name.strip().lower()
         if header_name in curl_header_allowlist:
             header_overrides[header_name] = value.strip()
+
+    # Adopt the browser-identity trio (user-agent / sec-ch-ua /
+    # sec-ch-ua-full-version-list) from this cURL as a coherent unit, so the
+    # fingerprint always matches the browser that issued the cookies.
+    _int_complete_browser_fingerprint(header_overrides)
 
     for session in (nav._session1, nav._session2):
         # Clear stale cookies from previous (failed) requests so only

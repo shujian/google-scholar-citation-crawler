@@ -16,6 +16,7 @@ methods for backward compatibility with existing call sites.
 """
 
 import random
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -131,12 +132,23 @@ _BROWSER_HEADERS = {
     'upgrade-insecure-requests': '1',
 }
 
+# Headers that together identify the browser brand/version.  They are adopted
+# from a pasted cURL only as a coherent unit (all-or-nothing, see
+# complete_browser_fingerprint) so the running fingerprint always matches the
+# browser that issued the injected cookies.  The _BROWSER_HEADERS values are
+# just the cold-start default used when no cURL has been injected.
+_BROWSER_IDENTITY_HEADERS = frozenset({
+    'user-agent',
+    'sec-ch-ua',
+    'sec-ch-ua-full-version-list',
+})
+
 _CURL_HEADER_ALLOWLIST = frozenset({
-    # Only headers that do NOT identify the browser brand/version are
-    # allowed from user-pasted cURL commands.  user-agent, sec-ch-ua,
-    # and sec-ch-ua-full-version-list are supplied by _BROWSER_HEADERS and
-    # never overridden from cURL (they must stay in sync with each other).
-    # sec-fetch-site is managed dynamically (none → same-origin).
+    # The browser-brand trio (user-agent / sec-ch-ua / sec-ch-ua-full-version
+    # -list) enters through *_BROWSER_IDENTITY_HEADERS and is enforced as a
+    # coherent unit by complete_browser_fingerprint(), so it is not listed
+    # individually here.  sec-fetch-site is managed dynamically (none →
+    # same-origin).
     'accept',
     'accept-language',
     'priority',
@@ -151,7 +163,55 @@ _CURL_HEADER_ALLOWLIST = frozenset({
     'sec-fetch-mode',
     'sec-fetch-user',
     'upgrade-insecure-requests',
+    *_BROWSER_IDENTITY_HEADERS,
 })
+
+
+_UA_VERSION_RE = re.compile(r'\b(?:Edg|Edge|Firefox|OPR|Chrome)/(\d+)')
+_SEC_CH_UA_VERSION_RE = re.compile(r'v="(\d+)"')
+
+
+def complete_browser_fingerprint(header_overrides):
+    """
+    Enforce that the browser-identity trio is adopted as a coherent unit.
+
+    *header_overrides* is the dict of allowlisted headers parsed from a pasted
+    cURL (lowercased names).  If all of user-agent, sec-ch-ua and
+    sec-ch-ua-full-version-list are present AND their major versions agree, the
+    trio stays — the crawler then presents the same fingerprint as the browser
+    that issued the cookies.  Otherwise the whole trio is dropped so the
+    hardcoded _BROWSER_HEADERS default remains in force; a partial or
+    contradictory override would be worse than none (e.g. Edge cookies sent
+    with a Chrome sec-ch-ua).
+    """
+    present = [h for h in _BROWSER_IDENTITY_HEADERS if h in header_overrides]
+    if not present:
+        return
+    if len(present) != len(_BROWSER_IDENTITY_HEADERS):
+        missing = sorted(_BROWSER_IDENTITY_HEADERS - set(present))
+        print(f"  (Incomplete browser identity in cURL — missing "
+              f"{', '.join(missing)}; keeping hardcoded default fingerprint.)",
+              flush=True)
+        for h in _BROWSER_IDENTITY_HEADERS:
+            header_overrides.pop(h, None)
+        return
+
+    ua = header_overrides['user-agent']
+    ua_m = _UA_VERSION_RE.search(ua)
+    ua_ver = ua_m.group(1) if ua_m else None
+    sec_ch_ua = header_overrides['sec-ch-ua']
+    sec_vers = set(_SEC_CH_UA_VERSION_RE.findall(sec_ch_ua))
+    if ua_ver and sec_vers and ua_ver not in sec_vers:
+        print(f"  (Browser identity version mismatch: user-agent "
+              f"Chrome/Edg/Firefox {ua_ver} vs sec-ch-ua "
+              f"{', '.join(sorted(sec_vers))}; keeping hardcoded default "
+              f"fingerprint.)", flush=True)
+        for h in _BROWSER_IDENTITY_HEADERS:
+            header_overrides.pop(h, None)
+        return
+
+    print(f"  Adopted browser fingerprint from cURL "
+          f"(user-agent v{ua_ver or '?'}, sec-ch-ua {sec_ch_ua})", flush=True)
 
 
 def patch_scholarly(ctx: SessionContext) -> None:

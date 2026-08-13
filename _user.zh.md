@@ -2,6 +2,16 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 364. [2026-08-13]
+
+这次我使用了另一台电脑上的cookie，两台电脑是同一个代理ip地址，但是很快就被google block了。请帮我检查一下cookies注入和使用是否正确。
+
+我也试着给了一个没有登录状态的cookie不知道现在是否还有登录信息了？
+
+为什么chrome 145和edge 151这样的信息不是在cookie里被每次更新的？我希望这些信息都在每次curl更新的过程中保持最新状态。
+
+---
+
 ## 363. [2026-08-12]
 
 好像又不行了，你再测试一下呢

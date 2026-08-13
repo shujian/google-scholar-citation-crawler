@@ -12,7 +12,7 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 - **Year-Based Fetching**: Papers with many citations (configurable threshold, default ≥ 50) are fetched year-by-year (oldest → newest), skipping years whose cached count already matches Scholar's histogram
 - **Dedup Handling**: Deduplicates citations using Scholar-native `cites_id` when available, falling back to `title + venue/authors` metadata; tolerates Scholar self-duplicates
 - **Resume Support**: Interrupted fetches resume from the last checkpoint; per-year progress is saved so mid-paper interruptions recover gracefully
-- **Anti-Ban Strategies**: HTTP/2 via scholarly's native `httpx` client with full browser headers (Chrome 145), randomized 45–90 s delays, mandatory 3–6 min breaks every 8–12 pages, browser header simulation
+- **Anti-Ban Strategies**: HTTP/2 via scholarly's native `httpx` client with full browser headers (fingerprint adopted from the injected browser cURL), randomized 45–90 s delays, mandatory 3–6 min breaks every 8–12 pages, browser header simulation
 - **Interactive Captcha Bypass**: `--interactive-captcha` lets you paste a browser cURL to inject real cookies and resume without restarting
 - **Proxy Switch Wait**: On non-interactive failure, prompts hourly to switch proxy/IP until you type `ok`
 - **Change Tracking**: Records per-run citation-count history in the profile JSON
@@ -106,7 +106,7 @@ Google Scholar aggressively rate-limits automated requests. This tool uses multi
 
 - **Randomized delays**: 45–90 s between requests
 - **Mandatory long breaks**: Every 8–12 pages, a 3–6 minute break resets Scholar's sliding-window rate limit
-- **Browser header simulation**: Full `sec-fetch-*`, `sec-ch-ua-*`, `user-agent`, `accept`, `accept-language`, and dynamic `Referer` headers matching a real Chrome 145 session, sent over HTTP/2 via scholarly's native `httpx` client
+- **Browser header simulation**: Full `sec-fetch-*`, `sec-ch-ua-*`, `user-agent`, `accept`, `accept-language`, and dynamic `Referer` headers sent over HTTP/2 via scholarly's native `httpx` client. When a browser cURL is injected, the whole browser fingerprint (user-agent + `sec-ch-ua` + `sec-ch-ua-full-version-list`, enforced as one coherent unit) is adopted from that cURL so it always matches the browser that issued the cookies; a built-in Chrome 145 default is only the cold-start fallback
 - **Session refresh**: Soft-resets the session every 10–20 pages (preserves cookies, clears `got_403` flag)
 - **Fast failure**: `scholarly` retries limited to 1 per page so failures reach the paper-level retry quickly
 - **Rate-limit cooldown**: 429 responses trigger a 5–10 min cooldown instead of a captcha prompt
