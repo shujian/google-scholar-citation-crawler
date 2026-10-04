@@ -738,5 +738,133 @@ class MainLoopTests(FetcherTestCase):
         )
 
 
+    # -- stalled papers (same outcome repeated) ----------------------------
+
+    def test_stalled_paper_is_not_fetched_and_keeps_its_citations(self):
+        from crawler.output_state import PaperFetchState
+        pub = {
+            "no": 1,
+            "title": "Stalled Paper",
+            "num_citations": 49,
+            "year": "2020",
+            "venue": "V",
+        }
+        cached = {
+            "citations": [{"title": "Cached", "authors": "A", "venue": "V",
+                           "year": "2020", "url": "u1"}],
+            "num_citations_on_scholar": 49,
+        }
+        stalled_state = PaperFetchState.from_dict({
+            "title": "Stalled Paper",
+            "fetch_strategy": "direct",
+            "direct_fetch_diagnostics": {"scholar_total": 49, "seen_total": 0},
+            "stall_signature": "direct:0/49",
+            "stall_count": 2,
+        })
+        results = []
+        fetch_called = []
+
+        def cache_status(current_pub):
+            return "stalled", cached, stalled_state
+
+        with patch.object(self.fetcher, "_fetch_citations_with_progress",
+                          side_effect=lambda *a, **k: fetch_called.append(True)), \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            self.fetcher._run_main_loop(
+                publications=[pub],
+                cache_status=cache_status,
+                url_map={pub["title"]: {"citedby_url": "/scholar?cites=1",
+                                        "pub_url": "u"}},
+                need_fetch=[],
+                results=results,
+                fetch_idx=0,
+            )
+
+        output = fake_stdout.getvalue()
+        self.assertEqual(fetch_called, [])
+        self.assertIn("-> stalled (same result 2 runs in a row)", output)
+        self.assertEqual(results[0]["citations"], cached["citations"])
+
+    def test_two_identical_outcomes_stall_the_paper_across_runs(self):
+        """The recorded counter is what eventually stops the retries."""
+        from crawler.output_state import PaperFetchState, PaperState
+        pub = {
+            "no": 1,
+            "title": "Empty Page Paper",
+            "num_citations": 49,
+            "year": "2020",
+            "venue": "V",
+        }
+        state = PaperFetchState.from_dict({
+            "title": pub["title"],
+            "fetch_strategy": "direct",
+            "direct_fetch_diagnostics": {"scholar_total": 49, "seen_total": 0},
+        })
+        self.fetcher._paper_states = {
+            pub["title"]: PaperState(fetch=state, citations=[]),
+        }
+        cached = {"citations": [], "num_citations_on_scholar": 49}
+        # Each run's fetch returns no rows and refreshes the state with the same
+        # outcome (scholar_total=49, seen_total=0).
+        snapshot = {
+            "title": pub["title"],
+            "fetch_strategy": "direct",
+            "direct_fetch_diagnostics": {"scholar_total": 49, "seen_total": 0},
+            "citations": [],
+        }
+
+        def cache_status(current_pub):
+            current = self.fetcher._paper_states[current_pub["title"]]
+            return "partial", cached, current.fetch
+
+        for run in (1, 2):
+            results = []
+            with patch.object(self.fetcher, "_fetch_citations_with_progress",
+                              return_value=[]), \
+                 patch.object(self.fetcher, "_load_citation_cache",
+                              return_value=snapshot), \
+                 patch("scholar_citation.rand_delay", return_value=0), \
+                 patch("scholar_citation.time.sleep", return_value=None), \
+                 patch("sys.stdout", new_callable=StringIO):
+                self.fetcher._run_main_loop(
+                    publications=[pub],
+                    cache_status=cache_status,
+                    url_map={pub["title"]: {"citedby_url": "/scholar?cites=1",
+                                            "pub_url": "u"}},
+                    need_fetch=[(pub, "partial", cached)],
+                    results=results,
+                    fetch_idx=0,
+                )
+            pst = self.fetcher._paper_states[pub["title"]].fetch
+            self.assertEqual(pst.stall_count, run)
+
+        # After the second identical outcome the paper is stalled, so the next
+        # run does not even put it in need_fetch.
+        pst = self.fetcher._paper_states[pub["title"]].fetch
+        self.assertTrue(pst.is_stalled())
+        self.assertEqual(
+            self.fetcher._citation_status(pub), "stalled")
+
+        # ...and it survives a write/read cycle: the persisted signature must
+        # still describe the persisted numbers, or the stall would evaporate.
+        from crawler.output_state import load_paper_states
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.fetcher.profile_json = os.path.join(
+                tmpdir, "author_test-author_profile.json")
+            self.fetcher.out_json = os.path.join(
+                tmpdir, "author_test-author_paper_citations.json")
+            self.fetcher.out_xlsx = os.path.join(
+                tmpdir, "author_test-author_paper_citations.xlsx")
+            with open(self.fetcher.profile_json, "w", encoding="utf-8") as f:
+                json.dump({"publications": [pub]}, f)
+            with patch("sys.stdout", new_callable=StringIO):
+                self.fetcher._save_output([None])
+            reloaded = load_paper_states(self.fetcher.out_json)[pub["title"]]
+
+        self.assertEqual(reloaded.fetch.stall_count, 2)
+        self.assertEqual(reloaded.fetch.stall_signature, "direct:0/49")
+        self.assertTrue(reloaded.fetch.is_stalled())
+
+
 if __name__ == '__main__':
     unittest.main()

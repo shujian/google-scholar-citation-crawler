@@ -33,7 +33,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 详细项目结构见 `_work_notes.zh.md` 的「项目结构」节（含各模块中文说明），对外简介见 `README.md` 的「Development Notes → Project Structure」节。
 
-简况：`crawler/` 有 18 个模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志）；`tests/` 有 158 个测试，10 个文件。
+简况：`crawler/` 有 18 个模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志）；`tests/` 有 174 个测试，10 个文件。
 
 ### 新增模块（2025-07）
 
@@ -62,6 +62,11 @@ The program always runs in two sequential phases from `main()`:
 
 Status is derived from **current counts and diagnostics**, not from persisted `complete` flags:
 - Direct mode: skip when `num_citations_seen >= scholar_total`
+- `stalled`: still incomplete, but the outcome signature (`fetch_outcome_signature`)
+  repeated `STALL_AFTER_ATTEMPTS` runs in a row, so retrying cannot help while
+  Scholar's counts stay the same (e.g. Scholar lists fewer citations than it
+  reports).  Cleared automatically by any change to the signature; force a retry
+  with `--fetch-mode force`.
 - Year mode: skip only when **every** year covers its own probe
   (`seen_total >= histogram_count` in the per-year records) *and* the aggregate
   holds.  The aggregate alone is not enough: years whose bucket exceeds the

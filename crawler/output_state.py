@@ -52,6 +52,8 @@ _FETCH_STATE_KEYS = frozenset([
     'year_fetch_diagnostics',
     'direct_fetch_diagnostics',
     'year_records',
+    'stall_signature',
+    'stall_count',
     'fetched_at',
 ])
 
@@ -93,6 +95,11 @@ class PaperFetchState:
     _direct_fetch_diagnostics: Optional[dict] = None
     _year_records: Optional[list] = None
     _scholar_changed: bool = False
+    # Stall detection: signature of the last fetch outcome plus how many
+    # consecutive runs produced it.  Used to stop re-fetching a paper whose
+    # result cannot change (e.g. Scholar lists fewer rows than it reports).
+    _stall_signature: Optional[str] = None
+    _stall_count: int = 0
     _fetched_at: Optional[str] = None
 
     # -- read-only properties -----------------------------------------------
@@ -117,6 +124,10 @@ class PaperFetchState:
     def direct_fetch_diagnostics(self): return self._direct_fetch_diagnostics
     @property
     def year_records(self): return self._year_records
+    @property
+    def stall_signature(self): return self._stall_signature
+    @property
+    def stall_count(self): return self._stall_count
     @property
     def fetched_at(self): return self._fetched_at
 
@@ -147,6 +158,8 @@ class PaperFetchState:
             ),
             _year_records=year_records,
             _scholar_changed=bool(d.get('scholar_changed', False)),
+            _stall_signature=d.get('stall_signature') or None,
+            _stall_count=_coerce_int(d.get('stall_count')) or 0,
             _fetched_at=d.get('fetched_at'),
         )
 
@@ -168,6 +181,8 @@ class PaperFetchState:
             'year_records': _normalize_year_records(
                 self.year_records or self.year_fetch_diagnostics
             ),
+            'stall_signature': self.stall_signature,
+            'stall_count': self.stall_count,
             'fetched_at': self.fetched_at,
         }
 
@@ -269,6 +284,65 @@ class PaperFetchState:
         else:
             summary = self.direct_fetch_diagnostics or {}
         return strategy, summary
+
+    def current_outcome_signature(self):
+        """Return the signature of the outcome currently stored, or ''."""
+        from crawler.citation_cache import fetch_outcome_signature
+        strategy, summary = self._infer_strategy_and_summary()
+        if strategy is None:
+            return ''
+        return fetch_outcome_signature(strategy, summary, self.year_records)
+
+    def record_fetch_outcome(self):
+        """Fold the current (post-fetch) outcome into the stall tracking.
+
+        Called after a fetch returns; not called when a fetch is interrupted, so
+        an aborted attempt never counts as an identical result.
+        Returns self for chaining.
+        """
+        signature = self.current_outcome_signature()
+        if not signature:
+            self._stall_signature = None
+            self._stall_count = 0
+        elif signature == self._stall_signature:
+            self._stall_count += 1
+        else:
+            self._stall_signature = signature
+            self._stall_count = 1
+        return self
+
+    def inherit_stall_tracking(self, other):
+        """Carry stall tracking over from *other* (the pre-fetch state).
+
+        The state is rebuilt from the mid-fetch cache snapshot after every
+        fetch, and that snapshot knows nothing about the cross-run stall
+        counters — without this the count would restart at 1 on every run.
+        Returns self for chaining.
+        """
+        if other is None:
+            return self
+        self._stall_signature = other.stall_signature
+        self._stall_count = other.stall_count
+        return self
+
+    def is_stalled(self, stall_after_attempts=None):
+        """True when the same outcome has repeated enough times to stop retrying.
+
+        Clears itself: a changed outcome (a new Scholar count changes the
+        signature) or a pending scholar_changed flag means this is False.
+        """
+        if stall_after_attempts is None:
+            from crawler.config import STALL_AFTER_ATTEMPTS
+            stall_after_attempts = STALL_AFTER_ATTEMPTS
+        try:
+            stall_after_attempts = max(1, int(stall_after_attempts))
+        except (TypeError, ValueError):
+            return False
+        if not self._stall_signature or self.scholar_changed:
+            return False
+        if self._stall_count < stall_after_attempts:
+            return False
+        return self.current_outcome_signature() == self._stall_signature
 
     def completeness_diag(self, citations_len=None):
         strategy, summary = self._infer_strategy_and_summary()
@@ -505,13 +579,19 @@ def load_paper_states(output_path):
 
 
 def resolve_citation_status_from_output(pub, state, year_based_threshold):
+    """Return 'skip_zero' | 'complete' | 'partial' | 'stalled'.
+
+    'stalled' means the paper still looks incomplete but its last fetch
+    outcomes have repeated unchanged, so re-fetching cannot help while the
+    expectation (Scholar's counts) stays the same.
+    """
     if pub.get('num_citations') == 0:
         return 'skip_zero'
     pst = to_paper_fetch_state(state)
     if pst:
         if pst.need_fetch(pub.get('num_citations'), pub.get('year', 'N/A'),
                            year_based_threshold):
-            return 'partial'
+            return 'stalled' if pst.is_stalled() else 'partial'
         return 'complete'
     cache_state = derive_citation_cache_state(pub, state, year_based_threshold)
     return resolve_citation_status_from_state(cache_state)

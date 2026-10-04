@@ -182,7 +182,7 @@ class PaperFetchStateTests(unittest.TestCase):
             "num_citations_on_scholar", "complete_fetch_attempt",
             "scholar_changed",
             "year_fetch_diagnostics", "direct_fetch_diagnostics",
-            "year_records", "fetched_at",
+            "year_records", "stall_signature", "stall_count", "fetched_at",
         })
 
     def test_from_dict_accepts_legacy_complete_key(self):
@@ -275,6 +275,102 @@ class PaperFetchStateTests(unittest.TestCase):
         self.assertIsNone(out["complete_fetch_attempt"])
         self.assertIsNone(PaperFetchState.from_dict(out).complete_fetch_attempt)
 
+
+class FetchStallTests(unittest.TestCase):
+    """Repeating the same fetch outcome must stop the paper from being retried."""
+
+    @staticmethod
+    def _direct_state(seen_total=0, scholar_total=49, **extra):
+        state = {
+            "title": "T",
+            "fetch_strategy": "direct",
+            "direct_fetch_diagnostics": {
+                "scholar_total": scholar_total,
+                "cached_total": seen_total,
+                "seen_total": seen_total,
+                "dedup_count": 0,
+                "termination_reason": "empty_first_page",
+            },
+        }
+        state.update(extra)
+        return PaperFetchState.from_dict(state)
+
+    def test_record_fetch_outcome_tracks_identical_outcomes(self):
+        fs = self._direct_state()
+        self.assertEqual(fs.current_outcome_signature(), "direct:0/49")
+        fs.record_fetch_outcome()
+        self.assertEqual((fs.stall_signature, fs.stall_count), ("direct:0/49", 1))
+        fs.record_fetch_outcome()
+        self.assertEqual(fs.stall_count, 2)
+
+    def test_record_fetch_outcome_restarts_on_a_different_outcome(self):
+        fs = self._direct_state()
+        fs.record_fetch_outcome()
+        fs.record_fetch_outcome()
+        # A page that finally returns rows produces a different outcome.
+        fs._direct_fetch_diagnostics["seen_total"] = 20
+        fs.record_fetch_outcome()
+        self.assertEqual((fs.stall_signature, fs.stall_count), ("direct:20/49", 1))
+        self.assertFalse(fs.is_stalled())
+
+    def test_record_fetch_outcome_without_diagnostics_clears_tracking(self):
+        fs = PaperFetchState.from_dict({"title": "T"})
+        fs.record_fetch_outcome()
+        self.assertIsNone(fs.stall_signature)
+        self.assertEqual(fs.stall_count, 0)
+        self.assertFalse(fs.is_stalled())
+
+    def test_is_stalled_only_after_repeated_identical_outcomes(self):
+        fs = self._direct_state()
+        fs.record_fetch_outcome()
+        self.assertFalse(fs.is_stalled())          # one attempt is not a stall
+        fs.record_fetch_outcome()
+        self.assertTrue(fs.is_stalled())           # STALL_AFTER_ATTEMPTS == 2
+
+    def test_is_stalled_false_when_scholar_count_changed(self):
+        fs = self._direct_state(stall_signature="direct:0/49", stall_count=2)
+        self.assertTrue(fs.is_stalled())
+        fs.mark_scholar_changed()
+        self.assertFalse(fs.is_stalled())          # retry when Scholar moved
+
+    def test_is_stalled_false_when_the_outcome_no_longer_matches(self):
+        fs = self._direct_state(stall_signature="direct:0/49", stall_count=5)
+        self.assertTrue(fs.is_stalled())
+        grown = self._direct_state(seen_total=20, stall_signature="direct:0/49", stall_count=5)
+        self.assertFalse(grown.is_stalled())
+
+    def test_is_stalled_respects_a_custom_threshold(self):
+        fs = self._direct_state(stall_signature="direct:0/49", stall_count=3)
+        self.assertTrue(fs.is_stalled(stall_after_attempts=2))
+        self.assertFalse(fs.is_stalled(stall_after_attempts=4))
+
+    def test_stall_fields_survive_a_roundtrip(self):
+        fs = self._direct_state()
+        fs.record_fetch_outcome()
+        fs.record_fetch_outcome()
+        out = fs.to_dict()
+        self.assertEqual(out["stall_signature"], "direct:0/49")
+        self.assertEqual(out["stall_count"], 2)
+        again = PaperFetchState.from_dict(out)
+        self.assertEqual((again.stall_signature, again.stall_count), ("direct:0/49", 2))
+        self.assertTrue(again.is_stalled())
+
+    def test_resolve_citation_status_from_output_returns_stalled(self):
+        pub = {"num_citations": 49, "year": "2020"}
+        state = {
+            "title": "T", "fetch_strategy": "direct",
+            "direct_fetch_diagnostics": {"scholar_total": 49, "seen_total": 0},
+            "stall_signature": "direct:0/49", "stall_count": 2,
+        }
+        self.assertEqual(
+            resolve_citation_status_from_output(pub, state, year_based_threshold=50),
+            "stalled")
+        # A changed Scholar count re-enables the fetch.
+        self.assertEqual(
+            resolve_citation_status_from_output(
+                pub, dict(state, scholar_changed=True), year_based_threshold=50),
+            "partial")
+
     def test_is_complete_no_diagnostics_returns_false(self):
         """Without diagnostics summary, completeness cannot be verified → False."""
         fs = PaperFetchState.from_dict({
@@ -362,7 +458,7 @@ class PaperFetchStateTests(unittest.TestCase):
         self.assertNotIn("mode", entry)
         self.assertIn("year", entry)
 
-    def test_to_dict_all_eleven_keys_present(self):
+    def test_to_dict_all_keys_present(self):
         fs = PaperFetchState.from_dict({"title": "T"})
         out = fs.to_dict()
         self.assertEqual(set(out.keys()), {
@@ -370,7 +466,7 @@ class PaperFetchStateTests(unittest.TestCase):
             "num_citations_on_scholar", "complete_fetch_attempt",
             "scholar_changed",
             "year_fetch_diagnostics", "direct_fetch_diagnostics",
-            "year_records", "fetched_at",
+            "year_records", "stall_signature", "stall_count", "fetched_at",
         })
 
 

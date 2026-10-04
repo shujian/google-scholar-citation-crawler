@@ -4,6 +4,34 @@
 
 ---
 
+## 2026-10-04: 连续两次结果相同即停止重试（stall 检测）
+
+### 问题
+
+有一类论文**重试永远不会改变结果**：Scholar 自己的引用列表返回的条数少于它自己标的 "Cited by N"。例如 `Mirror-Generative`（0/49，已在浏览器确认是 Google 侧空页）、`PRIMT`(31/32)、`Getting more from less`(16/17)。在本次改动前，它们每轮都会重跑一次（0 行的那种白跑一次请求，少 1 条的那种白走整张列表），并长期占在 Fetch plan 里。
+
+### 规则（用户定）
+
+**连续两次得到相同结果，就在当前状态下不再重试**；"当前状态"指抓取结果的签名未变——Scholar 计数一变签名就变，自动恢复重试。
+
+### 实现
+
+- **签名**（`crawler/citation_cache.py: fetch_outcome_signature()`）：direct 为 `direct:{seen}/{scholar_total}`；year 为 `year:{Σseen}/{Σhist}={缺口}[{短年:seen/hist}]`（必须含短年，否则"填平 A 年、B 年仍缺"会被当成没变化）。
+- **状态**（`crawler/output_state.py`）：新增持久化字段 `stall_signature` / `stall_count`；`record_fetch_outcome()` 在抓取正常返回后更新（相同 → +1，不同 → 重置 1）；`is_stalled()` = 计数达阈值且签名仍一致且无 `scholar_changed`。
+- **新状态 `stalled`**：`resolve_citation_status_from_output()` 返回它（不进 need_fetch → 不发请求）；主循环打印 `-> stalled (same result N runs in a row)` 并保留已抓到的引用；运行摘要 `Stalled (skip): N`；计划末尾 `Skipping N stalled paper(s)`。
+- **阈值**：`crawler/config.py: STALL_AFTER_ATTEMPTS = 2`。
+- **中断不计入**：`record_fetch_outcome()` 只在抓取正常返回后调用，抛异常/被中断的尝试不算，避免"两次偶发封锁"就误停机。
+- **状态重建要继承计数**：抓取成功后 `_paper_states[title]` 会被 cache 快照整体替换，快照不含 stall 字段；`inherit_stall_tracking()` 在替换处搬运，否则计数每轮从 1 重来、规则永不生效。
+- **手动解锁**：`--fetch-mode force --skip N-1 --limit 1` 清状态后立即重试。
+
+### 验证
+
+- 测试 158 → 174；新增 16 个：签名（direct/year/含短年/无诊断）、计数与重置、阈值与 `scholar_changed`/结果变化的解除、`stalled` 状态、字段持久化、主循环跳过且保留引用、以及"连跑两轮 → 写盘 → 读回仍为 stalled"。
+- 关键 4 个测试先 `git stash` 回退实现验证为红再转绿。
+- 真实数据（247 篇）回归：状态分布 `complete 154 / partial 52 / skip_zero 41`，**无 stall**（已有状态没有该字段）→ 对现有抓取决策零影响；引用 9054 → 9054。
+
+---
+
 ## 2026-10-04: 完善抓取日志（0 行页面不再静默）+ 修复"probe 年份无缓存时被丢弃"导致的漏抓
 
 ### 背景

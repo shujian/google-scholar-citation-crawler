@@ -42,6 +42,7 @@ from crawler.common import (
     SCHOLAR_PAGE_SIZE,
     SESSION_REFRESH_MAX,
     SESSION_REFRESH_MIN,
+    STALL_AFTER_ATTEMPTS,
     TeeStream,
     YEAR_BASED_THRESHOLD,
     _scholar_request_url,
@@ -761,7 +762,7 @@ class PaperCitationFetcher:
         return _cio_derive_citation_cache_state(pub, cached, YEAR_BASED_THRESHOLD)
 
     def _citation_status(self, pub):
-        """Return cache status: 'skip_zero' | 'missing' | 'complete' | 'partial'."""
+        """Return cache status: 'skip_zero' | 'missing' | 'complete' | 'partial' | 'stalled'."""
         if pub['num_citations'] == 0:
             return 'skip_zero'
         # Cross-run state comes exclusively from the output file.
@@ -911,9 +912,12 @@ class PaperCitationFetcher:
         if not self.skip and not self.limit:
             random.shuffle(need_fetch)
 
+        stalled_count = sum(1 for s, *_ in statuses if s == 'stalled')
         print(f"Total papers: {len(publications)}")
         print(f"  Zero citations (skip):     {sum(1 for s, *_ in statuses if s == 'skip_zero')}")
         print(f"  Cache complete (skip):     {sum(1 for s, *_ in statuses if s == 'complete')}")
+        if stalled_count:
+            print(f"  Stalled (skip):            {stalled_count}")
         print(f"  Need fetch/resume:         {len(need_fetch)}")
         output_state_count = len(getattr(self, '_paper_states', {}))
         if output_state_count:
@@ -971,7 +975,7 @@ class PaperCitationFetcher:
 
                 plan_lines.append(f"  [{strategy.upper():6s}] {title}\n"
                                   f"            {gap}{change_note}")
-            if plan_lines or recheck_count:
+            if plan_lines or recheck_count or stalled_count:
                 print("-" * 70)
                 if plan_lines:
                     print(f"  Fetch plan ({len(plan_lines)} paper(s) need new data):")
@@ -982,6 +986,10 @@ class PaperCitationFetcher:
                 if recheck_count:
                     print(f"  Also rechecking {recheck_count} paper(s) with no "
                           f"cached-data gap (Scholar counts changed)")
+                if stalled_count:
+                    print(f"  Skipping {stalled_count} stalled paper(s): same result "
+                          f"{STALL_AFTER_ATTEMPTS}+ runs in a row (e.g. Scholar lists "
+                          f"fewer citations than its own count)")
                 print()
 
         results   = []
@@ -1039,6 +1047,17 @@ class PaperCitationFetcher:
                 if self.fetch_mode != 'force':
                     print(PaperCitationFetcher._format_completeness_diag(st, cached, paper_state=paper_state))
                 results[idx - 1] = {'pub': pub, 'citations': cached['citations']}
+                continue
+
+            # Stalled: the fetch outcome has repeated unchanged (e.g. Scholar
+            # lists fewer citations than it reports), so retrying cannot help
+            # while Scholar's counts stay the same.  Kept in the output as-is.
+            if st == 'stalled':
+                stall_note = (f" (same result {paper_state.stall_count} runs in a row)"
+                              if paper_state and paper_state.stall_count else "")
+                print(f"[{idx}/{len(publications)}] {title[:55]}... -> stalled{stall_note}")
+                print(PaperCitationFetcher._format_completeness_diag(st, cached, paper_state=paper_state))
+                results[idx - 1] = {'pub': pub, 'citations': cached['citations'] if cached else []}
                 continue
 
             # rough mode: skip only when Scholar count is unchanged AND the last
@@ -1220,8 +1239,14 @@ class PaperCitationFetcher:
                     if cache_snapshot:
                         if not getattr(self, '_paper_states', None):
                             self._paper_states = {}
+                        # The snapshot is written mid-fetch and knows nothing
+                        # about the cross-run stall counters, so carry them over
+                        # from the pre-fetch state before replacing it.
+                        previous_state = to_paper_fetch_state(
+                            self._paper_states.get(title))
                         self._paper_states[title] = PaperState(
-                            fetch=PaperFetchState.from_dict(cache_snapshot),
+                            fetch=PaperFetchState.from_dict(cache_snapshot)
+                            .inherit_stall_tracking(previous_state),
                             citations=citations or [],
                         )
                     # Use per-year diagnostics for year-based fetch (authoritative, per-run).
@@ -1333,10 +1358,13 @@ class PaperCitationFetcher:
             self._run_new_citations_total += self._new_citations_count
             self._new_citations_count = 0  # consumed by _run_new_citations_total
             # Clear scholar_changed after a successful fetch (state was already
-            # updated above, inside the while loop).
+            # updated above, inside the while loop), then fold this attempt's
+            # outcome into the stall tracking — an interrupted fetch never
+            # reaches here, so it cannot count as an identical result.
             pst = to_paper_fetch_state(getattr(self, '_paper_states', {}).get(title) if getattr(self, '_paper_states', None) else None)
             if pst:
                 pst.clear_scholar_changed()
+                pst.record_fetch_outcome()
 
             if fetch_idx < (self.limit or len(need_fetch)):
                 print(f"  {now_str()} Next paper... [{self._wait_status()}]", flush=True)

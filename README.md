@@ -9,6 +9,7 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 - **Unified Workflow**: Fetches author profile then crawls per-paper citations in one command
 - **Smart Skip**: If total citations and publication count haven't changed since the last run, citation crawling is skipped entirely
 - **Incremental Caching**: Re-fetches only papers whose cache is incomplete; year-based papers use a per-year histogram to decide which years need refreshing
+- **Stall Detection**: A paper whose fetch keeps producing the same result (e.g. Scholar lists fewer citations than it reports) stops being retried after two identical runs, and resumes on its own when Scholar's counts change
 - **Year-Based Fetching**: Papers with many citations (configurable threshold, default ≥ 50) are fetched year-by-year (oldest → newest), skipping years whose cached count already matches Scholar's histogram
 - **Dedup Handling**: Deduplicates citations using Scholar-native `cites_id` when available, falling back to `title + venue/authors` metadata; tolerates Scholar self-duplicates
 - **Resume Support**: Interrupted fetches resume from the last checkpoint; on exit the in-flight paper's state (citations fetched so far + the live year probe) is written to the output, so a year left short is re-fetched next run instead of being reported complete
@@ -152,6 +153,28 @@ If the script is interrupted (Ctrl+C, timeout, or error):
 2. Simply re-run the same command to resume
 3. Completed papers and completed year segments within a paper are skipped
 
+## Stalled Papers (Same Result Repeated)
+
+Some papers can never be completed by retrying: Scholar's own citation list
+returns fewer rows than its "Cited by" count, so every attempt ends with the
+same numbers. The crawler now notices this:
+
+- After each fetch the outcome is signed (e.g. `direct:0/49`, or
+  `year:241/235=2[2026:64/66]` for year mode, which names the short years) and
+  the signature is stored together with how many runs in a row produced it.
+- Once **two consecutive runs produce the same signature**, the paper is marked
+  `stalled` and skipped: it stays in the output with whatever was collected, the
+  run summary prints `Stalled (skip): N`, and the plan lists
+  `Skipping N stalled paper(s)`.
+- The stall clears itself as soon as the outcome changes — a larger Scholar
+  count changes the signature — so such papers are picked up again when
+  Scholar's numbers move.
+- An *interrupted* fetch (block, captcha, Ctrl+C) never reaches the recording
+  step, so a transient failure cannot stall a paper by itself.
+
+To force a retry for a specific paper, clear its state with
+`--fetch-mode force --skip <N-1> --limit 1`.
+
 ## Diagnosing Empty Pages
 
 A citation request can succeed (HTTP 200, no exception) yet come back with no
@@ -215,7 +238,7 @@ crawler/
   output_state.py            # PaperFetchState / PaperState + output file _fetch_state read/write
   pub_info.py                # PubInfo dataclass for publication field normalization
   cli.py                     # parse_args() + _run_main()
-tests/                       # 158 unit tests, no network required
+tests/                       # 174 unit tests, no network required
 ```
 
 ### Running Tests

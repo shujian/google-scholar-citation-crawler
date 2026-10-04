@@ -52,6 +52,14 @@ SCHOLAR_PAGE_SIZE = 10
 # Maximum retries when Scholar blocks a citation fetch.
 MAX_RETRIES = 3
 
+# A paper whose fetch keeps producing the same outcome (same seen/target, e.g.
+# Scholar lists fewer rows than its own "Cited by" count) stops being retried
+# once this many consecutive identical outcomes have been recorded.  The stall
+# clears itself as soon as the outcome changes — a larger Scholar count changes
+# the signature — so a stalled paper is picked up again when Scholar's numbers
+# move.
+STALL_AFTER_ATTEMPTS = 2
+
 # ============================================================
 # API / network
 # ============================================================

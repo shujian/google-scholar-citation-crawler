@@ -679,6 +679,7 @@ class CitationStatusTests(FetcherTestCase):
 
 
 from crawler.citation_cache import (
+    fetch_outcome_signature,
     iter_year_records,
     year_record_gap,
     year_records_gap,
@@ -749,6 +750,48 @@ class YearRecordsCompletenessTests(unittest.TestCase):
         ]
         self.assertEqual(year_records_shortfall_years(records), [(2026, 64, 66)])
         self.assertEqual(year_records_shortfall_years([]), [])
+
+
+class FetchOutcomeSignatureTests(unittest.TestCase):
+    """Signatures make "the same result twice" comparable across runs."""
+
+    def test_direct_signature_uses_seen_over_scholar_total(self):
+        self.assertEqual(
+            fetch_outcome_signature('direct', {"scholar_total": 49, "seen_total": 0}),
+            'direct:0/49')
+        self.assertEqual(
+            fetch_outcome_signature('direct', {"scholar_total": 32, "seen_total": 31}),
+            'direct:31/32')
+
+    def test_signature_is_empty_when_the_outcome_is_unknown(self):
+        self.assertEqual(fetch_outcome_signature('direct', {}), '')
+        self.assertEqual(fetch_outcome_signature('direct', None), '')
+        self.assertEqual(fetch_outcome_signature('year', {}), '')
+
+    def test_year_signature_includes_the_short_years(self):
+        records = [
+            {"year": 2024, "histogram_count": 169, "seen_total": 177},
+            {"year": 2026, "histogram_count": 66, "seen_total": 64},
+        ]
+        signature = fetch_outcome_signature('year', None, records)
+        self.assertEqual(signature, 'year:241/235=2[2026:64/66]')
+
+    def test_filling_a_short_year_changes_the_signature(self):
+        short = [
+            {"year": 2024, "histogram_count": 169, "seen_total": 177},
+            {"year": 2026, "histogram_count": 66, "seen_total": 64},
+        ]
+        filled = [
+            {"year": 2024, "histogram_count": 169, "seen_total": 177},
+            {"year": 2026, "histogram_count": 66, "seen_total": 66},
+        ]
+        self.assertNotEqual(fetch_outcome_signature('year', None, short),
+                            fetch_outcome_signature('year', None, filled))
+
+    def test_year_signature_falls_back_to_the_aggregate_without_records(self):
+        self.assertEqual(
+            fetch_outcome_signature('year', {"histogram_total": 10, "seen_total": 7}),
+            'year:7/10')
 
 
 class CitationIdentityTests(unittest.TestCase):

@@ -2,6 +2,32 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
+## 2026-10-04: "重复结果就停止重试"（stall）的设计与边界
+
+### 规则与实现
+
+需求（用户定）：**连续两次得到相同结果，在"当前状态下"不再重试**。"当前状态"用**结果签名**表达——签名只包含会随抓取变化的量，因此 Scholar 计数一变，签名就变，自动恢复重试。
+
+- 签名（`crawler/citation_cache.py: fetch_outcome_signature`）
+  - direct：`direct:{seen}/{scholar_total}`（例 `direct:0/49`）
+  - year：`year:{Σseen}/{Σhist}={缺口数}[{短年:seen/hist},...]`（例 `year:241/235=2[2026:64/66]`）——**必须带上短年**，否则"填平 A 年、B 年仍缺"会被误判为"没变化"。无 diagnostics → 返回 `''`（不参与判定）。
+- 状态（`crawler/output_state.py`）：`_stall_signature` + `_stall_count`，随 `_fetch_state` 持久化；`record_fetch_outcome()` 在每次抓取返回后更新（相同 → count+1，不同 → 重置为 1）；`is_stalled()` = `count >= STALL_AFTER_ATTEMPTS(2)` 且当前签名与记录一致且无 `scholar_changed`。
+- 状态值：`resolve_citation_status_from_output()` 新增 **`stalled`**（仍在 need_fetch 之外 → 不发请求）。主循环打印 `-> stalled (same result N runs in a row)` 并保留已抓到的 citations；运行摘要打印 `Stalled (skip): N`；计划末尾打印 `Skipping N stalled paper(s)`。
+- 阈值：`crawler/config.py: STALL_AFTER_ATTEMPTS = 2`（经 common 再导出）。
+
+### 三个必须注意的边界
+
+1. **中断不计入**：`record_fetch_outcome()` 只在抓取**正常返回**后调用；抛异常/被 Ctrl+C 的尝试到不了那里。所以封锁、验证码这类"报错型失败"不会把论文判成 stall（否则两次偶发失败就会误停机）。
+   但**"0 行/短页型"失败是正常返回的**——如果连续两次都是"页面被静默截断"，会被判 stall。这是该规则的固有权衡（用户明确接受 2 次采样）。
+2. **状态重建必须继承计数**：每次抓取成功后 `_paper_states[title]` 会被 `save_progress` 写的 cache 快照**整体替换**，而快照不知道 stall 字段——不处理的话计数每轮都从 1 重新开始，规则永远不生效。`inherit_stall_tracking()` 在替换处搬运；相关回归测试 `test_two_identical_outcomes_stall_the_paper_across_runs` 覆盖"连跑两轮后写盘再读回仍 stalled"（同时验证签名跨持久化不漂移）。
+3. **手动解锁口**：`--fetch-mode force --skip N-1 --limit 1` 会清掉该论文状态（stall 字段随状态一起消失）→ 立即重试。若某次 stall 是误判（例如让代理换了 IP、Scholar 页面变正常），用这个恢复。
+
+### 与"作者页计数 > 实际可列出条目"的关系
+
+`Mirror-Generative`（0/49）经用户在浏览器确认是 Google 侧空页；同族的 `PRIMT`(31/32)、`Getting more from less`(16/17)、`Learning to generate personalized…`(16/17)、`LLMs are limited in out-of-context…`(8/9) 是"少 1 条"。这些论文在**连续两轮**产出同一签名后会自动停抓（此前每轮白跑一次请求/整张列表）。当前已有数据里没有任何 stall 字段 → 首次生效前它们各需再抓 2 轮。
+
+---
+
 ## 2026-10-04: "0 行页面"的诊断设计，以及 probe 年份记录为什么不能丢
 
 ### 0 行页面为什么必须显式记录
@@ -360,7 +386,7 @@ google-scholar-citation-crawler/
 │   ├── output_state.py          # PaperFetchState / PaperState dataclass + 输出文件 _fetch_state 读写
 │   ├── pub_info.py              # PubInfo dataclass（pub 字段规范化）
 │   └── cli.py                   # parse_args() + _run_main(args)
-├── tests/                       # 单元测试（158 个，不需要网络）
+├── tests/                       # 单元测试（174 个，不需要网络）
 │   ├── conftest.py              # 共享 stubs + FetcherTestCase 基类
 │   ├── test_scholar_patch.py    # scholarly patch URL 日志、cookie 注入、CLI 解析
 │   ├── test_year_fetch_early.py # year fetch early-stop / histogram-authoritative

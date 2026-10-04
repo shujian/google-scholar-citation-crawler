@@ -18,6 +18,7 @@ from crawler.config import (   # noqa: F401 — re-exported for compatibility
     SCHOLAR_PAGE_SIZE,
     SESSION_REFRESH_MAX,
     SESSION_REFRESH_MIN,
+    STALL_AFTER_ATTEMPTS,
     YEAR_BASED_THRESHOLD,
 )
 
