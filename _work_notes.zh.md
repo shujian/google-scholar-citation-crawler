@@ -89,7 +89,8 @@ for year, diagnostic in list(diagnostics.items()):
   直方图本身并不可靠，双向都会错：真实数据里存在 `cached_total > histogram_count` 的年份（如 `Deep matrix factorization` 2024 cached 177 / probe 169，`Adaptive nearest neighbor` 存 143 > "Cited by" 141），说明年份查询能返回比直方图更多的条目。
   **未验证**：那些差额引用是否在任何年份标签下都不会被返回（若确实不会，year 模式就系统性覆盖不到它们，需要一条全量/无过滤通道）。验证方法：挑一篇这样的论文做一次无过滤（direct）全量抓取，与 year 模式的结果比对。
 - **direct 模式中断**：快照里没有 dfd，因此只能保住"已抓到的引用"，缺口仍靠旧状态判断（若旧状态完整、只因 `scholar_changed` 才重抓，中断后可能丢掉这次重抓）。彻底解法是让 `save_progress` 在 direct 中途也生成一份 `direct_fetch_diagnostics`。
-- **`Mirror-Generative` 类（0/N）**：现在能诊断了（见本文档"0 行页面"一节：日志会打印 `Page items: 0 (no citation rows) [证据]`，状态记为 `empty_first_page`），但**原因待实证**——需要一次真实请求看是空结果集还是未识别的中间页。是否要在该情形下换代理/重试，属行为变更，未做。
+- **`Mirror-Generative` 类（0/N）**：**已确认是 Google 侧问题**——用户在浏览器直接打开该 `oi=bibs&cites=...` 链接，Scholar 自己的页面就返回空结果（作者页却写 "Cited by 49"），所以既不是爬虫解析、也不是封锁/中间页。诊断已就位（日志会打印 `Page items: 0 (no citation rows) [证据]`，状态记为 `empty_first_page`），但**重试策略未改**：该论文每轮仍会发一次请求并支付延迟（约 1 页），只是现在日志和状态都明说了是空页。若要收敛（例如连续 N 轮空页后标记为"Scholar 无此列表"并暂停重抓、待引用数变化时再试），属行为变更，需另行决定。
+  同族的另外 4 篇（`PRIMT` 31/32、`Getting more from less` 16/17、`Learning to generate personalized…` 16/17、`LLMs are limited in out-of-context…` 8/9）是"页面能返回但比作者页计数少 1"的情形，未逐篇在浏览器确认，但很可能是同一个"作者页计数 > 实际可列出条目"的成因。
 
 ---
 
