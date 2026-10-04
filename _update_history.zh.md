@@ -44,7 +44,7 @@
 
 ### 影响面（重要）
 
-本修复使**今后**中断的抓取能被续抓；对**已经**卡住的历史论文（如 `Academic paper recommendation` 54/55；`complete_fetch_attempt=False` 的 65 篇）不会自动重抓——它们的已落盘状态里没有可观测的单年缺口（差额多来自 year 模式本就不覆盖的 unyeared 引用），若强行按 cfa 重抓会白跑 64 篇。如需清理，宜另做一次针对性补抓。
+本修复使**今后**中断的抓取能被续抓；对**已经**卡住的历史论文（如 `Academic paper recommendation` 54/55；`complete_fetch_attempt=False` 的 65 篇）不会自动重抓——它们的已落盘状态里没有可观测的单年缺口（差额来自 `scholar_total − histogram_total`，即 Scholar 两套计数的不一致；见 `_work_notes.zh.md` 对该差额含义的更正），若强行按 cfa 重抓会白跑 64 篇。如需清理，宜另做一次针对性补抓。
 
 ---
 

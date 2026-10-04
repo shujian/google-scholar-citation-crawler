@@ -20,6 +20,10 @@ All user messages from the Google Scholar Citation Crawler development conversat
 
 ---
 
+我记得unyeared是在哪个year标签下抓到的，就会被自动填上year
+
+---
+
 ## 364. [2026-08-13]
 
 这次我使用了另一台电脑上的cookie，两台电脑是同一个代理ip地址，但是很快就被google block了。请帮我检查一下cookies注入和使用是否正确。

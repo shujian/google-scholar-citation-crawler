@@ -36,7 +36,9 @@
 
 ### 已知未修（需产品决策）
 
-- **unyeared 引用**：year 模式按年份翻页，Scholar 直方图不列的引用（无年份）无法被任何年份查询命中，因此 `Collected < Scholar` 的差额是设计使然（`scholar_unyeared_count` 会显示）。若要补齐，需要额外的全量/无年份通道。
+- **`scholar_unyeared_count` 的真实含义**：它是 `scholar_total − histogram_total`，即 Scholar 自己的"Cited by N"与它自己直方图各年之和的差，**不是**"我们抓不到的无年份引用"。命名有误导性：year 模式在年份批次里会做 year 回填（`crawler/citation_fetch.py:843` 传 `fallback_year=year`，`citation_identity.py:101` 在 bib 无 `pub_year` 时用它），因此"在某年标签下抓到的引用会被填上该年"并正常计入该年 `seen`；对差额代码也不是放弃，而是放宽遍历起点（conservative start_year）。
+  直方图本身并不可靠，双向都会错：真实数据里存在 `cached_total > histogram_count` 的年份（如 `Deep matrix factorization` 2024 cached 177 / probe 169，`Adaptive nearest neighbor` 存 143 > "Cited by" 141），说明年份查询能返回比直方图更多的条目。
+  **未验证**：那些差额引用是否在任何年份标签下都不会被返回（若确实不会，year 模式就系统性覆盖不到它们，需要一条全量/无过滤通道）。验证方法：挑一篇这样的论文做一次无过滤（direct）全量抓取，与 year 模式的结果比对。
 - **direct 模式中断**：快照里没有 dfd，因此只能保住"已抓到的引用"，缺口仍靠旧状态判断（若旧状态完整、只因 `scholar_changed` 才重抓，中断后可能丢掉这次重抓）。彻底解法是让 `save_progress` 在 direct 中途也生成一份 `direct_fetch_diagnostics`。
 
 ---
