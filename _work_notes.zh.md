@@ -2,6 +2,55 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
+## 2026-10-04: "0 行页面"的诊断设计，以及 probe 年份记录为什么不能丢
+
+### 0 行页面为什么必须显式记录
+
+一次请求完全成功（HTTP 200、无异常）却解析出 **0 行**，与"这篇论文确实没有引用"在抓取路径上**无法区分**：迭代器直接 StopIteration，批量层只看到"列表耗尽"。而 scholarly 自身只拦带 captcha id 的页（`gs_captcha_ccl` / `recaptcha` / `captcha-form`，以及会抛 `DOSException` 的 `rc-doscaptcha-body`），所以能走到解析层的 0 行页**必然不是验证码页**——真实原因只剩：空结果集 / 同意页 / 未识别的中间页（重定向由 scholarly 的 302 分支在会话内跟随）。
+
+因此诊断点必须放在**唯一能看到原始页面的地方**：`patched_load_url`。原来的写法
+
+```python
+if page_size:                       # 0 行 → 什么都不打印
+    print(f"        Page items: {page_size}")
+```
+
+把已经算出来的关键事实丢掉了。现在改为：引用列表页 0 行时调用 `record_zero_row_citation_page()`，打印
+`Page items: 0 (no citation rows) [no results container; banner='...'; markers=...]`
+并把证据存进 `ctx.last_page_evidence`。证据字段：`rows` / `results_container`（是否有 `#gs_res_ccl_mid`）/ `result_banner`（`gs_ab_mdw` 里的结果计数或提示文案）/ `markers`（captcha、consent、unusual_traffic、no_results）。
+
+随后由**知道期望值的调用方**下判断，把术语写进状态，便于事后区分：
+
+| 场景 | termination_reason |
+|---|---|
+| direct：0 行但 `scholar_total > 0` | `empty_first_page` |
+| year：某年 probe > 0 但该年 0 行 | `empty_page` |
+| 期望本来就是 0（空年份 / 首次就无引用） | 保持 `iterator_exhausted`，不误报 |
+
+注意：`termination_reason` 只被存储/展示，**任何代码都不据此分支**，所以新增取值是安全的（各 normalizer 都以 `iterator_exhausted` 为默认值原样透传）。
+
+### probe 年份记录被丢弃 → 不只丢日志，还会误判完整
+
+`build_year_records()` 里"哪些年份记录保留"的过滤条件原本读**外层** `year_ctx.probed_year_counts`：
+
+```python
+for year, diagnostic in list(diagnostics.items()):
+    if year not in year_counts and year not in (year_ctx.probed_year_counts or {}):
+        diagnostics.pop(year, None)          # ← 外层永远是 None
+```
+
+而 probe 只写在内层 ctx（`_fetch_by_year` 自建并同步到 `fetcher._live_probed_year_counts`），外层 ctx 的 `probed_year_counts` 恒为 `None`（`fetch_citations_with_progress` 里创建时显式写死）。于是当一次抓取**完全没抓到引用**时，所有年份记录会被清空——正好是最需要证据的情形（`empty_page` 被抹掉）。更严重的是第二个后果：
+
+`build_citation_count_summary()` 在存在逐年记录时，`histogram_total = Σ 各年 histogram_count`。丢掉"有 probe、无缓存"的年份记录，也就把**那几年的 probe 数从聚合里删掉**，聚合因此可能满足 `seen ≥ hist` → 论文被判 complete → 该年永远不再重抓。可复现的例子：2024 抓到 2/2、2026 probe=3 但页面 0 行 —— 旧代码聚合只剩 2/2，判"完整"；修复后保留 2026(0/3)，判"未完成"并重抓。这条路径**要求"某年被 probe 说有引用、而该年一次抓取后仍为 0"**，与"详细引用下载没有完成"的现象一致，是此前"永远 complete"类问题的可达成因之一（`_update_history.zh.md` 与本文档都已更正先前过强的归因）。
+
+### 排查方法论补充
+
+- **"静默成功"比报错更危险**：凡是"请求成功但结果为空/异常小"的地方，都要在**知道期望值**的那一层留下可区分的记录（本项目的期望值来源：direct 的 `scholar_total`、year 的该年 probe 数）。
+- **同一份状态在两处被解读时，先对齐口径来源**：内层/外层 ctx、live 与持久化 probe 这类"同名不同物"的字段，是本项目反复出问题的形式（此前 `partial_year_start`、`direct_resume_state`、`dedup_count` 都有同类记录）。
+- 审查日志时注意：**没打印不代表没发生**。本次两个信息丢失点都是"算出来了但不打印/不保留"。
+
+---
+
 ## 2026-10-04: 完整性判定为什么必须"按年"，以及中断状态为什么会丢
 
 ### year 模式：聚合 `<` 单年
@@ -40,6 +89,7 @@
   直方图本身并不可靠，双向都会错：真实数据里存在 `cached_total > histogram_count` 的年份（如 `Deep matrix factorization` 2024 cached 177 / probe 169，`Adaptive nearest neighbor` 存 143 > "Cited by" 141），说明年份查询能返回比直方图更多的条目。
   **未验证**：那些差额引用是否在任何年份标签下都不会被返回（若确实不会，year 模式就系统性覆盖不到它们，需要一条全量/无过滤通道）。验证方法：挑一篇这样的论文做一次无过滤（direct）全量抓取，与 year 模式的结果比对。
 - **direct 模式中断**：快照里没有 dfd，因此只能保住"已抓到的引用"，缺口仍靠旧状态判断（若旧状态完整、只因 `scholar_changed` 才重抓，中断后可能丢掉这次重抓）。彻底解法是让 `save_progress` 在 direct 中途也生成一份 `direct_fetch_diagnostics`。
+- **`Mirror-Generative` 类（0/N）**：现在能诊断了（见本文档"0 行页面"一节：日志会打印 `Page items: 0 (no citation rows) [证据]`，状态记为 `empty_first_page`），但**原因待实证**——需要一次真实请求看是空结果集还是未识别的中间页。是否要在该情形下换代理/重试，属行为变更，未做。
 
 ---
 
@@ -309,7 +359,7 @@ google-scholar-citation-crawler/
 │   ├── output_state.py          # PaperFetchState / PaperState dataclass + 输出文件 _fetch_state 读写
 │   ├── pub_info.py              # PubInfo dataclass（pub 字段规范化）
 │   └── cli.py                   # parse_args() + _run_main(args)
-├── tests/                       # 单元测试（145 个，不需要网络）
+├── tests/                       # 单元测试（158 个，不需要网络）
 │   ├── conftest.py              # 共享 stubs + FetcherTestCase 基类
 │   ├── test_scholar_patch.py    # scholarly patch URL 日志、cookie 注入、CLI 解析
 │   ├── test_year_fetch_early.py # year fetch early-stop / histogram-authoritative

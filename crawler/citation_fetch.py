@@ -270,15 +270,25 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
         year_counts = fetcher._year_count_map(citations_to_save)
         # Histogram data only exists in year mode (probe is done before fetch).
         is_year = fetch_policy.get('strategy') == 'year' if fetch_policy else False
+        # Probe counts live on the inner year_ctx (the outer one never probes —
+        # _fetch_by_year creates its own ctx and syncs the counts to
+        # fetcher._live_probed_year_counts before each save).  Prefer those:
+        # reading the outer ctx here drops every per-year record when a fetch
+        # comes back with no citations at all, losing the page evidence
+        # (e.g. termination_reason=empty_page) for exactly the interesting case.
+        probed_year_counts = getattr(fetcher, '_live_probed_year_counts', None)
+        if probed_year_counts is None:
+            probed_year_counts = year_ctx.probed_year_counts
+        probed_year_counts = probed_year_counts or {}
         for year, diagnostic in list(diagnostics.items()):
-            if year not in year_counts and year not in (year_ctx.probed_year_counts or {}):
+            if year not in year_counts and year not in probed_year_counts:
                 diagnostics.pop(year, None)
         for year, cached_total in year_counts.items():
             existing = diagnostics.get(year)
             if existing is not None:
                 histogram_count = existing.get('histogram_count', existing.get('scholar_total'))
                 if histogram_count is None:
-                    histogram_count = (year_ctx.probed_year_counts or {}).get(year, 0 if not is_year else cached_total)
+                    histogram_count = probed_year_counts.get(year, 0 if not is_year else cached_total)
                 diagnostics[year] = fetcher._build_year_fetch_diagnostics(
                     year,
                     histogram_count,
@@ -287,11 +297,11 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
                     existing.get('termination_reason'),
                 )
             else:
-                hc = (year_ctx.probed_year_counts or {}).get(year, 0 if not is_year else cached_total)
+                hc = probed_year_counts.get(year, 0 if not is_year else cached_total)
                 diagnostics[year] = fetcher._build_year_fetch_diagnostics(
                     year, hc, cached_total, 0, None,
                 )
-        for year, probe_total in (year_ctx.probed_year_counts or {}).items():
+        for year, probe_total in probed_year_counts.items():
             if year not in diagnostics:
                 diagnostics[year] = fetcher._build_year_fetch_diagnostics(
                     year, probe_total, 0, 0, None,
@@ -487,6 +497,19 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
     fresh_citations[:] = list(direct_batch.citations)
     year_ctx.dedup_count += direct_batch.dedup_count
     direct_fetch_termination_reason = direct_batch.termination_reason
+    if (not direct_batch.citations
+            and current_scholar_total() > 0
+            and direct_fetch_termination_reason == 'iterator_exhausted'):
+        # Scholar reports citations for this paper yet the list came back with
+        # no rows at all: the response was empty or unrecognised instead of the
+        # list being exhausted.  Record it distinguishably so the state does not
+        # read as a normal end-of-list fetch forever (the page-level evidence is
+        # in the 'Page items: 0' line above).
+        direct_fetch_termination_reason = 'empty_first_page'
+        print(f"        {now_str()} Citation list returned 0 rows for "
+              f"scholar_total={current_scholar_total()} "
+              f"({_scholar_request_url(direct_batch.url)}) "
+              f"— recording termination as empty_first_page", flush=True)
 
     direct_fetch_diagnostics = _build_direct_fetch_diagnostics(
         scholar_total=current_scholar_total(),
@@ -849,6 +872,14 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
             )
             year_dedup_count = year_batch.dedup_count
             year_termination_reason = year_batch.termination_reason
+            if (live_count is not None and live_count > 0
+                    and not year_batch.citations
+                    and year_termination_reason == 'iterator_exhausted'):
+                # The probe says this year has citations but its page came back
+                # with no rows at all — empty/unrecognised rather than exhausted.
+                year_termination_reason = 'empty_page'
+                print(f"      Year {year}: page returned 0 rows but the probe says "
+                      f"{live_count} — recording termination as empty_page", flush=True)
 
             fresh_year_buckets[year] = list(year_batch.citations)
             fresh_citations[:] = current_citations(complete=True)
@@ -861,7 +892,7 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                 live_count_for_diag,
                 len(year_batch.citations),
                 year_batch.dedup_count,
-                year_batch.termination_reason,
+                year_termination_reason,
             )
             year_ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
             if year_new_count > 0 or fetcher._new_citations_count > 0:

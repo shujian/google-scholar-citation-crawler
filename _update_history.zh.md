@@ -4,6 +4,41 @@
 
 ---
 
+## 2026-10-04: 完善抓取日志（0 行页面不再静默）+ 修复"probe 年份无缓存时被丢弃"导致的漏抓
+
+### 背景
+
+排查 `Mirror-Generative Neural Machine Translation.` 长期 0/49 时发现：一次抓取跑完却拿到 **0 行**，日志里**什么都没有**，状态只记了 `termination_reason=iterator_exhausted`——和"这篇论文确实没有引用"完全无法区分。
+
+两个信息丢失点：
+
+1. **页面层**：`crawler/scholarly_session.py` 的行数统计原本是 `if page_size: print("Page items: N")`，**0 行时不打印任何东西**。而 scholarly 自身只会拦带 captcha id 的页面（`gs_captcha_ccl`/`recaptcha`/`captcha-form`/`rc-doscaptcha-body`），所以能走到解析层的 0 行页**必然不是验证码页**，其真实原因（空结果集 / 同意页 / 未识别的中间页）无从判断。
+2. **落盘层**：`build_year_records()` 判断"哪些年份记录要保留"时读的是**外层** `year_ctx.probed_year_counts`，而 probe 实际写在内层 ctx（`_fetch_by_year` 自建），外层永远是 `None` → 于是"有 probe、但本次没抓到任何引用"的年份记录被**整体丢弃**。后果不只是丢日志：该年的 probe 数也从聚合 `histogram_total` 里消失，论文因此可能被判成 **complete**（例：2024 有 2/2、2026 probe=3 但页面 0 行 → 旧代码聚合只剩 2/2 → "完整"，2026 整年再也不会被重抓）。
+
+### 修复
+
+- **`crawler/scholarly_session.py`**
+  - 新增 `citation_page_evidence(soup)`：返回 `{rows, results_container, result_banner, markers}`（markers 覆盖 captcha / consent / unusual_traffic / no_results），**永不抛异常**；
+  - 新增 `format_page_evidence()` 与 `record_zero_row_citation_page()`；
+  - `patched_load_url`：引用列表页出现 0 行时调用 `record_zero_row_citation_page()` → 打印 `Page items: 0 (no citation rows) [证据]` 并存入 `ctx.last_page_evidence`（过去这一行是静默的）；
+  - `SessionContext` 新增字段 `last_page_evidence`。
+- **`crawler/citation_fetch.py`**
+  - direct 模式：拿到 0 行但 `scholar_total > 0` 时，termination 记为 **`empty_first_page`** 并打印明确说明（含 URL）；
+  - year 模式：某年 probe > 0 但该年页面 0 行时，该年 termination 记为 **`empty_page`** 并打印说明；
+  - `build_year_records()` 改用 `fetcher._live_probed_year_counts`（内层同步的实测 probe），必要时才回退外层 ctx —— 修掉上面第 2 条的信息（与完整性）漏洞。
+
+### 验证
+
+- 测试 145 → 158；新增 13 个：证据提取（满页/空页/验证码/中间页/consent/无 soup 不抛异常/格式化）、`record_zero_row_citation_page` 打日志并存证据、direct 的 `empty_first_page`（并保持"期望为 0 时不误报"）、year 的 `empty_page`、以及"probe 年份 0 行必须让论文保持 incomplete"。
+- 三个 caller 侧测试 + "probe 年份被丢弃"测试都**先在旧代码上验证为红**（`git stash` 单文件回退）再转绿。
+- 真实数据（247 篇）回归：`need_fetch` 仍为 52，引用 9054 → 9054，无状态翻转。
+
+### 说明（未改行为）
+
+本次只加**可观测性**，不改抓取/重试行为：0 行页面仍按原逻辑记为"本次无新引用"，只是现在会显式说明原因并在状态里可区分（`empty_first_page` / `empty_page`）。若要据此触发重试或换代理，属于行为变更，需另行决定。
+
+---
+
 ## 2026-10-04: 修复"被中断的抓取下次不再续传"（year 模式按年判定完整性 + 中断状态落盘）
 
 ### 问题

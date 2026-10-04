@@ -949,5 +949,75 @@ class DirectFetchTests(FetcherTestCase):
         )
         self.assertEqual(self.fetcher._year_count_map(merged), {2023: 1, 2024: 3})
 
+    def test_direct_fetch_marks_empty_first_page_when_rows_expected(self):
+        """Scholar reports 49 citations but the list returns no rows at all.
+
+        That is an empty/unrecognised response, not an exhausted list, and it
+        used to be recorded as a plain iterator_exhausted fetch — leaving the
+        paper to be re-fetched silently forever with no clue why.
+        """
+        fetch_policy = {
+            "strategy": "direct",
+            "pub_year": 2020,
+            "reason": "below_year_threshold",
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = os.path.join(tmpdir, "paper.json")
+            with patch.object(scholar_citation.scholarly, "citedby", return_value=iter(())), \
+                 patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+                citations = self.fetcher._fetch_citations_with_progress(
+                    citedby_url="/scholar?oi=bibs&hl=en&cites=18333,70339",
+                    cache_path=cache_path,
+                    title="Paper",
+                    num_citations=49,
+                    pub_url="https://example.com/paper",
+                    pub_year="2020",
+                    resume_from=[],
+                    completed_years_in_current_run=[],
+                    prev_scholar_count=0,
+                    fetch_policy=fetch_policy,
+                )
+
+            saved = self.fetcher._mid_paper_state.get("Paper", {})
+
+        output = fake_stdout.getvalue()
+        self.assertEqual(citations, [])
+        self.assertEqual(
+            saved["direct_fetch_diagnostics"]["termination_reason"], "empty_first_page")
+        self.assertIn("Citation list returned 0 rows for scholar_total=49", output)
+        self.assertIn("empty_first_page", output)
+        self.assertIn("Direct fetch under-fetched", output)
+
+    def test_direct_fetch_keeps_iterator_exhausted_for_genuinely_empty_list(self):
+        """With no citations expected there is nothing suspicious to record."""
+        fetch_policy = {
+            "strategy": "direct",
+            "pub_year": 2020,
+            "reason": "below_year_threshold",
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = os.path.join(tmpdir, "paper.json")
+            with patch.object(scholar_citation.scholarly, "citedby", return_value=iter(())), \
+                 patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+                self.fetcher._fetch_citations_with_progress(
+                    citedby_url="/scholar?cites=1,2",
+                    cache_path=cache_path,
+                    title="Paper",
+                    num_citations=0,
+                    pub_url="https://example.com/paper",
+                    pub_year="2020",
+                    resume_from=[],
+                    completed_years_in_current_run=[],
+                    prev_scholar_count=0,
+                    fetch_policy=fetch_policy,
+                )
+
+            saved = self.fetcher._mid_paper_state.get("Paper", {})
+
+        self.assertEqual(
+            saved["direct_fetch_diagnostics"]["termination_reason"], "iterator_exhausted")
+        self.assertNotIn("Citation list returned 0 rows", fake_stdout.getvalue())
+
+
 if __name__ == '__main__':
     unittest.main()

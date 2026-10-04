@@ -33,7 +33,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 详细项目结构见 `_work_notes.zh.md` 的「项目结构」节（含各模块中文说明），对外简介见 `README.md` 的「Development Notes → Project Structure」节。
 
-简况：`crawler/` 有 18 个模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志）；`tests/` 有 145 个测试，10 个文件。
+简况：`crawler/` 有 18 个模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志）；`tests/` 有 158 个测试，10 个文件。
 
 ### 新增模块（2025-07）
 
@@ -61,7 +61,12 @@ The program always runs in two sequential phases from `main()`:
 ### Citation fetch strategy
 
 Status is derived from **current counts and diagnostics**, not from persisted `complete` flags:
-- Normal runs skip a paper when `num_citations_seen >= scholar_total`
+- Direct mode: skip when `num_citations_seen >= scholar_total`
+- Year mode: skip only when **every** year covers its own probe
+  (`seen_total >= histogram_count` in the per-year records) *and* the aggregate
+  holds.  The aggregate alone is not enough: years whose bucket exceeds the
+  probe prop up `histogram_total` and can hide a short year, so a paper with
+  unfetched citations would be skipped forever.
 - `--fetch-mode {rough,normal,force}` controls re-fetch aggressiveness
 - `scholar_changed` flag triggers re-fetch when Scholar count changes even for complete papers
 
@@ -69,6 +74,9 @@ Papers with `>= YEAR_BASED_THRESHOLD (50)` citations switch to year-by-year fetc
 - Supports resume via `completed_year_segments` and `partial_year_start` offsets
 - Oldest→newest year order
 - Year range is determined by `probe_citation_start_year()` via the Scholar histogram DOM
+- An interrupted fetch persists the in-run snapshot (citations fetched so far +
+  the live probe) when the output is written, so a short year stays visible on
+  the next run instead of the paper looking complete
 
 ### scholarly patch layer (`crawler/scholarly_session.py`)
 

@@ -68,6 +68,11 @@ class SessionContext:
     next_refresh_at: int = 0
     last_scholar_url: str = ""
     current_attempt_url: Optional[str] = None
+    # Evidence for the last citation page that came back with no result rows.
+    # Set by patched_load_url; read by callers that know how many rows were
+    # expected, so an empty/blocked response is not silently recorded as
+    # "fetched, 0 citations".
+    last_page_evidence: Optional[dict] = None
 
     # injected cookies / headers (populated by _inject_cookies_from_curl)
     injected_cookies: dict = field(default_factory=dict)
@@ -90,6 +95,96 @@ class SessionContext:
     format_year_count_summary_fn: object = None  # callable(counts) -> str
     format_year_set_summary_fn: object = None    # callable(years) -> str
     first_page_prompt_fn: object = None        # callable() -> bool, fired once before first request
+
+
+# ---------------------------------------------------------------------------
+# Citation page evidence
+#
+# A citation page can come back as HTTP 200 with zero result rows: scholarly
+# only rejects pages carrying a captcha id, so an empty result set, a consent
+# page or an unrecognised interstitial all reach the parser as "no rows".  The
+# iterator then simply ends, no exception is raised, and the paper is recorded
+# as "fetched, saw 0" — indistinguishable from a genuinely empty citation list,
+# and re-fetched forever.  These helpers keep the page-level evidence so the run
+# log and the persisted diagnostics can tell those cases apart.
+# ---------------------------------------------------------------------------
+
+# Same ids scholarly treats as a captcha (crawler/scholarly_session.py mirrors
+# scholarly/_navigator.py _has_captcha) plus the dos-captcha body class.
+_PAGE_CAPTCHA_IDS = ('gs_captcha_ccl', 'recaptcha', 'captcha-form')
+_PAGE_CAPTCHA_CLASSES = ('rc-doscaptcha-body',)
+
+# Text markers for pages that are not a citation list at all.
+_PAGE_TEXT_MARKERS = (
+    ('consent', ('before you continue', 'consent.google.com')),
+    ('unusual_traffic', ('unusual traffic', 'our systems have detected')),
+    ('no_results', ('did not match any', 'no results found')),
+)
+
+
+def is_citation_list_url(url):
+    """Return True for Scholar citation-list URLs (both direct and year-based)."""
+    return bool(url) and 'cites=' in str(url)
+
+
+def citation_page_evidence(soup):
+    """Return page-level evidence for a citation page, or None.
+
+    Keys: rows (int), results_container (bool), result_banner (str),
+    markers (list of str).  Never raises: diagnostics must not break fetching.
+    """
+    try:
+        if soup is None:
+            return None
+        rows = (len(soup.select('div.gs_r.gs_or'))
+                + len(soup.find_all('div', class_='gsc_mpat_ttl')))
+        container = soup.find(id='gs_res_ccl_mid') is not None
+        banner_el = soup.find('div', class_='gs_ab_mdw')
+        banner = ' '.join(banner_el.get_text(' ', strip=True).split())[:60] if banner_el else ''
+        markers = []
+        if (any(soup.find(id=cap_id) is not None for cap_id in _PAGE_CAPTCHA_IDS)
+                or any(soup.find(class_=cls) is not None for cls in _PAGE_CAPTCHA_CLASSES)):
+            markers.append('captcha')
+        text = soup.get_text(' ', strip=True).lower()
+        for name, needles in _PAGE_TEXT_MARKERS:
+            if any(needle in text for needle in needles):
+                markers.append(name)
+        return {
+            'rows': rows,
+            'results_container': container,
+            'result_banner': banner,
+            'markers': markers,
+        }
+    except Exception:
+        return None
+
+
+def format_page_evidence(evidence):
+    """Return ' [no results container; banner=...; markers=...]' or ''."""
+    if not isinstance(evidence, dict):
+        return ''
+    parts = []
+    if not evidence.get('results_container'):
+        parts.append('no results container')
+    if evidence.get('result_banner'):
+        parts.append(f"banner={evidence['result_banner']!r}")
+    if evidence.get('markers'):
+        parts.append('markers=' + ','.join(evidence['markers']))
+    return f" [{'; '.join(parts)}]" if parts else ''
+
+
+def record_zero_row_citation_page(ctx, soup):
+    """Store and log the evidence for a citation page that returned no rows.
+
+    Called from the page loader — the only place that sees the raw page — so a
+    zero-row response always leaves a trace instead of looking like a genuinely
+    empty citation list.  Returns the evidence dict (or None).
+    """
+    evidence = citation_page_evidence(soup)
+    ctx.last_page_evidence = evidence
+    print(f"        Page items: 0 (no citation rows){format_page_evidence(evidence)}",
+          flush=True)
+    return evidence
 
 
 # ---------------------------------------------------------------------------
@@ -502,6 +597,11 @@ def patch_scholarly(ctx: SessionContext) -> None:
         self_iter._page_size = page_size if page_size and page_size > 0 else None
         if page_size:
             print(f"        Page items: {page_size}", flush=True)
+        elif is_citation_list_url(url):
+            # A citation page with zero result rows used to be logged silently,
+            # which made a blocked/empty response look like a genuinely empty
+            # citation list.
+            record_zero_row_citation_page(ctx, soup)
 
         ctx.last_scholar_url = ctx.current_attempt_url
         return result

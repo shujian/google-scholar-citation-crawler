@@ -152,6 +152,26 @@ If the script is interrupted (Ctrl+C, timeout, or error):
 2. Simply re-run the same command to resume
 3. Completed papers and completed year segments within a paper are skipped
 
+## Diagnosing Empty Pages
+
+A citation request can succeed (HTTP 200, no exception) yet come back with no
+result rows — an empty result set, a consent page, or an unrecognised
+interstitial. That used to be logged silently, so such a paper just looked like
+it had no citations and was re-fetched forever with no explanation. It is now
+recorded:
+
+- `Page items: 0 (no citation rows) [<evidence>]` — printed for a citation page
+  with no rows, with the evidence: whether the results container was present, the
+  result-count banner text, and markers (`captcha`, `consent`, `unusual_traffic`,
+  `no_results`). `scholarly` already rejects captcha pages itself, so a line
+  without markers means the page was accepted but simply had no rows.
+- `termination=empty_first_page` — a direct-mode list returned no rows while
+  Scholar reports citations for the paper
+- `termination=empty_page` — a probed year (histogram says N > 0) returned no rows
+
+Expectations are unchanged: an empty page still records "no new citations" for
+this run, it is now just visible and distinguishable in the state.
+
 ## Year-Based Fetch Details
 
 Papers with ≥ 50 **total** citations switch to year-by-year fetch mode:
@@ -195,7 +215,7 @@ crawler/
   output_state.py            # PaperFetchState / PaperState + output file _fetch_state read/write
   pub_info.py                # PubInfo dataclass for publication field normalization
   cli.py                     # parse_args() + _run_main()
-tests/                       # 145 unit tests, no network required
+tests/                       # 158 unit tests, no network required
 ```
 
 ### Running Tests

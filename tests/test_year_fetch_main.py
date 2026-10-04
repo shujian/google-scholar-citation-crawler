@@ -464,5 +464,151 @@ class YearFetchMainTests(FetcherTestCase):
         self.assertIn("2026(2/3)", state.year_shortfall_summary())
 
 
+    def test_year_empty_page_recorded_when_probe_expects_citations(self):
+        """A year whose probe says N>0 but whose page returns no rows at all must
+        be recorded as empty_page; a year with no probe data stays exhausted."""
+        from crawler.output_state import PaperFetchState
+
+        pages = {}  # every year query comes back with no rows
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                start = 0
+                if "start=" in url:
+                    start = int(url.split("start=")[1].split("&")[0])
+                year = int(url.split("as_ylo=")[1].split("&")[0])
+                self.items = list(pages.get((year, start), []))
+                self.index = 0
+                self._finished_current_page = False
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                    raise StopIteration
+                item = self.items[self.index]
+                self.index += 1
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                return item
+
+        def fake_probe(citedby_url, fetch_ctx=None, num_citations=None, pub_year=None):
+            counts = {2025: 2}
+            self.fetcher._probed_year_counts = counts
+            if fetch_ctx is not None:
+                fetch_ctx.probed_year_counts = counts
+                fetch_ctx.probed_year_count_complete = True
+            return 2025
+
+        self.fetcher._probe_citation_start_year = fake_probe
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            self.fetcher._fetch_citations_with_progress(
+                citedby_url="/scholar?cites=123",
+                cache_path=None,
+                title="Paper",
+                num_citations=2,
+                pub_url="https://example.com/paper",
+                pub_year="2025",
+                resume_from=[],
+                completed_years_in_current_run=[],
+                prev_scholar_count=0,
+                fetch_policy={"strategy": "year", "pub_year": 2025,
+                              "reason": "at_or_above_year_threshold"},
+            )
+
+        output = fake_stdout.getvalue()
+        saved = self.fetcher._mid_paper_state.get("Paper", {})
+        records = {r["year"]: r for r in PaperFetchState.from_dict(saved).year_records}
+        # 2025 is probed (2 expected) so its empty page must survive in the state.
+        self.assertEqual(records[2025]["termination_reason"], "empty_page")
+        self.assertEqual(records[2025]["histogram_count"], 2)
+        self.assertEqual(records[2025]["seen_total"], 0)
+        # 2026 has neither probe data nor rows — nothing to record about it.
+        self.assertNotIn(2026, records)
+        self.assertIn("Year 2025: page returned 0 rows but the probe says 2", output)
+        self.assertIn("recording termination as empty_page", output)
+
+
+    def test_probed_year_with_no_rows_keeps_paper_incomplete(self):
+        """A probed year that came back with no rows must stay visible.
+
+        Dropping its record also drops its probe count from the aggregate, which
+        made the paper look complete while a whole year was still missing — so
+        it was never re-fetched.
+        """
+        from crawler.output_state import PaperFetchState
+
+        pages = {
+            (2024, 0): [
+                {"bib": {"title": "A-2024", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "u1", "cites_id": "cid1"},
+                {"bib": {"title": "B-2024", "author": ["B"], "venue": "V", "pub_year": "2024"}, "pub_url": "u2", "cites_id": "cid2"},
+            ],
+            # 2026 is probed with 3 citations but the page returns no rows.
+        }
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                start = 0
+                if "start=" in url:
+                    start = int(url.split("start=")[1].split("&")[0])
+                year = int(url.split("as_ylo=")[1].split("&")[0])
+                self.items = list(pages.get((year, start), []))
+                self.index = 0
+                self._finished_current_page = False
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                    raise StopIteration
+                item = self.items[self.index]
+                self.index += 1
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                return item
+
+        def fake_probe(citedby_url, fetch_ctx=None, num_citations=None, pub_year=None):
+            counts = {2024: 2, 2026: 3}
+            self.fetcher._probed_year_counts = counts
+            if fetch_ctx is not None:
+                fetch_ctx.probed_year_counts = counts
+                fetch_ctx.probed_year_count_complete = True
+            return 2024
+
+        self.fetcher._probe_citation_start_year = fake_probe
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._fetch_citations_with_progress(
+                citedby_url="/scholar?cites=123",
+                cache_path=None,
+                title="Paper",
+                num_citations=5,
+                pub_url="https://example.com/paper",
+                pub_year="2024",
+                resume_from=[],
+                completed_years_in_current_run=[],
+                prev_scholar_count=0,
+                fetch_policy={"strategy": "year", "pub_year": 2024,
+                              "reason": "at_or_above_year_threshold"},
+            )
+
+        saved = self.fetcher._mid_paper_state.get("Paper", {})
+        state = PaperFetchState.from_dict(saved)
+        records = {r["year"]: r for r in state.year_records}
+        self.assertEqual(records[2024]["seen_total"], 2)
+        self.assertEqual(records[2026]["histogram_count"], 3)
+        self.assertEqual(records[2026]["seen_total"], 0)
+        self.assertEqual(records[2026]["termination_reason"], "empty_page")
+        # The aggregate keeps 2026's probe count, so the paper stays incomplete
+        # and the empty year is retried on the next run.
+        self.assertEqual(state.year_fetch_diagnostics["histogram_total"], 5)
+        self.assertFalse(state.is_complete(current_scholar_total=5, pub_year="2024"))
+
+
 if __name__ == '__main__':
     unittest.main()

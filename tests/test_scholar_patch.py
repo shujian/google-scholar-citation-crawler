@@ -266,5 +266,103 @@ class ScholarPatchAndIdentityTests(FetcherTestCase):
 
 
 
+import bs4
+import types as _types
+from crawler.scholarly_session import (
+    citation_page_evidence,
+    format_page_evidence,
+    is_citation_list_url,
+    record_zero_row_citation_page,
+)
+
+
+class CitationPageEvidenceTests(unittest.TestCase):
+    """Page-level diagnostics for citation pages that return no rows."""
+
+    @staticmethod
+    def _soup(html):
+        return bs4.BeautifulSoup(html, 'html.parser')
+
+    def test_is_citation_list_url_matches_direct_and_year_urls(self):
+        self.assertTrue(is_citation_list_url('/scholar?oi=bibs&hl=en&cites=1,2'))
+        self.assertTrue(is_citation_list_url(
+            '/scholar?as_ylo=2021&as_yhi=2021&hl=en&as_sdt=2005&cites=9&scipsc='))
+        self.assertFalse(is_citation_list_url('/citations?user=X&hl=en'))
+        self.assertFalse(is_citation_list_url(''))
+        self.assertFalse(is_citation_list_url(None))
+
+    def test_full_page_reports_rows_container_and_no_markers(self):
+        rows = ''.join(
+            '<div class="gs_r gs_or gs_scl"><div class="gs_ri">'
+            f'<h3 class="gs_rt">Title {idx}</h3></div></div>'
+            for idx in range(3)
+        )
+        evidence = citation_page_evidence(
+            self._soup(f'<div id="gs_res_ccl_mid">{rows}</div>'))
+        self.assertEqual(evidence['rows'], 3)
+        self.assertTrue(evidence['results_container'])
+        self.assertEqual(evidence['markers'], [])
+        self.assertEqual(format_page_evidence(evidence), '')
+
+    def test_empty_results_page_reports_banner_and_no_results_marker(self):
+        evidence = citation_page_evidence(self._soup(
+            '<div id="gs_res_ccl_mid"></div>'
+            '<div class="gs_ab_mdw">Your search did not match any documents.</div>'))
+        self.assertEqual(evidence['rows'], 0)
+        self.assertIn('did not match', evidence['result_banner'])
+        self.assertIn('no_results', evidence['markers'])
+
+    def test_captcha_page_is_marked_and_reports_no_container(self):
+        evidence = citation_page_evidence(self._soup('<div id="gs_captcha_ccl"></div>'))
+        self.assertEqual(evidence['rows'], 0)
+        self.assertFalse(evidence['results_container'])
+        self.assertIn('captcha', evidence['markers'])
+
+    def test_interstitial_and_consent_markers(self):
+        cases = [
+            ('<html><body>Our systems have detected unusual traffic</body></html>',
+             'unusual_traffic'),
+            ('<html><body>Before you continue to Google</body></html>', 'consent'),
+        ]
+        for html, marker in cases:
+            with self.subTest(marker=marker):
+                evidence = citation_page_evidence(self._soup(html))
+                self.assertIn(marker, evidence['markers'])
+                self.assertIn(marker, format_page_evidence(evidence))
+
+    def test_evidence_returns_none_instead_of_raising(self):
+        self.assertIsNone(citation_page_evidence(None))
+        # An object without the soup API must not break the fetch path.
+        self.assertIsNone(citation_page_evidence(object()))
+
+    def test_format_page_evidence_lists_every_signal(self):
+        text = format_page_evidence({
+            'rows': 0, 'results_container': False,
+            'result_banner': 'no results', 'markers': ['captcha'],
+        })
+        self.assertIn('no results container', text)
+        self.assertIn("banner='no results'", text)
+        self.assertIn('markers=captcha', text)
+        self.assertEqual(format_page_evidence(None), '')
+
+    def test_record_zero_row_citation_page_logs_and_stores_evidence(self):
+        ctx = _types.SimpleNamespace(last_page_evidence=None)
+        soup = self._soup('<html><body>Our systems have detected unusual traffic</body></html>')
+        with patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            evidence = record_zero_row_citation_page(ctx, soup)
+        output = fake_stdout.getvalue()
+        self.assertIn('Page items: 0 (no citation rows)', output)
+        self.assertIn('markers=unusual_traffic', output)
+        self.assertIs(ctx.last_page_evidence, evidence)
+
+    def test_record_zero_row_citation_page_without_soup_still_logs(self):
+        ctx = _types.SimpleNamespace(last_page_evidence='stale')
+        with patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            evidence = record_zero_row_citation_page(ctx, None)
+        self.assertIsNone(evidence)
+        self.assertIsNone(ctx.last_page_evidence)
+        self.assertIn('Page items: 0 (no citation rows)', fake_stdout.getvalue())
+
+
 if __name__ == '__main__':
     unittest.main()
