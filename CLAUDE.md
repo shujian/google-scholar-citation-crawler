@@ -33,7 +33,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 详细项目结构见 `_work_notes.zh.md` 的「项目结构」节（含各模块中文说明），对外简介见 `README.md` 的「Development Notes → Project Structure」节。
 
-简况：`crawler/` 有 18 个模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志）；`tests/` 有 119 个测试，10 个文件。
+简况：`crawler/` 有 18 个模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志）；`tests/` 有 145 个测试，10 个文件。
 
 ### 新增模块（2025-07）
 

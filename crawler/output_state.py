@@ -85,7 +85,10 @@ class PaperFetchState:
     _citedby_url: str = ""
     _fetch_strategy: Optional[str] = None
     _num_citations_on_scholar: Optional[int] = None
-    _complete_fetch_attempt: bool = False
+    # Tri-state: True = last attempt finished with complete data, False = last
+    # attempt genuinely did not finish, None = unknown (state predates the flag,
+    # or the key was never written).  None must not be read as "did not finish".
+    _complete_fetch_attempt: Optional[bool] = None
     _year_fetch_diagnostics: Optional[dict] = None
     _direct_fetch_diagnostics: Optional[dict] = None
     _year_records: Optional[list] = None
@@ -135,8 +138,8 @@ class PaperFetchState:
             _citedby_url=d.get('citedby_url', ''),
             _fetch_strategy=d.get('fetch_strategy'),
             _num_citations_on_scholar=_coerce_int(d.get('num_citations_on_scholar')),
-            _complete_fetch_attempt=bool(
-                d.get('complete_fetch_attempt', d.get('complete', False))
+            _complete_fetch_attempt=_coerce_optional_bool(
+                d.get('complete_fetch_attempt', d.get('complete'))
             ),
             _year_fetch_diagnostics=yfd,
             _direct_fetch_diagnostics=_normalize_direct_diagnostics(
@@ -238,10 +241,14 @@ class PaperFetchState:
 
     def is_complete(self, current_scholar_total=None, pub_year='N/A',
                     year_based_threshold=50):
-        from crawler.citation_cache import is_data_complete
+        from crawler.citation_cache import is_data_complete, year_records_data_complete
         strategy, summary = self._infer_strategy_and_summary()
         if strategy is None:
             return False
+        if strategy == 'year':
+            # Year mode is judged per year: the aggregate totals alone hide a
+            # year whose own bucket is short when other years over-count.
+            return year_records_data_complete(self.year_records, summary)
         return is_data_complete(strategy, summary)
 
     def _infer_strategy_and_summary(self):
@@ -277,8 +284,21 @@ class PaperFetchState:
             label = 'scholar_total'
         if target is not None and seen is not None:
             cmp_sym = '≥' if (seen or 0) >= (target or 0) else '<'
-            return f'  {strategy}: seen_total={seen} {cmp_sym} {label}={target}'
+            diag = f'  {strategy}: seen_total={seen} {cmp_sym} {label}={target}'
+            if strategy == 'year':
+                shortfall = self.year_shortfall_summary()
+                if shortfall:
+                    diag += f'; short years: {shortfall}'
+            return diag
         return f'  {strategy}: diagnostics summary absent'
+
+    def year_shortfall_summary(self):
+        """Return 'YYYY(seen/histogram)' for years whose bucket is short, else ''."""
+        from crawler.citation_cache import year_records_shortfall_years
+        return ', '.join(
+            f'{year}({seen}/{histogram})'
+            for year, seen, histogram in year_records_shortfall_years(self.year_records)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +338,17 @@ class PaperState:
 def _coerce_int(value):
     try: return int(value)
     except (TypeError, ValueError): return None
+
+
+def _coerce_optional_bool(value):
+    """Return True/False for an explicit value, None when absent.
+
+    Used for tri-state flags where "unknown" must stay distinguishable from an
+    explicit False.
+    """
+    if value is None:
+        return None
+    return bool(value)
 
 
 def _normalize_direct_diagnostics(dfd):

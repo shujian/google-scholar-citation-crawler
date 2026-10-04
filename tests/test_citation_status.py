@@ -452,7 +452,8 @@ class CitationStatusTests(FetcherTestCase):
 
         self.assertEqual(status, "complete")
 
-    def test_citation_status_year_complete_when_seen_covers_histogram_total(self):
+    def test_citation_status_year_complete_when_every_year_covers_its_probe(self):
+        """Aggregate satisfied AND every year covering its own probe → complete."""
         pub = {"title": "Paper", "num_citations": 109, "year": "2020"}
         cached = {
             "citations": [
@@ -463,18 +464,18 @@ class CitationStatusTests(FetcherTestCase):
             "num_citations_seen": 109,
             "year_fetch_diagnostics": {
                 "2020": {"year": 2020, "histogram_count": 5, "cached_total": 5, "seen_total": 5, "dedup_count": 0, "termination_reason": "short_page_stop"},
-                "2021": {"year": 2021, "histogram_count": 15, "cached_total": 14, "seen_total": 14, "dedup_count": 0, "termination_reason": "short_page_stop"},
-                "2022": {"year": 2022, "histogram_count": 23, "cached_total": 21, "seen_total": 21, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                "2021": {"year": 2021, "histogram_count": 15, "cached_total": 15, "seen_total": 15, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                "2022": {"year": 2022, "histogram_count": 23, "cached_total": 22, "seen_total": 23, "dedup_count": 1, "termination_reason": "short_page_stop"},
                 "2023": {"year": 2023, "histogram_count": 24, "cached_total": 24, "seen_total": 24, "dedup_count": 0, "termination_reason": "short_page_stop"},
-                "2024": {"year": 2024, "histogram_count": 17, "cached_total": 17, "seen_total": 17, "dedup_count": 0, "termination_reason": "short_page_stop"},
-                "2025": {"year": 2025, "histogram_count": 24, "cached_total": 23, "seen_total": 23, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                "2024": {"year": 2024, "histogram_count": 17, "cached_total": 16, "seen_total": 17, "dedup_count": 1, "termination_reason": "short_page_stop"},
+                "2025": {"year": 2025, "histogram_count": 24, "cached_total": 24, "seen_total": 24, "dedup_count": 0, "termination_reason": "short_page_stop"},
                 "2026": {"year": 2026, "histogram_count": 1, "cached_total": 1, "seen_total": 1, "dedup_count": 0, "termination_reason": "short_page_stop"},
                     "histogram_total": 109,
                     "scholar_total": 109,
                     "cached_total": 105,
                     "cached_year_total": 105,
                     "seen_total": 109,
-                    "dedup_count": 4,
+                    "dedup_count": 2,
             },
         }
 
@@ -482,6 +483,43 @@ class CitationStatusTests(FetcherTestCase):
         status = self.fetcher._citation_status(pub)
 
         self.assertEqual(status, "complete")
+
+    def test_citation_status_year_partial_when_one_year_short_despite_aggregate(self):
+        """A year whose own bucket is short must not be hidden by other years
+        over-counting the probe.
+
+        2024 cached 177 vs probe 169 (over-count) lifts the aggregate seen_total
+        above histogram_total, so the aggregate comparison alone reports
+        complete — while 2026 (cached 64 vs probe 66) still has unfetched
+        citations that would then never be resumed.
+        """
+        pub = {"title": "Paper", "num_citations": 236, "year": "2017"}
+        cached = {
+            "citations": [
+                {"title": f"A-{idx}", "authors": "A", "venue": "V", "year": "2024", "url": f"u{idx}"}
+                for idx in range(177)
+            ] + [
+                {"title": f"B-{idx}", "authors": "A", "venue": "V", "year": "2026", "url": f"v{idx}"}
+                for idx in range(64)
+            ],
+            "num_citations_on_scholar": 236,
+            "num_citations_seen": 241,
+            "year_fetch_diagnostics": {
+                "2024": {"year": 2024, "histogram_count": 169, "cached_total": 177, "seen_total": 177, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                "2026": {"year": 2026, "histogram_count": 66, "cached_total": 64, "seen_total": 64, "dedup_count": 0, "termination_reason": "short_page_stop"},
+                    "histogram_total": 235,
+                    "scholar_total": 236,
+                    "cached_total": 241,
+                    "cached_year_total": 241,
+                    "seen_total": 241,
+                    "dedup_count": 0,
+            },
+        }
+
+        self.fetcher._paper_states = {"Paper": cached}
+        status = self.fetcher._citation_status(pub)
+
+        self.assertEqual(status, "partial")
 
     def test_resolve_refresh_strategy_rehydrates_year_fetch_diagnostics(self):
         pub = {"title": "Paper", "num_citations": 10, "year": "2024"}
@@ -640,7 +678,77 @@ class CitationStatusTests(FetcherTestCase):
         self.assertEqual(status, "complete")
 
 
+from crawler.citation_cache import (
+    iter_year_records,
+    year_record_gap,
+    year_records_gap,
+    year_records_data_complete,
+    year_records_shortfall_years,
+)
 from crawler.citation_identity import extract_citation_info, _extract_cid_from_scholarbib
+
+
+class YearRecordsCompletenessTests(unittest.TestCase):
+    """Per-year year-mode completeness helpers (crawler/citation_cache.py)."""
+
+    def test_iter_year_records_accepts_list_and_mapping(self):
+        records = [{"year": 2024, "histogram_count": 1, "seen_total": 1}]
+        self.assertEqual(list(iter_year_records(records)), records)
+        self.assertEqual(list(iter_year_records({"2024": records[0]})), records)
+        self.assertEqual(list(iter_year_records(None)), [])
+        self.assertEqual(list(iter_year_records([None, "x", 3])), [])
+
+    def test_year_record_gap_uses_histogram_count_then_scholar_total(self):
+        self.assertEqual(year_record_gap({"histogram_count": 10, "seen_total": 7}), 3)
+        self.assertEqual(year_record_gap({"scholar_total": 10, "seen_total": 7}), 3)
+        self.assertEqual(year_record_gap({"histogram_count": 10, "seen_total": 10}), 0)
+        self.assertEqual(year_record_gap({"histogram_count": 10, "seen_total": 12}), 0)
+        self.assertEqual(year_record_gap({}), 0)
+
+    def test_year_records_gap_sums_per_year_shortfalls(self):
+        records = [
+            {"year": 2024, "histogram_count": 169, "seen_total": 177},
+            {"year": 2026, "histogram_count": 66, "seen_total": 64},
+        ]
+        needed, seen, histogram = year_records_gap(records)
+        self.assertEqual(needed, 2)
+        self.assertEqual(seen, 241)
+        self.assertEqual(histogram, 235)
+        self.assertIsNone(year_records_gap(None))
+
+    def test_year_records_data_complete_requires_every_year_covered(self):
+        summary = {"histogram_total": 235, "seen_total": 241}
+        masked = [
+            {"year": 2024, "histogram_count": 169, "seen_total": 177},
+            {"year": 2026, "histogram_count": 66, "seen_total": 64},
+        ]
+        covered = [
+            {"year": 2024, "histogram_count": 169, "seen_total": 169},
+            {"year": 2026, "histogram_count": 66, "seen_total": 66},
+        ]
+        self.assertFalse(year_records_data_complete(masked, summary))
+        self.assertTrue(year_records_data_complete(covered, summary))
+
+    def test_year_records_data_complete_falls_back_to_aggregate_without_records(self):
+        self.assertTrue(year_records_data_complete(
+            None, {"histogram_total": 10, "seen_total": 10}))
+        self.assertFalse(year_records_data_complete(
+            None, {"histogram_total": 10, "seen_total": 9}))
+        self.assertFalse(year_records_data_complete([], None))
+
+    def test_year_records_data_complete_requires_aggregate_too(self):
+        """Records can cover every year while the summary still claims more."""
+        records = [{"year": 2024, "histogram_count": 5, "seen_total": 5}]
+        self.assertFalse(year_records_data_complete(
+            records, {"histogram_total": 9, "seen_total": 5}))
+
+    def test_year_records_shortfall_years_lists_year_and_counts(self):
+        records = [
+            {"year": 2024, "histogram_count": 169, "seen_total": 177},
+            {"year": 2026, "histogram_count": 66, "seen_total": 64},
+        ]
+        self.assertEqual(year_records_shortfall_years(records), [(2026, 64, 66)])
+        self.assertEqual(year_records_shortfall_years([]), [])
 
 
 class CitationIdentityTests(unittest.TestCase):

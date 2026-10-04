@@ -219,6 +219,62 @@ class PaperFetchStateTests(unittest.TestCase):
         })
         self.assertFalse(fs.is_complete(current_scholar_total=110, pub_year="2020"))
 
+    def test_is_complete_year_mode_partial_when_one_year_is_short(self):
+        """Aggregate totals can hide a year whose own bucket is short."""
+        fs = PaperFetchState.from_dict({
+            "title": "T", "fetch_strategy": "year",
+            "year_fetch_diagnostics": {
+                "2024": {"year": 2024, "histogram_count": 169, "cached_total": 177,
+                         "seen_total": 177, "dedup_count": 0},
+                "2026": {"year": 2026, "histogram_count": 66, "cached_total": 64,
+                         "seen_total": 64, "dedup_count": 0},
+                "histogram_total": 235, "seen_total": 241,
+            },
+        })
+        self.assertFalse(fs.is_complete(current_scholar_total=236, pub_year="2017"))
+
+    def test_is_complete_year_mode_complete_when_every_year_covers_probe(self):
+        fs = PaperFetchState.from_dict({
+            "title": "T", "fetch_strategy": "year",
+            "year_fetch_diagnostics": {
+                "2024": {"year": 2024, "histogram_count": 169, "cached_total": 169,
+                         "seen_total": 169, "dedup_count": 0},
+                "2026": {"year": 2026, "histogram_count": 66, "cached_total": 65,
+                         "seen_total": 66, "dedup_count": 1},
+                "histogram_total": 235, "seen_total": 235,
+            },
+        })
+        self.assertTrue(fs.is_complete(current_scholar_total=236, pub_year="2017"))
+        self.assertEqual(fs.year_shortfall_summary(), '')
+
+    def test_completeness_diag_lists_short_years(self):
+        fs = PaperFetchState.from_dict({
+            "title": "T", "fetch_strategy": "year",
+            "year_fetch_diagnostics": {
+                "2026": {"year": 2026, "histogram_count": 66, "cached_total": 64,
+                         "seen_total": 64, "dedup_count": 0},
+                "histogram_total": 66, "seen_total": 66,
+            },
+        })
+        self.assertEqual(fs.year_shortfall_summary(), '2026(64/66)')
+        self.assertIn('short years: 2026(64/66)', fs.completeness_diag())
+
+    def test_complete_fetch_attempt_is_tri_state(self):
+        """A missing flag means 'unknown', an explicit False means 'did not finish'."""
+        self.assertIsNone(PaperFetchState.from_dict({"title": "T"}).complete_fetch_attempt)
+        self.assertIsNone(PaperFetchState().complete_fetch_attempt)
+        self.assertIsNone(PaperFetchState.from_dict(
+            {"title": "T", "complete_fetch_attempt": None}).complete_fetch_attempt)
+        self.assertFalse(PaperFetchState.from_dict(
+            {"title": "T", "complete_fetch_attempt": False}).complete_fetch_attempt)
+        self.assertTrue(PaperFetchState.from_dict(
+            {"title": "T", "complete_fetch_attempt": True}).complete_fetch_attempt)
+
+    def test_unknown_complete_fetch_attempt_roundtrips_as_none(self):
+        out = PaperFetchState.from_dict({"title": "T"}).to_dict()
+        self.assertIsNone(out["complete_fetch_attempt"])
+        self.assertIsNone(PaperFetchState.from_dict(out).complete_fetch_attempt)
+
     def test_is_complete_no_diagnostics_returns_false(self):
         """Without diagnostics summary, completeness cannot be verified → False."""
         fs = PaperFetchState.from_dict({

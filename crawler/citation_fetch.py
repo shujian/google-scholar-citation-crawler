@@ -17,7 +17,7 @@ import re
 import time
 from datetime import datetime
 
-from crawler.citation_cache import is_data_complete
+from crawler.citation_cache import is_data_complete, year_records_data_complete
 from crawler.fetch_session import BatchFetchSession
 
 from scholarly import scholarly
@@ -298,10 +298,14 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
                 )
         return fetcher._normalize_year_fetch_diagnostics(diagnostics)
 
-    def _compute_data_complete(fetch_finished, is_year, diag_summary):
+    def _compute_data_complete(fetch_finished, is_year, diag_summary, year_records=None):
         if not fetch_finished:
             return False
-        return is_data_complete('year' if is_year else 'direct', diag_summary)
+        if is_year:
+            # Same per-year rule the cross-run status check uses, so the stored
+            # flag cannot contradict is_complete() for the same state.
+            return year_records_data_complete(year_records, diag_summary)
+        return is_data_complete('direct', diag_summary)
 
     def save_progress(fetch_finished, batch=None):
         # fetch_finished: whether the fetch loop ran to completion.
@@ -365,6 +369,7 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
             'complete_fetch_attempt': _compute_data_complete(
                 fetch_finished, is_year,
                 year_fetch_diagnostics_save if is_year else diagnostics_to_save,
+                year_records=year_records_to_save,
             ),
             'completed_years': sorted(year_ctx.completed_year_segments),
             'probed_year_counts': fetcher._dump_year_count_map(

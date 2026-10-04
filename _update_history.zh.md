@@ -4,6 +4,50 @@
 
 ---
 
+## 2026-10-04: 修复"被中断的抓取下次不再续传"（year 模式按年判定完整性 + 中断状态落盘）
+
+### 问题
+
+一次运行里某篇论文的详细引用没有抓完，下次运行这些未下载的引用不会再被续抓，且这一点体现在 Fetch plan 上（这些论文从计划里消失）。
+
+### 根因（两条独立缺陷）
+
+**1. year 模式用跨年聚合判定完整性，掩盖单年缺口**
+
+`is_data_complete('year', summary)` 只比较 `seen_total >= histogram_total`（各年求和）。当某些年的 cached 超过 probe（Scholar 直方图与缓存桶天然会不一致）时，多出来的量会把另一年（真正没抓全）的缺口抵平 → 判 complete。`_plan_fetch_gap` 用同一口径算出 `needed = 0` → 被 `st != 'missing' and needed <= 0` 过滤 → 计划里"看不到"。
+
+真实实例 `Deep matrix factorization`：2019/2020/2022–2025 各年 cached 超过 probe（合计 +21），抵平了 2021（220/222）与 2026（64/66）的缺口。
+
+**2. 被中断的论文落盘的是"运行开始时的旧状态"，等于抹掉了"这次没抓完"**
+
+`save_progress` 的 in-run 快照（含本次 live probe 与已抓到的引用）只存在于内存 `_mid_paper_state`；`_save_output` 只写 `_paper_states`（被中断的论文不会更新），写完还把 `_mid_paper_state` 清空。于是中断时：本次探到的缺口丢失、已抓到的引用丢失，论文按旧状态（seen ≥ 旧 target）落盘为 complete → 下次不再抓。
+
+真实实例：2026-09-15 那次运行，第 21 篇 `Rethinking document-level NMT` 正在抓 2026 年（probe=5 / cached=4）时被打断，之后一直显示完整——那次只是靠残留的 `scholar_changed` 才被后来的运行救回来。
+
+### 修复
+
+- **`crawler/citation_cache.py`**：新增纯函数 `iter_year_records` / `year_record_gap` / `year_records_gap` / `year_records_shortfall_years` / `year_records_data_complete`（按年判定：每年 `seen_total >= histogram_count`，且仍要求聚合口径成立）。
+- **`crawler/output_state.py`**：`PaperFetchState.is_complete()` 的 year 分支改用 `year_records_data_complete()`；`completeness_diag()` 追加 `; short years: 2026(4/5)`；新增 `year_shortfall_summary()`。
+- **`crawler/citation_fetch.py`**：`_compute_data_complete()` 的 year 分支使用同一按年规则，落盘的 `complete_fetch_attempt` 不再与 `is_complete()` 自相矛盾。
+- **`scholar_citation.py`**：
+  - `_plan_fetch_gap()` year 分支改为"各年缺口之和"，并返回 `short_years` 供展示；Fetch plan 增加 `[short years: ...]` 注记
+  - 计划里被过滤（无缺口）但**仍会处理**的论文单独汇总一行 `Also rechecking N paper(s) ...`，不再无声消失
+  - `_save_output()` 优先使用本次运行的 in-run 快照（含已抓到的引用）；但仅当快照自带 `fetch_strategy` 时才允许覆盖旧状态——direct 模式中途 save 的快照还没有 `fetch_strategy`/`direct_fetch_diagnostics`，覆盖会把论文错判进 year 规则并报 complete（已加回归测试）
+  - `run()` 起始处重置 `_mid_paper_state`
+- `_complete_fetch_attempt` 改为三态（`None` = 未知/遗留），`from_dict` 不再把"键缺失"压成 `False`。
+
+### 验证
+
+- 测试 119 → 145；新增 8 个回归测试，每个都先在旧代码上复现失败再修复：聚合掩盖单年缺口 → partial；plan 缺口按年求和；中断论文落盘保留 live probe 与部分引用；重载后 partial 且计划显示 `2026(4/5)`；write 侧 cfa 与 `is_complete()` 一致；direct 中途快照不得覆盖旧状态；纯函数边界（空/字典形式/缺失字段）。
+- 真实数据（247 篇）零影响：新旧规则下 `need_fetch` 均为 52 篇（当前数据中不存在"已落盘的单年缺口"）；`_save_output` 往返稳定（need_fetch 52→52，引用 9054→9054，无状态翻转）。
+- 顺带撤回一个误判：先前怀疑的"plan 与 status 口径不一致"是验证脚本未复现 `cache_status` 的原地修改所致；逐条比对 2026-09-22 那次运行，计划中 15 篇全部被真正抓取。
+
+### 影响面（重要）
+
+本修复使**今后**中断的抓取能被续抓；对**已经**卡住的历史论文（如 `Academic paper recommendation` 54/55；`complete_fetch_attempt=False` 的 65 篇）不会自动重抓——它们的已落盘状态里没有可观测的单年缺口（差额多来自 year 模式本就不覆盖的 unyeared 引用），若强行按 cfa 重抓会白跑 64 篇。如需清理，宜另做一次针对性补抓。
+
+---
+
 ## 2026-08-13: 每次粘贴 cURL 时联动更新整套浏览器指纹（修复 Edge/Chrome 版本矛盾）
 
 ### 问题

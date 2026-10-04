@@ -2,6 +2,45 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
+## 2026-10-04: 完整性判定为什么必须"按年"，以及中断状态为什么会丢
+
+### year 模式：聚合 `<` 单年
+
+`histogram_total`/`seen_total` 都是各年求和，因此 `Σseen ≥ Σhist` **不蕴含** 每年 `seen ≥ hist`。缓存桶与 Scholar 直方图本来就不一致（缓存里可能有直方图不列的年份、或某年多于 probe），于是"某些年多出来的量"会抵平"另一年真正没抓全的缺口"。
+
+判定口径必须与抓取时的跳过口径一致：`fetch_by_year` 决定跳过某年用的就是 `prev_seen >= live_count`（该年自己的数），所以完整性也必须逐年比较，否则会出现"抓取逻辑认为该年该抓、完整性逻辑认为整篇已完成"的自相矛盾，而赢的总是后者（状态被写成 complete → 不再进 need_fetch）。
+
+落地：
+- `year_records_data_complete(records, summary)` = 聚合成立 **且** 每年 `seen_total >= histogram_count`（无 records 时退化为原聚合规则，保持旧状态兼容）。
+- `year_records_gap(records)` 返回 `(各年缺口之和, Σseen, Σhist)`；Fetch plan 的 `needed` 用它，展示时附 `[short years: 2026(4/5)]`。
+- 逐年的 `seen_total` 在 `_normalize_year_fetch_diagnostics` 里取 `max(记录值, cached+dedup)`，因此只要该年确实抓够过就不会误报缺口——不会引入"永久 incomplete"式的反复重抓。
+
+### 中断状态：`_mid_paper_state` 是内存态，落盘的是运行前旧状态
+
+- `save_progress()` 把每篇论文的完整快照（含本次 live probe 的 `year_records`、已抓到的 `citations`、`direct_resume_state`）写进 `_mid_paper_state`，**只在内存**。
+- 正常收尾时 `_save_output()` 从前一处读到的快照刷新 `_paper_states[title]`，所以"成功的抓取"没问题；但被中断的论文不会走到那一步，`_save_output` 只能写运行开始时的旧状态，并且随后把 `_mid_paper_state` 清空 → 本次的 probe/引用/断点全部蒸发。
+- 后果：不仅断点丢失（`partial_year_start`、`direct_resume_state` 本来就不跨运行持久化），更严重的是**论文被判为完整**，于是下次连"要不要重抓"都不会问。
+
+落地：`_save_output()` 优先取 in-run 快照（状态与 citations 都取），但**只允许自带 `fetch_strategy` 的快照覆盖旧状态**。原因（踩过的坑）：direct 模式中途 save 的快照里 `fetch_strategy`/`direct_fetch_diagnostics` 都还是 `None`（它们要等 batch 跑完才建），而 `_infer_strategy_and_summary()` 会因为存在 `year_records` 把它推断成 year 模式，再按 year 的按年规则判成 complete —— 一篇只抓到 30/45 的 direct 论文就会被写成完整。回归测试 `test_save_output_ignores_direct_snapshot_that_lacks_diagnostics` 固定这个行为。
+
+### `complete_fetch_attempt` 改为三态（None=未知）
+
+历史遗留：该字段 2026-04-17 引入，5 月才补齐"从快照恢复"，期间落下的 `False` 既可能表示"真没跑完"，也可能是"当时没写对"。文件里 `false` 与"键缺失"（旧状态）被 `bool(...)` 压成同一个值，无法区分。现在 `from_dict` 把缺失/`null` 映射为 `None`（未知），显式布尔才是确定值；写入侧用与 `is_complete()` 相同的按年规则计算，保证文件不自相矛盾。**注意：`complete_fetch_attempt == False` 目前不参与任何"要不要抓"的决策**——若要据此重抓，会波及 65 篇陈旧状态（其中只有 1 篇真有可观测缺口）。
+
+### 排查方法论（本次踩的坑）
+
+1. **不要用 `len(citations) vs scholar_total` 判断"抓全没有"**：year 模式不覆盖 unyeared 引用（`histogram_total` 天然小于 `scholar_total`），direct 模式的 dedup 会让 `seen > cached`。权威口径是 diagnostics 的 `seen_total`。
+2. **复现 `cache_status` 的原地修改**再做离线验证：它会把 `num_citations_on_scholar` 同步成档案页计数、必要时置 `scholar_changed`。少了这一步，status 会算成 complete，从而得出"plan 与 status 不一致"的假结论（本次已撤回）。
+3. **日志解析要锚定行首**：`^\[(DIRECT|YEAR)\]` / `^\[N/247\]`，否则会把日志里其他位置的同名文本当成计划项，得出错误的"计划里 X 却没抓"。
+4. 验证"新规则会不会引发大规模重抓"：用真实输出跑一遍 `run()`（`_run_main_loop` 打桩），对比新旧规则的 `need_fetch` 集合。本次为 52 → 52（零新增）。**打桩时务必照抄 `results[:] = [None] * len(publications)`**，否则 `_save_output` 会把空结果写出去（本次在临时副本上踩到过，真实输出未被波及）。
+
+### 已知未修（需产品决策）
+
+- **unyeared 引用**：year 模式按年份翻页，Scholar 直方图不列的引用（无年份）无法被任何年份查询命中，因此 `Collected < Scholar` 的差额是设计使然（`scholar_unyeared_count` 会显示）。若要补齐，需要额外的全量/无年份通道。
+- **direct 模式中断**：快照里没有 dfd，因此只能保住"已抓到的引用"，缺口仍靠旧状态判断（若旧状态完整、只因 `scholar_changed` 才重抓，中断后可能丢掉这次重抓）。彻底解法是让 `save_progress` 在 direct 中途也生成一份 `direct_fetch_diagnostics`。
+
+---
+
 ## 2026-08-13: 浏览器指纹（UA/sec-ch-ua）从 cURL 联动采用的设计
 
 ### 为什么之前写死 Chrome 145
@@ -268,7 +307,7 @@ google-scholar-citation-crawler/
 │   ├── output_state.py          # PaperFetchState / PaperState dataclass + 输出文件 _fetch_state 读写
 │   ├── pub_info.py              # PubInfo dataclass（pub 字段规范化）
 │   └── cli.py                   # parse_args() + _run_main(args)
-├── tests/                       # 单元测试（119 个，不需要网络）
+├── tests/                       # 单元测试（145 个，不需要网络）
 │   ├── conftest.py              # 共享 stubs + FetcherTestCase 基类
 │   ├── test_scholar_patch.py    # scholarly patch URL 日志、cookie 注入、CLI 解析
 │   ├── test_year_fetch_early.py # year fetch early-stop / histogram-authoritative

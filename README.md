@@ -11,7 +11,7 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 - **Incremental Caching**: Re-fetches only papers whose cache is incomplete; year-based papers use a per-year histogram to decide which years need refreshing
 - **Year-Based Fetching**: Papers with many citations (configurable threshold, default ≥ 50) are fetched year-by-year (oldest → newest), skipping years whose cached count already matches Scholar's histogram
 - **Dedup Handling**: Deduplicates citations using Scholar-native `cites_id` when available, falling back to `title + venue/authors` metadata; tolerates Scholar self-duplicates
-- **Resume Support**: Interrupted fetches resume from the last checkpoint; per-year progress is saved so mid-paper interruptions recover gracefully
+- **Resume Support**: Interrupted fetches resume from the last checkpoint; on exit the in-flight paper's state (citations fetched so far + the live year probe) is written to the output, so a year left short is re-fetched next run instead of being reported complete
 - **Anti-Ban Strategies**: HTTP/2 via scholarly's native `httpx` client with full browser headers (fingerprint adopted from the injected browser cURL), randomized 45–90 s delays, mandatory 3–6 min breaks every 8–12 pages, browser header simulation
 - **Interactive Captcha Bypass**: `--interactive-captcha` lets you paste a browser cURL to inject real cookies and resume without restarting
 - **Proxy Switch Wait**: On non-interactive failure, prompts hourly to switch proxy/IP until you type `ok`
@@ -146,7 +146,9 @@ In non-interactive mode, the program waits up to 24 hours, prompting hourly to s
 
 If the script is interrupted (Ctrl+C, timeout, or error):
 
-1. Progress is saved automatically in memory (including which years have been fully fetched)
+1. Progress is saved automatically, and on exit the in-flight paper's partial
+   state is written to the output file — including the citations fetched so far
+   and the live year probe, so a year that was left short stays visible
 2. Simply re-run the same command to resume
 3. Completed papers and completed year segments within a paper are skipped
 
@@ -158,8 +160,9 @@ Papers with ≥ 50 **total** citations switch to year-by-year fetch mode:
 - **Selective refresh**: Scholar's year histogram is probed once per paper; only years where the cached count differs from the histogram are re-fetched
 - **Skip logic**: 
   - **Per-year**: A year is skipped if `seen_total (cached + dedup) >= histogram_count` for that year
-  - **Paper-level**: Year mode → complete when `histogram_total <= seen_total`; Direct mode → complete when `scholar_total <= seen_total`
-- **Resume**: `partial_year_start` records the item offset within the in-progress year; direct mode uses page-aligned `direct_resume_state`
+  - **Paper-level (year mode)**: complete only when **every** year covers its own `histogram_count`. The aggregate `histogram_total <= seen_total` alone is not enough — years whose bucket exceeds the probe inflate the total and can hide a different year that is still short
+  - **Paper-level (direct mode)**: complete when `scholar_total <= seen_total`
+- **Resume**: `partial_year_start` records the item offset within the in-progress year; direct mode uses page-aligned `direct_resume_state` (both are in-memory, used for same-run retries)
 
 ## Development Notes
 
@@ -192,7 +195,7 @@ crawler/
   output_state.py            # PaperFetchState / PaperState + output file _fetch_state read/write
   pub_info.py                # PubInfo dataclass for publication field normalization
   cli.py                     # parse_args() + _run_main()
-tests/                       # 119 unit tests, no network required
+tests/                       # 145 unit tests, no network required
 ```
 
 ### Running Tests

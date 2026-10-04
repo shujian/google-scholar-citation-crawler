@@ -59,6 +59,8 @@ from crawler.citation_cache import (
     dump_year_fetch_diagnostics as _cc_dump_year_fetch_diagnostics,
     year_fetch_diagnostic_matches_total as _cc_year_fetch_diagnostic_matches_total,
     probed_year_counts_satisfied as _cc_probed_year_counts_satisfied,
+    year_records_gap as _cc_year_records_gap,
+    year_records_shortfall_years as _cc_year_records_shortfall_years,
 )
 from crawler.citation_strategy import (
     normalize_pub_year as _cs_normalize_pub_year,
@@ -615,15 +617,29 @@ class PaperCitationFetcher:
 
     @staticmethod
     def _plan_fetch_gap(strategy, cached, scholar_total, cached_count):
-        """Return (needed, seen, target) for a paper in the fetch plan.
+        """Return (needed, seen, target, short_years) for a paper in the fetch plan.
 
         `needed` is the number of citations that still must be fetched before
         the paper is complete.  Uses diagnostics when available (seen_total vs
         histogram/scholar_total), falling back to cached-count vs scholar_total.
         `needed <= 0` means no new data is required.
+
+        Year mode sums the per-year shortfalls: the aggregate seen vs histogram
+        comparison hides a year whose own bucket is short whenever other years
+        over-count the probe, so it would report "no gap" for a paper that still
+        has unfetched citations.  `short_years` is a display string listing them.
         """
         if cached:
             if strategy == 'year':
+                year_gap = _cc_year_records_gap(cached.get('year_records'))
+                if year_gap is not None:
+                    needed, seen, target = year_gap
+                    short = ', '.join(
+                        f'{year}({year_seen}/{year_histogram})'
+                        for year, year_seen, year_histogram
+                        in _cc_year_records_shortfall_years(cached.get('year_records'))
+                    )
+                    return needed, seen, target, short
                 yfd = cached.get('year_fetch_diagnostics') or {}
                 seen = yfd.get('seen_total')
                 target = yfd.get('histogram_total')
@@ -633,14 +649,14 @@ class PaperCitationFetcher:
                 target = dfd.get('scholar_total')
             if seen is not None and target is not None:
                 try:
-                    return max(0, int(target) - int(seen)), int(seen), int(target)
+                    return max(0, int(target) - int(seen)), int(seen), int(target), ''
                 except (TypeError, ValueError):
                     pass
         # Fallback: cached count vs scholar total.
         try:
-            return max(0, int(scholar_total) - int(cached_count)), None, int(scholar_total)
+            return max(0, int(scholar_total) - int(cached_count)), None, int(scholar_total), ''
         except (TypeError, ValueError):
-            return 0, None, 0
+            return 0, None, 0, ''
 
     def _fetch_citations_with_progress(self, citedby_url, cache_path, title,
                                         num_citations, pub_url, pub_year, resume_from,
@@ -798,6 +814,10 @@ class PaperCitationFetcher:
         self._new_citations_count = 0
         self._run_new_citations_total = 0
         self._papers_fetched_count = 0
+        # Mid-paper snapshots are per-run only: _save_output consumes them and
+        # clears them, but reset here too so a reused fetcher can never persist
+        # a snapshot left over from an earlier run.
+        self._mid_paper_state = {}
 
         # Load profile
         if not os.path.exists(self.profile_json):
@@ -912,6 +932,7 @@ class PaperCitationFetcher:
         # otherwise complete data must not clutter the plan.
         if need_fetch:
             plan_lines = []
+            recheck_count = 0
             for pub, st, cached in need_fetch:
                 title = pub.get('title', '(unknown)')[:55]
                 scholar_total = pub.get('num_citations', 0)
@@ -922,10 +943,14 @@ class PaperCitationFetcher:
                 strategy = (fetch_policy['strategy']
                             if isinstance(fetch_policy, dict) else fetch_policy.strategy)
 
-                needed, seen, target = self._plan_fetch_gap(
+                needed, seen, target, short_years = self._plan_fetch_gap(
                     strategy, cached, scholar_total, cached_count)
                 # Skip papers with no real gap: data is already complete.
+                # They are still processed below (e.g. a stale scholar_changed
+                # flag), so they are reported separately rather than silently
+                # dropped from the plan.
                 if st != 'missing' and needed <= 0:
+                    recheck_count += 1
                     continue
 
                 if st == 'missing':
@@ -937,6 +962,8 @@ class PaperCitationFetcher:
                     gap += f", target={target}"
                     if needed > 0:
                         gap += f", +{needed} needed"
+                    if short_years:
+                        gap += f" [short years: {short_years}]"
 
                 change_note = ""
                 if old_total is not None and old_total != scholar_total:
@@ -944,13 +971,17 @@ class PaperCitationFetcher:
 
                 plan_lines.append(f"  [{strategy.upper():6s}] {title}\n"
                                   f"            {gap}{change_note}")
-            if plan_lines:
+            if plan_lines or recheck_count:
                 print("-" * 70)
-                print(f"  Fetch plan ({len(plan_lines)} paper(s) need new data):")
-                print("-" * 70)
-                for line in plan_lines:
-                    print(line)
-                print("-" * 70)
+                if plan_lines:
+                    print(f"  Fetch plan ({len(plan_lines)} paper(s) need new data):")
+                    print("-" * 70)
+                    for line in plan_lines:
+                        print(line)
+                    print("-" * 70)
+                if recheck_count:
+                    print(f"  Also rechecking {recheck_count} paper(s) with no "
+                          f"cached-data gap (Scholar counts changed)")
                 print()
 
         results   = []
@@ -1347,16 +1378,33 @@ class PaperCitationFetcher:
                 profile = json.load(f)
         publications = profile.get('publications', []) if profile else []
         paper_states = getattr(self, '_paper_states', {})
+        # In-run snapshots written by save_progress.  For a paper whose fetch was
+        # interrupted or aborted this run, the mid-paper snapshot is the only
+        # place holding the live probe and the citations fetched so far — the
+        # start-of-run state would persist "complete" for a paper that still has
+        # unfetched citations, so those citations would never be resumed.
+        mid_paper_states = getattr(self, '_mid_paper_state', None) or {}
+
+        def _freshest_fetch_state(title):
+            snapshot = mid_paper_states.get(title)
+            # Only a self-describing snapshot may replace the persisted state.
+            # Year-mode snapshots always carry fetch_strategy plus the live probe;
+            # a direct-mode snapshot from a mid-fetch save has neither (they are
+            # only built once the batch finishes), so it would drop the direct
+            # diagnostics the completeness check needs and slot the paper into
+            # the year rule instead — reporting "complete" for a paper that is
+            # still missing citations.
+            if snapshot and snapshot.get('fetch_strategy'):
+                source = snapshot
+            else:
+                source = paper_states.get(title)
+            pst = to_paper_fetch_state(source)
+            return pst.to_dict() if pst else {}
 
         def _build_entry(pub, citations):
             """Build output entry with correct _fetch_state."""
             title = pub.get('title', '') if pub else ''
-            ps = paper_states.get(title)
-            if ps:
-                pst = to_paper_fetch_state(ps)
-                fetch_state = pst.to_dict() if pst else {}
-            else:
-                fetch_state = {}
+            fetch_state = _freshest_fetch_state(title)
             current_total = pub.get('num_citations') if pub else None
             if current_total is not None and fetch_state:
                 fetch_state['num_citations_on_scholar'] = current_total
@@ -1384,9 +1432,15 @@ class PaperCitationFetcher:
             else:
                 pub = publications[i] if i < len(publications) else {}
                 title = pub.get('title', '')
-                # Citations from PaperState if available
-                ps = paper_states.get(title)
-                citations = ps.citations if ps else []
+                # Prefer this run's partial progress (mid-paper snapshot), then
+                # the last known state, so an interrupted fetch keeps whatever
+                # it already collected.
+                snapshot = mid_paper_states.get(title)
+                if snapshot and snapshot.get('citations') is not None:
+                    citations = snapshot['citations']
+                else:
+                    ps = paper_states.get(title)
+                    citations = getattr(ps, 'citations', None) or []
                 final_results.append(_build_entry(pub, citations))
         total_cites = sum(len(r['citations']) for r in final_results)
         output_payload = {

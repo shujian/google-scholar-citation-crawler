@@ -389,5 +389,80 @@ class YearFetchMainTests(FetcherTestCase):
         self.assertEqual(citations[0]["year"], "2023")
         self.assertEqual(self.fetcher._year_count_map(citations), {2023: 1})
 
+    def test_year_fetch_records_incomplete_when_one_year_ends_short(self):
+        """The saved complete_fetch_attempt must use the per-year rule, so it
+        cannot claim complete for a state is_complete() calls partial: 2025
+        over-counts its probe (2 cached vs 1 probed) while 2026 stays short
+        (2 cached vs 3 probed), leaving the aggregate satisfied (4 >= 4)."""
+        from crawler.output_state import PaperFetchState
+
+        pages = {
+            (2025, 0): [
+                {"bib": {"title": "A-2025", "author": ["A"], "venue": "V", "pub_year": "2025"}, "pub_url": "u1", "cites_id": "cid1"},
+                {"bib": {"title": "B-2025", "author": ["B"], "venue": "V", "pub_year": "2025"}, "pub_url": "u2", "cites_id": "cid2"},
+            ],
+            (2026, 0): [
+                {"bib": {"title": "A-2026", "author": ["A"], "venue": "V", "pub_year": "2026"}, "pub_url": "u3", "cites_id": "cid3"},
+                {"bib": {"title": "B-2026", "author": ["B"], "venue": "V", "pub_year": "2026"}, "pub_url": "u4", "cites_id": "cid4"},
+            ],
+        }
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                start = 0
+                if "start=" in url:
+                    start = int(url.split("start=")[1].split("&")[0])
+                year = int(url.split("as_ylo=")[1].split("&")[0])
+                self.items = list(pages.get((year, start), []))
+                self.index = 0
+                self._finished_current_page = False
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                    raise StopIteration
+                item = self.items[self.index]
+                self.index += 1
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                return item
+
+        def fake_probe(citedby_url, fetch_ctx=None, num_citations=None, pub_year=None):
+            counts = {2025: 1, 2026: 3}
+            self.fetcher._probed_year_counts = counts
+            if fetch_ctx is not None:
+                fetch_ctx.probed_year_counts = counts
+                fetch_ctx.probed_year_count_complete = True
+            return 2025
+
+        self.fetcher._probe_citation_start_year = fake_probe
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._fetch_citations_with_progress(
+                citedby_url="/scholar?cites=123",
+                cache_path=None,
+                title="Paper",
+                num_citations=4,
+                pub_url="https://example.com/paper",
+                pub_year="2025",
+                resume_from=[],
+                completed_years_in_current_run=[],
+                prev_scholar_count=0,
+                fetch_policy={"strategy": "year", "pub_year": 2025, "reason": "at_or_above_year_threshold"},
+            )
+
+        saved = self.fetcher._mid_paper_state.get("Paper", {})
+        self.assertFalse(saved["complete_fetch_attempt"])
+        state = PaperFetchState.from_dict(saved)
+        self.assertFalse(state.is_complete(current_scholar_total=4, pub_year="2025"))
+        records = {r["year"]: r for r in state.year_records}
+        self.assertEqual(records[2026]["cached_total"], 2)
+        self.assertEqual(records[2026]["histogram_count"], 3)
+        self.assertIn("2026(2/3)", state.year_shortfall_summary())
+
+
 if __name__ == '__main__':
     unittest.main()

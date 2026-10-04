@@ -682,5 +682,61 @@ class MainLoopTests(FetcherTestCase):
             self.assertEqual(state_cleared, [True])
 
 
+    # -- fetch plan gap computation ----------------------------------------
+
+    def test_plan_fetch_gap_year_sums_per_year_shortfalls(self):
+        """needed must come from the per-year records: the aggregate totals
+        (seen 241 >= histogram 235) report no gap while 2026 is still short."""
+        cached = {
+            "year_records": [
+                {"year": 2024, "histogram_count": 169, "cached_total": 177,
+                 "seen_total": 177, "dedup_count": 0},
+                {"year": 2026, "histogram_count": 66, "cached_total": 64,
+                 "seen_total": 64, "dedup_count": 0},
+            ],
+            "year_fetch_diagnostics": {"histogram_total": 235, "seen_total": 241},
+        }
+        needed, seen, target, short_years = self.fetcher._plan_fetch_gap(
+            'year', cached, 236, 241)
+        self.assertEqual(needed, 2)
+        self.assertEqual(seen, 241)
+        self.assertEqual(target, 235)
+        self.assertEqual(short_years, '2026(64/66)')
+
+    def test_plan_fetch_gap_year_complete_when_every_year_covers_probe(self):
+        cached = {
+            "year_records": [
+                {"year": 2024, "histogram_count": 169, "cached_total": 169,
+                 "seen_total": 169, "dedup_count": 0},
+                {"year": 2026, "histogram_count": 66, "cached_total": 66,
+                 "seen_total": 66, "dedup_count": 0},
+            ],
+            "year_fetch_diagnostics": {"histogram_total": 235, "seen_total": 235},
+        }
+        needed, seen, target, short_years = self.fetcher._plan_fetch_gap(
+            'year', cached, 236, 235)
+        self.assertEqual((needed, seen, target, short_years), (0, 235, 235, ''))
+
+    def test_plan_fetch_gap_year_falls_back_to_aggregate_without_records(self):
+        cached = {"year_fetch_diagnostics": {"histogram_total": 100, "seen_total": 90}}
+        self.assertEqual(
+            self.fetcher._plan_fetch_gap('year', cached, 100, 90),
+            (10, 90, 100, ''),
+        )
+
+    def test_plan_fetch_gap_direct_uses_diagnostics(self):
+        cached = {"direct_fetch_diagnostics": {"scholar_total": 10, "seen_total": 7}}
+        self.assertEqual(
+            self.fetcher._plan_fetch_gap('direct', cached, 12, 7),
+            (3, 7, 10, ''),
+        )
+
+    def test_plan_fetch_gap_falls_back_to_cached_count(self):
+        self.assertEqual(
+            self.fetcher._plan_fetch_gap('direct', None, 12, 7),
+            (5, None, 12, ''),
+        )
+
+
 if __name__ == '__main__':
     unittest.main()

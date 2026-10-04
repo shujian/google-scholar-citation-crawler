@@ -174,3 +174,88 @@ def is_data_complete(strategy, summary):
     if target is not None and seen is not None:
         return (seen or 0) >= target
     return False
+
+
+# ---------------------------------------------------------------------------
+# Per-year completeness (year mode)
+#
+# Year mode must be judged per year.  The aggregate comparison in
+# is_data_complete() only looks at sum(seen) vs sum(histogram): years whose
+# cached bucket exceeds the probe (which happens whenever Scholar's per-year
+# histogram and the cached buckets disagree) inflate the aggregate and hide a
+# different year whose own bucket is short.  A paper judged complete that way
+# is never re-probed, so the short year's citations are never fetched.
+# ---------------------------------------------------------------------------
+
+def iter_year_records(year_records):
+    """Yield the per-year record dicts from a list or {year: record} mapping."""
+    if isinstance(year_records, dict):
+        values = list(year_records.values())
+    elif isinstance(year_records, (list, tuple)):
+        values = list(year_records)
+    else:
+        return
+    for record in values:
+        if isinstance(record, dict):
+            yield record
+
+
+def year_record_gap(record):
+    """Return max(0, histogram_count - seen_total) for one per-year record."""
+    try:
+        histogram_count = int(record.get('histogram_count', record.get('scholar_total', 0)) or 0)
+        seen_total = int(record.get('seen_total', 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, histogram_count - seen_total)
+
+
+def year_records_gap(year_records):
+    """Return (needed, seen_total, histogram_total) summed over per-year records.
+
+    `needed` is the per-year shortfall sum, which the aggregate totals can hide.
+    Returns None when no usable per-year records are present.
+    """
+    needed = seen_sum = histogram_sum = 0
+    count = 0
+    for record in iter_year_records(year_records):
+        try:
+            histogram_count = int(record.get('histogram_count', record.get('scholar_total', 0)) or 0)
+            seen_total = int(record.get('seen_total', 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        count += 1
+        seen_sum += seen_total
+        histogram_sum += histogram_count
+        needed += max(0, histogram_count - seen_total)
+    if not count:
+        return None
+    return needed, seen_sum, histogram_sum
+
+
+def year_records_shortfall_years(year_records):
+    """Return a list of (year, seen_total, histogram_count) for short years."""
+    short = []
+    for record in iter_year_records(year_records):
+        if year_record_gap(record) > 0:
+            short.append((
+                record.get('year'),
+                int(record.get('seen_total', 0) or 0),
+                int(record.get('histogram_count', record.get('scholar_total', 0)) or 0),
+            ))
+    return short
+
+
+def year_records_data_complete(year_records, summary=None):
+    """Return True iff every per-year record covers its probed histogram count.
+
+    Falls back to the aggregate comparison when no per-year records exist, and
+    requires the aggregate to hold as well so a summary listing years that have
+    no record still counts as incomplete.
+    """
+    if not is_data_complete('year', summary):
+        return False
+    gap = year_records_gap(year_records)
+    if gap is None:
+        return True
+    return gap[0] == 0
