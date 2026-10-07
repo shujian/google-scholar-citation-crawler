@@ -404,6 +404,45 @@ class StartupRobustnessTests(FetcherTestCase):
             assert_scholarly_patches_active([('nav._get_page', hook, hook), ('nav._max_retries', 5, 1)])
         self.assertIn('nav._max_retries', str(ctx.exception))
 
+    def test_probe_failure_clears_previous_paper_histogram(self):
+        """A failed probe must not leave the previous paper's counts behind.
+
+        scholar_citation writes ctx.probed_year_counts into every paper's fetch
+        context unconditionally, so a stale histogram makes the next paper skip
+        or mis-judge whole years.
+        """
+        from crawler.scholarly_session import probe_citation_start_year
+
+        nav = scholarly_mod.scholarly._Scholarly__nav
+        ctx = scholar_citation.SessionContext(author_id="test-author")
+
+        hist_html = (
+            '<html><body>'
+            '<div class="gs_rs_hist_dialog-g_bar_wrapper">'
+            '<a class="gs_hist_g_a" data-year="2021" data-count="7"></a>'
+            '</div></body></html>'
+        )
+
+        def soup_ok(url):
+            from bs4 import BeautifulSoup
+            return BeautifulSoup(hist_html, 'html.parser')
+
+        nav._get_soup = soup_ok
+        start = probe_citation_start_year("/scholar?cites=1", ctx, num_citations=7)
+        self.assertEqual(start, 2021)
+        self.assertEqual(ctx.probed_year_counts, {2021: 7})
+        self.assertTrue(ctx.probed_year_count_complete)
+
+        def soup_blocked(url):
+            raise RuntimeError("blocked")
+
+        nav._get_soup = soup_blocked
+        with patch("sys.stdout", new_callable=StringIO):
+            start = probe_citation_start_year("/scholar?cites=2", ctx, num_citations=9)
+        self.assertIsNone(start)
+        self.assertIsNone(ctx.probed_year_counts)
+        self.assertFalse(ctx.probed_year_count_complete)
+
     def test_patch_scholarly_verifies_all_hook_points(self):
         nav = scholarly_mod.scholarly._Scholarly__nav
         nav._get_page = lambda pagerequest, premium=False: None

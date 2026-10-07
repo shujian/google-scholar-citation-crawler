@@ -714,6 +714,13 @@ def probe_citation_start_year(
     MAX_PROBE_RETRIES = 3
     attempt = 0
 
+    # Clear any previous probe result up front.  The reset used to happen only
+    # after a page came back, so a probe that failed on every attempt returned
+    # None while leaving the previous paper's histogram on the context — the
+    # next paper then judged its years against someone else's counts.
+    ctx.probed_year_counts = None
+    ctx.probed_year_count_complete = False
+
     while True:
         attempt += 1
         ctx.total_page_count += 1

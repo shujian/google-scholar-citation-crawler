@@ -20,6 +20,8 @@
 `no_probe_data_skip` 的语义是"该年不在 Scholar 直方图里 → 没有新内容"。这只有在**直方图对本篇论文权威**时成立。探测失败时 `scholarly_session.probe_citation_start_year()` 的回退路径（DOM 选择器失配走 Fallback 1/2/3）只收集年份集合、**不写 `probed_year_counts`**，于是下游拿到空字典——此时"不在直方图里"退化为"我们什么都不知道"，必须抓取而不是跳过。
 → 判据：跳过需要 `histogram_authoritative = Σprobe > 0`；否则打印原因并抓取。该分支原先也不看 `--fetch-mode`，所以 `force` 都救不回来，这是"静默缺口"的根源。
 
+**同一份状态在两处被解读时的配套要求**：既然"探测失败"要退化为"什么都不知道"，那么探测函数必须在**所有出口**（含失败 return）清空 `probed_year_counts`。原实现的复位写在"页面取回成功之后"，失败路径直接 return，于是上一篇论文的直方图被当作这一篇的期望值使用——这是"同名不同物"在 probe 上的第三次复发（前两次是 `partial_year_start`、`dedup_count`）。
+
 ---
 
 ## 2026-10-08: NO_PROXY 与 scholarly 补丁的启动期契约

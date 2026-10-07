@@ -4,6 +4,22 @@
 
 ---
 
+## 2026-10-08: 探测失败必须清空上一篇论文的直方图
+
+### 问题
+
+`probe_citation_start_year()` 的复位语句写在"页面取回成功之后"，异常路径（3 次尝试全部失败）直接 `return None` 而不复位。`scholar_citation.py` 又把 `session_ctx.probed_year_counts` **无条件**写进每篇论文的 fetch context —— 于是论文 A 探测成功后论文 B 探测全败，B 会拿 A 的直方图做 `prev_seen >= live_count` 判定：整年被误跳（永不抓）或被误判完整，并把错误的 `histogram_count` 写进持久化诊断。
+
+### 实现
+
+- `crawler/scholarly_session.py: probe_citation_start_year()`：把 `ctx.probed_year_counts = None` / `probed_year_count_complete = False` 移到 `while True` 之前，覆盖包括 `return None` 在内的所有出口。
+
+### 验证
+
+- 测试 184 → 185：`test_probe_failure_clears_previous_paper_histogram` —— 先用直方图 DOM 探测成功（`{2021: 7}`、complete=True），再让 3 次尝试全部抛错，断言上下文被清空。
+
+---
+
 ## 2026-10-08: 抓取结果不得删除它没有返回的数据（空页/截断页安全）
 
 ### 问题
