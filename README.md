@@ -141,9 +141,9 @@ If the pasted request contains no cookies (a common mis-copy, e.g. the wrong
 resource from DevTools), the program re-prompts you to paste again instead of
 giving up. Press Enter to skip pasting and fall back to automatic waiting.
 
-In interactive mode, the program **never exits on failure** — it keeps prompting until you solve the captcha or switch proxies.
+In interactive mode, the program **never exits on failure** — it keeps prompting until you solve the captcha or switch proxies. With no terminal to prompt on (cron, `nohup`, redirected stdin) the prompt is skipped and the program falls back to automatic waiting.
 
-In non-interactive mode, the program waits up to 24 hours, prompting hourly to switch your proxy/IP. Type `ok` and press Enter to retry immediately.
+In non-interactive mode each page failure goes through two quick retries and then 5–10 minute rate-limit cooldowns. Once three cooldowns have not helped, the program waits up to 24 hours, prompting hourly to switch your proxy/IP; type `ok` and press Enter to retry immediately. If that wait times out (or stdin is not a terminal, so nobody could ever answer), the page error is returned to the paper-level retry budget instead of looping here forever — so an unattended run finishes with a clear failure rather than spinning indefinitely.
 
 ## Resume After Interruption
 

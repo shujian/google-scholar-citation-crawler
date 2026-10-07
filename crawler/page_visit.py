@@ -36,7 +36,7 @@ class PageVisit:
         *ctx* is a SessionContext whose attributes provide:
           - interactive_captcha  : bool
           - try_interactive_captcha_fn : callable(url) -> bool
-          - wait_proxy_switch_fn : callable(max_hours) -> None (raises on timeout)
+          - wait_proxy_switch_fn : callable() -> bool (False = gave up)
           - wait_status_fn       : callable() -> str
           - delay_scale          : float
         """
@@ -47,9 +47,12 @@ class PageVisit:
     def fetch(self, fn, url, label="page"):
         """Call *fn()* and return its result.
 
-        On failure the method loops through recovery steps until either
-        *fn* succeeds or all options are exhausted, at which point the
-        original exception is re-raised.
+        Recovery order: interactive captcha prompt (once per cycle), two quick
+        retries, then 5-10 min rate-limit cooldowns.  After *max_cooldowns*
+        cooldowns the operator is offered a proxy switch (the documented
+        non-interactive behaviour); if that does not help, the original
+        exception is re-raised so the caller's retry budget can take over
+        instead of looping here forever.
 
         *url* is used for captcha-recovery and proxy-switch messages.
         *label* appears in log messages (e.g. "probe", "page 3").
@@ -57,6 +60,8 @@ class PageVisit:
         captcha_attempted = False
         retries = 0
         max_retries = 2
+        cooldowns = 0
+        max_cooldowns = 3
 
         while True:
             try:
@@ -74,6 +79,7 @@ class PageVisit:
                     if solved:
                         retries = 0
                         captcha_attempted = False
+                        cooldowns = 0
                         continue
 
                 # -- automatic retry (transient errors) -------------------
@@ -91,6 +97,16 @@ class PageVisit:
                 # All retries exhausted — likely a 429 rate limit, not a
                 # captcha.  Wait 5-10 min before retrying instead of
                 # immediately asking for a proxy switch.
+                cooldowns += 1
+                if cooldowns > max_cooldowns:
+                    print(f"        {now_str()} {label} still failing after "
+                          f"{max_cooldowns} cooldowns: {e}", flush=True)
+                    if self.ctx.wait_proxy_switch_fn and self.ctx.wait_proxy_switch_fn():
+                        retries = 0
+                        captcha_attempted = False
+                        cooldowns = 0
+                        continue
+                    raise
                 d = random.uniform(300, 600) * self.ctx.delay_scale
                 wait_str = self.ctx.wait_status_fn() if self.ctx.wait_status_fn else ""
                 print(f"        {now_str()} Rate-limit cooldown after "

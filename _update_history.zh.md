@@ -4,6 +4,37 @@
 
 ---
 
+## 2026-10-08: PageVisit 加上退出条件，并接上换代理提示
+
+### 问题
+
+`PageVisit.fetch()` 的 docstring 写着"选项用尽后重新抛出原异常"，实现里却只有 `return` 与 `continue`：冷却分支还把 `retries`/`captcha_attempted` 重置，于是页面级失败会以"2 次快速重试 + 每次 5-10 分钟冷却"永久空转。后果：
+
+- 上层的 `MAX_RETRIES` 放弃分支（`scholar_citation.py`）永远不可达；
+- `page_visit.py` 头部与 `__init__` docstring 声称处理"proxy-switch prompts (non-interactive mode)"，但 `wait_proxy_switch_fn` 全仓库只在探测失败路径被调用，引文页从不提示换代理；
+- README 承诺的"非交互模式最多等 24 小时"对引文页不成立。
+
+同一族的无人值守问题：
+
+- `try_interactive_captcha()` 没有 `prompt_first_curl()` 那样的 `isatty()` 守卫，`--interactive-captcha` 在管道/重定向 stdin 下会走进 `_read_multiline_input()`；
+- `_read_multiline_input()` 的 `sys.stdin.fileno()` 在 `try` 之外，非真实 fd（StringIO/已关闭）会直接抛异常，从 `page_visit` 的 `except` 分支里冒出，终止整轮；
+- `wait_proxy_switch()` 在 stdin 已 EOF 时 `select()` 恒为可读、`readline()` 恒返回空串，会 100% CPU 空转满 24 小时。
+
+### 实现
+
+- `crawler/page_visit.py`：新增 `cooldowns`/`max_cooldowns=3`；超过后先调用 `ctx.wait_proxy_switch_fn()`（返回 True 则重置计数继续），否则重新抛出原异常，交给上层的重试预算。交互模式捕获到验证码仍优先走粘贴 cURL 路径。
+- `crawler/interactive.py`：
+  - `try_interactive_captcha()` 增加 `sys.stdin.isatty()` 守卫，非终端时打印说明并返回 False（退回自动等待）；
+  - `_read_multiline_input()` 把 `fileno()` 纳入 `try`，拿不到真实 fd 时返回 `[]`；
+  - `wait_proxy_switch()` 把 `readline()` 返回空串识别为 stdin 已关闭，立即返回 False 而不是空转到超时。
+
+### 验证
+
+- 测试 186 → 195，新增 `tests/test_page_visit.py`（此前 `PageVisit` 零测试覆盖）：瞬时错误重试后成功、无换代理回调时 3 次冷却后抛错、确认换代理后继续并在下一次成功、换代理超时抛出原异常、交互式解题后立即重试、KeyboardInterrupt 直接传播、非 TTY 跳过粘贴提示、无 fd 返回空、stdin 关闭时立即返回。
+- 计数按真实节奏钉住（每轮冷却 = 2 次快速重试 + 触发冷却的那次，共 12 次调用后才提示换代理），避免测试把循环结构写错。
+
+---
+
 ## 2026-10-08: 修复 stall 计数从未落盘（"重复结果就停止重试"实际不生效）
 
 ### 问题

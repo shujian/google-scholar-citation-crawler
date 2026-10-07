@@ -162,7 +162,14 @@ def _read_multiline_input(timeout_after_silence=3.0):
     import re as _re
     _ANSI = _re.compile(r'\x1b(?:\[[0-9;?]*[a-zA-Z]|[()][AB012])')
 
-    fd = sys.stdin.fileno()
+    fd = None
+    try:
+        fd = sys.stdin.fileno()
+    except (AttributeError, OSError, ValueError):
+        # stdin is not a real file descriptor (pipe/StringIO/closed): there is
+        # nobody who could paste a cURL, so report "no input" instead of
+        # raising out of the caller's exception handler.
+        return []
     old_attrs = None
     try:
         import termios as _termios
@@ -302,6 +309,15 @@ def try_interactive_captcha(url, *, inject_fn):
 
     Returns True if cookies were successfully injected.
     """
+    if not sys.stdin.isatty():
+        # Unattended run (cron/nohup/redirected stdin): prompting is impossible
+        # and would raise out of the recovery path.  Fall back to automatic
+        # waiting instead.
+        print("\n  Captcha / block detected, but stdin is not a terminal — "
+              "cannot prompt for a cURL. Falling back to automatic waiting.",
+              flush=True)
+        return False
+
     sep = "  " + "=" * 62
     print(f"\n{sep}", flush=True)
     print(f"  Captcha / block detected. Resolve it manually:", flush=True)
@@ -360,8 +376,16 @@ def wait_proxy_switch(max_hours=24):
         try:
             ready = _select.select([sys.stdin], [], [], wait)[0]
             if ready:
-                line = sys.stdin.readline().strip().lower()
-                if line == 'ok':
+                line = sys.stdin.readline()
+                if line == '':
+                    # EOF: stdin is closed or redirected from an empty file.
+                    # Nobody can ever type 'ok', and select() would keep
+                    # reporting readable, so stop instead of spinning for hours.
+                    ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    print(f"  [{ts}] stdin closed — not waiting for a proxy switch.",
+                          flush=True)
+                    return False
+                if line.strip().lower() == 'ok':
                     ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     print(f"  [{ts}] Proxy switch confirmed. Resuming...", flush=True)
                     return True

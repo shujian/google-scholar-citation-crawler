@@ -2,6 +2,22 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
+## 2026-10-08: 页面级重试必须有退出条件（PageVisit 的无限循环）
+
+### 为什么"无限重试"看起来安全，实际最危险
+
+`PageVisit.fetch()` 只 `continue`、从不 `raise`，于是**所有上层放弃逻辑都成了死代码**：`scholar_citation` 的 `MAX_RETRIES` 分支不可达、`wait_proxy_switch_fn` 无人调用、日志里"Rate-limit cooldown"每 5-10 分钟一行却永远没有结论。生产日志里 182h/59h 的单轮运行、6 页请求就是这种空转的直接证据。
+
+判据：**"重试"必须有一层负责终止**。页面级只做"短重试 + 冷却"，冷却若干次后把控制权交回上层（上层的重试预算、退出码、存档逻辑都在那里）。
+
+### 三个 stdin 陷阱（无人值守时同时出现）
+
+1. 非 TTY 下不要走交互提示：`prompt_first_curl()` 有 `isatty()` 守卫，`try_interactive_captcha()` 漏了 → 在 `except` 分支里再抛异常，直接终止整轮。
+2. `sys.stdin.fileno()` 必须在 `try` 内：真实管道/重定向下它会抛 `io.UnsupportedOperation`。
+3. `select([stdin])` 在 stdin 已 EOF 时**恒为可读**，`readline()` 恒返回空串 → 24 小时 100% CPU 空转。空串必须当作"stdin 已关闭"处理，而不是"用户没输入"。
+
+---
+
 ## 2026-10-08: stall 计数为什么一直没落盘（"内存正确、写出被覆盖"）
 
 ### 症状与定位
