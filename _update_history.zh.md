@@ -4,6 +4,26 @@
 
 ---
 
+## 2026-10-08: 修复 stall 计数从未落盘（"重复结果就停止重试"实际不生效）
+
+### 问题
+
+`stalled` 状态在生产中从未出现：247 篇输出里 `stall_signature` 全为空、76 个 run 日志里 `stalled` 0 次，`Mirror-Generative`(0/49) 每轮仍被计划 `+49 needed`。原因：抓取成功后计数记在 `_paper_states` 上（内存正确），但收尾 `_save_output()` 的 `_freshest_fetch_state()` 优先采用 in-run 快照，而 `save_progress()` 写的快照里没有 stall 字段（写快照时计数还没产生），`PaperFetchState.to_dict()` 于是把刚记下的 `stall_signature/stall_count` 清零。
+
+原有回归测试 `test_two_identical_outcomes_stall_the_paper_across_runs` 是绿的，因为它 patch 了 `_load_citation_cache`、从不填充 `_mid_paper_state`，于是走了"没有快照"的回退分支 —— 恰好绕开生产必走的分支。
+
+### 实现
+
+- `scholar_citation.py: _save_output()._freshest_fetch_state()`：当数据源是 in-run 快照时，从 `_paper_states[title]`（抓取后状态）搬运 `stall_signature`/`stall_count`；数据源本来就是 `_paper_states` 时行为不变。
+
+### 验证
+
+- 测试 185 → 186：`test_save_output_persists_stall_counters_alongside_in_run_snapshot` —— 显式提供生产路径的 in-run 快照（带 `fetch_strategy`、无 stall 字段），断言落盘后计数为 2 且 `is_stalled()` 为真，并顺带钉住签名跨写盘/读回不漂移。
+- 该测试先在本机副本上回退 `scholar_citation.py` 验证为红（`None != 'year:11/11=1[2026:4/5]'`），再转绿。
+- `_work_notes.zh.md` 的 2026-10-04 节已加更正标注，避免继续误以为 `inherit_stall_tracking()` 已经解决。
+
+---
+
 ## 2026-10-08: 探测失败必须清空上一篇论文的直方图
 
 ### 问题

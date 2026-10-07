@@ -2,6 +2,25 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
+## 2026-10-08: stall 计数为什么一直没落盘（"内存正确、写出被覆盖"）
+
+### 症状与定位
+
+`stalled` 状态在代码、文档、测试里都存在，生产上却从未出现：247 篇输出里 `stall_signature` 全为空、76 个 run 日志里 `stalled` 0 次，`Mirror-Generative`(0/49) 从 8 月到 10 月每轮仍被计划 `+49 needed`。
+
+链路是"写两次、后一次覆盖前一次"：
+
+1. 抓取成功后主循环把 `_paper_states[title]` 换成 `PaperState(fetch=from_dict(快照).inherit_stall_tracking(旧))`，然后 `record_fetch_outcome()` 更新计数 —— 内存里正确。
+2. 收尾 `_save_output()` 的 `_freshest_fetch_state()` **优先取 in-run 快照**（快照带 `fetch_strategy`，因为 year 模式总要带 live probe），再用 `PaperFetchState.to_dict()` 序列化 —— 而 `save_progress()` 构建的快照里没有 stall 字段（那时也还没有：快照在抓取过程中写，`record_fetch_outcome()` 在抓取返回后才调用）。于是计数被静默清零。
+
+### 修法与验证方法论
+
+- 修法：`_freshest_fetch_state()` 在用快照作为数据源时，从 `paper_states[title]`（抓取后状态）**额外搬运** `stall_signature`/`stall_count`；数据源本来就是 `paper_states` 时不动。
+- 关键点：签名必须取自**快照派生的状态**，因为下一次运行对比的是落盘后的状态。测试里显式用 `PaperFetchState.from_dict(mid_snapshot).current_outcome_signature()` 生成签名，这样测试同时钉住"签名跨写盘/读回不漂移"。
+- 方法论：**回归测试必须走生产路径的那条分支**。原测试 patch 了 `_load_citation_cache` 却从不设置 `_mid_paper_state`，于是 `using_snapshot` 恒为假——测试覆盖的是"没有快照"的分支，而生产永远有快照。凡是"同一份状态有两个来源、按条件二选一"的代码，测试必须显式覆盖**两个**来源，而不是让 mock 顺带决定走哪条。
+
+---
+
 ## 2026-10-08: 「抓取返回值」与「权威性」的判定原则
 
 ### 一条通用规则
@@ -58,6 +77,7 @@ httpx 0.27.2 在 `Client.__init__` 里把 `NO_PROXY` 的每一项解析成 URLPa
 1. **中断不计入**：`record_fetch_outcome()` 只在抓取**正常返回**后调用；抛异常/被 Ctrl+C 的尝试到不了那里。所以封锁、验证码这类"报错型失败"不会把论文判成 stall（否则两次偶发失败就会误停机）。
    但**"0 行/短页型"失败是正常返回的**——如果连续两次都是"页面被静默截断"，会被判 stall。这是该规则的固有权衡（用户明确接受 2 次采样）。
 2. **状态重建必须继承计数**：每次抓取成功后 `_paper_states[title]` 会被 `save_progress` 写的 cache 快照**整体替换**，而快照不知道 stall 字段——不处理的话计数每轮都从 1 重新开始，规则永远不生效。`inherit_stall_tracking()` 在替换处搬运；相关回归测试 `test_two_identical_outcomes_stall_the_paper_across_runs` 覆盖"连跑两轮后写盘再读回仍 stalled"（同时验证签名跨持久化不漂移）。
+   → **2026-10-08 更正：这一条只做对了一半。** `inherit_stall_tracking()` 让内存里的计数正确，但**落盘**时 `_save_output._freshest_fetch_state()` 又会用 in-run 快照覆盖（快照带 `fetch_strategy` 却没有 stall 字段），刚记下的计数被丢掉 —— 生产数据里 247 篇没有一条带 `stall_signature`，`stalled` 一次都没出现。那个回归测试之所以是绿的：它 patch 了 `_load_citation_cache`，从不填充 `_mid_paper_state`，于是走了 `paper_states` 回退分支，恰好绕开了出问题的分支。详见下方 2026-10-08 节。
 3. **手动解锁口**：`--fetch-mode force --skip N-1 --limit 1` 会清掉该论文状态（stall 字段随状态一起消失）→ 立即重试。若某次 stall 是误判（例如让代理换了 IP、Scholar 页面变正常），用这个恢复。
 
 ### 与"作者页计数 > 实际可列出条目"的关系

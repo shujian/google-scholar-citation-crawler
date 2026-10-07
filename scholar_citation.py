@@ -1434,11 +1434,22 @@ class PaperCitationFetcher:
             # diagnostics the completeness check needs and slot the paper into
             # the year rule instead — reporting "complete" for a paper that is
             # still missing citations.
-            if snapshot and snapshot.get('fetch_strategy'):
-                source = snapshot
-            else:
-                source = paper_states.get(title)
+            using_snapshot = bool(snapshot and snapshot.get('fetch_strategy'))
+            source = snapshot if using_snapshot else paper_states.get(title)
             pst = to_paper_fetch_state(source)
+            if pst is None:
+                return {}
+            if using_snapshot:
+                # The snapshot knows the live probe but nothing about the
+                # cross-run stall counters: save_progress() builds it without
+                # them and record_fetch_outcome() updates _paper_states after the
+                # fetch.  Carry them over, or the persisted count restarts at 0
+                # every run and stall detection never fires.
+                stored = to_paper_fetch_state(paper_states.get(title))
+                if stored is not None:
+                    pst._stall_signature = stored.stall_signature
+                    pst._stall_count = stored.stall_count
+            return pst.to_dict()
             return pst.to_dict() if pst else {}
 
         def _build_entry(pub, citations):

@@ -255,6 +255,35 @@ class OutputAndReconciliationTests(FetcherTestCase):
         records = {r["year"]: r for r in paper["_fetch_state"]["year_records"]}
         self.assertEqual(records[2026]["histogram_count"], 4)
 
+    def test_save_output_persists_stall_counters_alongside_in_run_snapshot(self):
+        """Stall counters must survive a save that uses the in-run snapshot.
+
+        save_progress() builds the snapshot without stall fields and the counters
+        are recorded on _paper_states after the fetch, so persisting the snapshot
+        verbatim reset stall_count to 0 on every run and `stalled` could never be
+        reached.  The signature is taken from the snapshot-derived state (the
+        live probe is what the next run compares against), so this also pins that
+        it does not drift across the write/read cycle.
+        """
+        snapshot = self._mid_paper_snapshot([
+            {"title": f"New-2026-{idx}", "authors": "A", "venue": "V",
+             "year": "2026", "url": f"u{idx}"}
+            for idx in range(3)
+        ])
+        signature = PaperFetchState.from_dict(snapshot).current_outcome_signature()
+        self.assertTrue(signature)
+        state = self._stale_complete_state()
+        state["stall_signature"] = signature
+        state["stall_count"] = 2
+
+        paper, _ = self._save_and_load(state, with_snapshot=True, mid_snapshot=snapshot)
+
+        saved = paper["_fetch_state"]
+        self.assertEqual(saved["stall_signature"], signature)
+        self.assertEqual(saved["stall_count"], 2)
+        reloaded = PaperFetchState.from_dict(saved)
+        self.assertTrue(reloaded.is_stalled())
+
     def test_save_output_ignores_direct_snapshot_that_lacks_diagnostics(self):
         """A direct-mode mid-fetch save has no fetch_strategy/direct diagnostics
         yet; letting it replace the persisted state would infer year mode and
