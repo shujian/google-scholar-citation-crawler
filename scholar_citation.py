@@ -307,7 +307,11 @@ class PaperCitationFetcher:
         return merged
 
     def _materialize_citation_cache(self, old_citations, fresh_citations, complete):
-        if complete:
+        # A completed fetch is authoritative only while it returns at least as
+        # many rows as the cache.  A smaller result means the scan was truncated
+        # (blocked/short page, lossy year filter), so merge by identity instead
+        # of replacing: dropping rows we already collected is never correct.
+        if complete and len(fresh_citations) >= len(old_citations or []):
             return list(fresh_citations)
         return self._overlay_citations_by_identity(old_citations, fresh_citations)
 

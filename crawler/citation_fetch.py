@@ -753,9 +753,14 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                     print(f"      Year {year}: skip (seen={prev_seen} {verb} probe={live_count})", flush=True)
                     save_progress(fetch_finished=False)
                     continue
-            elif prev_seen is not None and prev_seen > 0:
+            elif prev_seen is not None and prev_seen > 0 and histogram_authoritative:
                 # Probe has no data for this year — the histogram
                 # doesn't list it at all, so there's nothing new.
+                # Only valid while the histogram is authoritative for this
+                # paper: when the probe failed (no per-year counts at all),
+                # "absent from the histogram" says nothing about the year, and
+                # skipping it would silently stop fetching a year that has
+                # cached citations but newly added rows.
                 skipped_years += 1
                 year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
                     year,
@@ -769,6 +774,10 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                       f"not in histogram)", flush=True)
                 save_progress(fetch_finished=False)
                 continue
+            elif prev_seen is not None and prev_seen > 0:
+                print(f"      Year {year}: fetching (seen={prev_seen}, no histogram "
+                      f"probe — an absent year is not evidence of completeness)",
+                      flush=True)
 
             year_ctx.current_paper_page_count = 0  # reset per year in year-based mode
             start_index = year_ctx.partial_year_start.get(year, 0)
@@ -881,16 +890,52 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                 print(f"      Year {year}: page returned 0 rows but the probe says "
                       f"{live_count} — recording termination as empty_page", flush=True)
 
-            fresh_year_buckets[year] = list(year_batch.citations)
+            cached_bucket = list(old_year_buckets.get(year) or [])
+            year_bucket_count = len(year_batch.citations)
+            if year_termination_reason == 'empty_page':
+                # A page with no rows while the histogram promises some is an
+                # empty/blocked/interstitial response, not an authoritative
+                # "this year has nothing".  Do not touch the year's bucket (the
+                # cached citations stay exactly where they are) and leave the
+                # year incomplete so it is retried.
+                fresh_year_buckets.pop(year, None)
+                year_bucket_count = len(cached_bucket)
+                print(f"      Year {year}: keeping {year_bucket_count} cached "
+                      f"citation(s); an empty page is not an authoritative rebuild",
+                      flush=True)
+            elif len(year_batch.citations) < len(cached_bucket) and not force_year_rebuild:
+                # A fetch must never delete citations it did not return.  A full
+                # re-scan started at page 0 seeds the batch empty, so a truncated
+                # or blocked page (or a lossy year filter) comes back with fewer
+                # rows than the cache; keep the cached rows and add the new ones.
+                # exact mode (force_year_rebuild) deliberately rebuilds the
+                # bucket from Scholar, so it is exempt.
+                cached_keys = set()
+                for citation in cached_bucket:
+                    cached_keys.update(fetcher._citation_identity_keys(citation))
+                extra = [
+                    citation for citation in year_batch.citations
+                    if not any(key in cached_keys
+                               for key in fetcher._citation_identity_keys(citation))
+                ]
+                merged_bucket = cached_bucket + extra
+                fresh_year_buckets[year] = merged_bucket
+                year_bucket_count = len(merged_bucket)
+                print(f"      Year {year}: fetch returned {len(year_batch.citations)} < "
+                      f"{len(cached_bucket)} cached; keeping the cached rows "
+                      f"({len(merged_bucket)} total)", flush=True)
+            else:
+                fresh_year_buckets[year] = list(year_batch.citations)
             fresh_citations[:] = current_citations(complete=True)
-            year_ctx.partial_year_start.pop(year, None)
-            year_ctx.completed_year_segments.add(year)
+            if year_termination_reason != 'empty_page':
+                year_ctx.partial_year_start.pop(year, None)
+                year_ctx.completed_year_segments.add(year)
             year_ctx.dedup_count += year_batch.dedup_count
             live_count_for_diag = live_count if live_count is not None else len(year_batch.citations)
             year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
                 year,
                 live_count_for_diag,
-                len(year_batch.citations),
+                year_bucket_count,
                 year_batch.dedup_count,
                 year_termination_reason,
             )

@@ -4,6 +4,32 @@
 
 ---
 
+## 2026-10-08: 抓取结果不得删除它没有返回的数据（空页/截断页安全）
+
+### 问题
+
+一次抓取的返回值被当作"权威重建"，但它可能只是被拦截或截断：
+
+- year 模式某年页面返回 0 行（HTTP 200、无异常、被 consent/拦截）时，`fresh_year_buckets[year] = []` 会用空桶替换该年缓存，**删掉该年已抓到的引文**；并且该年被记入 `completed_year_segments`（本 run 不再重试）。叠加 stall 检测后损失会永久化。
+- 同一年从第 0 页全量重扫时 batch 是空的（只有 `start_index > 0` 才用缓存播种），所以一次截断的响应返回的行数少于缓存时，替换同样会删数据。
+- direct 模式同构：`_materialize_citation_cache(complete=True)` 直接返回 fresh，只要 fetch 正常结束就把缓存里没被再次返回的引文丢掉。
+- `no_probe_data_skip` 分支不看 probe 是否有逐年计数：探测彻底失败（DOM 失效导致回退路径不写 `probed_year_counts`）时，所有"缓存里有引文"的年份都被当作"不在直方图里"跳过，新引文永远抓不到，而日志显示正常完成。该分支也不看 `--fetch-mode`。
+
+### 实现
+
+- `crawler/citation_fetch.py`（year 循环）：
+  - `empty_page`：不再触碰该年桶（缓存引文原地保留），不写入 `completed_year_segments`/`partial_year_start`，`cached_total`/`seen_total` 按保留后的条数记录 → 该年保持不完整、下轮重试。
+  - 返回条数 < 缓存条数且非 `force_year_rebuild`：按 identity 合并（缓存行 + 新行），并打印 `keeping the cached rows (N total)`。`--fetch-mode exact` 的"权威重建"语义保留。
+- `scholar_citation.py: _materialize_citation_cache()`：`complete=True` 仅在 `len(fresh) >= len(old)` 时整表替换，否则退化为按 identity 合并 —— direct 模式的同构保护。
+- `crawler/citation_fetch.py`：`no_probe_data_skip` 增加 `histogram_authoritative` 门（probe 确实给出了逐年计数才允许据此跳过）；否则打印 `no histogram probe — an absent year is not evidence of completeness` 并正常抓取该年。
+
+### 验证
+
+- 测试 180 → 184：新增 `test_empty_page_keeps_cached_year_citations`、`test_truncated_year_scan_keeps_cached_rows`、`test_materialize_citation_cache_merges_when_complete_fetch_is_smaller`、`test_materialize_citation_cache_replaces_when_complete_fetch_is_not_smaller`；两个锁定旧行为的测试改名并拆分（`test_years_absent_from_an_authoritative_histogram_are_skipped` + `test_years_without_any_histogram_are_fetched_when_cache_exists`）。
+- 新测试先按当前实现复现"空页删引文"（`[A,B] → []`）与"截断即删行"，确认红后再改实现。
+
+---
+
 ## 2026-10-08: 启动健壮性：NO_PROXY 规范化 + 补丁生效自检
 
 ### 问题

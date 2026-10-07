@@ -30,8 +30,16 @@ class YearFetchMainTests(FetcherTestCase):
             ["Keep-2023", "New-2024-A", "New-2024-B", "Keep-NY"],
         )
 
-    def test_years_without_probe_data_are_skipped_when_cache_exists(self):
-        self.fetcher._probe_citation_start_year = lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2024
+    def test_years_absent_from_an_authoritative_histogram_are_skipped(self):
+        def fake_probe(citedby_url, fetch_ctx=None, num_citations=None, pub_year=None):
+            counts = {2024: 1}
+            self.fetcher._probed_year_counts = counts
+            if fetch_ctx is not None:
+                fetch_ctx.probed_year_counts = counts
+                fetch_ctx.probed_year_count_complete = True
+            return 2024
+
+        self.fetcher._probe_citation_start_year = fake_probe
         pages = {
             (2025, 0): [
                 {"bib": {"title": "Cached-2025", "author": ["A"], "venue": "V2025", "pub_year": "2025"}, "pub_url": "u-cached", "cites_id": "cid-cached"},
@@ -81,10 +89,76 @@ class YearFetchMainTests(FetcherTestCase):
                 prev_scholar_count=1,
             )
 
-        # Year 2025 has no probe data + cached data → skipped.
-        # Year 2026 has no probe data + no cached data → fetched (conservative).
+        # 2025 is absent from an authoritative histogram + has cache → skipped.
+        # 2026 is absent from the histogram + no cache → fetched (conservative).
         self.assertEqual(requests, [(2024, 0), (2026, 0)])
         self.assertEqual([c["title"] for c in citations], ["Cached-2025", "New-2024"])
+
+    def test_years_without_any_histogram_are_fetched_when_cache_exists(self):
+        """No per-year counts at all → "not in the histogram" proves nothing.
+
+        A failed probe leaves probed_year_counts empty; skipping cached years
+        then silently stops fetching them, so newly added rows in those years
+        would never be collected.
+        """
+        self.fetcher._probe_citation_start_year = lambda citedby_url, fetch_ctx=None, num_citations=None, pub_year=None: 2024
+        pages = {
+            (2025, 0): [
+                {"bib": {"title": "Cached-2025", "author": ["A"], "venue": "V2025", "pub_year": "2025"}, "pub_url": "u-cached", "cites_id": "cid-cached"},
+            ],
+            (2024, 0): [
+                {"bib": {"title": "New-2024", "author": ["B"], "venue": "V2024", "pub_year": "2024"}, "pub_url": "u-new"},
+            ],
+        }
+        requests = []
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                start = 0
+                if "start=" in url:
+                    start = int(url.split("start=")[1].split("&")[0])
+                year = int(url.split("as_ylo=")[1].split("&")[0])
+                self.items = list(pages.get((year, start), []))
+                self.index = 0
+                self._finished_current_page = False
+                requests.append((year, start))
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                    raise StopIteration
+                item = self.items[self.index]
+                self.index += 1
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                return item
+
+        old_citations = [
+            {"title": "Cached-2025", "authors": "A", "venue": "V2025", "year": "2025", "url": "u-cached", "cites_id": "cid-cached"},
+        ]
+
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            citations = self.fetcher._fetch_by_year(
+                citedby_url="/scholar?cites=123",
+                old_citations=old_citations,
+                fresh_citations=[],
+                save_progress=lambda complete, batch=None: None,
+                num_citations=2,
+                pub_year="2025",
+                prev_scholar_count=1,
+            )
+
+        output = fake_stdout.getvalue()
+        # 2025 has cached data but the probe produced no histogram at all → fetch.
+        self.assertEqual(requests, [(2024, 0), (2025, 0), (2026, 0)])
+        self.assertEqual(sorted(c["title"] for c in citations),
+                         ["Cached-2025", "New-2024"])
+        self.assertIn("no histogram probe", output)
+
 
     def test_force_year_rebuild_uses_replaced_year_totals_for_status_and_stop(self):
         self.fetcher._probed_year_counts = {2018: 37, 2019: 27}
@@ -530,6 +604,166 @@ class YearFetchMainTests(FetcherTestCase):
         self.assertNotIn(2026, records)
         self.assertIn("Year 2025: page returned 0 rows but the probe says 2", output)
         self.assertIn("recording termination as empty_page", output)
+
+    def test_empty_page_keeps_cached_year_citations(self):
+        """An empty page must not delete the citations already cached for a year.
+
+        A blocked/consent/interstitial response is HTTP 200 with no rows.
+        Treating it as an authoritative rebuild replaced the year's bucket with
+        an empty list, deleting real citations (and, once stall detection kicks
+        in, for good).
+        """
+        from crawler.output_state import PaperFetchState
+
+        pages = {}  # every year query comes back with no rows
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                start = 0
+                if "start=" in url:
+                    start = int(url.split("start=")[1].split("&")[0])
+                year = int(url.split("as_ylo=")[1].split("&")[0])
+                self.items = list(pages.get((year, start), []))
+                self.index = 0
+                self._finished_current_page = False
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                    raise StopIteration
+                item = self.items[self.index]
+                self.index += 1
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                return item
+
+        def fake_probe(citedby_url, fetch_ctx=None, num_citations=None, pub_year=None):
+            counts = {2025: 5}
+            self.fetcher._probed_year_counts = counts
+            if fetch_ctx is not None:
+                fetch_ctx.probed_year_counts = counts
+                fetch_ctx.probed_year_count_complete = True
+            return 2025
+
+        self.fetcher._probe_citation_start_year = fake_probe
+        old_citations = [
+            {"title": "A-2025", "authors": "A", "venue": "V", "year": "2025",
+             "url": "u-a", "cites_id": "cid-a"},
+            {"title": "B-2025", "authors": "B", "venue": "V", "year": "2025",
+             "url": "u-b", "cites_id": "cid-b"},
+        ]
+
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            self.fetcher._fetch_citations_with_progress(
+                citedby_url="/scholar?cites=123",
+                cache_path=None,
+                title="Paper",
+                num_citations=5,
+                pub_url="https://example.com/paper",
+                pub_year="2025",
+                resume_from=old_citations,
+                completed_years_in_current_run=[],
+                prev_scholar_count=2,
+                fetch_policy={"strategy": "year", "pub_year": 2025,
+                              "reason": "at_or_above_year_threshold"},
+            )
+
+        output = fake_stdout.getvalue()
+        saved = self.fetcher._mid_paper_state["Paper"]
+        self.assertEqual(sorted(c["title"] for c in saved["citations"]),
+                         ["A-2025", "B-2025"])
+        state = PaperFetchState.from_dict(saved)
+        records = {r["year"]: r for r in state.year_records}
+        self.assertEqual(records[2025]["termination_reason"], "empty_page")
+        self.assertEqual(records[2025]["cached_total"], 2)
+        self.assertEqual(records[2025]["seen_total"], 2)
+        self.assertFalse(saved["complete_fetch_attempt"])
+        self.assertFalse(state.is_complete(current_scholar_total=5, pub_year="2025"))
+        self.assertIn("keeping 2 cached citation(s)", output)
+        self.assertNotIn("skip (already completed earlier in this run)", output)
+
+    def test_truncated_year_scan_keeps_cached_rows(self):
+        """A full re-scan that returns fewer rows than the cache must not delete them.
+
+        The batch is seeded empty when a year scan starts at page 0, so a
+        truncated response comes back smaller than the cached bucket; the cached
+        rows must be kept alongside the freshly fetched ones.
+        """
+        from crawler.output_state import PaperFetchState
+
+        pages = {
+            (2025, 0): [
+                {"bib": {"title": "New-2025", "author": ["N"], "venue": "V",
+                         "pub_year": "2025"}, "pub_url": "u-new", "cites_id": "cid-new"},
+            ],
+        }
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                start = 0
+                if "start=" in url:
+                    start = int(url.split("start=")[1].split("&")[0])
+                year = int(url.split("as_ylo=")[1].split("&")[0])
+                self.items = list(pages.get((year, start), []))
+                self.index = 0
+                self._finished_current_page = False
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                    raise StopIteration
+                item = self.items[self.index]
+                self.index += 1
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                return item
+
+        def fake_probe(citedby_url, fetch_ctx=None, num_citations=None, pub_year=None):
+            counts = {2025: 3}
+            self.fetcher._probed_year_counts = counts
+            if fetch_ctx is not None:
+                fetch_ctx.probed_year_counts = counts
+                fetch_ctx.probed_year_count_complete = True
+            return 2025
+
+        self.fetcher._probe_citation_start_year = fake_probe
+        old_citations = [
+            {"title": "A-2025", "authors": "A", "venue": "V", "year": "2025",
+             "url": "u-a", "cites_id": "cid-a"},
+            {"title": "B-2025", "authors": "B", "venue": "V", "year": "2025",
+             "url": "u-b", "cites_id": "cid-b"},
+        ]
+
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            self.fetcher._fetch_citations_with_progress(
+                citedby_url="/scholar?cites=123",
+                cache_path=None,
+                title="Paper",
+                num_citations=3,
+                pub_url="https://example.com/paper",
+                pub_year="2025",
+                resume_from=old_citations,
+                completed_years_in_current_run=[],
+                prev_scholar_count=2,
+                fetch_policy={"strategy": "year", "pub_year": 2025,
+                              "reason": "at_or_above_year_threshold"},
+            )
+
+        output = fake_stdout.getvalue()
+        saved = self.fetcher._mid_paper_state["Paper"]
+        titles = sorted(c["title"] for c in saved["citations"])
+        self.assertEqual(titles, ["A-2025", "B-2025", "New-2025"])
+        records = {r["year"]: r for r in PaperFetchState.from_dict(saved).year_records}
+        self.assertEqual(records[2025]["cached_total"], 3)
+        self.assertIn("keeping the cached rows", output)
 
 
     def test_probed_year_with_no_rows_keeps_paper_incomplete(self):

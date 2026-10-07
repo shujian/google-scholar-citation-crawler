@@ -194,8 +194,9 @@ recorded:
   Scholar reports citations for the paper
 - `termination=empty_page` — a probed year (histogram says N > 0) returned no rows
 
-Expectations are unchanged: an empty page still records "no new citations" for
-this run, it is now just visible and distinguishable in the state.
+An empty page still records "no new citations" for this run, but it is no longer
+allowed to destroy data: the year (or paper) it belongs to keeps the citations
+already cached and stays incomplete, so the next run retries it.
 
 ## Year-Based Fetch Details
 
@@ -203,8 +204,14 @@ Papers with ≥ 50 **total** citations switch to year-by-year fetch mode:
 
 - **Direction**: Always oldest → newest
 - **Selective refresh**: Scholar's year histogram is probed once per paper; only years where the cached count differs from the histogram are re-fetched
+- **A fetch never deletes citations it did not return**: a year whose page comes
+  back empty (blocked/consent/interstitial) keeps its cached citations and stays
+  incomplete, and a full re-scan that returns fewer rows than the cache is merged
+  with the cached rows instead of replacing them. Only `--fetch-mode exact`
+  (and a `force` re-fetch) rebuilds a year bucket from Scholar.
 - **Skip logic**: 
   - **Per-year**: A year is skipped if `seen_total (cached + dedup) >= histogram_count` for that year
+  - **Probe authority**: a cached year that is *absent* from the histogram is only skipped when the probe actually produced per-year counts. When the probe fails, an absent year is not evidence of completeness, so the year is fetched.
   - **Paper-level (year mode)**: complete only when **every** year covers its own `histogram_count`. The aggregate `histogram_total <= seen_total` alone is not enough — years whose bucket exceeds the probe inflate the total and can hide a different year that is still short
   - **Paper-level (direct mode)**: complete when `scholar_total <= seen_total`
 - **Resume**: `partial_year_start` records the item offset within the in-progress year; direct mode uses page-aligned `direct_resume_state` (both are in-memory, used for same-run retries)

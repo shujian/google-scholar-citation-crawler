@@ -621,13 +621,33 @@ class DirectFetchTests(FetcherTestCase):
         self.assertEqual([c["title"] for c in materialized], ["Old-A", "Keep-B", "Fresh-C"])
         self.assertEqual(materialized[0]["url"], "new-a")
 
-    def test_materialize_citation_cache_uses_only_fresh_on_complete_save(self):
+    def test_materialize_citation_cache_merges_when_complete_fetch_is_smaller(self):
+        """A completed fetch that returns fewer rows must not delete cache rows.
+
+        A full re-scan seeds the batch empty, so a truncated/blocked page comes
+        back smaller than the cache; merging by identity keeps what was already
+        collected instead of silently dropping it.
+        """
         old_citations = [
             {"title": "Old-A", "authors": "A", "venue": "V", "year": "2024", "url": "old-a"},
             {"title": "Keep-B", "authors": "B", "venue": "V2", "year": "2023", "url": "old-b"},
         ]
         fresh_citations = [
             {"title": "Old-A", "authors": "A", "venue": "V", "year": "2024", "url": "new-a"},
+        ]
+
+        materialized = self.fetcher._materialize_citation_cache(old_citations, fresh_citations, complete=True)
+
+        self.assertEqual([c["title"] for c in materialized], ["Old-A", "Keep-B"])
+        self.assertEqual(materialized[0]["url"], "new-a")  # refreshed metadata wins
+
+    def test_materialize_citation_cache_replaces_when_complete_fetch_is_not_smaller(self):
+        old_citations = [
+            {"title": "Stale-A", "authors": "A", "venue": "V", "year": "2024", "url": "old-a"},
+        ]
+        fresh_citations = [
+            {"title": "Fresh-B", "authors": "B", "venue": "V2", "year": "2025", "url": "new-b"},
+            {"title": "Fresh-C", "authors": "C", "venue": "V3", "year": "2026", "url": "new-c"},
         ]
 
         materialized = self.fetcher._materialize_citation_cache(old_citations, fresh_citations, complete=True)
