@@ -31,6 +31,8 @@ pip install -r requirements.txt
 
 > **Note**: `httpx` is pinned to `0.27.2` for compatibility with `scholarly 1.7.11`. Newer versions break internal session handling.
 >
+> **Note**: A `NO_PROXY` / `no_proxy` entry that wraps an IPv6 literal in brackets (e.g. `[::1]`, common on macOS when a local proxy is running) is normalised automatically before `scholarly` is imported. Without that, `httpx 0.27.2` raises `InvalidURL: Invalid port: ':1]'` while scholarly builds its client at import time, and the crawler cannot start at all.
+>
 > **Note**: The crawler uses scholarly's native `httpx` client (HTTP/2) rather than a TLS-impersonation library. `curl_cffi` was previously used but Scholar's citation-search endpoint (`/scholar?cites=`) returns 429 for every `curl_cffi` impersonation target, while `httpx` works.
 
 ## Quick Start

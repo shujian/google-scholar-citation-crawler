@@ -2,6 +2,14 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 366. [2026-10-08]
+
+> 好的，请逐条修复上述存在的问题。
+
+（对三处行为取舍的确认：① PageVisit 改为"冷却 3 次后调用换代理提示，超时则抛出原异常退出"；② 篇内重复引文在输出前按 cites_id/title 强制去重，只留一条；③ 跨到 paper_downloader 仓库的问题只在待办里说明，便于其他仓库处理。）
+
+---
+
 ## 365. [2026-10-04]
 
 我觉得这个代码有个bug。当我获取一次引用信息之后，如果当次详细引用下载没有完成，下次运行这些未下载的引用将不会被继续下载。这体现在fetch plan上。请帮我检查一下。

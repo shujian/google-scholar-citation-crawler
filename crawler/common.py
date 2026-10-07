@@ -76,9 +76,52 @@ def setup_proxy():
     proxy_url = os.environ.get('https_proxy') or os.environ.get('http_proxy')
     if not proxy_url:
         print('Warning: No proxy detected, connecting directly')
-        return
-    clean = proxy_url.replace('http://', '').replace('https://', '')
-    print(f'Proxy detected: {clean} (using system env proxy)')
+    else:
+        clean = proxy_url.replace('http://', '').replace('https://', '')
+        print(f'Proxy detected: {clean} (using system env proxy)')
+    bypass = os.environ.get('no_proxy') or os.environ.get('NO_PROXY')
+    if bypass:
+        print(f'Proxy bypass (no_proxy): {bypass}')
+
+
+_NO_PROXY_BRACKET_RE = re.compile(r'^\[([0-9A-Fa-f:.]+)\](?::\d+)?$')
+
+
+def sanitize_no_proxy(env=None):
+    """Rewrite bracketed IPv6 literals in ``NO_PROXY`` / ``no_proxy``.
+
+    httpx 0.27.2 turns every NO_PROXY entry into a URLPattern; an entry such as
+    ``[::1]`` becomes ``all://*[::1]`` and raises
+    ``httpx.InvalidURL: Invalid port: ':1]'`` while the client is constructed.
+    scholarly builds exactly such a client when its Navigator singleton is
+    created, i.e. during ``import scholarly`` — so a bracketed IPv6 entry in the
+    shell environment makes the crawler impossible to start at all.
+
+    ``[::1]`` -> ``::1``.  A port suffix is dropped: httpx cannot express
+    IPv6+port in NO_PROXY, and bypassing the proxy for every port of that host
+    is the harmless direction.
+
+    Call this BEFORE importing scholarly (any ``crawler.*`` import does it
+    automatically via ``crawler/__init__.py``).  Returns the number of
+    rewritten entries; the operation is idempotent.
+    """
+    env = os.environ if env is None else env
+    changed = 0
+    for name in ('NO_PROXY', 'no_proxy'):
+        raw = env.get(name)
+        if not raw or '[' not in raw:
+            continue
+        parts = []
+        for token in raw.split(','):
+            entry = token.strip()
+            match = _NO_PROXY_BRACKET_RE.match(entry)
+            if match:
+                parts.append(match.group(1))
+                changed += 1
+            else:
+                parts.append(entry)
+        env[name] = ','.join(parts)
+    return changed
 
 
 def extract_author_id(author_input):

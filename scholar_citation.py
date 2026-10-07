@@ -16,6 +16,13 @@ import os
 os.environ['SE_AVOID_STATS'] = 'true'
 os.environ['WDM_LOG_LEVEL'] = '0'
 
+# Normalise NO_PROXY *before* scholarly is imported: scholarly constructs an
+# httpx.Client at import time, and httpx 0.27.2 raises InvalidURL on a bracketed
+# IPv6 literal such as [::1] in NO_PROXY.
+from crawler.common import sanitize_no_proxy as _sanitize_no_proxy  # noqa: E402
+
+_sanitize_no_proxy()
+
 import re
 import json
 import time
@@ -168,8 +175,9 @@ class PaperCitationFetcher:
         self._total_page_count = sctx.total_page_count
         self._next_break_at = sctx.next_break_at
         self._next_refresh_at = sctx.next_refresh_at
-        self._current_year_segment = sctx.current_year_segment
-        self._completed_year_segments = sctx.completed_year_segments
+        # Year-segment state belongs to citation_fetch.YearFetchSession; the
+        # fetch engine overwrites this per paper.
+        self._completed_year_segments = set()
         self._session_patched = True
         self._run_start_time = time.time()
 

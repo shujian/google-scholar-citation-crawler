@@ -2,6 +2,22 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
+## 2026-10-08: NO_PROXY 与 scholarly 补丁的启动期契约
+
+### 为什么必须在 import scholarly 之前处理 NO_PROXY
+
+httpx 0.27.2 在 `Client.__init__` 里把 `NO_PROXY` 的每一项解析成 URLPattern：非 IPv6 形态才走 `all://*{host}`。`is_ipv6_hostname('[::1]')` 为假（带方括号），于是生成 `all://*[::1]`，`URLPattern` 构造时抛 `InvalidURL: Invalid port: ':1]'`。scholarly 的 Navigator 是 import 期单例，其 ProxyGenerator 立刻建 `httpx.Client`，所以失败点在 `import scholarly`，不在我们的代码里。
+
+→ 任何依赖 httpx 的进程都不能假设环境干净。规范化必须放在"包被导入时"和"主入口导入 scholarly 之前"两处，且必须幂等（两处都会执行）。
+
+### 补丁点自检：为什么值得在启动时直接 raise
+
+12 个补丁点里多数属于"赋值成功但语义可能变"的类型。属性被改名 → `AttributeError`（响亮）；符号还在但语义变了 → 静默失效。`_citedby_long` 就是活样本：文档里写了半年"按年份分段加延迟/续跑"，实测一次都没执行（scholarly 只在对象带 `bib` 键时才走到它，而 direct 的 citedby stub 没有该键）。
+
+→ 判断一个补丁点该不该保留的标准：先用 grep 证明补丁体在真实调用路径上可达，再写进文档。自检只能覆盖"改名"这一类，但成本极低（9 次身份比较），能把"升级 scholarly 后悄悄失去限速/浏览器头"变成启动错误。
+
+---
+
 ## 2026-10-04: "重复结果就停止重试"（stall）的设计与边界
 
 ### 规则与实现

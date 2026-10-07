@@ -4,6 +4,28 @@
 
 ---
 
+## 2026-10-08: 启动健壮性：NO_PROXY 规范化 + 补丁生效自检
+
+### 问题
+
+1. `NO_PROXY` 含带方括号的 IPv6 字面量（macOS / 代理工具常见，如 `[::1]`）时 `import scholarly` 直接崩：scholarly 在构造 Navigator 单例时创建 `httpx.Client`，httpx 0.27.2 把 NO_PROXY 每项转成 URLPattern，`[::1]` 生成 `all://*[::1]` → `httpx.InvalidURL: Invalid port: ':1]'`。程序在拿到控制权之前退出，报错完全不指向根因。
+2. 12 个 scholarly 补丁点没有任何生效校验：上游改名/改签名时不报错，只会静默失去浏览器头、限速等待或分页解析。已有活样本：`scholarly._citedby_long` 补丁从未被执行。
+
+### 实现
+
+- `crawler/common.py: sanitize_no_proxy()`：把 `NO_PROXY`/`no_proxy` 中的 `[IPv6]` 规范化为裸 `::1`（端口后缀丢弃——httpx 无法表达 IPv6+port，"该主机全部端口绕过代理"是安全方向）。幂等。
+- `crawler/__init__.py` 在任何 `crawler.*` 子模块导入时执行一次；`scholar_citation.py` 在 `from scholarly import ...` **之前**显式调用（主入口先导入 scholarly，包初始化来不及生效）。
+- `setup_proxy()` 额外回显最终生效的 `no_proxy`，便于确认规范化结果。
+- `crawler/scholarly_session.py: assert_scholarly_patches_active()`：`patch_scholarly()` 结束时校验 9 个 hook（`_max_retries=1`、`_TIMEOUT=30`、`_get_page`、`_new_session`、`pm1/pm2._handle_captcha2`、`_SearchScholarIterator.__next__`/`_load_url`、`PublicationParser._citation_pub`），任一不符立刻 `RuntimeError`，提示 scholarly 版本不兼容。
+- 移除不可达的 `scholarly._citedby_long` 补丁与 SessionContext 的 `current_year_segment`/`completed_year_segments`：scholarly 仅在对象带 `bib` 键时才走 `_citedby_long`，而 direct 的 citedby stub 没有该键，year 模式直接构造 `_SearchScholarIterator`；年份分段状态实际由 `citation_fetch.YearFetchSession` 持有。
+
+### 验证
+
+- 测试 174 → 180。新增 6 个：规范化与幂等、`httpx.Client` 在 `[::1]` 下构造成功（回归）、自检报错信息、`patch_scholarly` 全 hook 校验、`_set_retries` 失效时启动即报错。
+- 本机 `NO_PROXY=localhost,127.0.0.1,::1,[::1]` 下：改动前 `python scholar_citation.py` 启动即崩、2 个测试报错；改动后同环境 180 个测试全过，`import crawler / scholarly / scholar_citation` 正常。
+
+---
+
 ## 2026-10-04: 连续两次结果相同即停止重试（stall 检测）
 
 ### 问题

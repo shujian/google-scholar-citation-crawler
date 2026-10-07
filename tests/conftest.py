@@ -34,6 +34,10 @@ class _DummyNav:
 
     def _set_retries(self, retries):
         self.retries = retries
+        # Mirror scholarly.Navigator._set_retries, which assigns _max_retries;
+        # patch_scholarly verifies that attribute after patching.
+        self._max_retries = retries
+        self._TIMEOUT = 5
 
     def _get_page(self, pagerequest, premium=False):
         return None

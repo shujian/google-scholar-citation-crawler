@@ -91,7 +91,9 @@ Patches `scholarly` internals rather than treating it as a black box:
 - Enforces randomised 45–90s waits before every request
 - Takes mandatory long breaks every 8–12 pages to reset Scholar's rate-limit window
 - Performs soft session refresh every 10–20 pages
-- Tracks year-segment switches in `_citedby_long` for resume support
+- Verifies every patch hook point at the end of `patch_scholarly()` and raises
+  when a scholarly upgrade made one of them ineffective (see
+  `assert_scholarly_patches_active`)
 
 All patch state is held in `SessionContext`; per-paper cross-run state is in `PaperFetchState` (`crawler/output_state.py`), and runtime fetch state is in `YearFetchSession` (`crawler/fetch_session.py`).
 

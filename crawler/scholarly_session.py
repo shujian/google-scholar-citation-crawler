@@ -79,10 +79,8 @@ class SessionContext:
     injected_header_overrides: dict = field(default_factory=dict)
     curl_header_allowlist: frozenset = field(default_factory=frozenset)
 
-    # year-segment tracking (per-paper, reset before each fetch)
-    current_year_segment: Optional[int] = None
-    completed_year_segments: set = field(default_factory=set)
-
+    # year-segment tracking (per-paper, reset before each fetch) lives in
+    # citation_fetch.YearFetchSession; this context only carries the probe.
     # per-paper state needed during probe
     probed_year_counts: Optional[dict] = None
     probed_year_count_complete: bool = False
@@ -309,6 +307,24 @@ def complete_browser_fingerprint(header_overrides):
           f"(user-agent v{ua_ver or '?'}, sec-ch-ua {sec_ch_ua})", flush=True)
 
 
+def assert_scholarly_patches_active(checks):
+    """Raise RuntimeError when a scholarly monkey-patch did not take effect.
+
+    *checks* is an iterable of (label, actual, expected) triples.  Comparison is
+    by equality, which for functions/classes means identity.
+    """
+    failed = [label for label, actual, expected in checks if actual != expected]
+    if failed:
+        raise RuntimeError(
+            "Scholarly patch ineffective for: " + ", ".join(failed) + ". The "
+            "installed scholarly version is incompatible with this crawler "
+            "(crawler/scholarly_session.py patches its internals). Refusing to "
+            "run with browser headers, rate-limit waits or pagination parsing "
+            "silently disabled — pin a compatible scholarly version or update "
+            "the patch layer."
+        )
+
+
 def patch_scholarly(ctx: SessionContext) -> None:
     """
     Monkey-patch scholarly internals for browser simulation + rate-limit safety.
@@ -320,7 +336,12 @@ def patch_scholarly(ctx: SessionContext) -> None:
       - scholarly._Scholarly__nav sessions replaced with HTTP/2 clients
       - nav._get_page, nav._new_session, pm._handle_captcha2 patched
       - _SearchScholarIterator.__init__, __next__, _load_url patched
-      - scholarly._citedby_long patched for year-segment tracking
+      - PublicationParser._citation_pub patched
+
+    The patched attributes are verified at the end (see
+    assert_scholarly_patches_active): a scholarly upgrade that renames or
+    replaces one of them must fail loudly at startup instead of silently
+    disabling browser headers, rate-limit waits or pagination parsing.
     """
     nav = scholarly._Scholarly__nav
     nav._set_retries(1)
@@ -610,25 +631,12 @@ def patch_scholarly(ctx: SessionContext) -> None:
     _SearchScholarIterator.__next__ = patched_next
     _SearchScholarIterator._load_url = patched_load_url
 
-    # Patch _citedby_long: year-segment skipping + tracking
-    original_citedby_long = scholarly._citedby_long
-    ctx.current_year_segment = None
-    ctx.completed_year_segments = set()
-
-    def patched_citedby_long(obj, years):
-        first = True
-        for y_hi, y_lo in years:
-            if y_lo in ctx.completed_year_segments:
-                print(f"      Skipping completed year {y_lo}", flush=True)
-                continue
-            if not first:
-                print(f"      Switching year range {y_lo}-{y_hi}", flush=True)
-            first = False
-            ctx.current_year_segment = y_lo
-            yield from original_citedby_long(obj, [(y_hi, y_lo)])
-            ctx.completed_year_segments.add(y_lo)
-
-    scholarly._citedby_long = patched_citedby_long
+    # Year-segment skipping/tracking deliberately lives in
+    # citation_fetch.YearFetchSession.  The old scholarly._citedby_long patch
+    # never ran: scholarly only reaches _citedby_long for objects with a 'bib'
+    # key (citation_fetch builds the citedby stub without it) and the year path
+    # constructs _SearchScholarIterator directly.  Removed rather than kept as
+    # unreachable code.
 
     # Patch _citation_pub: also extract pub_url and bib['author'].
     # Scholarly's _citation_pub (used for AUTHOR_PUBLICATION_ENTRY) only
@@ -654,6 +662,22 @@ def patch_scholarly(ctx: SessionContext) -> None:
         return result
 
     PublicationParser._citation_pub = patched_citation_pub
+
+    # Fail loudly at startup when a scholarly upgrade renamed (or re-created)
+    # one of the patched hooks: a silently ineffective patch would disable
+    # browser headers, rate-limit waits or pagination parsing without any
+    # visible error.
+    assert_scholarly_patches_active([
+        ('nav._max_retries', getattr(nav, '_max_retries', None), 1),
+        ('nav._TIMEOUT', getattr(nav, '_TIMEOUT', None), 30),
+        ('nav._get_page', nav._get_page, patched_get_page),
+        ('nav._new_session', nav._new_session, patched_new_session),
+        ('nav.pm1._handle_captcha2', nav.pm1._handle_captcha2, patched_handle_captcha2),
+        ('nav.pm2._handle_captcha2', nav.pm2._handle_captcha2, patched_handle_captcha2),
+        ('_SearchScholarIterator.__next__', _SearchScholarIterator.__next__, patched_next),
+        ('_SearchScholarIterator._load_url', _SearchScholarIterator._load_url, patched_load_url),
+        ('PublicationParser._citation_pub', PublicationParser._citation_pub, patched_citation_pub),
+    ])
 
 
 # ---------------------------------------------------------------------------

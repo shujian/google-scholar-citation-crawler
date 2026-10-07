@@ -364,5 +364,73 @@ class CitationPageEvidenceTests(unittest.TestCase):
         self.assertIn('Page items: 0 (no citation rows)', fake_stdout.getvalue())
 
 
+class StartupRobustnessTests(FetcherTestCase):
+    """NO_PROXY normalisation and patch self-check (startup hardening)."""
+
+    def test_sanitize_no_proxy_unbrackets_ipv6_entries(self):
+        from crawler.common import sanitize_no_proxy
+        env = {'NO_PROXY': 'localhost,127.0.0.1,::1,[::1]',
+               'no_proxy': 'localhost,[2001:db8::1]:8080'}
+        changed = sanitize_no_proxy(env)
+        self.assertEqual(changed, 2)
+        self.assertEqual(env['NO_PROXY'], 'localhost,127.0.0.1,::1,::1')
+        # A port suffix is dropped: httpx cannot express IPv6+port in NO_PROXY.
+        self.assertEqual(env['no_proxy'], 'localhost,2001:db8::1')
+
+    def test_sanitize_no_proxy_is_idempotent_and_leaves_other_entries(self):
+        from crawler.common import sanitize_no_proxy
+        env = {'NO_PROXY': 'localhost,127.0.0.1,::1'}
+        self.assertEqual(sanitize_no_proxy(env), 0)
+        self.assertEqual(env['NO_PROXY'], 'localhost,127.0.0.1,::1')
+        self.assertEqual(sanitize_no_proxy({}), 0)
+
+    def test_httpx_client_survives_bracketed_no_proxy_after_sanitize(self):
+        """Regression: httpx 0.27.2 raises InvalidURL on a bracketed IPv6 entry."""
+        import httpx
+        from crawler.common import sanitize_no_proxy
+        with patch.dict(os.environ, {'NO_PROXY': 'localhost,[::1]'}, clear=False):
+            sanitize_no_proxy()
+            with httpx.Client(http2=True, follow_redirects=True):
+                pass
+
+    def test_assert_scholarly_patches_active_reports_ineffective_hooks(self):
+        from crawler.scholarly_session import assert_scholarly_patches_active
+
+        def hook():
+            return None
+
+        assert_scholarly_patches_active([('ok', hook, hook), ('retries', 1, 1)])
+        with self.assertRaises(RuntimeError) as ctx:
+            assert_scholarly_patches_active([('nav._get_page', hook, hook), ('nav._max_retries', 5, 1)])
+        self.assertIn('nav._max_retries', str(ctx.exception))
+
+    def test_patch_scholarly_verifies_all_hook_points(self):
+        nav = scholarly_mod.scholarly._Scholarly__nav
+        nav._get_page = lambda pagerequest, premium=False: None
+        self.fetcher._patch_scholarly()
+        # The patched hooks must be the ones patch_scholarly installed.
+        self.assertEqual(getattr(nav, '_max_retries', None), 1)
+        self.assertEqual(getattr(nav, '_TIMEOUT', None), 30)
+        self.assertIsNot(nav._get_page, None)
+        self.assertTrue(callable(nav._new_session))
+        self.assertTrue(callable(nav.pm1._handle_captcha2))
+
+    def test_patch_scholarly_fails_loudly_when_a_hook_is_replaced(self):
+        """A scholarly upgrade that ignores _set_retries must abort startup."""
+        nav = scholarly_mod.scholarly._Scholarly__nav
+        original_set_retries = nav._set_retries
+
+        def ignore_retries(retries):
+            return None
+
+        nav._set_retries = ignore_retries
+        try:
+            with self.assertRaises(RuntimeError) as ctx:
+                self.fetcher._patch_scholarly()
+            self.assertIn('nav._max_retries', str(ctx.exception))
+        finally:
+            nav._set_retries = original_set_retries
+
+
 if __name__ == '__main__':
     unittest.main()
