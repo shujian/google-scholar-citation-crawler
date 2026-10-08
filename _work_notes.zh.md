@@ -2,6 +2,16 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
+## 2026-10-08: "看起来像 id 的哨兵值"比空值更危险
+
+scholarly 用行的 `data-cid` 拼 `url_scholarbib`；行没有被建 cluster 时属性缺失，`.get()` 返回 `None`，于是 URL 里出现 `info:None:scholar.google.com`。原正则 `info:([^:]+):` 会**成功匹配**并把 `'None'` 当 cluster id 存下来。
+
+为什么比"取不到"更糟：`cites_id` 同时是**身份键**和下游的**主键**。空值只是退化为 `title+venue` 兜底键；而 `'None'` 会让所有这类行共享同一个键 `cites_id\tNone` —— 不同论文被当成同一条被去重，下游还会拿一个不存在的 id 去查 progress。
+
+判据：**解析外部 id 时，正则匹配成功 ≠ 取到了合法值**。凡是把字符串当标识符的地方，都要显式排除"空、None、null、n/a"这类占位串，并且最好收敛到一个 `_clean_*` 函数（本次是 `_clean_cites_id`），让所有入口共用。
+
+---
+
 ## 2026-10-08: 一个布尔字段不能同时回答两个问题
 
 `complete_fetch_attempt` 被三个地方读作"本次抓取是否正常跑完"，却被 `_compute_data_complete()` 按"数据是否完整"写。两个问题在不同时点取数（写快照时 vs 读状态时），于是同一个文件里 `fetch_complete` 与它互相矛盾 68/247 篇——**不是有人写错，而是一个名字承担了两个语义**。

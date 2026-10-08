@@ -11,7 +11,7 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 - **Incremental Caching**: Re-fetches only papers whose cache is incomplete; year-based papers use a per-year histogram to decide which years need refreshing
 - **Stall Detection**: A paper whose fetch keeps producing the same result (e.g. Scholar lists fewer citations than it reports) stops being retried after two identical runs, and resumes on its own when Scholar's counts change
 - **Year-Based Fetching**: Papers with many citations (configurable threshold, default ≥ 50) are fetched year-by-year (oldest → newest), skipping years whose cached count already matches Scholar's histogram
-- **Dedup Handling**: Deduplicates citations using Scholar-native `cites_id` when available, falling back to `title + venue/authors` metadata. The written output additionally collapses rows that share a `cites_id` **or** a normalised title (Scholar often lists one work under several clusters) and keeps the row with the richest metadata; the number collapsed is printed per paper
+- **Dedup Handling**: Deduplicates citations using Scholar-native `cites_id` when available, falling back to `title + venue/authors` metadata. A row Scholar never clustered stores a null `cites_id` (never the literal `"None"`). The written output additionally collapses rows that share a `cites_id` **or** a normalised title (Scholar often lists one work under several clusters) and keeps the row with the richest metadata; the number collapsed is printed per paper
 - **Resume Support**: Interrupted fetches resume from the last checkpoint; on exit the in-flight paper's state (citations fetched so far + the live year probe) is written to the output, so a year left short is re-fetched next run instead of being reported complete. A year that was interrupted mid-way keeps its item offset, so the next run continues inside that year rather than re-walking it
 - **Consistent sentinels**: an unusable year is always written as `N/A` (older states may still contain `NA` or an empty string; every reader treats all of them as unknown)
 - **Two different completeness signals**: `fetch_complete` in the output is the *data* verdict (does every probed year have its rows?), while `_fetch_state.complete_fetch_attempt` records whether the last attempt finished cleanly (a blocked/empty page makes it false). `--fetch-mode rough` reads the latter
@@ -263,7 +263,7 @@ crawler/
   output_state.py            # PaperFetchState / PaperState + output file _fetch_state read/write
   pub_info.py                # PubInfo dataclass for publication field normalization
   cli.py                     # parse_args() only — the entry point is scholar_citation.main()
-tests/                       # 219 unit tests, no network required
+tests/                       # 220 unit tests, no network required
 ```
 
 ### Running Tests

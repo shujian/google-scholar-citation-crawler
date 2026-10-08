@@ -15,6 +15,23 @@ _SCHOLARPUBRE = re.compile(r'cites=([\d,]*)')
 
 _SCHOLARBIB_CID_RE = re.compile(r'info:([^:]+):scholar\.google\.com')
 
+# scholarly builds url_scholarbib from the row's `data-cid`; when a row has none,
+# the attribute is absent and `.get()` yields None, so the URL becomes
+# 'info:None:scholar.google.com'.  Taken literally that string looks like a real
+# cluster id, and every such row would then share the identity key
+# `cites_id\tNone` (collapsing unrelated citations into one, and handing the
+# downloader a bogus primary key).  The other spellings are the same class of
+# trap from hand-edited or legacy state.
+_INVALID_CITES_IDS = frozenset(['none', 'null', 'n/a', 'na'])
+
+
+def _clean_cites_id(value):
+    """Return a usable single cluster id, or None for empty/invalid values."""
+    text = '' if value is None else str(value).strip()
+    if not text or text.lower() in _INVALID_CITES_IDS:
+        return None
+    return text
+
 
 def _extract_cites_id_from_url(url):
     """Extract cites_id from a Google Scholar citedby_url, or None."""
@@ -23,7 +40,8 @@ def _extract_cites_id_from_url(url):
     match = _SCHOLARPUBRE.search(str(url))
     if not match:
         return None
-    parts = [p.strip() for p in match.group(1).split(',') if p.strip()]
+    parts = [_clean_cites_id(p) for p in match.group(1).split(',')]
+    parts = [p for p in parts if p]
     return parts if parts else None
 
 
@@ -34,18 +52,18 @@ def _extract_cid_from_scholarbib(url):
     match = _SCHOLARBIB_CID_RE.search(str(url))
     if not match:
         return None
-    return match.group(1).strip()
+    return _clean_cites_id(match.group(1))
 
 
 def normalize_cites_id(cites_id):
-    """Return a normalised string cites_id, or None if absent/empty."""
+    """Return a normalised string cites_id, or None if absent/empty/invalid."""
     if cites_id in (None, '', [], ()):
         return None
     if isinstance(cites_id, (list, tuple, set)):
-        parts = [str(part).strip() for part in cites_id if str(part).strip()]
+        parts = [_clean_cites_id(part) for part in cites_id]
+        parts = [part for part in parts if part]
         return ','.join(parts) if parts else None
-    value = str(cites_id).strip()
-    return value or None
+    return _clean_cites_id(cites_id)
 
 
 def normalize_identity_part(value):

@@ -2,6 +2,16 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 367. [2026-10-08]
+
+> 那些 cites_id 确实的论文，后续再抓取的时候会补全吗？cites_id 对应的是被引用的论文，还是那些引文？
+
+> 好的，把 bug 修掉，既然重新抓取的时候会更新，当前就不需要再处理了。
+
+（说明：本条只修 `cites_id` 取到 `'None'` 字面量的缺陷；存量数据不做回填/迁移，历史缺 id 的行在该论文下次被抓取时自然更新。）
+
+---
+
 ## 366. [2026-10-08]
 
 > 好的，请逐条修复上述存在的问题。

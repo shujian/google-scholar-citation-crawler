@@ -833,6 +833,34 @@ class CitationIdentityTests(unittest.TestCase):
     def test_extract_cid_from_scholarbib_returns_none_for_non_scholarbib_url(self):
         self.assertIsNone(_extract_cid_from_scholarbib('https://example.com/paper'))
 
+    def test_scholarbib_none_cluster_is_not_a_cites_id(self):
+        """A row Scholar never clustered produces 'info:None:…'.
+
+        Taken literally that is a plausible-looking id, and every such row would
+        share the identity key `cites_id\\tNone` (merging unrelated citations and
+        handing the downloader a bogus key).
+        """
+        from crawler.citation_identity import citation_identity_keys, normalize_cites_id
+
+        url = '/scholar?q=info:None:scholar.google.com/&output=cite&scirp=0&hl=en'
+        self.assertIsNone(_extract_cid_from_scholarbib(url))
+
+        info = extract_citation_info({
+            'bib': {'title': 'Unclustered', 'author': ['A'], 'venue': 'V',
+                    'pub_year': '2025'},
+            'url_scholarbib': url,
+            'pub_url': 'http://example.com',
+        })
+        self.assertIsNone(info['cites_id'])
+        keys = citation_identity_keys(info)
+        self.assertFalse(any(key.startswith('cites_id') for key in keys), keys)
+
+        for sentinel in ('None', 'none', 'NULL', 'null', 'N/A', 'na', ' '):
+            self.assertIsNone(normalize_cites_id(sentinel), sentinel)
+        self.assertEqual(normalize_cites_id('g4QQL8eCFG0J'), 'g4QQL8eCFG0J')
+        self.assertEqual(normalize_cites_id(['None', '123', '', '456']), '123,456')
+        self.assertIsNone(normalize_cites_id(['None', '']))
+
     def test_extract_citation_info_falls_back_to_url_scholarbib_when_no_citedby_url(self):
         pub = {
             'bib': {'title': 'Test', 'author': ['A'], 'venue': 'V', 'pub_year': '2025'},

@@ -4,6 +4,31 @@
 
 ---
 
+## 2026-10-08: 不要把 `'None'` 当成 `cites_id`
+
+### 问题
+
+scholarly 用行的 `data-cid` 拼 `url_scholarbib`；当某行没有被 Scholar 建 cluster 时该属性缺失，`.get()` 返回 `None`，URL 就变成 `info:None:scholar.google.com`。我们的正则 `info:([^:]+):` 会把字面量 **`'None'` 当成有效 cluster id** 存下来：
+
+- 这类行会共享同一个身份键 `cites_id\tNone`，被去重逻辑当成同一条引文（不同论文被折叠）；
+- 下游 `paper_downloader` 以 `cites_id` 为主键，会拿到一个不存在的 id。
+
+当前生产数据里没有这种值（9054 行中 0 行），属潜在缺陷。
+
+### 实现
+
+- `crawler/citation_identity.py`：新增 `_clean_cites_id()`（空串与 `none`/`null`/`n/a`/`na` 一律视为无效），`_extract_cid_from_scholarbib()`、`_extract_cites_id_from_url()`、`normalize_cites_id()` 全部经过它 —— 后两者是唯一入口，因此也覆盖 `citedby_url` 解析与列表形态的值。
+
+### 不做的事
+
+不对存量数据做回填或迁移（按用户决定）：历史缺 id 的行会在该论文下次被抓取时，随新行按身份键替换而自然更新；页面本身没有 cluster id 的行（当前约占 20%）则保持 `null`。
+
+### 验证
+
+- 测试 219 → 220：`test_scholarbib_none_cluster_is_not_a_cites_id` —— 断言 `_extract_cid_from_scholarbib('…info:None:…')` 为 None、`extract_citation_info()` 的 `cites_id` 为 None、身份键退化为 meta 键（不含 `cites_id`），以及 `normalize_cites_id` 对 7 种哨兵值返回 None、列表形态只保留有效项。先在回退到 HEAD 的副本上验证为红（`'None' is not None`）。
+
+---
+
 ## 2026-10-08: 收尾三项（状态不压过证据、Excel 行号、过期注释）
 
 ### 问题
