@@ -478,6 +478,67 @@ class OutputAndReconciliationTests(FetcherTestCase):
         self.assertEqual(len(kept), 1)
         self.assertEqual(kept[0]["year"], "2020")  # richer row wins
 
+    def test_citations_xlsx_round_trips_with_real_openpyxl(self):
+        """The Excel writers are only ever exercised against a stub.
+
+        tests/conftest.py replaces openpyxl, so a broken openpyxl API call (or a
+        value openpyxl rejects) would never surface in the suite.  This test
+        temporarily restores the real library and reopens what it wrote.
+        """
+        import importlib
+        stubbed = {name: sys.modules.pop(name)
+                   for name in list(sys.modules)
+                   if name == 'openpyxl' or name.startswith('openpyxl.')}
+        try:
+            real_openpyxl = importlib.import_module('openpyxl')
+            from openpyxl.styles import Alignment, Font, PatternFill
+            self.assertTrue(hasattr(real_openpyxl, 'load_workbook'))
+
+            from crawler.citation_io import save_citations_xlsx
+
+            pub = {"no": 1, "title": "Paper", "year": "2024", "venue": "V",
+                   "num_citations": 2}
+            results = [{
+                "pub": pub,
+                "fetch_complete": True,
+                "citations": [
+                    {"title": "Cited A", "authors": "A", "venue": "V1",
+                     "year": "2023", "url": "https://example.com/a",
+                     "cites_id": "cid-a"},
+                    {"title": "Cited B", "authors": "B", "venue": "V2",
+                     "year": "N/A", "url": "N/A", "cites_id": None},
+                ],
+            }]
+            tmpdir = tempfile.mkdtemp()
+            self.addCleanup(shutil.rmtree, tmpdir, ignore_errors=True)
+            path = os.path.join(tmpdir, "citations.xlsx")
+            save_citations_xlsx(
+                path, results, "test-author",
+                metadata={"author_id": "test-author", "fetch_time": "t",
+                          "total_papers": 1, "total_citations_collected": 2},
+                openpyxl_module=real_openpyxl,
+                font_cls=Font, pattern_fill_cls=PatternFill,
+                alignment_cls=Alignment,
+            )
+            self.assertTrue(os.path.exists(path))
+
+            workbook = real_openpyxl.load_workbook(path)
+            self.assertEqual(workbook.sheetnames,
+                             ["Summary", "All Citations", "Run Metadata"])
+            summary = workbook["Summary"]
+            self.assertEqual(summary.cell(row=1, column=1).value, "No.")
+            self.assertEqual(summary.cell(row=2, column=2).value, "Paper")
+            self.assertEqual(summary.cell(row=2, column=6).value, 2)
+            citations = workbook["All Citations"]
+            self.assertEqual(citations.cell(row=2, column=2).value, "Cited A")
+            self.assertEqual(citations.cell(row=3, column=2).value, "Cited B")
+            self.assertEqual(workbook["Run Metadata"].cell(row=4, column=2).value, 2)
+        finally:
+            for name in list(sys.modules):
+                if name == 'openpyxl' or name.startswith('openpyxl.'):
+                    del sys.modules[name]
+            sys.modules.update(stubbed)
+
     def test_save_output_ignores_direct_snapshot_that_lacks_diagnostics(self):
         """A direct-mode mid-fetch save has no fetch_strategy/direct diagnostics
         yet; letting it replace the persisted state would infer year mode and

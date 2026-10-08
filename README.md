@@ -263,7 +263,7 @@ crawler/
   output_state.py            # PaperFetchState / PaperState + output file _fetch_state read/write
   pub_info.py                # PubInfo dataclass for publication field normalization
   cli.py                     # parse_args() only — the entry point is scholar_citation.main()
-tests/                       # 215 unit tests, no network required
+tests/                       # 217 unit tests, no network required
 ```
 
 ### Running Tests

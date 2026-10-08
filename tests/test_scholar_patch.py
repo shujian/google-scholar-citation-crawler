@@ -468,6 +468,40 @@ class StartupRobustnessTests(FetcherTestCase):
         self.assertEqual(info["year"], "2025")
         self.assertEqual(extract_citation_info({"bib": {"title": "T"}})["year"], "N/A")
 
+    def test_real_scholarly_still_exposes_every_patched_hook(self):
+        """Contract test against the installed scholarly.
+
+        The rest of the suite replaces scholarly with a stub, so a scholarly
+        upgrade that renames one of these internals would keep the tests green
+        while the crawler lost headers, waits or pagination parsing.
+        """
+        import importlib
+        stubbed = {name: sys.modules.pop(name)
+                   for name in list(sys.modules)
+                   if name == 'scholarly' or name.startswith('scholarly.')}
+        try:
+            real_scholarly = importlib.import_module('scholarly')
+            pub_parser = importlib.import_module('scholarly.publication_parser')
+            # The crawler patches the singleton instance (`from scholarly import
+            # scholarly`), not the module.
+            nav = real_scholarly.scholarly._Scholarly__nav
+
+            for attribute in ('_get_page', '_new_session', '_set_retries',
+                              '_TIMEOUT', '_max_retries', '_session1', '_session2',
+                              'pm1', 'pm2'):
+                self.assertTrue(hasattr(nav, attribute),
+                                f"scholarly.Navigator lost {attribute}")
+            self.assertTrue(hasattr(nav.pm1, '_handle_captcha2'))
+            for attribute in ('__init__', '__next__', '_load_url'):
+                self.assertTrue(hasattr(pub_parser._SearchScholarIterator, attribute),
+                                f"_SearchScholarIterator lost {attribute}")
+            self.assertTrue(hasattr(pub_parser.PublicationParser, '_citation_pub'))
+        finally:
+            for name in list(sys.modules):
+                if name == 'scholarly' or name.startswith('scholarly.'):
+                    del sys.modules[name]
+            sys.modules.update(stubbed)
+
     def test_parse_args_rejects_out_of_range_values(self):
         from crawler.cli import parse_args
         for argv in (['--author', 'a', '--skip', '-1'],

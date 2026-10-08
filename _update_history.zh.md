@@ -4,6 +4,26 @@
 
 ---
 
+## 2026-10-08: 补上两个测试盲区（真实 openpyxl、真实 scholarly 契约）
+
+### 问题
+
+`tests/conftest.py` 把 `scholarly` 与 `openpyxl` 整体替换成 stub，因此：
+
+- Excel 写入路径从未被真实库执行过 —— 一个错误的 openpyxl API 调用或 openpyxl 拒绝的取值都不会让任何测试变红（审计里"Excel 失败中止整轮"就是靠真实 openpyxl 才复现的）；
+- 补丁层从未对着真实 `scholarly` 验证过 —— 上游改名时测试仍然全绿，而爬虫会静默失去浏览器头/限速等待/分页解析。
+
+### 实现
+
+- `tests/test_output.py`：`test_citations_xlsx_round_trips_with_real_openpyxl` —— 临时从 `sys.modules` 移除 stub、导入真实 openpyxl，调用 `save_citations_xlsx()` 写盘再用 `load_workbook()` 读回，校验三个 sheet 名与关键单元格。
+- `tests/test_scholar_patch.py`：`test_real_scholarly_still_exposes_every_patched_hook` —— 同样临时恢复真实库，断言 `Navigator`（单例 `scholarly.scholarly._Scholarly__nav`）上的 `_get_page`/`_new_session`/`_set_retries`/`_TIMEOUT`/`_max_retries`/`_session1`/`_session2`/`pm1`/`pm2._handle_captcha2`、`_SearchScholarIterator.__init__/__next__/_load_url`、`PublicationParser._citation_pub` 都存在。
+
+### 验证
+
+- 测试 215 → 217（两个新测试均在真实依赖下通过；第一个测试同时确认导入到的确实不是 stub）。
+
+---
+
 ## 2026-10-08: 输出口径（行为完成 vs 数据完整）、年份哨兵统一、输出前强制去重
 
 ### 问题
