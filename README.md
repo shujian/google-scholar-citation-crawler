@@ -214,7 +214,7 @@ Papers with ≥ 50 **total** citations switch to year-by-year fetch mode:
   - **Probe authority**: a cached year that is *absent* from the histogram is only skipped when the probe actually produced per-year counts. When the probe fails, an absent year is not evidence of completeness, so the year is fetched.
   - **Paper-level (year mode)**: complete only when **every** year covers its own `histogram_count`. The aggregate `histogram_total <= seen_total` alone is not enough — years whose bucket exceeds the probe inflate the total and can hide a different year that is still short
   - **Paper-level (direct mode)**: complete when `scholar_total <= seen_total`
-- **Resume**: `partial_year_start` records the item offset within the in-progress year; direct mode uses page-aligned `direct_resume_state` (both are in-memory, used for same-run retries)
+- **Resume**: `partial_year_start` records the item offset within the in-progress year and is persisted with the fetch state, so an interrupted year resumes at that offset on the next run instead of re-walking from item 0 (its page is page-aligned and already-collected rows are skipped). Direct mode uses a page-aligned `direct_resume_state` while the paper is in flight; a fresh run still re-walks a direct list from the head (its length is small enough that this is cheaper than trusting a stale offset). A completed fetch never deletes rows it did not return: a smaller result is merged with the cached rows unless `--fetch-mode exact` asked for an authoritative rebuild.
 
 ## Development Notes
 

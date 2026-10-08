@@ -54,6 +54,84 @@ class DirectFetchTests(FetcherTestCase):
         self.assertEqual(seen_request_urls, ["/scholar?cites=123&start=10"])
         self.assertEqual([citation["title"] for citation in citations], ["Keep-4", "Keep-5"])
 
+    def test_direct_resume_state_advances_after_a_full_page(self):
+        """The saved offset must move, or a retry re-walks the list from page 0."""
+        cache_path = os.path.join(tempfile.gettempdir(), "paper-direct-advance.json")
+
+        class InterruptOnSecondPage:
+            def __init__(self):
+                self.items = [
+                    {"bib": {"title": f"P-{idx}", "author": ["A"], "venue": "V",
+                             "pub_year": "2024"}, "pub_url": f"u{idx}"}
+                    for idx in range(12)
+                ]
+                self.index = 0
+                self._finished_current_page = False
+                self._items_in_current_page = 0
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= 10:
+                    raise KeyboardInterrupt()
+                item = self.items[self.index]
+                self.index += 1
+                self._items_in_current_page = self.index
+                self._finished_current_page = self.index == 10
+                return item
+
+        with patch.object(self.fetcher, "_iter_direct_citedby",
+                          return_value=InterruptOnSecondPage()), \
+             patch("sys.stdout", new_callable=StringIO):
+            with self.assertRaises(KeyboardInterrupt):
+                self.fetcher._fetch_citations_with_progress(
+                    citedby_url="/scholar?cites=123",
+                    cache_path=cache_path,
+                    title="Paper",
+                    num_citations=25,
+                    pub_url="https://example.com/paper",
+                    pub_year="2024",
+                    resume_from=[],
+                )
+
+        saved = self.fetcher._mid_paper_state["Paper"]
+        self.assertEqual(saved["direct_resume_state"]["next_index"], 10)
+
+    def test_direct_resume_merges_the_cached_prefix(self):
+        """Resuming mid-list returns a suffix; the cached prefix must survive."""
+        cached_prefix = [
+            {"title": f"Cached-{idx}", "authors": "A", "venue": "V", "year": "2024",
+             "url": f"c{idx}", "cites_id": f"cid-c{idx}"}
+            for idx in range(10)
+        ]
+        suffix = [
+            {"bib": {"title": f"New-{idx}", "author": ["A"], "venue": "V",
+                     "pub_year": "2024"}, "pub_url": f"n{idx}", "cites_id": f"cid-n{idx}"}
+            for idx in range(5)
+        ]
+
+        with patch.object(self.fetcher, "_iter_direct_citedby", return_value=iter(suffix)), \
+             patch("sys.stdout", new_callable=StringIO):
+            citations = self.fetcher._fetch_citations_with_progress(
+                citedby_url="/scholar?cites=123",
+                cache_path=None,
+                title="Paper",
+                num_citations=15,
+                pub_url="https://example.com/paper",
+                pub_year="2024",
+                resume_from=cached_prefix,
+                direct_resume_state={
+                    "next_index": 10,
+                    "source_scholar_total": 15,
+                    "citedby_url": "/scholar?cites=123",
+                },
+            )
+
+        titles = sorted(c["title"] for c in citations)
+        self.assertEqual(titles, sorted(
+            [c["title"] for c in cached_prefix] + [f"New-{idx}" for idx in range(5)]))
+
     def test_fetch_citations_with_progress_partial_save_persists_direct_resume_state(self):
         cache_path = os.path.join(tempfile.gettempdir(), "paper-direct-partial-save.json")
 
@@ -1037,6 +1115,59 @@ class DirectFetchTests(FetcherTestCase):
         self.assertEqual(
             saved["direct_fetch_diagnostics"]["termination_reason"], "iterator_exhausted")
         self.assertNotIn("Citation list returned 0 rows", fake_stdout.getvalue())
+
+    def test_cursor_steps_back_when_an_item_cannot_be_extracted(self):
+        """A row that failed to parse must be re-read on retry, not skipped.
+
+        _start_index drives both the page-aligned re-fetch URL and the in-page
+        skip, so counting an item that was never saved made the retry resume one
+        row too far and silently drop that citation.
+        """
+        from crawler.fetch_session import BatchFetchSession
+
+        class FakeIterator:
+            def __init__(self, items):
+                self.items = list(items)
+                self.index = 0
+                self._finished_current_page = False
+                self._items_in_current_page = 0
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                    raise StopIteration
+                item = self.items[self.index]
+                self.index += 1
+                self._items_in_current_page = self.index
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                return item
+
+        seen_items = []
+
+        def extract(citing, fallback_year=None):
+            seen_items.append(citing)
+            if citing == "Item-3" and seen_items.count("Item-3") == 1:
+                raise ValueError("unparseable row")
+            return {"title": citing, "authors": "A", "venue": "V",
+                    "year": "2025", "url": "u"}
+
+        fetcher = types.SimpleNamespace(
+            _extract_citation_info=extract,
+            _citation_identity_keys=lambda info: [f"title\t{info['title']}"],
+        )
+        items = [f"Item-{idx}" for idx in range(1, 6)]
+        batch = BatchFetchSession(_url="/scholar?cites=1")
+
+        with self.assertRaises(ValueError):
+            batch.run(fetcher, iterator=FakeIterator(items), max_retries=0)
+
+        # Two rows were saved, so a retry must resume at the third item.
+        self.assertEqual([c["title"] for c in batch.citations], ["Item-1", "Item-2"])
+        self.assertEqual(batch.start_index, 2)
 
 
 if __name__ == '__main__':

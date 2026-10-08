@@ -183,7 +183,19 @@ class PaperFetchStateTests(unittest.TestCase):
             "scholar_changed",
             "year_fetch_diagnostics", "direct_fetch_diagnostics",
             "year_records", "stall_signature", "stall_count", "fetched_at",
+            "partial_year_start",
         })
+
+    def test_partial_year_start_roundtrips_and_normalizes(self):
+        fs = PaperFetchState.from_dict({
+            "title": "T",
+            "partial_year_start": {"2025": 10, "2024": 0, "not-a-year": 3},
+        })
+        self.assertEqual(fs.partial_year_start, {2025: 10})
+        self.assertEqual(fs.to_dict()["partial_year_start"], {"2025": 10})
+        self.assertIsNone(PaperFetchState.from_dict({"title": "T"}).partial_year_start)
+        self.assertIsNone(PaperFetchState.from_dict(
+            {"title": "T", "partial_year_start": {}}).partial_year_start)
 
     def test_from_dict_accepts_legacy_complete_key(self):
         fs = PaperFetchState.from_dict({"title": "T", "complete": True})
@@ -467,6 +479,7 @@ class FetchStallTests(unittest.TestCase):
             "scholar_changed",
             "year_fetch_diagnostics", "direct_fetch_diagnostics",
             "year_records", "stall_signature", "stall_count", "fetched_at",
+            "partial_year_start",
         })
 
 

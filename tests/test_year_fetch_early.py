@@ -263,8 +263,12 @@ class YearFetchEarlyTests(FetcherTestCase):
         self.assertIsNotNone(diag_2025, "Expected live diagnostics for year 2025")
         self.assertEqual(diag_2025.get('dedup_count'), 1,
                          "dedup_count must be 1 at final save_progress")
-        self.assertEqual(diag_2025.get('seen_total'), 2,
-                         "seen_total must be 2 (1 cached + 1 dedup)")
+        # seen_total counts DISTINCT rows for the year: the bucket holds one row
+        # (the duplicate is not a second citation, and the replaced cached row is
+        # no longer in this year).  cached_total + dedup_count would say 2 and
+        # mark the year complete against histogram=2.
+        self.assertEqual(diag_2025.get('seen_total'), 1,
+                         "seen_total must count distinct rows, not rows + duplicates")
 
 if __name__ == '__main__':
     unittest.main()

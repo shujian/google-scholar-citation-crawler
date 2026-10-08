@@ -33,6 +33,32 @@ class FetchPolicyAndStrategyTests(FetcherTestCase):
 
         self.assertEqual(self.fetcher._effective_scholar_total(pub), 109)
 
+    def test_resolve_refresh_strategy_restores_partial_year_start(self):
+        """An interrupted year must resume at its offset, not restart at item 0."""
+        pub = {"title": "Paper", "num_citations": 60, "year": "2020"}
+        cached = {
+            "citations": [{"title": "Cached", "authors": "A", "venue": "V",
+                           "year": "2025", "url": "u1"}],
+            "num_citations_on_scholar": 60,
+            "fetch_strategy": "year",
+            "partial_year_start": {"2025": 10},
+            "year_fetch_diagnostics": {"2025": {
+                "year": 2025, "histogram_count": 30, "cached_total": 10,
+                "seen_total": 10, "dedup_count": 0}},
+        }
+
+        strategy = self.fetcher._resolve_refresh_strategy(pub, cached, "partial")
+
+        self.assertEqual(strategy["partial_year_start"], {2025: 10})
+
+    def test_resolve_refresh_strategy_defaults_partial_year_start_to_empty(self):
+        pub = {"title": "Paper", "num_citations": 60, "year": "2020"}
+        cached = {"citations": [], "num_citations_on_scholar": 60}
+
+        strategy = self.fetcher._resolve_refresh_strategy(pub, cached, "partial")
+
+        self.assertEqual(strategy["partial_year_start"], {})
+
     def test_resolve_refresh_strategy_does_not_restore_direct_resume_state(self):
         pub = {"title": "Paper", "num_citations": 25, "year": "2024"}
         cached = {

@@ -152,8 +152,17 @@ class BatchFetchSession:
 
         for citing in iterator:
             self._start_index += 1
-            info = fetcher._extract_citation_info(citing, fallback_year=fallback_year)
-            identity_keys = fetcher._citation_identity_keys(info)
+            try:
+                info = fetcher._extract_citation_info(citing, fallback_year=fallback_year)
+                identity_keys = fetcher._citation_identity_keys(info)
+            except Exception:
+                # The item was consumed from the iterator but never saved, so the
+                # cursor must step back: a retry resumes at this item instead of
+                # silently skipping it (the skip count drives the page-aligned
+                # re-fetch).  Failures after the append below are fine — the item
+                # is in self._citations and will be skipped on retry.
+                self._start_index -= 1
+                raise
 
             matched = next((k for k in identity_keys if k in seen), None)
             if matched is not None:

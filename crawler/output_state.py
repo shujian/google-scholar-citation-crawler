@@ -95,6 +95,9 @@ class PaperFetchState:
     _direct_fetch_diagnostics: Optional[dict] = None
     _year_records: Optional[list] = None
     _scholar_changed: bool = False
+    # {year: item offset} of the year segment that was in progress when the run
+    # ended.  Without it an interrupted year restarts at item 0 on the next run.
+    _partial_year_start: Optional[dict] = None
     # Stall detection: signature of the last fetch outcome plus how many
     # consecutive runs produced it.  Used to stop re-fetching a paper whose
     # result cannot change (e.g. Scholar lists fewer rows than it reports).
@@ -124,6 +127,8 @@ class PaperFetchState:
     def direct_fetch_diagnostics(self): return self._direct_fetch_diagnostics
     @property
     def year_records(self): return self._year_records
+    @property
+    def partial_year_start(self): return self._partial_year_start
     @property
     def stall_signature(self): return self._stall_signature
     @property
@@ -158,6 +163,7 @@ class PaperFetchState:
             ),
             _year_records=year_records,
             _scholar_changed=bool(d.get('scholar_changed', False)),
+            _partial_year_start=_normalize_partial_year_start(d.get('partial_year_start')),
             _stall_signature=d.get('stall_signature') or None,
             _stall_count=_coerce_int(d.get('stall_count')) or 0,
             _fetched_at=d.get('fetched_at'),
@@ -181,6 +187,7 @@ class PaperFetchState:
             'year_records': _normalize_year_records(
                 self.year_records or self.year_fetch_diagnostics
             ),
+            'partial_year_start': _dump_partial_year_start(self.partial_year_start),
             'stall_signature': self.stall_signature,
             'stall_count': self.stall_count,
             'fetched_at': self.fetched_at,
@@ -443,6 +450,30 @@ def _normalize_direct_diagnostics(dfd):
         'dedup_count': dd,
         'termination_reason': raw.get('termination_reason', 'iterator_exhausted'),
     }
+
+
+def _normalize_partial_year_start(data):
+    """Return {int year: int offset} for offsets > 0, or None when empty."""
+    if not isinstance(data, dict):
+        return None
+    normalized = {}
+    for raw_year, raw_offset in data.items():
+        try:
+            year = int(raw_year)
+            offset = int(raw_offset)
+        except (TypeError, ValueError):
+            continue
+        if offset > 0:
+            normalized[year] = offset
+    return normalized or None
+
+
+def _dump_partial_year_start(partial_year_start):
+    """Return a JSON-friendly {str year: offset} dict, or None when empty."""
+    normalized = _normalize_partial_year_start(partial_year_start)
+    if not normalized:
+        return None
+    return {str(year): offset for year, offset in sorted(normalized.items())}
 
 
 def _normalize_year_records(data):

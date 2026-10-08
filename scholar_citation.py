@@ -306,12 +306,15 @@ class PaperCitationFetcher:
                 used_primary_keys.add(primary_key)
         return merged
 
-    def _materialize_citation_cache(self, old_citations, fresh_citations, complete):
+    def _materialize_citation_cache(self, old_citations, fresh_citations, complete,
+                                    authoritative=False):
         # A completed fetch is authoritative only while it returns at least as
         # many rows as the cache.  A smaller result means the scan was truncated
         # (blocked/short page, lossy year filter), so merge by identity instead
         # of replacing: dropping rows we already collected is never correct.
-        if complete and len(fresh_citations) >= len(old_citations or []):
+        # *authoritative* says the caller already decided per bucket (year mode
+        # rebuilds each year itself), so its list stands even when it is smaller.
+        if complete and (authoritative or len(fresh_citations) >= len(old_citations or [])):
             return list(fresh_citations)
         return self._overlay_citations_by_identity(old_citations, fresh_citations)
 
@@ -430,6 +433,17 @@ class PaperCitationFetcher:
         partial_year_start = {}
         force_year_rebuild = (self.fetch_mode == 'exact')
         selective_refresh_years = None
+        # Resume an interrupted year segment from where it stopped.  The offset is
+        # persisted with the fetch state (see PaperFetchState.partial_year_start),
+        # so an interrupted run no longer restarts the year at item 0.  Read it
+        # from the PaperFetchState when one was passed, else from the cached dict
+        # (the same-run retry path passes the cache snapshot).
+        if pst and pst.partial_year_start:
+            partial_year_start = dict(pst.partial_year_start)
+        else:
+            cached_pst = to_paper_fetch_state(cached)
+            if cached_pst and cached_pst.partial_year_start:
+                partial_year_start = dict(cached_pst.partial_year_start)
         # Build per-year diagnostics from year_records (PaperFetchState.to_dict()
         # already includes this field).  year_records is a list of per-year dicts;
         # convert to {year: diag} map for fetch_by_year skip logic.
@@ -683,6 +697,11 @@ class PaperCitationFetcher:
                                         fetch_policy=None,
                                         direct_resume_state=None):
         from crawler.fetch_session import YearFetchSession
+        # The inner per-year context (_fetch_by_year) seeds itself from
+        # self._completed_year_segments, not from the outer context created here,
+        # so the per-paper completed years must be published on the fetcher as
+        # well — otherwise a same-run retry re-fetches years it already finished.
+        self._completed_year_segments = set(completed_years_in_current_run or [])
         year_ctx = YearFetchSession(
             baseline=(ps.fetch if (ps := self._paper_states.get(title)) else None) if hasattr(self, '_paper_states') else None,
             completed_year_segments=set(completed_years_in_current_run or []),
@@ -738,6 +757,7 @@ class PaperCitationFetcher:
             self._live_dedup_count = year_ctx.dedup_count
             self._live_probed_year_counts = year_ctx.probed_year_counts
             self._live_probe_complete = year_ctx.probed_year_count_complete
+            self._live_partial_year_start = year_ctx.partial_year_start
             _orig_save_progress(fetch_finished, batch)
 
         result = _cf.fetch_by_year(self, year_ctx, citedby_url, old_citations, fresh_citations, _synced_save_progress,

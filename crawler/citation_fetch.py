@@ -249,12 +249,24 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
             effective_num_citations = live_total
         return effective_num_citations
 
-    def direct_materialized_citations(complete):
-        return fetcher._materialize_citation_cache(old_citations, fresh_citations, complete)
-
     direct_fetch_diagnostics = None
     normalized_direct_resume_state = _normalize_direct_resume_state(direct_resume_state)
     direct_next_index = normalized_direct_resume_state['next_index'] if normalized_direct_resume_state else 0
+    # A direct scan that resumes at an offset only returns the suffix of the
+    # citation list, so its result must be merged with the cached prefix instead
+    # of replacing it.
+    resumed_mid_list = bool(normalized_direct_resume_state
+                            and normalized_direct_resume_state.get('next_index'))
+
+    # Year mode rebuilds each year's bucket itself (replace/merge per year), so
+    # its materialized list is final even when it is smaller than the cache.
+    is_year_mode = fetch_policy.get('strategy') == 'year' if fetch_policy else False
+
+    def direct_materialized_citations(complete):
+        return fetcher._materialize_citation_cache(
+            old_citations, fresh_citations,
+            complete and not resumed_mid_list,
+            authoritative=is_year_mode)
 
     def materialized_citations(complete):
         return direct_materialized_citations(complete)
@@ -320,14 +332,26 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
     def save_progress(fetch_finished, batch=None):
         # fetch_finished: whether the fetch loop ran to completion.
         # batch: optional BatchFetchSession for intermediate saves.
+        nonlocal direct_next_index
+        is_year = fetch_policy.get('strategy') == 'year' if fetch_policy else False
         if batch is not None:
             fresh_citations[:] = list(batch.citations)
             year_ctx.dedup_count = (int(saved_dedup_count or 0)) + batch.dedup_count
-        is_year = fetch_policy.get('strategy') == 'year' if fetch_policy else False
+            if not is_year:
+                # Remember how far the direct scan got, so a retry resumes at the
+                # next page instead of re-walking the list from the head (the
+                # offset is written into direct_resume_state below).
+                direct_next_index = batch.start_index
         diagnostics_to_save = direct_fetch_diagnostics
         citations_to_save = materialized_citations(fetch_finished)
         if not citations_to_save and old_citations:
             citations_to_save = list(old_citations)
+        if not is_year:
+            # Direct mode: fresh_citations is the whole citation list, and the
+            # caller returns it as this paper's citations.  Publish the
+            # materialized result so a merged (resumed/truncated) scan is not
+            # reported as the suffix alone.
+            fresh_citations[:] = list(citations_to_save)
         year_ctx.cached_year_counts = fetcher._year_count_map(citations_to_save)
         # Always build year diagnostics from cached citations so every paper
         # has per-year entries and a summary, even direct-mode papers.
@@ -382,6 +406,10 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
                 year_records=year_records_to_save,
             ),
             'completed_years': sorted(year_ctx.completed_year_segments),
+            'partial_year_start': fetcher._dump_year_count_map(
+                getattr(fetcher, '_live_partial_year_start', None)
+                or year_ctx.partial_year_start
+            ),
             'probed_year_counts': fetcher._dump_year_count_map(
                 fetcher._normalize_year_count_map(year_ctx.probed_year_counts)
             ),
@@ -932,13 +960,22 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                 year_ctx.completed_year_segments.add(year)
             year_ctx.dedup_count += year_batch.dedup_count
             live_count_for_diag = live_count if live_count is not None else len(year_batch.citations)
-            year_fetch_diagnostics[year] = fetcher._build_year_fetch_diagnostics(
+            year_diag = fetcher._build_year_fetch_diagnostics(
                 year,
                 live_count_for_diag,
                 year_bucket_count,
                 year_batch.dedup_count,
                 year_termination_reason,
             )
+            if year_diag is not None:
+                # seen_total is the number of DISTINCT rows the year holds.
+                # _build_year_fetch_diagnostics computes cached_total + dedup, but
+                # when the year scan resumes mid-list the batch is seeded from the
+                # cached bucket, so the rows it reports as duplicates are already
+                # inside cached_total.  Adding them again could report a short year
+                # as complete.  The duplicate count stays in the log line below.
+                year_diag['seen_total'] = year_bucket_count
+                year_fetch_diagnostics[year] = year_diag
             year_ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
             if year_new_count > 0 or fetcher._new_citations_count > 0:
                 print(f"      Year {year} done: {year_new_count} new in year, "

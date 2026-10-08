@@ -4,6 +4,45 @@
 
 ---
 
+## 2026-10-08: 让续抓真正续得上（并对齐计数口径）
+
+### 问题
+
+文档承诺的续抓通道实际全部退化，且通道一旦启用就会静默丢引文：
+
+1. **in-page skip 差一位**：`fetch_session._run_once` 先 `_start_index += 1` 再解析该行；解析抛异常时这一行"被消费但没保存"，而重试的页对齐 + in-page skip 依据 `_start_index`，于是那一行被静默跳过。
+2. **year 逐年 `seen_total` 重复计数**：年扫描在续抓时用缓存播种 batch，于是返回行里"已缓存"的部分被计为 dedup，而 `seen_total = cached_total + dedup` 又把它们加了一遍 → 短缺年份可被判 complete。
+3. **`partial_year_start` 从不落盘**：`_resolve_refresh_strategy` 把它硬编码为 `{}`；`PaperFetchState` 也没有该字段，即使快照里有也会在 `to_dict()` 时被丢掉 → 中断的年份下轮从第 0 条重走整年。
+4. **direct 续抓偏移永不前进**：`direct_next_index` 只在入口读一次，`save_progress` 从不按 batch 前进 → 同一次运行的整篇重试也从页首重抓。
+5. **同 run 已完成年份没传给内层上下文**：`_fetch_by_year` 用 `self._completed_year_segments` 播种内层 ctx，而 `_fetch_citations_with_progress` 只把它写进外层 ctx → 整篇重试会重走已完成的年份。
+
+### 实现
+
+- `crawler/fetch_session.py`：解析失败时回退 `_start_index`（该行必须被重读），append 之后的失败不回退（该行已保存，重试应跳过）。
+- `crawler/citation_fetch.py`：
+  - 作废的逐年 `seen_total = cached_total + dedup` 改为"该年桶里的去重行数"，dedup 仅作日志/诊断；
+  - `save_progress` 在 direct 模式下按 `batch.start_index` 前进 `direct_next_index`，并把 materialize 结果写回 `fresh_citations`（返回给主循环的就是最终列表，而不是本次扫描的后半段）；
+  - 快照新增 `partial_year_start`（取内层 ctx 的实时值）；
+  - `direct_materialized_citations` 增加 `authoritative=is_year_mode`：year 模式已按年自行决定 replace/merge，其列表是终态；direct 模式在"续抓或结果比缓存小"时按 identity 合并，保住已缓存的头部。
+- `crawler/output_state.py`：`PaperFetchState` 新增 `partial_year_start`（`{year: offset}`、只保留 offset>0、JSON 友好、向后兼容缺失）。
+- `scholar_citation.py`：
+  - `_resolve_refresh_strategy` 从 `PaperFetchState`（或缓存 dict）读回 `partial_year_start`；
+  - `_fetch_citations_with_progress` 把 `completed_years_in_current_run` 同步到 `self._completed_year_segments`（内层 ctx 的播种来源）；
+  - `_fetch_by_year` 的 save 包装器把内层 `partial_year_start` 暴露为 `_live_partial_year_start`；
+  - `_materialize_citation_cache` 增加 `authoritative` 开关（year 模式豁免"变小即合并"）。
+
+### 有意不做的事
+
+不把 `completed_years` 跨运行读回：年份循环的"本 run 已完成"判断发生在 probe 比较**之前**，跨运行保留会让某个年份即使 probe 说它变多了也被跳过。逐年 offset 只在"该年本身不完整"时存在，因此安全；"已完成年份"始终由逐年 probe 判定。
+
+### 验证
+
+- 测试 197 → 203。新增/改写：`test_cursor_steps_back_when_an_item_cannot_be_extracted`（回退到旧实现验证为红：`3 != 2`）、`test_resolve_refresh_strategy_restores_partial_year_start`、`test_resolve_refresh_strategy_defaults_partial_year_start_to_empty`、`test_partial_year_start_roundtrips_and_normalizes`、`test_interrupted_year_persists_its_resume_offset`、`test_direct_resume_state_advances_after_a_full_page`、`test_direct_resume_merges_the_cached_prefix`、`test_completed_years_skip_that_year_in_the_same_run`；`test_save_progress_wrapper_syncs_inner_ctx_dedup_to_fetcher` 的 `seen_total` 断言按新口径更正（1，而不是 2）。
+- 四个关键新测试先在回退到 HEAD 的副本上验证为红（`{} != {2025: 10}`、`0 != 10`、后缀丢前缀等），再转绿。
+- 真实数据回归：247 篇状态分布不变（complete 193 / partial 11 / skip_zero 43），无一篇带 `partial_year_start` → 新字段对存量数据零影响。
+
+---
+
 ## 2026-10-08: PageVisit 加上退出条件，并接上换代理提示
 
 ### 问题

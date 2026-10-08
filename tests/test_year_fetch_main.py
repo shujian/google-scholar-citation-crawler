@@ -30,6 +30,136 @@ class YearFetchMainTests(FetcherTestCase):
             ["Keep-2023", "New-2024-A", "New-2024-B", "Keep-NY"],
         )
 
+    def test_interrupted_year_persists_its_resume_offset(self):
+        """The in-year offset must be written with the state, or the next run
+        restarts the year at item 0 and re-walks everything already fetched."""
+        from crawler.output_state import PaperFetchState
+
+        class InterruptAfterFirstPage:
+            def __init__(self, nav, url):
+                self.index = 0
+                self._finished_current_page = False
+                self._items_in_current_page = 0
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= 10:
+                    raise KeyboardInterrupt()
+                self.index += 1
+                self._items_in_current_page = self.index
+                self._finished_current_page = self.index == 10
+                return {"bib": {"title": f"New-{self.index}", "author": ["A"],
+                                "venue": "V", "pub_year": "2025"},
+                        "pub_url": f"u{self.index}", "cites_id": f"cid-{self.index}"}
+
+        def fake_probe(citedby_url, fetch_ctx=None, num_citations=None, pub_year=None):
+            counts = {2025: 30}
+            self.fetcher._probed_year_counts = counts
+            if fetch_ctx is not None:
+                fetch_ctx.probed_year_counts = counts
+                fetch_ctx.probed_year_count_complete = True
+            return 2025
+
+        self.fetcher._probe_citation_start_year = fake_probe
+        with patch.object(scholar_citation, "_SearchScholarIterator", InterruptAfterFirstPage), \
+             patch.object(scholar_citation, "datetime") as fake_datetime, \
+             patch("sys.stdout", new_callable=StringIO):
+            fake_datetime.now.return_value = types.SimpleNamespace(year=2025)
+            with self.assertRaises(KeyboardInterrupt):
+                self.fetcher._fetch_citations_with_progress(
+                    citedby_url="/scholar?cites=123",
+                    cache_path=None,
+                    title="Paper",
+                    num_citations=30,
+                    pub_url="https://example.com/paper",
+                    pub_year="2025",
+                    resume_from=[],
+                    completed_years_in_current_run=[],
+                    prev_scholar_count=0,
+                    fetch_policy={"strategy": "year", "pub_year": 2025,
+                                  "reason": "at_or_above_year_threshold"},
+                )
+
+        saved = self.fetcher._mid_paper_state["Paper"]
+        self.assertEqual(saved["partial_year_start"], {"2025": 10})
+        self.assertEqual(
+            PaperFetchState.from_dict(saved).partial_year_start, {2025: 10})
+
+    def test_completed_years_skip_that_year_in_the_same_run(self):
+        """A year finished earlier in the same run must not be walked again.
+
+        The completed years are handed to _fetch_citations_with_progress, but the
+        inner per-year context seeds itself from
+        fetcher._completed_year_segments; without publishing them there, a
+        same-run retry re-fetches every year from scratch.
+        """
+        requests = []
+        pages = {
+            (2026, 0): [
+                {"bib": {"title": "New-2026", "author": ["A"], "venue": "V",
+                         "pub_year": "2026"}, "pub_url": "u-new", "cites_id": "cid-new"},
+            ],
+        }
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                start = 0
+                if "start=" in url:
+                    start = int(url.split("start=")[1].split("&")[0])
+                year = int(url.split("as_ylo=")[1].split("&")[0])
+                self.items = list(pages.get((year, start), []))
+                self.index = 0
+                self._finished_current_page = False
+                requests.append((year, start))
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                    raise StopIteration
+                item = self.items[self.index]
+                self.index += 1
+                if self.index >= len(self.items):
+                    self._finished_current_page = True
+                return item
+
+        def fake_probe(citedby_url, fetch_ctx=None, num_citations=None, pub_year=None):
+            counts = {2026: 1}
+            self.fetcher._probed_year_counts = counts
+            if fetch_ctx is not None:
+                fetch_ctx.probed_year_counts = counts
+                fetch_ctx.probed_year_count_complete = True
+            return 2026
+
+        self.fetcher._probe_citation_start_year = fake_probe
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch.object(scholar_citation, "datetime") as fake_datetime, \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            fake_datetime.now.return_value = types.SimpleNamespace(year=2026)
+            self.fetcher._fetch_citations_with_progress(
+                citedby_url="/scholar?cites=123",
+                cache_path=None,
+                title="Paper",
+                num_citations=1,
+                pub_url="https://example.com/paper",
+                pub_year="2026",
+                resume_from=[],
+                completed_years_in_current_run=[2026],
+                prev_scholar_count=0,
+                fetch_policy={"strategy": "year", "pub_year": 2026,
+                              "reason": "at_or_above_year_threshold"},
+            )
+
+        output = fake_stdout.getvalue()
+        self.assertEqual(requests, [])
+        self.assertIn("Year 2026: skip (already completed earlier in this run)", output)
+        saved = self.fetcher._mid_paper_state["Paper"]
+        self.assertEqual(saved["citations"], [])
+
     def test_years_absent_from_an_authoritative_histogram_are_skipped(self):
         def fake_probe(citedby_url, fetch_ctx=None, num_citations=None, pub_year=None):
             counts = {2024: 1}
