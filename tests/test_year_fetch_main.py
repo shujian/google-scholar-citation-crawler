@@ -372,6 +372,60 @@ class YearFetchMainTests(FetcherTestCase):
         self.assertIn("Year 2019: skip (seen=27 >= probe=27)", output)
         self.assertNotIn("Reached target (64 >= 64)", output)
 
+    def test_main_honors_accelerate_and_wires_verbose_logging(self):
+        captured = {}
+        fake_args = types.SimpleNamespace(
+            author="test-author",
+            output_dir=None,
+            limit=None,
+            skip=0,
+            fetch_mode='normal',
+            interactive_captcha=False,
+            accelerate=0.1,
+            verbose=True,
+        )
+
+        class FakeAuthorFetcher:
+            def __init__(self, author_id, output_dir, delay_scale=1.0):
+                self.delay_scale = delay_scale
+                self.profile_json = os.path.join(output_dir, "author_test-author_profile.json")
+
+            def load_prev_profile(self):
+                return None
+
+            def run(self):
+                with open(self.profile_json, "w", encoding="utf-8") as f:
+                    json.dump({"total_citations": 1, "total_publications": 1,
+                               "author_info": {"citedby": 1}}, f)
+                return True
+
+        class FakePaperFetcher:
+            def __init__(self, *args, **kwargs):
+                captured.update(kwargs)
+
+            def _patch_scholarly(self):
+                pass
+
+            def run(self):
+                return True
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_args.output_dir = tmpdir
+            with patch.object(scholar_citation, "parse_args", return_value=fake_args), \
+                 patch.object(scholar_citation, "setup_proxy"), \
+                 patch.object(scholar_citation, "setup_logging") as setup_logging, \
+                 patch.object(scholar_citation, "AuthorProfileFetcher", FakeAuthorFetcher), \
+                 patch.object(scholar_citation, "PaperCitationFetcher", FakePaperFetcher), \
+                 patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+                scholar_citation.main()
+
+        # --accelerate applies even without --interactive-captcha, with a warning.
+        self.assertEqual(captured["delay_scale"], 0.1)
+        self.assertEqual(captured["interactive_captcha"], False)
+        # -v reaches the structured logger instead of being accepted and ignored.
+        setup_logging.assert_called_once_with(verbose=True)
+        self.assertIn("--accelerate 0.1 shortens every wait", fake_stdout.getvalue())
+
     def test_main_mirrors_stdout_to_timestamped_log_file(self):
         fake_args = types.SimpleNamespace(
             author="test-author",

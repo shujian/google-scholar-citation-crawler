@@ -443,6 +443,51 @@ class StartupRobustnessTests(FetcherTestCase):
         self.assertIsNone(ctx.probed_year_counts)
         self.assertFalse(ctx.probed_year_count_complete)
 
+    def test_parse_args_rejects_out_of_range_values(self):
+        from crawler.cli import parse_args
+        for argv in (['--author', 'a', '--skip', '-1'],
+                     ['--author', 'a', '--limit', '0'],
+                     ['--author', 'a', '--accelerate', '0'],
+                     ['--author', 'a', '--accelerate', '-2']):
+            with patch('sys.stderr', new_callable=StringIO), self.assertRaises(SystemExit):
+                parse_args(argv)
+
+    def test_parse_args_accepts_valid_bounds(self):
+        from crawler.cli import parse_args
+        args = parse_args(['--author', 'a', '--skip', '0', '--limit', '1',
+                           '--accelerate', '0.5', '-v'])
+        self.assertEqual((args.skip, args.limit, args.accelerate), (0, 1, 0.5))
+        self.assertTrue(args.verbose)
+
+    def test_has_pending_work_loads_output_state_before_deciding(self):
+        """main() asks this before run(); without loading the state every paper
+        looks missing and the 'no changes → skip' shortcut can never fire."""
+        pub = {"no": 1, "title": "Done Paper", "num_citations": 5,
+               "year": "2024", "venue": "V"}
+        tmpdir = tempfile.mkdtemp()
+        self.addCleanup(__import__('shutil').rmtree, tmpdir, ignore_errors=True)
+        self.fetcher.profile_json = os.path.join(tmpdir, "author_test-author_profile.json")
+        self.fetcher.out_json = os.path.join(tmpdir, "author_test-author_paper_citations.json")
+        with open(self.fetcher.profile_json, "w", encoding="utf-8") as f:
+            json.dump({"publications": [pub]}, f)
+        with open(self.fetcher.out_json, "w", encoding="utf-8") as f:
+            json.dump({"papers": [{
+                "pub": pub,
+                "citations": [{"title": f"C{idx}", "authors": "A", "venue": "V",
+                               "year": "2024", "url": f"u{idx}"} for idx in range(5)],
+                "_fetch_state": {
+                    "title": pub["title"], "fetch_strategy": "direct",
+                    "num_citations_on_scholar": 5, "complete_fetch_attempt": True,
+                    "direct_fetch_diagnostics": {
+                        "scholar_total": 5, "cached_total": 5, "seen_total": 5,
+                        "dedup_count": 0, "termination_reason": "iterator_exhausted"},
+                },
+            }]}, f)
+
+        self.assertFalse(hasattr(self.fetcher, "_paper_states"))
+        self.assertFalse(self.fetcher.has_pending_work())
+        self.assertTrue(getattr(self.fetcher, "_paper_states"))
+
     def test_patch_scholarly_verifies_all_hook_points(self):
         nav = scholarly_mod.scholarly._Scholarly__nav
         nav._get_page = lambda pagerequest, premium=False: None

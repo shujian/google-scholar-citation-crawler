@@ -17,7 +17,6 @@ import os
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUT_DIR = os.path.join(ROOT_DIR, "output")
 LOGS_DIR = os.path.join(OUTPUT_DIR, "logs")
-SCHOLAR_CACHE_DIR = os.path.join(ROOT_DIR, "scholar_cache")
 
 # ============================================================
 # Rate-limiting & anti-ban

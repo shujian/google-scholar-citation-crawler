@@ -43,38 +43,6 @@ def index_year_records(year_records):
 # PaperFetchState dataclass
 # ---------------------------------------------------------------------------
 
-_FETCH_STATE_KEYS = frozenset([
-    'title',
-    'pub_url',
-    'citedby_url',
-    'fetch_strategy',
-    'num_citations_on_scholar',
-    'complete_fetch_attempt',
-    'year_fetch_diagnostics',
-    'direct_fetch_diagnostics',
-    'year_records',
-    'stall_signature',
-    'stall_count',
-    'fetched_at',
-])
-
-_DIRECT_SUMMARY_KEYS = frozenset([
-    'scholar_total', 'cached_total', 'seen_total', 'dedup_count', 'termination_reason',
-])
-
-_YEAR_SUMMARY_KEYS = frozenset([
-    'scholar_total', 'histogram_total',
-    'cached_total', 'cached_year_total',
-    'seen_total', 'cached_unyeared_count',
-    'dedup_count', 'scholar_unyeared_count',
-])
-
-_PER_YEAR_KEYS = frozenset([
-    'year', 'histogram_count', 'cached_total', 'seen_total', 'dedup_count',
-    'termination_reason',
-])
-
-
 @dataclass
 class PaperFetchState:
     """Per-paper fetch progress snapshot persisted in the output JSON.

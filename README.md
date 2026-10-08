@@ -53,21 +53,28 @@ python scholar_citation.py --author YOUR_AUTHOR_ID --skip 2 --limit 3
 ```
 usage: scholar_citation.py [-h] --author AUTHOR [--output-dir DIR]
                            [--skip M] [--limit N]
-                           [--fetch-mode {rough,normal,force}]
-                           [--interactive-captcha] [--accelerate SCALE]
+                           [--fetch-mode {rough,normal,exact,force}]
+                           [--interactive-captcha] [--accelerate SCALE] [-v]
 
 required:
   --author AUTHOR               Google Scholar author ID or full profile URL
 
 optional:
   --output-dir DIR              Output directory (default: ./output)
-  --skip M                      Skip first M papers (sorted by citations desc)
-  --limit N                     Process exactly N papers after --skip M
-  --fetch-mode {rough,normal,force}
+  --skip M                      Skip first M papers (sorted by citations desc); must be >= 0
+  --limit N                     Process exactly N papers after --skip M; must be >= 1
+  --fetch-mode {rough,normal,exact,force}
                                 Controls re-fetch aggressiveness (default: normal)
   --interactive-captcha         Enable interactive captcha bypass (see below)
-  --accelerate SCALE            Scale all deliberate waits (e.g. 0.1 = 10× faster)
+  --accelerate SCALE            Scale all deliberate waits (e.g. 0.1 = 10× faster);
+                                must be > 0. Waits exist to avoid Scholar's rate
+                                limits, so pair it with --interactive-captcha
+  -v, --verbose                 Debug-level logging (also mirrored into the run log)
 ```
+
+Out-of-range values are rejected up front (`--skip -1`, `--limit 0`,
+`--accelerate 0`), so a typo cannot silently clear state or turn a "process
+nothing" request into "process everything".
 
 ### `--skip` and `--limit`
 
@@ -77,9 +84,9 @@ Papers are sorted by citation count descending. `--skip M` skips the first M pap
 
 | Mode | Behavior |
 |------|----------|
-| `rough` | Skip papers whose Scholar count hasn't changed since the last fetch, even if the cache is incomplete. Use when you only care about truly new citations. |
+| `rough` | Skip papers whose Scholar count hasn't changed since the last fetch **and whose last fetch ran to completion**. Use when you only care about truly new citations and want to trust an incomplete cache. |
 | `normal` *(default)* | Re-fetch any paper whose cache is missing or incomplete, using `seen >= probe` to decide year-level completeness (conservative). |
-| `exact` | Like `normal`, but also re-fetch years where `seen > probe` (cached count exceeds histogram). Catches citation reclassification between years. |
+| `exact` | Like `normal`, but also re-fetch years where `seen > probe` (cached count exceeds histogram), rebuilding those year buckets from Scholar. Catches citation reclassification between years (and, being authoritative, may drop rows Scholar no longer lists under that year). |
 | `force` | Clear the output state and re-fetch from scratch. Recommended with `--skip`/`--limit` to limit scope. |
 
 ```bash
@@ -252,7 +259,7 @@ crawler/
   citation_models.py         # YearRecord, ResumeState, FetchPolicy dataclasses
   output_state.py            # PaperFetchState / PaperState + output file _fetch_state read/write
   pub_info.py                # PubInfo dataclass for publication field normalization
-  cli.py                     # parse_args() + _run_main()
+  cli.py                     # parse_args() only — the entry point is scholar_citation.main()
 tests/                       # 174 unit tests, no network required
 ```
 

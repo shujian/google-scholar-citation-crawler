@@ -4,6 +4,30 @@
 
 ---
 
+## 2026-10-08: 收敛入口与 CLI（删除死入口、参数校验、-v/--accelerate 真正生效）
+
+### 问题
+
+1. `crawler/cli.py` 里有一份 `_run_main()`/`main()` 副本，与 `scholar_citation.main()` 复制粘贴后分叉，且必然崩溃：它对 `load_prev_profile()` 的返回值调用 `.get()`，而该函数返回 `AuthorProfile` dataclass（无 `get`）→ 第二次运行就 `AttributeError`。它没有任何调用方，也没有测试。
+2. `has_pending_work()` 在 `main()` 里于 `run()` **之前**被调用，而输出状态是在 `run()` 里加载的 → `_citation_status` 把每篇有引文的论文都判成 `missing` → "总数未变则跳过 phase 2" 的短路分支永远不成立。
+3. CLI 无参数校验：`--limit 0` 因 falsy 被当作"全量"（配 `--fetch-mode force` 会清空**所有**状态）、`--skip -1` 静默变成"最后一篇"、`--accelerate` 为 0 或负数会直冲限流或在 `time.sleep` 抛错。
+4. `-v/--verbose` 只是被接受：结构化日志的 `setup_logging()` 只在那份死掉的 `_run_main()` 里调用过（76 个生产日志里 `[INFO]` 命中数为 0）。
+5. `--accelerate` 在不配 `--interactive-captcha` 时被静默忽略（README 却把它列为独立开关）。
+6. 一处死代码：`random.shuffle(need_fetch)` 的结果从未被使用（主循环按 `publications` 顺序跑），`need_fetch_set` 赋值后无人读；另有 4 个无调用方的 `PaperCitationFetcher` 静态包装、`config.SCHOLAR_CACHE_DIR`、`output_state` 里 4 个未使用的 frozenset。
+
+### 实现
+
+- 删除 `crawler/cli.py` 的 `_run_main()`/`main()`，该模块只保留 `parse_args()`；`parse_args()` 增加范围校验（`--skip >= 0`、`--limit >= 1`、`--accelerate > 0`，非法直接 `parser.error`）。
+- `scholar_citation.main()`：调用 `setup_logging(verbose=...)` 并补上 `logger.info/debug`（console handler 走 `sys.stdout`，也就是 TeeStream，因此日志仍进运行日志，且不产生第二个写同一文件的句柄）；`--accelerate` 无条件生效并在未配 `--interactive-captcha` 时打印警告。
+- `has_pending_work()` 在未加载状态时先加载输出状态。
+- 删除上述死代码；`README` 的 CLI 章节同步（补 `exact`、`-v`、参数范围、`rough` 的真实语义、`exact` 的权威重建副作用）。
+
+### 验证
+
+- 测试 208 → 212：`parse_args` 边界值（4 组非法值 + 1 组合法值）、`has_pending_work` 先加载状态（旧实现返回 True）、`--accelerate` 生效且 `setup_logging(verbose=True)` 被调用（旧实现 delay_scale=1.0 且从不调用）。4 个新测试先在回退到 HEAD 的副本上验证为红。
+
+---
+
 ## 2026-10-08: 写盘安全（原子写、Excel 容错、单次保存、skip_zero 不再清空引文）
 
 ### 问题

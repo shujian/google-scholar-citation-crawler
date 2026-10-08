@@ -65,9 +65,6 @@ from crawler.citation_cache import (
     dump_year_count_map as _cc_dump_year_count_map,
     build_year_fetch_diagnostics as _cc_build_year_fetch_diagnostics,
     normalize_year_fetch_diagnostics as _cc_normalize_year_fetch_diagnostics,
-    dump_year_fetch_diagnostics as _cc_dump_year_fetch_diagnostics,
-    year_fetch_diagnostic_matches_total as _cc_year_fetch_diagnostic_matches_total,
-    probed_year_counts_satisfied as _cc_probed_year_counts_satisfied,
     year_records_gap as _cc_year_records_gap,
     year_records_shortfall_years as _cc_year_records_shortfall_years,
 )
@@ -100,6 +97,9 @@ from crawler.output_state import (
     to_paper_fetch_state,
 )
 from crawler.pub_info import PubInfo
+from crawler.log_utils import setup_logging, get_logger
+
+logger = get_logger(__name__)
 
 from crawler.author_fetcher import AuthorProfileFetcher  # noqa: F401
 from crawler.interactive import (
@@ -215,18 +215,6 @@ class PaperCitationFetcher:
         return _cc_normalize_year_fetch_diagnostics(year_fetch_diagnostics)
 
     @staticmethod
-    def _dump_year_fetch_diagnostics(year_fetch_diagnostics):
-        return _cc_dump_year_fetch_diagnostics(year_fetch_diagnostics)
-
-    @staticmethod
-    def _year_fetch_diagnostic_matches_total(diagnostic, histogram_count, cached_total=None):
-        return _cc_year_fetch_diagnostic_matches_total(diagnostic, histogram_count, cached_total)
-
-    @staticmethod
-    def _probed_year_counts_satisfied(cached_year_counts, probed_year_counts, year_fetch_diagnostics=None):
-        return _cc_probed_year_counts_satisfied(cached_year_counts, probed_year_counts, year_fetch_diagnostics)
-
-    @staticmethod
     def _normalize_direct_resume_state(state):
         return _cf._normalize_direct_resume_state(state)
     @staticmethod
@@ -238,9 +226,6 @@ class PaperCitationFetcher:
     @staticmethod
     def _page_aligned_start(index):
         return _cf._page_aligned_start(index)
-    @staticmethod
-    def _direct_start_position(direct_resume_state):
-        return _cf._direct_start_position(direct_resume_state)
     @staticmethod
     def _append_start_param(citedby_url, start):
         return _cf._append_start_param(citedby_url, start)
@@ -825,6 +810,12 @@ class PaperCitationFetcher:
         """Check if there are any papers with incomplete citation caches."""
         if not os.path.exists(self.profile_json):
             return True
+        if not getattr(self, '_paper_states', None):
+            # main() calls this before run(), which is what normally loads the
+            # output state.  Without loading it here every paper with citations
+            # looks 'missing', so the "no changes → skip the citation phase"
+            # shortcut could never fire.
+            self._paper_states = _os_load_paper_states(self.out_json)
         with open(self.profile_json, 'r', encoding='utf-8') as f:
             profile = json.load(f)
         publications = profile.get('publications', [])
@@ -946,12 +937,9 @@ class PaperCitationFetcher:
                       in zip(publications, statuses)
                       if st in ('missing', 'partial')]
 
-        # Randomize fetch order only when skip/limit are not specified.
-        # With --skip or --limit, original order must be preserved so users
-        # can reliably target specific papers by position.
-        if not self.skip and not self.limit:
-            random.shuffle(need_fetch)
-
+        # Papers are processed in profile order (citation count desc).  The old
+        # random shuffle here had no effect: the main loop iterates
+        # `publications` and recomputes each status, never the shuffled list.
         stalled_count = sum(1 for s, *_ in statuses if s == 'stalled')
         print(f"Total papers: {len(publications)}")
         print(f"  Zero citations (skip):     {sum(1 for s, *_ in statuses if s == 'skip_zero')}")
@@ -1047,10 +1035,6 @@ class PaperCitationFetcher:
     def _run_main_loop(self, publications, cache_status, url_map, need_fetch, results, fetch_idx):
         """Inner loop extracted so KeyboardInterrupt saves output."""
         results[:] = [None] * len(publications)
-
-        # need_fetch is either shuffled (no skip/limit) or in original order (with skip/limit).
-        # Build a set of titles that need fetching for quick lookup.
-        need_fetch_set = {pub['title'] for pub, _, _ in need_fetch}
 
         papers_processed = 0  # counts papers after --skip (for --limit)
 
@@ -1612,9 +1596,21 @@ def main():
 
     try:
         setup_proxy()
+        # Console-only logging: sys.stdout is the TeeStream that mirrors into the
+        # run log, so a FileHandler here would be a second writer on the same
+        # file and the two would overwrite each other's lines.
+        setup_logging(verbose=getattr(args, 'verbose', False))
+        logger.info("Author ID: %s", author_id)
+        logger.debug("fetch mode=%s skip=%s limit=%s interactive=%s accelerate=%s",
+                     args.fetch_mode, args.skip, args.limit,
+                     args.interactive_captcha, args.accelerate)
         print(f"Author ID: {author_id}")
 
-        delay_scale = args.accelerate if args.interactive_captcha else 1.0
+        delay_scale = args.accelerate
+        if args.accelerate != 1.0 and not args.interactive_captcha:
+            print(f"Warning: --accelerate {args.accelerate} shortens every wait "
+                  f"(Scholar rate-limits sooner). Use it with --interactive-captcha, "
+                  f"which lets you solve a captcha without restarting.")
 
         # Patch scholarly before profile fetch so both phases share the same
         # HTTP/2 session — avoids the cold-session block on the first citation page.
