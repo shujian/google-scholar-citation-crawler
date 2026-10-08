@@ -322,8 +322,10 @@ def save_profile_xlsx(
     ws2.row_dimensions[1].height = 28
 
     content_align = alignment_cls(vertical='center', wrap_text=True)
-    for pub in publications:
-        row_index = pub['no'] + 1
+    for row_index, pub in enumerate(publications, 2):
+        # The Excel row comes from the position, not from pub['no']: a missing or
+        # duplicated 'no' (legacy/hand-edited profile JSON) used to collapse rows
+        # onto each other and overwrite the header.
         ws2.cell(row=row_index, column=1, value=pub['no']).alignment = center
         ws2.cell(row=row_index, column=2, value=pub['title']).alignment = content_align
         ws2.cell(row=row_index, column=3, value=pub['year'] or 'N/A').alignment = center

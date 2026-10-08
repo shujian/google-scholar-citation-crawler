@@ -1,11 +1,11 @@
 """
 crawler/output_state.py — Read fetch state from the aggregate output JSON.
 
-The output file (author_{id}_paper_citations.json) becomes the authoritative
-cross-run state source.  Per-paper cache files in scholar_cache/ are still
-written for within-run resume, but strategy decisions on the next run read
-from the output file first and fall back to cache only when output state is
-absent.
+The output file (author_{id}_paper_citations.json) is the authoritative
+cross-run state source: `_fetch_state` holds each paper's diagnostics and the
+citations array holds its rows.  Resume information for an interrupted run lives
+in memory (`_mid_paper_state`) and is only persisted through the output file at
+the end of a run.
 """
 
 import json
@@ -608,6 +608,12 @@ def resolve_citation_status_from_output(pub, state, year_based_threshold):
         if pst.need_fetch(pub.get('num_citations'), pub.get('year', 'N/A'),
                            year_based_threshold):
             return 'stalled' if pst.is_stalled() else 'partial'
+        citations = getattr(state, 'citations', None)
+        if citations is not None and not citations:
+            # The diagnostics claim completeness but nothing is stored.  Trust
+            # the rows, not the claim: treating this as complete would skip a
+            # paper that has no citation data at all, forever.
+            return 'partial'
         return 'complete'
     cache_state = derive_citation_cache_state(pub, state, year_based_threshold)
     return resolve_citation_status_from_state(cache_state)

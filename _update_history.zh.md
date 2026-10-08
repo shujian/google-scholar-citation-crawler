@@ -4,6 +4,26 @@
 
 ---
 
+## 2026-10-08: 收尾三项（状态不压过证据、Excel 行号、过期注释）
+
+### 问题
+
+1. **诊断声明压过实际数据**：`resolve_citation_status_from_output()` 只看 `_fetch_state` 里的诊断（`seen_total >= target`），不看 citations 数组。若某篇的诊断说"完整"而数组为空，它会被判 `complete` 并永远跳过 —— 输出里 0 条引文却写着 Complete=Y。
+2. **profile Excel 行号取自 `pub['no']`**：`no` 缺失（被 `PubInfo` 归一为 0）或重复时，多篇论文写到同一行，最后一篇覆盖表头 —— JSON 有 3 篇而 Excel 只剩表头，且完全静默。
+3. `crawler/output_state.py` 的模块注释仍说"每篇 cache 文件写在 `scholar_cache/`"，而该目录早已不再写入。
+
+### 实现
+
+- `crawler/output_state.py: resolve_citation_status_from_output()`：诊断判定为完整后，若 `state.citations` 为空则返回 `partial`（信任行数据而不是声明）。
+- `crawler/profile_io.py`：Publications 表行号改用 `enumerate(publications, 2)`，`pub['no']` 只作为展示列。
+- `crawler/output_state.py`：更新模块注释（状态来自输出文件，运行中的断点只在内存里、随运行结束写入输出）。
+
+### 验证
+
+- 测试 217 → 219：`test_complete_diagnostics_with_no_stored_rows_is_partial`（旧实现返回 `complete`）、`test_author_profile_xlsx_rows_follow_position_not_no`（旧实现第 1 行被 'Paper C' 覆盖）。两者先在回退到 HEAD 的副本上验证为红。
+
+---
+
 ## 2026-10-08: 补上两个测试盲区（真实 openpyxl、真实 scholarly 契约）
 
 ### 问题

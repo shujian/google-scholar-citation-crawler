@@ -71,6 +71,44 @@ class AuthorProfileCountSummaryTests(unittest.TestCase):
                 saved = json.load(f)
             self.assertEqual(saved["citation_count_summary"], payload["citation_count_summary"])
 
+    def test_author_profile_xlsx_rows_follow_position_not_no(self):
+        """A missing/duplicated pub['no'] must not collapse or overwrite rows."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from crawler.profile_io import save_profile_xlsx
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment
+
+            publications = [
+                {"no": 0, "title": "Paper A", "year": "2024", "venue": "V",
+                 "authors": "A", "num_citations": 3, "url": "u1", "citedby_url": "c1"},
+                {"no": 0, "title": "Paper B", "year": "2023", "venue": "V",
+                 "authors": "B", "num_citations": 2, "url": "u2", "citedby_url": "c2"},
+                {"no": 0, "title": "Paper C", "year": "2022", "venue": "V",
+                 "authors": "C", "num_citations": 1, "url": "u3", "citedby_url": "c3"},
+            ]
+            profile = AuthorProfile(
+                author_info={"name": "Test Author", "citedby": 6},
+                publications=publications,
+                fetch_time="2026-04-01T00:00:00",
+                change_history=[],
+            )
+
+            workbook = save_profile_xlsx(
+                os.path.join(tmpdir, "author_test_profile.xlsx"),
+                profile,
+                datetime_module=types.SimpleNamespace(
+                    now=lambda: types.SimpleNamespace(year=2026, isoformat=lambda: "t")),
+                openpyxl_module=openpyxl,
+                font_cls=Font, pattern_fill_cls=PatternFill, alignment_cls=Alignment,
+                print_fn=lambda *args, **kwargs: None,
+            )
+
+            ws = next(sheet for sheet in workbook.sheets if sheet.title == "Publications")
+            self.assertEqual(ws.cell(row=1, column=2).value, "Title")
+            self.assertEqual(
+                [ws.cell(row=row, column=2).value for row in (2, 3, 4)],
+                ["Paper A", "Paper B", "Paper C"])
+
     def test_author_profile_xlsx_labels_year_gap_explicitly(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             from crawler.profile_io import save_profile_xlsx

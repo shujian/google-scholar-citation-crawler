@@ -70,6 +70,31 @@ class CitationStatusTests(FetcherTestCase):
             self.assertEqual(summary["cached_year_total"], 2)
             self.assertEqual(summary["dedup_count"], 0)
 
+    def test_complete_diagnostics_with_no_stored_rows_is_partial(self):
+        """Diagnostics claiming completeness must not beat an empty citations array.
+
+        Otherwise a paper with no citation data at all is skipped forever.
+        """
+        from crawler.output_state import (
+            PaperFetchState, PaperState, resolve_citation_status_from_output,
+        )
+
+        pub = {"title": "Empty Paper", "num_citations": 5, "year": "2024"}
+        state = PaperState(
+            fetch=PaperFetchState.from_dict({
+                "title": pub["title"], "fetch_strategy": "direct",
+                "num_citations_on_scholar": 5,
+                "complete_fetch_attempt": True,
+                "direct_fetch_diagnostics": {
+                    "scholar_total": 5, "cached_total": 5, "seen_total": 5,
+                    "dedup_count": 0, "termination_reason": "iterator_exhausted"},
+            }),
+            citations=[],
+        )
+
+        self.assertEqual(
+            resolve_citation_status_from_output(pub, state, 50), "partial")
+
     def test_citation_status_stays_complete_when_seen_matches_current_total(self):
         pub = {"title": "Paper", "num_citations": 5, "year": "2024"}
         cached = {
