@@ -33,12 +33,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 详细项目结构见 `_work_notes.zh.md` 的「项目结构」节（含各模块中文说明），对外简介见 `README.md` 的「Development Notes → Project Structure」节。
 
-简况：`crawler/` 有 18 个模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志）；`tests/` 有 174 个测试，10 个文件。
+简况：`crawler/` 有 19 个模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志）；`tests/` 有 215 个测试，11 个文件。
 
 ### 新增模块（2025-07）
 
 - **`crawler/config.py`**：集中配置。所有可调优参数（延迟、阈值、路径）的单一入口。`crawler/common.py` 中的常量已迁移至此并保持向后兼容 re-export。
-- **`crawler/log_utils.py`**：结构化日志系统。`setup_logging(verbose, log_file)` 配置 console + file handler，与 `crawler/cli.py` 的 `--verbose` / `-v` 参数配合使用。现有 `print()` 调用仍通过 `TeeStream` 写入日志文件；新增代码应使用 `get_logger()` 获取 logger 并调用结构化日志方法。
+- **`crawler/log_utils.py`**：结构化日志系统。`setup_logging(verbose, log_file)` 配置 console + 可选 file handler；活入口 `scholar_citation.main()` 只启用 console handler（它写 `sys.stdout`，也就是 `TeeStream`），因为再挂一个 FileHandler 会成为同一文件的第二个写者并互相覆盖。现有 `print()` 调用仍通过 `TeeStream` 写入日志文件；新增代码应使用 `get_logger()` 获取 logger 并调用结构化日志方法。
 - **`run.sh`**：便捷入口，自动检测 conda 环境后执行 `python scholar_citation.py`。
 
 ## Architecture overview
@@ -72,11 +72,13 @@ Status is derived from **current counts and diagnostics**, not from persisted `c
   holds.  The aggregate alone is not enough: years whose bucket exceeds the
   probe prop up `histogram_total` and can hide a short year, so a paper with
   unfetched citations would be skipped forever.
-- `--fetch-mode {rough,normal,force}` controls re-fetch aggressiveness
+- `--fetch-mode {rough,normal,exact,force}` controls re-fetch aggressiveness
 - `scholar_changed` flag triggers re-fetch when Scholar count changes even for complete papers
 
 Papers with `>= YEAR_BASED_THRESHOLD (50)` citations switch to year-by-year fetch mode:
-- Supports resume via `completed_year_segments` and `partial_year_start` offsets
+- Supports resume via `partial_year_start` offsets, which are persisted with the
+  paper's fetch state (a `completed_year_segments` set only avoids re-walking a
+  year inside the same run — it is deliberately not carried across runs)
 - Oldest→newest year order
 - Year range is determined by `probe_citation_start_year()` via the Scholar histogram DOM
 - An interrupted fetch persists the in-run snapshot (citations fetched so far +
@@ -87,7 +89,7 @@ Papers with `>= YEAR_BASED_THRESHOLD (50)` citations switch to year-by-year fetc
 
 Patches `scholarly` internals rather than treating it as a black box:
 - Replaces HTTP/1.1 sessions with `httpx` HTTP/2 clients
-- Injects browser-like headers (Edge/145, sec-ch-ua-*, Referer chain)
+- Injects browser-like headers (Chrome/145, sec-ch-ua-*, Referer chain)
 - Enforces randomised 45–90s waits before every request
 - Takes mandatory long breaks every 8–12 pages to reset Scholar's rate-limit window
 - Performs soft session refresh every 10–20 pages
@@ -126,11 +128,12 @@ scholar_citation.py  (orchestrator + PaperCitationFetcher)
   ├── crawler.scholarly_session   ← crawler.common, crawler.page_visit
   ├── crawler.interactive         (no crawler deps)
   └── crawler.cli  [lazy import]  ← crawler.common, crawler.author_fetcher
-                                     + scholar_citation [lazy, inside _run_main]
+                                     (parse_args only; the entry point is scholar_citation.main)
 ```
 
-No circular imports. `crawler.cli` imports `PaperCitationFetcher` lazily inside
-`_run_main()` to break the `scholar_citation ↔ crawler.cli` cycle.
+No circular imports. `scholar_citation.py` imports `parse_args` from
+`crawler.cli`, which therefore contains only the argparse definitions (no
+scholarly import) and no second copy of the workflow.
 
 ## Testing notes
 
@@ -148,5 +151,8 @@ dependencies are stubbed in `tests/conftest.py`).
 - `httpx==0.27.2` is pinned for compatibility with the current scholarly integration.
 - Proxy handling relies on `https_proxy` / `http_proxy` environment variables;
   `scholarly`'s proxy API is intentionally not used (incompatible with httpx 0.27.x).
+- `NO_PROXY` / `no_proxy` are normalised (`[::1]` → `::1`) before `scholarly` is
+  imported: httpx 0.27.2 cannot even build its client while a bracketed IPv6
+  entry is present.  See `crawler.common.sanitize_no_proxy`.
 - The default output directory is `./output`; state is maintained in memory during runs.
 - All development happens on `main` branch.
