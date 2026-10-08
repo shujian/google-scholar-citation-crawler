@@ -713,7 +713,9 @@ class YearFetchMainTests(FetcherTestCase):
             )
 
         saved = self.fetcher._mid_paper_state.get("Paper", {})
-        self.assertFalse(saved["complete_fetch_attempt"])
+        # The attempt finished cleanly; the *data* is short (2026 has 2 of 3) and
+        # that is what is_complete() must report.
+        self.assertTrue(saved["complete_fetch_attempt"])
         state = PaperFetchState.from_dict(saved)
         self.assertFalse(state.is_complete(current_scholar_total=4, pub_year="2025"))
         records = {r["year"]: r for r in state.year_records}

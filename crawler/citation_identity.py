@@ -8,6 +8,8 @@ identity key and a clean dict suitable for caching.
 
 import re
 
+from crawler.citation_cache import normalize_citation_year
+
 _SCHOLARPUBRE = re.compile(r'cites=([\d,]*)')
 
 
@@ -97,9 +99,7 @@ def extract_citation_info(pub, fallback_year=None):
     """
     bib = pub.get('bib', {})
     authors = bib.get('author', [])
-    year = str(bib.get('pub_year', 'N/A'))
-    if str(year).strip().lower() in ('', 'n/a', 'na', '?') and fallback_year is not None:
-        year = str(fallback_year)
+    year = normalize_citation_year(bib.get('pub_year'), fallback_year)
     raw_cites_id = pub.get('cites_id')
     if raw_cites_id in (None, '', [], ()):
         raw_cites_id = _extract_cites_id_from_url(pub.get('citedby_url'))

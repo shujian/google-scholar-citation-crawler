@@ -65,6 +65,7 @@ from crawler.citation_cache import (
     dump_year_count_map as _cc_dump_year_count_map,
     build_year_fetch_diagnostics as _cc_build_year_fetch_diagnostics,
     normalize_year_fetch_diagnostics as _cc_normalize_year_fetch_diagnostics,
+    is_unknown_year,
     year_records_gap as _cc_year_records_gap,
     year_records_shortfall_years as _cc_year_records_shortfall_years,
 )
@@ -589,6 +590,62 @@ class PaperCitationFetcher:
     @classmethod
     def _citation_identity_key(cls, info):
         return _ci_citation_identity_key(info)
+
+    @staticmethod
+    def _citation_info_score(citation):
+        """How much usable metadata a citation carries (duplicate tie-break)."""
+        score = 0
+        for field in ('venue', 'url', 'authors'):
+            value = citation.get(field)
+            if value is not None and str(value).strip().lower() not in ('', 'n/a', 'na', '?'):
+                score += 1
+        if not is_unknown_year(citation.get('year')):
+            score += 1
+        return score
+
+    def _citation_output_identity_keys(self, citation):
+        """Keys used to collapse duplicate rows in the output.
+
+        The primary identity (cites_id when Scholar provides one) plus the
+        normalised title, so the same cluster listed twice with different
+        metadata — or once without a cites_id — still collapses to one row.
+        """
+        keys = [self._citation_identity_key(citation)]
+        title = self._normalize_identity_part(citation.get('title'))
+        if title and title not in ('n/a', 'na', '?'):
+            keys.append(f"title\t{title}")
+        return keys
+
+    def _dedup_citations_for_output(self, citations, title=''):
+        """Keep one row per citation identity, preferring the richest metadata.
+
+        Scholar can list the same cluster twice with contradictory metadata
+        (different venue/year), which inflates the stored count and breaks the
+        documented dedup contract.  The first occurrence wins ties so the order
+        stays stable.
+        """
+        rows = list(citations or [])
+        if len(rows) < 2:
+            return rows
+        kept = []
+        by_key = {}
+        dropped = 0
+        for citation in rows:
+            keys = self._citation_output_identity_keys(citation)
+            match = next((by_key[key] for key in keys if key in by_key), None)
+            if match is None:
+                by_key.update({key: len(kept) for key in keys})
+                kept.append(citation)
+                continue
+            dropped += 1
+            if self._citation_info_score(citation) > self._citation_info_score(kept[match]):
+                kept[match] = citation
+                by_key.update({key: match for key in keys})
+        if not dropped:
+            return rows
+        print(f"  Deduplicated {dropped} duplicate citation row(s) for "
+              f"'{title[:50]}' ({len(kept)} kept)", flush=True)
+        return kept
 
     @staticmethod
     def _extract_citation_info(pub, fallback_year=None):
@@ -1474,6 +1531,7 @@ class PaperCitationFetcher:
         def _build_entry(pub, citations):
             """Build output entry with correct _fetch_state."""
             title = pub.get('title', '') if pub else ''
+            citations = self._dedup_citations_for_output(citations, title)
             fetch_state = _freshest_fetch_state(title)
             current_total = pub.get('num_citations') if pub else None
             if current_total is not None and fetch_state:

@@ -443,6 +443,31 @@ class StartupRobustnessTests(FetcherTestCase):
         self.assertIsNone(ctx.probed_year_counts)
         self.assertFalse(ctx.probed_year_count_complete)
 
+    def test_citation_year_normalization_uses_one_sentinel(self):
+        """'NA', '', None and friends all mean "no year" and must agree.
+
+        The old readers disagreed ('N/A' vs 'NA' vs ''), so the same record could
+        count as unknown in one place and as a year in another.
+        """
+        from crawler.citation_cache import is_unknown_year, normalize_citation_year, year_count_map
+        from crawler.citation_identity import extract_citation_info
+
+        for value in ('', 'NA', 'n/a', 'N/A', '?', None, 'none'):
+            self.assertTrue(is_unknown_year(value), value)
+            self.assertEqual(normalize_citation_year(value), 'N/A')
+
+        self.assertEqual(normalize_citation_year(None, fallback_year=2025), '2025')
+        self.assertEqual(normalize_citation_year('2024', fallback_year=2025), '2024')
+        self.assertFalse(is_unknown_year('2024'))
+
+        counts = year_count_map([{"year": "2024"}, {"year": "NA"}, {"year": ""},
+                                 {"year": "N/A"}, {"year": None}])
+        self.assertEqual(counts, {2024: 1})
+
+        info = extract_citation_info({"bib": {"title": "T"}}, fallback_year=2025)
+        self.assertEqual(info["year"], "2025")
+        self.assertEqual(extract_citation_info({"bib": {"title": "T"}})["year"], "N/A")
+
     def test_parse_args_rejects_out_of_range_values(self):
         from crawler.cli import parse_args
         for argv in (['--author', 'a', '--skip', '-1'],

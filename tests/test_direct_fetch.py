@@ -920,7 +920,12 @@ class DirectFetchTests(FetcherTestCase):
 
         output = fake_stdout.getvalue()
         self.assertEqual([c["title"] for c in citations], ["Fresh-A", "Fresh-B", "Fresh-C"])
-        self.assertFalse(saved["complete_fetch_attempt"])
+        # The fetch itself finished cleanly (no blocked page), so the attempt is
+        # flagged complete; what is NOT complete is the data (3 of 98 rows).
+        from crawler.output_state import PaperFetchState
+        self.assertTrue(saved["complete_fetch_attempt"])
+        self.assertFalse(PaperFetchState.from_dict(saved).is_complete(
+            current_scholar_total=98, pub_year="2024"))
         self.assertEqual(saved["num_citations_on_scholar"], 98)
         self.assertEqual(saved["num_citations_cached"], 3)
         self.assertEqual(saved["num_citations_seen"], 3)

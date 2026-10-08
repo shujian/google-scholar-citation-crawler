@@ -408,6 +408,76 @@ class OutputAndReconciliationTests(FetcherTestCase):
         self.assertEqual([c["title"] for c in payload["papers"][0]["citations"]],
                          [c["title"] for c in kept])
 
+    def test_save_output_deduplicates_rows_with_the_same_identity(self):
+        """Scholar can list one cluster twice with contradictory metadata.
+
+        Both rows used to be written, inflating the count; the output must keep
+        one row and prefer the richer metadata.
+        """
+        pub = {"no": 1, "title": "Paper", "num_citations": 3,
+               "year": "2024", "venue": "V"}
+        citations = [
+            {"title": "Dup Paper", "authors": "A", "venue": "NA", "year": "2023",
+             "url": "u1", "cites_id": "cid-1"},
+            {"title": "Dup Paper", "authors": "A", "venue": "Journal", "year": "2022",
+             "url": "u1", "cites_id": "cid-1"},
+            {"title": "Other", "authors": "B", "venue": "V2", "year": "2024",
+             "url": "u2", "cites_id": "cid-2"},
+        ]
+        tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmpdir, ignore_errors=True)
+        self.fetcher.profile_json = os.path.join(tmpdir, "author_test-author_profile.json")
+        self.fetcher.out_json = os.path.join(tmpdir, "author_test-author_paper_citations.json")
+        self.fetcher.out_xlsx = os.path.join(tmpdir, "author_test-author_paper_citations.xlsx")
+        self.fetcher._run_start_time = 0
+        with open(self.fetcher.profile_json, "w", encoding="utf-8") as f:
+            json.dump({"publications": [pub]}, f)
+        self.fetcher._paper_states = {}
+        self.fetcher._mid_paper_state = {}
+        self.fetcher._session_patched = True
+
+        with patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.fetcher._save_output([{"pub": pub, "citations": citations}])
+
+        self.assertIn("Deduplicated 1 duplicate citation row(s)", stdout.getvalue())
+        with open(self.fetcher.out_json, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        kept = payload["papers"][0]["citations"]
+        self.assertEqual(len(kept), 2)
+        self.assertEqual(kept[0]["venue"], "Journal")
+        self.assertEqual(kept[0]["year"], "2022")
+        self.assertEqual(payload["total_citations_collected"], 2)
+
+    def test_save_output_deduplicates_by_title_without_cites_id(self):
+        pub = {"no": 1, "title": "Paper", "num_citations": 2,
+               "year": "2024", "venue": "V"}
+        citations = [
+            {"title": "Same Title", "authors": "A", "venue": "V", "year": "N/A",
+             "url": "u1", "cites_id": None},
+            {"title": "Same Title", "authors": "A", "venue": "V", "year": "2020",
+             "url": "u2", "cites_id": None},
+        ]
+        tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmpdir, ignore_errors=True)
+        self.fetcher.profile_json = os.path.join(tmpdir, "author_test-author_profile.json")
+        self.fetcher.out_json = os.path.join(tmpdir, "author_test-author_paper_citations.json")
+        self.fetcher.out_xlsx = os.path.join(tmpdir, "author_test-author_paper_citations.xlsx")
+        self.fetcher._run_start_time = 0
+        with open(self.fetcher.profile_json, "w", encoding="utf-8") as f:
+            json.dump({"publications": [pub]}, f)
+        self.fetcher._paper_states = {}
+        self.fetcher._mid_paper_state = {}
+        self.fetcher._session_patched = True
+
+        with patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._save_output([{"pub": pub, "citations": citations}])
+
+        with open(self.fetcher.out_json, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        kept = payload["papers"][0]["citations"]
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(kept[0]["year"], "2020")  # richer row wins
+
     def test_save_output_ignores_direct_snapshot_that_lacks_diagnostics(self):
         """A direct-mode mid-fetch save has no fetch_strategy/direct diagnostics
         yet; letting it replace the persisted state would infer year mode and

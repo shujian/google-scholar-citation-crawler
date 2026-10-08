@@ -9,6 +9,8 @@ a stable field order on serialisation.
 from dataclasses import dataclass
 from typing import Optional
 
+from crawler.citation_cache import normalize_citation_year
+
 
 _PUB_FIELDS = [
     'no', 'title', 'year', 'venue', 'authors',
@@ -40,7 +42,7 @@ class PubInfo:
         return cls(
             no=_coerce_int(d.get('no', 0)) or 0,
             title=d.get('title', ''),
-            year=str(d.get('year', '')),
+            year=normalize_citation_year(d.get('year')),
             venue=d.get('venue', ''),
             authors=d.get('authors', ''),
             num_citations=_coerce_int(d.get('num_citations', 0)) or 0,
@@ -58,7 +60,7 @@ class PubInfo:
         return cls(
             no=index,
             title=bib.get('title', ''),
-            year=str(bib.get('pub_year', '')),
+            year=normalize_citation_year(bib.get('pub_year')),
             venue=bib.get('citation', bib.get('venue', bib.get('journal', ''))),
             authors=author,
             num_citations=pub.get('num_citations', 0) if isinstance(pub, dict) else 0,

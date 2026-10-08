@@ -2,6 +2,19 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
+## 2026-10-08: 一个布尔字段不能同时回答两个问题
+
+`complete_fetch_attempt` 被三个地方读作"本次抓取是否正常跑完"，却被 `_compute_data_complete()` 按"数据是否完整"写。两个问题在不同时点取数（写快照时 vs 读状态时），于是同一个文件里 `fetch_complete` 与它互相矛盾 68/247 篇——**不是有人写错，而是一个名字承担了两个语义**。
+
+落地约定：
+- `fetch_complete`（输出条目）= **数据完整性**，唯一权威是 `PaperFetchState.is_complete()`；
+- `_fetch_state.complete_fetch_attempt` = **本次尝试是否干净跑完**（`empty_page`/`empty_first_page` 记为 False）；
+- `rough` 模式要的是后者，`need_fetch()`/状态判定要的是前者。
+
+同类教训：`seen_total` 也曾同时被当作"去重行数"和"缓存+重复数"。**给字段定语义时先问：谁读它、要回答什么问题**；一个字段被两类读者用时，拆开而不是折中。
+
+---
+
 ## 2026-10-08: "两份入口"与"先问后加载"——两个反复出现的结构性坑
 
 ### 一份入口只能有一个

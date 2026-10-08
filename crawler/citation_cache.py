@@ -11,17 +11,44 @@ lower layer to avoid circular imports.
 # Year-count map helpers
 # ---------------------------------------------------------------------------
 
+# Every spelling of "no usable year" seen from Scholar / old caches.  Kept in
+# one place so records, pub metadata and the Excel writers agree.
+UNKNOWN_YEAR_VALUES = ('', 'n/a', 'na', '?', 'none')
+UNKNOWN_YEAR_SENTINEL = 'N/A'
+
+
+def normalize_citation_year(value, fallback_year=None):
+    """Return a usable year string, or the 'N/A' sentinel.
+
+    *fallback_year* is used when the citation carries no year of its own (the
+    year-mode fetch knows which year bucket it is filling).
+    """
+    text = '' if value is None else str(value).strip()
+    if text.lower() in UNKNOWN_YEAR_VALUES:
+        if fallback_year is not None:
+            return str(fallback_year).strip()
+        return UNKNOWN_YEAR_SENTINEL
+    return text
+
+
+def is_unknown_year(value):
+    """True when *value* does not carry a usable year."""
+    text = '' if value is None else str(value).strip()
+    return text.lower() in UNKNOWN_YEAR_VALUES or text == UNKNOWN_YEAR_SENTINEL
+
+
 def year_count_map(citations):
     """Return {year_int: count} for citations that carry a usable year."""
     counts = {}
     for c in citations:
-        y = c.get('year', 'N/A')
-        if y and y != 'N/A' and y != 'NA':
-            try:
-                year = int(y)
-                counts[year] = counts.get(year, 0) + 1
-            except ValueError:
-                pass
+        y = c.get('year', UNKNOWN_YEAR_SENTINEL)
+        if is_unknown_year(y):
+            continue
+        try:
+            year = int(y)
+        except (TypeError, ValueError):
+            continue
+        counts[year] = counts.get(year, 0) + 1
     return counts
 
 

@@ -4,6 +4,31 @@
 
 ---
 
+## 2026-10-08: 输出口径（行为完成 vs 数据完整）、年份哨兵统一、输出前强制去重
+
+### 问题
+
+1. **`complete_fetch_attempt` 名不副实**：它由 `_compute_data_complete()` 按"数据是否完整"计算，而消费方（`rough` 模式、year 全无年份跳过、direct 续抓状态）都把它当作"本次抓取是否正常跑完"。于是它与输出的 `fetch_complete`（同样是数据完整性判定，但用不同时点的数字算）在 68/247 篇上互相矛盾，审计时无法判断谁对。
+2. **年份哨兵不统一**：`'N/A'`、`'NA'`、`''`、`'?'` 在不同读取处被区别对待（生产数据里 102 条 `year='NA'`、7 篇 `pub.year` 为空），`year_count_map` 只跳过 `'N/A'/'NA'` 而不跳过 `''`；`extract_citation_info` 的 fallback 判断里也不含 `'N/A'`。
+3. **篇内重复行**：9 篇存在同 `cites_id` 两行（元数据互相矛盾），另有大量"同一论文的不同 cluster"条目（审计显示下游因此把同一 PDF 下载两遍），文档却只说"容忍自重复"。
+
+### 实现
+
+- `crawler/citation_fetch.py`：`_compute_data_complete()` → `_compute_fetch_attempt_complete()`，语义改为"本次尝试跑到结束且没有遇到空页/被拦截页"（`empty_page`/`empty_first_page` 记为 False），并支持 `year_records` 是 list 或 `{year: diag}` 两种形状（原实现只认 list，实际传的是 dict）。
+- `scholar_citation.py`：数据完整性只由 `fetch_complete = PaperFetchState.is_complete()` 表达；`rough` 的注释与 README 对齐为"计数未变 **且** 上次抓取正常跑完"。
+- `crawler/citation_cache.py`：新增 `UNKNOWN_YEAR_VALUES` / `UNKNOWN_YEAR_SENTINEL='N/A'`、`normalize_citation_year()`、`is_unknown_year()`；`year_count_map()` 用它们统一判定。
+- `crawler/citation_identity.py`：年份走 `normalize_citation_year(bib.get('pub_year'), fallback_year)`。
+- `crawler/pub_info.py`：`from_dict`/`from_scholarly` 的年份统一为 `N/A` 哨兵。
+- `scholar_citation.py: _dedup_citations_for_output()`：写盘前按"`cites_id` 主键 + 归一化标题"折叠重复行，保留元数据更丰富的一条（venue/url/authors/年份有效各计 1 分），并列时保留先出现者；折叠数量按论文打印。
+
+### 验证与实测影响
+
+- 测试 212 → 215：年份哨兵统一、按 `cites_id` 去重（保留 richer）、无 `cites_id` 时按标题去重；另有两个测试的 `complete_fetch_attempt` 断言按新语义更正（并保留 `is_complete()` 为假的断言，避免丢掉"数据不完整"的覆盖）。3 个新测试先在回退到 HEAD 的副本上验证为红（旧实现输出 `3 collected citation records`）。
+- **真实数据实测**（只读跑一遍去重）：9054 → 8833 行，折叠 221 行 / 46 篇（189 个标题）。抽样确认折叠对象主要是"同一论文的不同 Scholar cluster"（例如 `large language diffusion models` 有 2 个 `cites_id`、`backdoorllm` 有 3 个），符合用户选择的"按 cites_id/title 强制去重"。
+- 注意：`complete_fetch_attempt` 的**含义**变了；旧输出里的值会一直保留到该论文下次被抓取。旧值为 False 只会让 `rough` 多抓一次（安全），旧值为 True 与新的"正常跑完"判定不冲突。
+
+---
+
 ## 2026-10-08: 收敛入口与 CLI（删除死入口、参数校验、-v/--accelerate 真正生效）
 
 ### 问题

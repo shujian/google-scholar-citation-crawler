@@ -17,7 +17,11 @@ import re
 import time
 from datetime import datetime
 
-from crawler.citation_cache import is_data_complete, year_records_data_complete
+from crawler.citation_cache import (
+    is_data_complete,
+    iter_year_records,
+    year_records_data_complete,
+)
 from crawler.fetch_session import BatchFetchSession
 
 from scholarly import scholarly
@@ -320,14 +324,31 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
                 )
         return fetcher._normalize_year_fetch_diagnostics(diagnostics)
 
-    def _compute_data_complete(fetch_finished, is_year, diag_summary, year_records=None):
+    # Termination reasons that mean "the page came back empty/blocked", i.e. the
+    # attempt finished without an error but must not be trusted as a clean read.
+    BLOCKED_TERMINATIONS = ('empty_page', 'empty_first_page')
+
+    def _compute_fetch_attempt_complete(fetch_finished, is_year, diag_summary, year_records=None):
+        """True when the attempt ran to the end without a blocked/empty page.
+
+        Deliberately NOT the data-completeness verdict: that is `fetch_complete`
+        in the output, computed by PaperFetchState.is_complete().  This flag
+        answers "may this attempt be trusted as a clean, finished read?", which
+        is what --fetch-mode rough asks before skipping an unchanged paper, and
+        what decides whether a direct resume offset is kept.
+        """
         if not fetch_finished:
             return False
+        reasons = []
         if is_year:
-            # Same per-year rule the cross-run status check uses, so the stored
-            # flag cannot contradict is_complete() for the same state.
-            return year_records_data_complete(year_records, diag_summary)
-        return is_data_complete('direct', diag_summary)
+            # year_records may be a list of per-year dicts or a {year: dict} map.
+            for record in iter_year_records(year_records):
+                reasons.append(record.get('termination_reason'))
+            if not reasons and isinstance(diag_summary, dict):
+                reasons.append(diag_summary.get('termination_reason'))
+        elif isinstance(diag_summary, dict):
+            reasons.append(diag_summary.get('termination_reason'))
+        return not any(reason in BLOCKED_TERMINATIONS for reason in reasons)
 
     def save_progress(fetch_finished, batch=None):
         # fetch_finished: whether the fetch loop ran to completion.
@@ -400,7 +421,7 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
             'num_citations_cached': len(citations_to_save),
             'num_citations_seen': len(citations_to_save) + effective_dedup,
             'dedup_count': effective_dedup,
-            'complete_fetch_attempt': _compute_data_complete(
+            'complete_fetch_attempt': _compute_fetch_attempt_complete(
                 fetch_finished, is_year,
                 year_fetch_diagnostics_save if is_year else diagnostics_to_save,
                 year_records=year_records_to_save,
@@ -431,7 +452,7 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
                 current_scholar_total(),
                 citedby_url,
             )
-            if fetch_policy['strategy'] == 'direct' and not _compute_data_complete(
+            if fetch_policy['strategy'] == 'direct' and not _compute_fetch_attempt_complete(
                 fetch_finished, is_year,
                 diagnostics_to_save,
             )
