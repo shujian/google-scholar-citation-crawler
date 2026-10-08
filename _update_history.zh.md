@@ -4,6 +4,31 @@
 
 ---
 
+## 2026-10-08: 写盘安全（原子写、Excel 容错、单次保存、skip_zero 不再清空引文）
+
+### 问题
+
+1. **非原子写**：citations 输出与 profile 都是 `open(path,'w')` + `json.dump`。写到一半崩溃/Ctrl+C/磁盘满会留下半截文件；读回时 citations 输出被当成"没有任何状态"（静默 `{}` → 整库重抓），profile 则直接 `JSONDecodeError`（无捕获 → 工具此后不可用）。
+2. **Excel 失败会中止整轮**：`_save_xlsx` 在 JSON 落盘**之后**、无 try 保护，且 `citation_io`/`profile_io` 用 `cite['authors']`、`pub['no']` 直接下标（缺键、控制字符、孤立代理项都会抛）。
+3. **双重保存**：重试耗尽路径先 `_save_output(results)` 再 `sys.exit(1)`，`run()` 的 `finally` 又存一次；第一次保存会清空 `_mid_paper_state`，第二次于是写回"运行前旧状态"，把在飞论文本次抓到的引文清零。
+4. **`skip_zero` 清空已抓引文**：`cache_status` 对 `num_citations == 0` 直接返回 `('skip_zero', None, None)`，主循环写 `citations: []`，而 `_fetch_state` 仍是旧状态 → JSON 自相矛盾（Collected=0 但 Complete=Y），且上一轮的引文列表从输出里消失。
+5. **两份输出不对账**：profile 里没有的论文会被 `_save_output` 直接丢掉，无任何提示。
+
+### 实现
+
+- `crawler/common.py: write_json_atomic()`：临时文件 + `fsync` + `os.replace`，失败时清理临时文件。
+- `scholar_citation.py: _save_output()` 用原子写；Excel 写入包 `try/except` 降级为警告；不再清空 `_mid_paper_state`（`run()` 开头已重置），因此重复保存内容一致；移除 `sys.exit(1)` 前那次冗余保存；新增"上一篇输出里有、当前 profile 里没有"的对账警告。
+- `crawler/profile_io.py`：`save_json` 改原子写；`load` 遇到坏文件时备份为 `.corrupt`、打印警告并按"首次运行"继续，而不是让之后每次运行都以 parse error 终止。
+- `crawler/author_fetcher.py`：profile Excel 写入失败降级为警告。
+- `crawler/output_state.py`：抽出 `_read_output_json()`，解析失败时备份为 `.corrupt` 并**明确告知**"全部论文按缺失处理"，不再静默返回 `{}`。
+- `scholar_citation.py: cache_status()` 对 `skip_zero` 仍返回已缓存状态，主循环据此保留引文并打印 `keeping N cached`。
+
+### 验证
+
+- 测试 203 → 208，5 个新测试全部先在回退到 HEAD 的副本上验证为红：原子写失败后旧文件完好且无残留 `.tmp`、Excel 失败仍写出 JSON、重复保存保留在飞引文（旧实现写出 `[]`）、坏输出备份 + 警告、`skip_zero` 保留 3 条缓存（旧实现输出 `0 collected citation records`）。
+
+---
+
 ## 2026-10-08: 让续抓真正续得上（并对齐计数口径）
 
 ### 问题

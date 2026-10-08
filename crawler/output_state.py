@@ -10,6 +10,7 @@ absent.
 
 import json
 import os
+import shutil
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -569,13 +570,33 @@ def _normalize_year_summary(raw):
 # Output file I/O
 # ---------------------------------------------------------------------------
 
-def load_output_fetch_state(output_path):
+def _read_output_json(output_path):
+    """Read the citations output file, or return None when it is unusable.
+
+    A parse failure used to be swallowed: the whole cross-run state then looked
+    absent and every paper was re-fetched with no explanation.  The unreadable
+    file is backed up and the caller is told.
+    """
     if not os.path.exists(output_path):
-        return {}
+        return None
     try:
         with open(output_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-    except (json.JSONDecodeError, OSError, TypeError, AttributeError):
+            return json.load(f)
+    except (json.JSONDecodeError, OSError, TypeError, AttributeError) as e:
+        backup = f"{output_path}.corrupt"
+        try:
+            shutil.copy2(output_path, backup)
+            print(f"Warning: {output_path} could not be read ({e}); backed it up to "
+                  f"{backup}. All papers are treated as missing.", flush=True)
+        except OSError:
+            print(f"Warning: {output_path} could not be read ({e}). All papers are "
+                  f"treated as missing.", flush=True)
+        return None
+
+
+def load_output_fetch_state(output_path):
+    data = _read_output_json(output_path)
+    if not isinstance(data, dict):
         return {}
     result = {}
     for paper in data.get('papers', []):
@@ -587,12 +608,8 @@ def load_output_fetch_state(output_path):
 
 def load_paper_states(output_path):
     """Load {title: PaperState} from output JSON, combining _fetch_state and citations."""
-    if not os.path.exists(output_path):
-        return {}
-    try:
-        with open(output_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-    except (json.JSONDecodeError, OSError, TypeError, AttributeError):
+    data = _read_output_json(output_path)
+    if not isinstance(data, dict):
         return {}
     result = {}
     for paper in data.get('papers', []):

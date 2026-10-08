@@ -57,6 +57,7 @@ from crawler.common import (
     now_str,
     rand_delay,
     setup_proxy,
+    write_json_atomic,
 )
 from crawler.citation_cache import (
     year_count_map as _cc_year_count_map,
@@ -892,6 +893,13 @@ class PaperCitationFetcher:
             paper_state = getattr(self, '_paper_states', {}).get(pub['title'])
             pst = to_paper_fetch_state(paper_state) if paper_state else None
             if pub['num_citations'] == 0:
+                # Scholar reports no citations for this paper.  Keep whatever was
+                # collected earlier: a transient 0 in the profile must not delete
+                # the stored list.  Nothing to fetch either way.
+                if pst is not None:
+                    cached = pst.to_dict()
+                    cached['citations'] = paper_state.citations
+                    return 'skip_zero', cached, pst
                 return 'skip_zero', None, None
             if not pst:
                 return self._citation_status(pub), None, None
@@ -1070,8 +1078,13 @@ class PaperCitationFetcher:
             papers_processed += 1
 
             if st == 'skip_zero':
-                print(f"[{idx}/{len(publications)}] {title[:55]}... -> skip (0 citations)")
-                results[idx - 1] = {'pub': pub, 'citations': []}
+                kept = cached['citations'] if cached else []
+                if kept:
+                    print(f"[{idx}/{len(publications)}] {title[:55]}... -> skip "
+                          f"(Scholar reports 0 citations; keeping {len(kept)} cached)")
+                else:
+                    print(f"[{idx}/{len(publications)}] {title[:55]}... -> skip (0 citations)")
+                results[idx - 1] = {'pub': pub, 'citations': kept}
                 continue
 
             if st == 'complete':
@@ -1370,7 +1383,9 @@ class PaperCitationFetcher:
                     if not self.interactive_captcha and attempt >= MAX_RETRIES:
                         traceback.print_exc()
                         print(f"\n  [{now}] All retry attempts exhausted. Terminating.", flush=True)
-                        self._save_output(results)
+                        # run()'s finally writes the output (including the
+                        # in-flight paper's partial citations); saving here too
+                        # would write a second, less complete file on the way out.
                         sys.exit(1)
                     # Offer interactive captcha solve when --interactive-captcha is set.
                     # In interactive mode we loop indefinitely — the user decides when
@@ -1514,6 +1529,16 @@ class PaperCitationFetcher:
                     citations = getattr(ps, 'citations', None) or []
                 final_results.append(_build_entry(pub, citations))
         total_cites = sum(len(r['citations']) for r in final_results)
+        # Papers that exist in the previous output but not in the current profile
+        # are not written any more.  Surface it instead of dropping citations
+        # that took hours to collect.
+        current_titles = {r['pub'].get('title', '') for r in final_results}
+        dropped_titles = [title for title in getattr(self, '_paper_states', {})
+                          if title and title not in current_titles]
+        if dropped_titles:
+            print(f"Warning: {len(dropped_titles)} paper(s) present in the previous "
+                  f"output are missing from the current profile and are dropped "
+                  f"(e.g. {', '.join(sorted(dropped_titles)[:2])[:110]})", flush=True)
         output_payload = {
             'author_id': self.author_id,
             'fetch_time': datetime.now().isoformat(),
@@ -1521,15 +1546,18 @@ class PaperCitationFetcher:
             'total_citations_collected': total_cites,
             'papers': final_results,
         }
-        with open(self.out_json, 'w', encoding='utf-8') as f:
-            json.dump(output_payload, f, ensure_ascii=False, indent=2)
+        write_json_atomic(self.out_json, output_payload,
+                          ensure_ascii=False, indent=2)
         print(f"Saved JSON : {self.out_json}")
 
-        self._save_xlsx(final_results, metadata=output_payload)
-        print(f"Saved Excel: {self.out_xlsx}")
-
-        # Clear mid-paper state now that the output file is safely written.
-        self._mid_paper_state = {}
+        # The Excel file is a convenience view; a failure there must not abort a
+        # run whose data is already on disk.
+        try:
+            self._save_xlsx(final_results, metadata=output_payload)
+            print(f"Saved Excel: {self.out_xlsx}")
+        except Exception as e:
+            print(f"Warning: could not write {self.out_xlsx}: "
+                  f"{type(e).__name__}: {e}", flush=True)
 
         total_papers = len(results)  # includes None slots (total publications)
         fetched_str = f", {self._papers_fetched_count} fetched" if self._papers_fetched_count else ""

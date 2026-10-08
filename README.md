@@ -95,6 +95,12 @@ python scholar_citation.py --author YOUR_AUTHOR_ID --fetch-mode force --skip 0 -
 
 ## Output Files
 
+Both JSON files are written atomically (temp file + rename), so an interrupted
+write cannot leave a truncated state file behind; a file that is still
+unreadable is backed up as `<name>.corrupt` and reported. The Excel workbooks
+are convenience views — if one cannot be written the run keeps going and only
+prints a warning, and the JSON is left untouched.
+
 | File | Description |
 |------|-------------|
 | `author_<ID>_profile.json` | Author info, publication list, and change history |

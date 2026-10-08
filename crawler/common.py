@@ -1,6 +1,8 @@
+import json
 import os
 import random
 import re
+import tempfile
 from datetime import datetime
 
 # ---- Backward-compatible re-exports from crawler.config ----
@@ -31,6 +33,32 @@ def rand_delay(scale=1.0):
 def now_str():
     """Return current time as [HH:MM:SS] string for log prefixes."""
     return datetime.now().strftime('[%H:%M:%S]')
+
+
+def write_json_atomic(path, payload, **dump_kwargs):
+    """Write *payload* as JSON to *path* through a temp file + atomic rename.
+
+    A crash, Ctrl+C or full disk during the write can then never leave a
+    truncated file behind.  That matters because a half-written state file is
+    read back as "no state at all" (the citation output) or as a hard parse
+    error (the profile), costing a full re-crawl.
+    """
+    directory = os.path.dirname(os.path.abspath(path)) or '.'
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(
+        dir=directory, prefix=os.path.basename(path) + '.', suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as handle:
+            json.dump(payload, handle, **dump_kwargs)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def _scholar_request_url(pagerequest):

@@ -284,6 +284,130 @@ class OutputAndReconciliationTests(FetcherTestCase):
         reloaded = PaperFetchState.from_dict(saved)
         self.assertTrue(reloaded.is_stalled())
 
+    def test_save_output_keeps_json_when_excel_write_fails(self):
+        """Excel is a convenience view; its failure must not abort the run."""
+        pub = dict(self._INTERRUPTED_PUB)
+        tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmpdir, ignore_errors=True)
+        self.fetcher.profile_json = os.path.join(tmpdir, "author_test-author_profile.json")
+        self.fetcher.out_json = os.path.join(tmpdir, "author_test-author_paper_citations.json")
+        self.fetcher.out_xlsx = os.path.join(tmpdir, "author_test-author_paper_citations.xlsx")
+        self.fetcher._run_start_time = 0
+        with open(self.fetcher.profile_json, "w", encoding="utf-8") as f:
+            json.dump({"publications": [pub]}, f)
+        self.fetcher._paper_states = {
+            "Interrupted Paper": PaperFetchState.from_dict(self._stale_complete_state()),
+        }
+        self.fetcher._mid_paper_state = {}
+
+        with patch.object(self.fetcher, "_save_xlsx",
+                          side_effect=RuntimeError("bad character")), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.fetcher._save_output([None])
+
+        self.assertIn("could not write", stdout.getvalue())
+        with open(self.fetcher.out_json, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        self.assertEqual(payload["total_papers"], 1)
+
+    def test_save_output_is_idempotent_for_in_flight_progress(self):
+        """Saving twice must not lose the in-flight paper's citations.
+
+        The retry-exhausted path saves before sys.exit(1) and run()'s finally
+        saves again; the first save used to clear the in-run snapshots, so the
+        second wrote the stale start-of-run state without this run's citations.
+        """
+        state = self._stale_complete_state()
+        paper, partial_citations = self._save_and_load(state, with_snapshot=True)
+        self.assertEqual(len(paper["citations"]), len(partial_citations))
+
+        with patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._save_output([None])
+
+        with open(self.fetcher.out_json, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        self.assertEqual([c["title"] for c in payload["papers"][0]["citations"]],
+                         [c["title"] for c in partial_citations])
+
+    def test_write_json_atomic_keeps_the_previous_file_on_failure(self):
+        from crawler.common import write_json_atomic
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = os.path.join(tmpdir, "state.json")
+            write_json_atomic(target, {"ok": 1})
+            with open(target, "r", encoding="utf-8") as f:
+                self.assertEqual(json.load(f), {"ok": 1})
+
+            class Unserializable:
+                pass
+
+            with self.assertRaises(TypeError):
+                write_json_atomic(target, {"bad": Unserializable()})
+
+            with open(target, "r", encoding="utf-8") as f:
+                self.assertEqual(json.load(f), {"ok": 1})
+            leftovers = [name for name in os.listdir(tmpdir) if name.endswith(".tmp")]
+            self.assertEqual(leftovers, [])
+
+    def test_corrupt_output_is_backed_up_and_treated_as_missing(self):
+        from crawler.output_state import load_paper_states
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = os.path.join(tmpdir, "author_x_paper_citations.json")
+            with open(target, "w", encoding="utf-8") as f:
+                f.write('{"papers": [{"pub": {"title": "T"')
+            with patch("sys.stdout", new_callable=StringIO) as stdout:
+                states = load_paper_states(target)
+            self.assertEqual(states, {})
+            self.assertTrue(os.path.exists(target + ".corrupt"))
+            self.assertIn("could not be read", stdout.getvalue())
+
+    def test_skip_zero_keeps_previously_collected_citations(self):
+        """A profile reporting 0 citations must not delete the stored list."""
+        pub = {
+            "no": 1,
+            "title": "Zeroed Paper",
+            "num_citations": 0,
+            "year": "2024",
+            "venue": "V",
+        }
+        kept = [
+            {"title": f"Kept-{idx}", "authors": "A", "venue": "V", "year": "2024",
+             "url": f"u{idx}", "cites_id": f"cid-{idx}"}
+            for idx in range(3)
+        ]
+        tmpdir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmpdir, ignore_errors=True)
+        self.fetcher.profile_json = os.path.join(tmpdir, "author_test-author_profile.json")
+        self.fetcher.out_json = os.path.join(tmpdir, "author_test-author_paper_citations.json")
+        self.fetcher.out_xlsx = os.path.join(tmpdir, "author_test-author_paper_citations.xlsx")
+        self.fetcher._run_start_time = 0
+        with open(self.fetcher.profile_json, "w", encoding="utf-8") as f:
+            json.dump({"publications": [pub]}, f)
+        with open(self.fetcher.out_json, "w", encoding="utf-8") as f:
+            json.dump({"papers": [{
+                "pub": pub,
+                "citations": kept,
+                "fetch_complete": True,
+                "_fetch_state": {
+                    "title": pub["title"], "fetch_strategy": "direct",
+                    "num_citations_on_scholar": 3,
+                    "complete_fetch_attempt": True,
+                    "direct_fetch_diagnostics": {
+                        "scholar_total": 3, "cached_total": 3, "seen_total": 3,
+                        "dedup_count": 0, "termination_reason": "iterator_exhausted"},
+                },
+            }]}, f)
+        self.fetcher._session_patched = True
+
+        with patch("sys.stdout", new_callable=StringIO) as stdout:
+            self.fetcher.run()
+
+        self.assertIn("keeping 3 cached", stdout.getvalue())
+        with open(self.fetcher.out_json, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        self.assertEqual([c["title"] for c in payload["papers"][0]["citations"]],
+                         [c["title"] for c in kept])
+
     def test_save_output_ignores_direct_snapshot_that_lacks_diagnostics(self):
         """A direct-mode mid-fetch save has no fetch_strategy/direct diagnostics
         yet; letting it replace the persisted state would infer year mode and

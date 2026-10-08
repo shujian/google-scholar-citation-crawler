@@ -171,16 +171,24 @@ class AuthorProfileFetcher:
         _pn = print_fn or print
         profile.save_json(self.profile_json, print_fn=_pn)
 
-        workbook = write_profile_xlsx(
-            self.profile_xlsx,
-            profile,
-            datetime_module=datetime,
-            openpyxl_module=openpyxl,
-            font_cls=Font,
-            pattern_fill_cls=PatternFill,
-            alignment_cls=Alignment,
-            print_fn=_pn,
-        )
+        # The Excel file is a convenience view; its failure must not discard a
+        # profile whose JSON is already on disk.
+        try:
+            workbook = write_profile_xlsx(
+                self.profile_xlsx,
+                profile,
+                datetime_module=datetime,
+                openpyxl_module=openpyxl,
+                font_cls=Font,
+                pattern_fill_cls=PatternFill,
+                alignment_cls=Alignment,
+                print_fn=_pn,
+            )
+        except Exception as e:
+            _pn(f"Warning: could not write {self.profile_xlsx}: "
+                f"{type(e).__name__}: {e}")
+            self._last_profile_workbook = None
+            return None
         self._last_profile_workbook = workbook
         return workbook
 

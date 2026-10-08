@@ -1,8 +1,10 @@
 import json
 import os
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from crawler.common import write_json_atomic
 from crawler.pub_info import PubInfo
 
 
@@ -66,27 +68,41 @@ class AuthorProfile:
 
     @classmethod
     def load(cls, path):
-        """Load from a profile JSON file, or None."""
-        if os.path.exists(path):
+        """Load from a profile JSON file, or None.
+
+        A corrupt file is backed up and treated as absent instead of aborting
+        every later run with a parse error.
+        """
+        if not os.path.exists(path):
+            return None
+        try:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            # Migrate legacy history.json if change_history is missing
-            if 'change_history' not in data:
-                dirname = os.path.dirname(path)
-                basename = os.path.basename(path)
-                author_id = basename.rsplit('_profile.json', 1)[0]
-                history_json = os.path.join(dirname, f"{author_id}_history.json")
-                if os.path.exists(history_json):
-                    with open(history_json, 'r', encoding='utf-8') as fh:
-                        data['change_history'] = json.load(fh)
-            return cls.from_dict(data)
-        return None
+        except (json.JSONDecodeError, OSError, TypeError, AttributeError) as e:
+            backup = f"{path}.corrupt"
+            try:
+                shutil.copy2(path, backup)
+                print(f"Warning: {path} is unreadable ({e}); backed it up to "
+                      f"{backup} and continuing as a first run", flush=True)
+            except OSError:
+                print(f"Warning: {path} is unreadable ({e}); continuing as a "
+                      f"first run (backup failed)", flush=True)
+            return None
+        # Migrate legacy history.json if change_history is missing
+        if 'change_history' not in data:
+            dirname = os.path.dirname(path)
+            basename = os.path.basename(path)
+            author_id = basename.rsplit('_profile.json', 1)[0]
+            history_json = os.path.join(dirname, f"{author_id}_history.json")
+            if os.path.exists(history_json):
+                with open(history_json, 'r', encoding='utf-8') as fh:
+                    data['change_history'] = json.load(fh)
+        return cls.from_dict(data)
 
     def save_json(self, path, print_fn=None):
-        """Write the profile to a JSON file."""
+        """Write the profile to a JSON file (atomically)."""
         payload = self.to_dict()
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+        write_json_atomic(path, payload, ensure_ascii=False, indent=2)
         if print_fn:
             print_fn(f'Saved JSON: {path}')
         return payload
