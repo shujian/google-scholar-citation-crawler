@@ -59,7 +59,7 @@ This file provides guidance to AI coding agents working with code in this reposi
 
 ## 论文选择：按作者抓取，没有 `--papers`
 
-阶段 1 **不参与** 3a / 3a' / 3b 的 `-p`/`--papers` 约定：crawler 操作的是 Google Scholar
+阶段 1 **不参与** 3.a.1 / 3.a.2 / 3.b 的 `-p`/`--papers` 约定：crawler 操作的是 Google Scholar
 上的论文列表，没有本地 `papers/` 目录，也没有跨仓库稳定的论文编号可选。范围控制只有位置切片：
 
 - `--skip M --limit N`：在「按引用数降序」排序后的 publication list 上取第 M 篇起的 N 篇，
