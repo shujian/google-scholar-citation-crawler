@@ -14,7 +14,7 @@
 
 如果对某些用户要求有异议，比如觉得要求不合理，或者实现有问题，请先跟用户确认。
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to AI coding agents working with code in this repository.
 
 ## Development commands
 
@@ -64,14 +64,15 @@ Status is derived from **current counts and diagnostics**, not from persisted `c
 - Direct mode: skip when `num_citations_seen >= scholar_total`
 - `stalled`: still incomplete, but the outcome signature (`fetch_outcome_signature`)
   repeated `STALL_AFTER_ATTEMPTS` runs in a row, so retrying cannot help while
-  Scholar's counts stay the same.  Cleared automatically by any change to the
-  signature; force a retry with `--fetch-mode force`.
+  Scholar's counts stay the same (e.g. Scholar lists fewer citations than it
+  reports).  Cleared automatically by any change to the signature; force a retry
+  with `--fetch-mode force`.
 - Year mode: skip only when **every** year covers its own probe
-  (`seen_total >= histogram_count` per year) *and* the aggregate holds.
-- `--fetch-mode {rough,normal,exact,force}` controls re-fetch aggressiveness;
-  `rough` skips a paper whose Scholar count is unchanged **and** whose last
-  attempt finished cleanly (`_fetch_state.complete_fetch_attempt`), which is a
-  different question from data completeness (`fetch_complete`)
+  (`seen_total >= histogram_count` in the per-year records) *and* the aggregate
+  holds.  The aggregate alone is not enough: years whose bucket exceeds the
+  probe prop up `histogram_total` and can hide a short year, so a paper with
+  unfetched citations would be skipped forever.
+- `--fetch-mode {rough,normal,exact,force}` controls re-fetch aggressiveness
 - `scholar_changed` flag triggers re-fetch when Scholar count changes even for complete papers
 
 Papers with `>= YEAR_BASED_THRESHOLD (50)` citations switch to year-by-year fetch mode:
@@ -80,6 +81,9 @@ Papers with `>= YEAR_BASED_THRESHOLD (50)` citations switch to year-by-year fetc
   year inside the same run — it is deliberately not carried across runs)
 - Oldest→newest year order
 - Year range is determined by `probe_citation_start_year()` via the Scholar histogram DOM
+- An interrupted fetch persists the in-run snapshot (citations fetched so far +
+  the live probe) when the output is written, so a short year stays visible on
+  the next run instead of the paper looking complete
 
 ### scholarly patch layer (`crawler/scholarly_session.py`)
 
