@@ -35,3 +35,7 @@ tmp_compare_scholar.py
 
 # Codex 残留（已不再使用）
 .codex/
+
+# 数据文件：绝不进版本控制（数据一律落在 papers/ 或 output/，见 AGENTS.md 的数据契约）
+# 2026-10-11 教训：根仓库历史上曾把 paper_downloader/papers/ 的 PDF 提交进来，撑到 17 GB pack
+*.pdf
