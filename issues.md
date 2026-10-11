@@ -5,10 +5,15 @@
 
 ## 一、paper_downloader（另一个独立 git 仓库）
 
-1. **输入文件不是 crawler 的输出**
-   `paper_downloader/{local,main}/code/config.py` 中 `INPUT_FILE = <paper_downloader>/paper_citations.json`，靠 `update_run.sh` 手工 `cp` 同步。
-   实测该副本停在 **2026-07-01（243 篇 / 8546 条）**，而 crawler 最新输出是 **2026-10-04（247 篇 / 9054 条）** —— 旧约 3 个月、少 508 条引用。
-   → 建议：`INPUT_FILE` 直接指向 `../google-scholar-citation-crawler/output/author_<ID>_paper_citations.json`，或在同步脚本里校验双方 `fetch_time`。
+1. **输入文件靠人工放置，没有自动同步**
+   阶段 2 的输入是**当前工作目录**下的 `paper_citations.json`：`--input-file` > cwd > 本 worktree
+   根目录（并告警），见 `paper_downloader/AGENTS.md` 的「配置约定」。`{local,main}/code/update_run.sh`
+   只检查该文件是否存在，**不再 `cp` 同步**；旧布局的 `<容器根>/paper_citations.json` 程序也不再读。
+   因此 crawler 的新输出不会自动流到阶段 2 —— 2026-10-11 实测三份输入是三个世代：
+   `main` = 2026-10-08 抓取（241 篇 / 9,200 条）、`local` = 2026-07-05（245 篇 / 8,476 条）、
+   容器根 = 2026-07-01（243 篇 / 8,546 条，遗留副本，程序不读）。
+   → 建议：每轮抓取后把 `google-scholar-citation-crawler/output/author_<ID>_paper_citations.json`
+   放到实际运行的那个 worktree 根目录（或用 `--input-file` 直接指过去），并核对双方的 `fetch_time`。
 
 2. **兜底键 `no_id:{title}` 没有论文作用域**
    crawler 侧 24.25%（2196/9054）的引文没有 `cites_id`（Scholar 不提供，crawler 无法凭空生成）；下游 `progress` 用全局主键，实测 131 个兜底键跨论文冲突（多出 139 行）。
@@ -39,3 +44,10 @@
 - 连续两次真实运行观察 `_fetch_state.stall_signature` / `stall_count` 是否落盘、`stalled` 是否出现（生产数据里目前尚无该字段，需要各篇再抓两轮）。
 - 观察一次被中断的 year 抓取是否在下次运行从 `partial_year_start` 续抓（日志 `Partial resume points`）。
 - 观察 `--fetch-mode rough` 在新语义（计数未变 + 上次干净跑完）下跳过哪些论文，是否符合预期。
+
+## 四、本仓库内的长期重构项（低优先级，不需要产品决策）
+
+1. **`print()` → 结构化日志的逐步迁移**：`code/` 下仍有约 270 处 `print()`，目前靠 `TeeStream`
+   写入日志文件；只有 `code/log_utils.py` 与 `code/scholar_citation.py` 使用 `get_logger()`。
+   约定是**新代码一律用 logger**，存量在后续迭代里逐步迁移；全部迁完才可能移除 `TeeStream`
+   （2026-07-05 的跨项目代码评审留下的「后续建议」，至今未做）。
