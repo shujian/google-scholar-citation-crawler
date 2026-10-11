@@ -33,11 +33,6 @@
 2. **`Mirror-Generative` 类 0/N 论文**：已确认是 Google 侧空页。现在会记 `termination=empty_page`，并有 stall 抑制（连续两轮同结果后跳过），但仍会每轮发一次请求（约 1 页）。是否要进一步"暂停 N 天"需要你决定。
 3. **`scholar_unyeared_count` 的真实含义**（详见 `_work_notes.zh.md` 2026-10-04 节）：它是 `scholar_total − histogram_total`，**不是**"我们抓不到的无年份引用"。是否要开一条无过滤（direct）通道来验证这些差额条目能否被抓到，需要你决定。
 4. **`--accelerate` 的生效范围**：现在无条件生效（未配 `--interactive-captcha` 时打印警告）。若你更希望它只在交互模式下生效，说一声即可回退。
-5. **根目录 `AGENTS.md` / `CLAUDE.md` 的测试数量已过期**（分别写 119 / 174，实际 215）。它们在另一个 git 仓库（workspace 根），本次未改动。
-6. **根目录 `AGENTS.md` 的阶段 1 入口行待同步**（2026-10-10）：该表仍写 `python scholar_citation.py --author <ID>`，
-   本仓库入口已统一为 `python -m code.scholar_citation --author <ID>`（代码进 `code/`）。根 `AGENTS.md` 属另一个
-   git 仓库，本仓库未改动，需由 workspace 根仓库一并更新；本仓库其余文档（`README.md` / 本文件 / 项目 `AGENTS.md`）
-   已同步。
 
 ## 三、本次已在本仓库修掉、但值得后续回归验证的
 
