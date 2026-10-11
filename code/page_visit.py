@@ -1,5 +1,5 @@
 """
-crawler/page_visit.py — PageVisit: single Scholar page fetch with error recovery.
+code/page_visit.py — PageVisit: single Scholar page fetch with error recovery.
 
 Every page-level HTTP request goes through PageVisit.fetch().  It handles:
   - captcha detection & interactive cookie injection
@@ -15,7 +15,7 @@ import random
 import time
 from datetime import datetime
 
-from crawler.common import rand_delay, now_str
+from code.common import rand_delay, now_str
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 """
-crawler/author_fetcher.py — AuthorProfileFetcher: fetch author profile data
+code/author_fetcher.py — AuthorProfileFetcher: fetch author profile data
 from Google Scholar and persist as author_<ID>_profile.json / .xlsx.
 """
 
@@ -10,9 +10,9 @@ from datetime import datetime
 
 from scholarly import scholarly
 
-from crawler.common import rand_delay, now_str
-from crawler.pub_info import PubInfo
-from crawler.profile_io import (
+from code.common import rand_delay, now_str
+from code.pub_info import PubInfo
+from code.profile_io import (
     AuthorProfile,
     build_profile_count_summary,
     save_profile_xlsx as write_profile_xlsx,

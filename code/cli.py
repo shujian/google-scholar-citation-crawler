@@ -1,9 +1,13 @@
 """
-crawler/cli.py — Command-line argument parsing for the citation crawler.
+code/cli.py — Command-line argument parsing for the citation crawler.
 
-The program entry point is ``scholar_citation.py: main()``; this module defines
-only the parser, so it can be imported (and tested) without pulling in
-``scholarly``.
+The program entry point is ``code/scholar_citation.py: main()``, run as
+``python -m code.scholar_citation``; this module defines only the parser, so it
+can be imported (and tested) without pulling in ``scholarly``.
+
+Configuration priority for every knob: command-line argument > JSON config file
+(``crawler_config.json``, see ``code.config``) > code default.  No environment
+variable is required by this program.
 """
 
 import argparse
@@ -11,23 +15,36 @@ import argparse
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
+        prog='python -m code.scholar_citation',
         description='Google Scholar Citation Crawler - fetch author profiles and paper citations',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''\
 examples:
-  python scholar_citation.py --author AUTHOR_ID
-  python scholar_citation.py --author "https://scholar.google.com/citations?user=AUTHOR_ID"
-  python scholar_citation.py --author AUTHOR_ID --limit 3
-  python scholar_citation.py --author AUTHOR_ID --skip 10 --limit 5
-  python scholar_citation.py --author AUTHOR_ID --fetch-mode rough
-  python scholar_citation.py --author AUTHOR_ID --fetch-mode force --skip 0 --limit 5
-  python scholar_citation.py --author AUTHOR_ID --interactive-captcha
+  python -m code.scholar_citation --author AUTHOR_ID
+  python -m code.scholar_citation --author "https://scholar.google.com/citations?user=AUTHOR_ID"
+  python -m code.scholar_citation --author AUTHOR_ID --limit 3
+  python -m code.scholar_citation --author AUTHOR_ID --skip 10 --limit 5
+  python -m code.scholar_citation --author AUTHOR_ID --fetch-mode rough
+  python -m code.scholar_citation --author AUTHOR_ID --fetch-mode force --skip 0 --limit 5
+  python -m code.scholar_citation --author AUTHOR_ID --interactive-captcha
+  python -m code.scholar_citation --author AUTHOR_ID --proxy-url http://127.0.0.1:7890
 '''
     )
     parser.add_argument('--author', required=True,
                         help='Google Scholar author ID or full profile URL')
     parser.add_argument('--output-dir', default='./output', metavar='DIR',
                         help='Output directory (default: ./output)')
+    parser.add_argument('--config', default=None, metavar='PATH',
+                        help='JSON config file (default: crawler_config.json in the project '
+                             'root; a missing default file is ignored)')
+    parser.add_argument('--proxy-url', dest='proxy_url', default=None, metavar='URL',
+                        help='Proxy URL, e.g. http://127.0.0.1:7890; overrides the config file. '
+                             'Pass an empty string to connect directly. Default: '
+                             'crawler_config.json, else the system https_proxy/http_proxy')
+    parser.add_argument('--no-proxy', dest='no_proxy', default=None, metavar='LIST',
+                        help='Comma-separated proxy bypass list, e.g. localhost,127.0.0.1,::1; '
+                             'overrides the config file. Default: crawler_config.json, '
+                             'else the system no_proxy')
     parser.add_argument('--skip', type=int, default=0, metavar='M',
                         help='Skip the first M papers in the full list (sorted by citations desc)')
     parser.add_argument('--limit', type=int, default=None, metavar='N',

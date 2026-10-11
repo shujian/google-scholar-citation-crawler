@@ -1,5 +1,5 @@
 """
-crawler/output_state.py — Read fetch state from the aggregate output JSON.
+code/output_state.py — Read fetch state from the aggregate output JSON.
 
 The output file (author_{id}_paper_citations.json) is the authoritative
 cross-run state source: `_fetch_state` holds each paper's diagnostics and the
@@ -14,7 +14,7 @@ import shutil
 from dataclasses import dataclass, field
 from typing import Optional
 
-from crawler.citation_io import (
+from code.citation_io import (
     derive_citation_cache_state,
     resolve_citation_status_from_state,
 )
@@ -232,7 +232,7 @@ class PaperFetchState:
 
     def is_complete(self, current_scholar_total=None, pub_year='N/A',
                     year_based_threshold=50):
-        from crawler.citation_cache import is_data_complete, year_records_data_complete
+        from code.citation_cache import is_data_complete, year_records_data_complete
         strategy, summary = self._infer_strategy_and_summary()
         if strategy is None:
             return False
@@ -263,7 +263,7 @@ class PaperFetchState:
 
     def current_outcome_signature(self):
         """Return the signature of the outcome currently stored, or ''."""
-        from crawler.citation_cache import fetch_outcome_signature
+        from code.citation_cache import fetch_outcome_signature
         strategy, summary = self._infer_strategy_and_summary()
         if strategy is None:
             return ''
@@ -308,7 +308,7 @@ class PaperFetchState:
         signature) or a pending scholar_changed flag means this is False.
         """
         if stall_after_attempts is None:
-            from crawler.config import STALL_AFTER_ATTEMPTS
+            from code.config import STALL_AFTER_ATTEMPTS
             stall_after_attempts = STALL_AFTER_ATTEMPTS
         try:
             stall_after_attempts = max(1, int(stall_after_attempts))
@@ -344,7 +344,7 @@ class PaperFetchState:
 
     def year_shortfall_summary(self):
         """Return 'YYYY(seen/histogram)' for years whose bucket is short, else ''."""
-        from crawler.citation_cache import year_records_shortfall_years
+        from code.citation_cache import year_records_shortfall_years
         return ', '.join(
             f'{year}({seen}/{histogram})'
             for year, seen, histogram in year_records_shortfall_years(self.year_records)

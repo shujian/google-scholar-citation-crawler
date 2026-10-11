@@ -7,7 +7,7 @@ from tests.conftest import (
 )
 import types
 import unittest
-import scholar_citation
+from code import scholar_citation
 class CitationStatusTests(FetcherTestCase):
     def test_fetch_citations_with_progress_rehydrates_probe_metadata_for_year_resume(self):
         cached_citations = [
@@ -75,7 +75,7 @@ class CitationStatusTests(FetcherTestCase):
 
         Otherwise a paper with no citation data at all is skipped forever.
         """
-        from crawler.output_state import (
+        from code.output_state import (
             PaperFetchState, PaperState, resolve_citation_status_from_output,
         )
 
@@ -631,8 +631,8 @@ class CitationStatusTests(FetcherTestCase):
         with patch.object(self.fetcher, "_fetch_citations_with_progress", side_effect=fake_fetch), \
              patch.object(self.fetcher, "_wait_proxy_switch", return_value=None), \
              patch.object(self.fetcher, "_load_citation_cache", return_value=latest_cache), \
-             patch("scholar_citation.rand_delay", return_value=0), \
-             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("code.scholar_citation.rand_delay", return_value=0), \
+             patch("code.scholar_citation.time.sleep", return_value=None), \
              patch("sys.stdout", new_callable=StringIO):
             self.fetcher._run_main_loop(
                 publications=[pub],
@@ -703,7 +703,7 @@ class CitationStatusTests(FetcherTestCase):
         self.assertEqual(status, "complete")
 
 
-from crawler.citation_cache import (
+from code.citation_cache import (
     fetch_outcome_signature,
     iter_year_records,
     year_record_gap,
@@ -711,11 +711,11 @@ from crawler.citation_cache import (
     year_records_data_complete,
     year_records_shortfall_years,
 )
-from crawler.citation_identity import extract_citation_info, _extract_cid_from_scholarbib
+from code.citation_identity import extract_citation_info, _extract_cid_from_scholarbib
 
 
 class YearRecordsCompletenessTests(unittest.TestCase):
-    """Per-year year-mode completeness helpers (crawler/citation_cache.py)."""
+    """Per-year year-mode completeness helpers (code/citation_cache.py)."""
 
     def test_iter_year_records_accepts_list_and_mapping(self):
         records = [{"year": 2024, "histogram_count": 1, "seen_total": 1}]
@@ -840,7 +840,7 @@ class CitationIdentityTests(unittest.TestCase):
         share the identity key `cites_id\\tNone` (merging unrelated citations and
         handing the downloader a bogus key).
         """
-        from crawler.citation_identity import citation_identity_keys, normalize_cites_id
+        from code.citation_identity import citation_identity_keys, normalize_cites_id
 
         url = '/scholar?q=info:None:scholar.google.com/&output=cite&scirp=0&hl=en'
         self.assertIsNone(_extract_cid_from_scholarbib(url))

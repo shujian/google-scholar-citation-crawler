@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 if command -v conda &>/dev/null; then
-    exec conda run -n scholar python scholar_citation.py "$@"
+    exec conda run -n scholar python -m code.scholar_citation "$@"
 else
-    exec python scholar_citation.py "$@"
+    exec python -m code.scholar_citation "$@"
 fi

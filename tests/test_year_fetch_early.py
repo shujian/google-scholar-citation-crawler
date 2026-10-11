@@ -7,7 +7,7 @@ from tests.conftest import (
 )
 import types
 import unittest
-import scholar_citation
+from code import scholar_citation
 
 class YearFetchEarlyTests(FetcherTestCase):
     def test_fetch_by_year_fetches_all_selected_years_without_early_stop(self):

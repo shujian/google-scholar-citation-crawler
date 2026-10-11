@@ -7,13 +7,13 @@ from tests.conftest import (
 )
 import types
 import unittest
-import scholar_citation
-from crawler.profile_io import AuthorProfile
+from code import scholar_citation
+from code.profile_io import AuthorProfile
 
 
 class AuthorProfileCountSummaryTests(unittest.TestCase):
     def test_build_profile_count_summary_reports_gap(self):
-        from crawler.profile_io import build_profile_count_summary
+        from code.profile_io import build_profile_count_summary
         basics = {
             "name": "Test Author",
             "citedby": 8035,
@@ -74,7 +74,7 @@ class AuthorProfileCountSummaryTests(unittest.TestCase):
     def test_author_profile_xlsx_rows_follow_position_not_no(self):
         """A missing/duplicated pub['no'] must not collapse or overwrite rows."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            from crawler.profile_io import save_profile_xlsx
+            from code.profile_io import save_profile_xlsx
             import openpyxl
             from openpyxl.styles import Font, PatternFill, Alignment
 
@@ -111,7 +111,7 @@ class AuthorProfileCountSummaryTests(unittest.TestCase):
 
     def test_author_profile_xlsx_labels_year_gap_explicitly(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            from crawler.profile_io import save_profile_xlsx
+            from code.profile_io import save_profile_xlsx
             import openpyxl
             from openpyxl.styles import Font, PatternFill, Alignment
 
@@ -137,7 +137,7 @@ class AuthorProfileCountSummaryTests(unittest.TestCase):
             )
 
             xlsx_path = os.path.join(tmpdir, "author_test_profile.xlsx")
-            with patch("crawler.profile_io.datetime") as fake_datetime:
+            with patch("code.profile_io.datetime") as fake_datetime:
                 fake_datetime.now.return_value = types.SimpleNamespace(
                     year=2026,
                     strftime=lambda fmt: "2026-04-02 12:00:00",

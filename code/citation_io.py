@@ -1,13 +1,13 @@
 """
-crawler/citation_io.py — Citation cache I/O, status derivation, and XLSX output.
+code/citation_io.py — Citation cache I/O, status derivation, and XLSX output.
 
 Functions accept all dependencies as explicit parameters so they remain
 testable without a PaperCitationFetcher instance.  The fetcher methods
 become thin wrappers that pass self.* attributes through.
 """
 
-from crawler.citation_cache import normalize_year_fetch_diagnostics
-from crawler.citation_strategy import resolve_citation_fetch_policy
+from code.citation_cache import normalize_year_fetch_diagnostics
+from code.citation_strategy import resolve_citation_fetch_policy
 
 
 # ---------------------------------------------------------------------------

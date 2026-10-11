@@ -8,8 +8,8 @@ from tests.conftest import (
 import types
 import unittest
 import shutil
-import scholar_citation
-from crawler.output_state import PaperFetchState
+from code import scholar_citation
+from code.output_state import PaperFetchState
 class OutputAndReconciliationTests(FetcherTestCase):
     def test_save_output_writes_excel_run_metadata_from_json_payload(self):
         pub = {
@@ -330,7 +330,7 @@ class OutputAndReconciliationTests(FetcherTestCase):
                          [c["title"] for c in partial_citations])
 
     def test_write_json_atomic_keeps_the_previous_file_on_failure(self):
-        from crawler.common import write_json_atomic
+        from code.common import write_json_atomic
 
         with tempfile.TemporaryDirectory() as tmpdir:
             target = os.path.join(tmpdir, "state.json")
@@ -350,7 +350,7 @@ class OutputAndReconciliationTests(FetcherTestCase):
             self.assertEqual(leftovers, [])
 
     def test_corrupt_output_is_backed_up_and_treated_as_missing(self):
-        from crawler.output_state import load_paper_states
+        from code.output_state import load_paper_states
         with tempfile.TemporaryDirectory() as tmpdir:
             target = os.path.join(tmpdir, "author_x_paper_citations.json")
             with open(target, "w", encoding="utf-8") as f:
@@ -494,7 +494,7 @@ class OutputAndReconciliationTests(FetcherTestCase):
             from openpyxl.styles import Alignment, Font, PatternFill
             self.assertTrue(hasattr(real_openpyxl, 'load_workbook'))
 
-            from crawler.citation_io import save_citations_xlsx
+            from code.citation_io import save_citations_xlsx
 
             pub = {"no": 1, "title": "Paper", "year": "2024", "venue": "V",
                    "num_citations": 2}
@@ -576,7 +576,7 @@ class OutputAndReconciliationTests(FetcherTestCase):
         """Round trip for the reported bug: after an interrupted run the reloaded
         state must be 'partial' and show a real gap in the fetch plan, so the
         un-fetched citations are resumed instead of silently dropped."""
-        from crawler.output_state import load_paper_states, to_paper_fetch_state
+        from code.output_state import load_paper_states, to_paper_fetch_state
         _, _ = self._save_and_load(self._stale_complete_state(), with_snapshot=True)
 
         next_run_states = load_paper_states(self.fetcher.out_json)

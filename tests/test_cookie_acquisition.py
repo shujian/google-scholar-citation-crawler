@@ -1,4 +1,4 @@
-"""Tests for cookie acquisition in crawler/interactive.py.
+"""Tests for cookie acquisition in code/interactive.py.
 
 Covers the 2026-10-11 hardening + convenience work:
   * curl.txt is written 0600 (it carries live session cookies)
@@ -22,7 +22,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from crawler import interactive as I  # noqa: E402
+from code import interactive as I  # noqa: E402
 
 
 class TestSaveCurlPermissions(unittest.TestCase):
@@ -173,7 +173,7 @@ class TestSynthesizedCurl(unittest.TestCase):
         self.assertNotIn("skip-me", curl)
 
     def test_identity_trio_survives_the_allowlist(self):
-        from crawler.scholarly_session import _CURL_HEADER_ALLOWLIST
+        from code.scholarly_session import _CURL_HEADER_ALLOWLIST
         curl = I._build_curl_from_page(self._FakePage(), [{"name": "k", "value": "v"}],
                                        "https://scholar.google.com/")
         headers = {}

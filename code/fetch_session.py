@@ -1,5 +1,5 @@
 """
-crawler/fetch_session.py — Per-fetch session dataclasses.
+code/fetch_session.py — Per-fetch session dataclasses.
 
 BatchFetchSession — single paginated fetch from one URL.
 YearFetchSession  — wraps one BatchFetchSession per year for year-mode papers.
@@ -11,9 +11,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from crawler.citation_models import ResumeState, FetchPolicy, YearRecord
-from crawler.output_state import PaperFetchState
-from crawler.common import SCHOLAR_PAGE_SIZE
+from code.citation_models import ResumeState, FetchPolicy, YearRecord
+from code.output_state import PaperFetchState
+from code.common import SCHOLAR_PAGE_SIZE
 
 
 # ---------------------------------------------------------------------------
@@ -67,20 +67,20 @@ class BatchFetchSession:
 
     @staticmethod
     def _page_url(base_url, start_index):
-        from crawler.citation_fetch import _append_start_param, _page_aligned_start
+        from code.citation_fetch import _append_start_param, _page_aligned_start
         page = _page_aligned_start(start_index)
         return _append_start_param(base_url, page) if page > 0 else base_url
 
     @staticmethod
     def _in_page_skip(start_index):
-        from crawler.citation_fetch import _page_aligned_start
+        from code.citation_fetch import _page_aligned_start
         return start_index - _page_aligned_start(start_index)
 
     def _make_iterator(self, fetcher=None):
         import sys as _sys
         import scholarly.publication_parser as _pub_parser
         from scholarly import scholarly
-        from crawler.citation_fetch import _wrap_direct_citedby_iterator
+        from code.citation_fetch import _wrap_direct_citedby_iterator
         # Look up _SearchScholarIterator via the fetcher's module so that
         # tests can patch it (same pattern as the old _iter_direct_citedby).
         _SSI = (

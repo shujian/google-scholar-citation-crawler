@@ -34,36 +34,46 @@ pip install -r requirements.txt
 
 > **Note**: `httpx` is pinned to `0.27.2` for compatibility with `scholarly 1.7.11`. Newer versions break internal session handling.
 >
-> **Note**: A `NO_PROXY` / `no_proxy` entry that wraps an IPv6 literal in brackets (e.g. `[::1]`, common on macOS when a local proxy is running) is normalised automatically before `scholarly` is imported. Without that, `httpx 0.27.2` raises `InvalidURL: Invalid port: ':1]'` while scholarly builds its client at import time, and the crawler cannot start at all.
+> **Note**: A `NO_PROXY` / `no_proxy` entry that wraps an IPv6 literal in brackets (e.g. `[::1]`, common on macOS when a local proxy is running) is normalised automatically before `scholarly` is imported (`code/lib_env.py`). Without that, `httpx 0.27.2` raises `InvalidURL: Invalid port: ':1]'` while scholarly builds its client at import time, and the crawler cannot start at all.
 >
 > **Note**: The crawler uses scholarly's native `httpx` client (HTTP/2) rather than a TLS-impersonation library. `curl_cffi` was previously used but Scholar's citation-search endpoint (`/scholar?cites=`) returns 429 for every `curl_cffi` impersonation target, while `httpx` works.
 
 ## Quick Start
 
+Run from the repository root. The entry point is a module (`code/scholar_citation.py`), so use
+`python -m code.scholar_citation` — running the file path directly would shadow the standard-library
+`code` module.
+
 ```bash
 # Fetch profile + citations for an author
-python scholar_citation.py --author YOUR_AUTHOR_ID
+python -m code.scholar_citation --author YOUR_AUTHOR_ID
 
 # Also accepts a full Google Scholar profile URL
-python scholar_citation.py --author "https://scholar.google.com/citations?user=YOUR_AUTHOR_ID&hl=en"
+python -m code.scholar_citation --author "https://scholar.google.com/citations?user=YOUR_AUTHOR_ID&hl=en"
 
 # Process only papers 3–5 (skip 2, limit 3) — useful for testing
-python scholar_citation.py --author YOUR_AUTHOR_ID --skip 2 --limit 3
+python -m code.scholar_citation --author YOUR_AUTHOR_ID --skip 2 --limit 3
 ```
 
 ## CLI Reference
 
 ```
-usage: scholar_citation.py [-h] --author AUTHOR [--output-dir DIR]
-                           [--skip M] [--limit N]
-                           [--fetch-mode {rough,normal,exact,force}]
-                           [--interactive-captcha] [--accelerate SCALE] [-v]
+usage: python -m code.scholar_citation [-h] --author AUTHOR [--output-dir DIR]
+                                       [--config PATH] [--proxy-url URL]
+                                       [--no-proxy LIST] [--skip M] [--limit N]
+                                       [--fetch-mode {rough,normal,exact,force}]
+                                       [--interactive-captcha] [--accelerate SCALE] [-v]
 
 required:
   --author AUTHOR               Google Scholar author ID or full profile URL
 
 optional:
   --output-dir DIR              Output directory (default: ./output)
+  --config PATH                 JSON config file (default: crawler_config.json in the
+                                project root; a missing default file is ignored)
+  --proxy-url URL               Proxy URL, e.g. http://127.0.0.1:7890; overrides the config
+                                file. Pass an empty string to connect directly
+  --no-proxy LIST               Comma-separated proxy bypass list, e.g. localhost,127.0.0.1,::1
   --skip M                      Skip first M papers (sorted by citations desc); must be >= 0
   --limit N                     Process exactly N papers after --skip M; must be >= 1
   --fetch-mode {rough,normal,exact,force}
@@ -94,13 +104,13 @@ Papers are sorted by citation count descending. `--skip M` skips the first M pap
 
 ```bash
 # Only fetch papers where Scholar count actually changed
-python scholar_citation.py --author YOUR_AUTHOR_ID --fetch-mode rough
+python -m code.scholar_citation --author YOUR_AUTHOR_ID --fetch-mode rough
 
 # Catch year reclassification drift
-python scholar_citation.py --author YOUR_AUTHOR_ID --fetch-mode exact --skip 0 --limit 5
+python -m code.scholar_citation --author YOUR_AUTHOR_ID --fetch-mode exact --skip 0 --limit 5
 
 # Re-fetch papers 1–5 from scratch
-python scholar_citation.py --author YOUR_AUTHOR_ID --fetch-mode force --skip 0 --limit 5
+python -m code.scholar_citation --author YOUR_AUTHOR_ID --fetch-mode force --skip 0 --limit 5
 ```
 
 ## Output Files
@@ -130,19 +140,37 @@ Google Scholar aggressively rate-limits automated requests. This tool uses multi
 - **Fast failure**: `scholarly` retries limited to 1 per page so failures reach the paper-level retry quickly
 - **Rate-limit cooldown**: 429 responses trigger a 5–10 min cooldown instead of a captcha prompt
 
-**Proxy support**: Set `https_proxy` / `http_proxy` environment variables.
+**Proxy support**: the program itself requires **no environment variables**. Proxy settings resolve with
+the priority **command-line argument > `crawler_config.json` > system default**.
 
 ```bash
+# 1. Command line (highest priority)
+python -m code.scholar_citation --author YOUR_AUTHOR_ID --proxy-url http://your-proxy-host:port \
+    --no-proxy localhost,127.0.0.1,::1
+
+# 2. config file: crawler_config.json in the project root (gitignored, machine-local).
+#    Pass --config PATH to point somewhere else.
+cat crawler_config.json
+{
+  "proxy_url": "http://127.0.0.1:7890",
+  "no_proxy": "localhost,127.0.0.1,::1"
+}
+
+# 3. system default (conventional HTTP behaviour, also read by httpx/requests)
 export https_proxy=http://your-proxy-host:port
-python scholar_citation.py --author YOUR_AUTHOR_ID
+python -m code.scholar_citation --author YOUR_AUTHOR_ID
 ```
+
+Remove a key (or set it to `null`) to fall back to the next level; pass an empty string to force
+"no proxy". The resolved values are exported into the process environment before crawling, because
+`httpx` (and therefore `scholarly`) only understands proxies through the environment.
 
 ## Interactive Captcha Bypass
 
 When Scholar shows a CAPTCHA, `--interactive-captcha` lets you inject real browser cookies without restarting:
 
 ```bash
-python scholar_citation.py --author YOUR_AUTHOR_ID --interactive-captcha
+python -m code.scholar_citation --author YOUR_AUTHOR_ID --interactive-captcha
 ```
 
 When a block is detected:
@@ -244,10 +272,14 @@ Both files are committed to git and contain no personally identifiable informati
 
 ### Project Structure
 
+All code lives in the `code/` package; the entry point is run as a module from the project root:
+
 ```
-scholar_citation.py          # CLI entry point + PaperCitationFetcher orchestrator
-crawler/
+code/
+  scholar_citation.py        # CLI entry point + PaperCitationFetcher orchestrator
   common.py                  # Constants and stateless utilities
+  lib_env.py                 # Third-party env staging + NO_PROXY normalise + proxy env bridge
+  config.py                  # Centralised constants + crawler_config.json / proxy resolution
   fetch_session.py           # BatchFetchSession, YearFetchSession
   page_visit.py              # PageVisit — per-page error recovery
   author_fetcher.py          # AuthorProfileFetcher
@@ -262,18 +294,29 @@ crawler/
   citation_models.py         # YearRecord, ResumeState, FetchPolicy dataclasses
   output_state.py            # PaperFetchState / PaperState + output file _fetch_state read/write
   pub_info.py                # PubInfo dataclass for publication field normalization
-  cli.py                     # parse_args() only — the entry point is scholar_citation.main()
-tests/                       # 220 unit tests, no network required
+  log_utils.py               # setup_logging() / get_logger()
+  cli.py                     # parse_args() only — the entry point is code.scholar_citation.main()
+  fix_diag_from_year_record.py  # repair tool: rebuild diagnostics from source records
+  fix_output_fetch_state.py     # repair tool: re-sync _fetch_state with cache files
+  examples/run_example.sh    # minimal example invocation
+output/                      # crawl products (author_*.json/.xlsx) + logs/
+tests/                       # 256 unit tests, no network required
+run.sh                       # thin launcher: conda-aware python -m code.scholar_citation
+crawler_config.json          # machine-local runtime config (gitignored)
 ```
+
+> Run the entry point as a module from the project root (`python -m code.scholar_citation ...`).
+> Do **not** run `python code/scholar_citation.py`: the `code/` package directory would shadow
+> the standard-library `code` module.
 
 ### Running Tests
 
 ```bash
 # Run all tests
-python -m unittest discover -s tests -p "test_*.py"
+PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests
 
 # Run a single test file
-python -m unittest tests.test_year_fetch_early
+PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_year_fetch_early
 ```
 
 ## License

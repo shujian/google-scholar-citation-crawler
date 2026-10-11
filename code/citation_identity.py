@@ -1,5 +1,5 @@
 """
-crawler/citation_identity.py — Citation deduplication key and info extraction.
+code/citation_identity.py — Citation deduplication key and info extraction.
 
 All functions are pure (no instance state).  They are used by
 PaperCitationFetcher to normalise raw scholarly results into a stable
@@ -8,7 +8,7 @@ identity key and a clean dict suitable for caching.
 
 import re
 
-from crawler.citation_cache import normalize_citation_year
+from code.citation_cache import normalize_citation_year
 
 _SCHOLARPUBRE = re.compile(r'cites=([\d,]*)')
 

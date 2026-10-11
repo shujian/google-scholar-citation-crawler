@@ -8,7 +8,7 @@ citation.cache for the lower-level year-count / diagnostics helpers.
 
 from datetime import datetime
 
-from crawler.citation_cache import (
+from code.citation_cache import (
     normalize_year_count_map,
     normalize_year_fetch_diagnostics,
     year_count_map,
@@ -47,7 +47,7 @@ def resolve_citation_fetch_policy(num_citations, pub_year, year_based_threshold,
 
     Returns a dict with keys: mode, pub_year, reason.
     """
-    from crawler.citation_models import FetchPolicy
+    from code.citation_models import FetchPolicy
     current_year = current_year or datetime.now().year
     total = int(num_citations or 0)
     if total < year_based_threshold:

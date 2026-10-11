@@ -1,8 +1,12 @@
-# Output files
+# Output files (crawl products, logs, runtime caches)
 output/
 
-# Scholar cache
+# Legacy scholar cache: no code writes here any more; kept ignored so an old
+# checkout cannot re-introduce runtime residue at the repository root.
 scholar_cache/
+
+# Machine-local runtime configuration (proxy URL / bypass list, local paths)
+crawler_config.json
 
 # Personal example script
 my_citation.sh

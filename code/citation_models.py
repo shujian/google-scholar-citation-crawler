@@ -1,5 +1,5 @@
 """
-crawler/citation_models.py — Typed dataclasses for citation fetch state and policy.
+code/citation_models.py — Typed dataclasses for citation fetch state and policy.
 
 Replaces bare dicts for per-year entries, resume state, fetch policy,
 and page-alignment utilities.  Each class handles its own to_dict() /

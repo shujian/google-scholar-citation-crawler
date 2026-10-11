@@ -5,8 +5,8 @@ from tests.conftest import (
     FetcherTestCase, patch, json, tempfile,
 )
 import unittest
-import scholar_citation
-from crawler.output_state import (
+from code import scholar_citation
+from code.output_state import (
     PaperFetchState,
     load_output_fetch_state,
     resolve_citation_status_from_output,

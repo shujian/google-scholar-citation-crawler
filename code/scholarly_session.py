@@ -1,5 +1,5 @@
 """
-crawler/scholarly_session.py — scholarly HTTP session setup and year probe.
+code/scholarly_session.py — scholarly HTTP session setup and year probe.
 
 patch_scholarly() monkey-patches scholarly internals to:
   - use HTTP/2 sessions with browser-like headers
@@ -28,7 +28,7 @@ from scholarly import scholarly
 from scholarly._proxy_generator import MaxTriesExceededException
 from scholarly.publication_parser import _SearchScholarIterator, PublicationParser
 
-from crawler.common import (
+from code.common import (
     MANDATORY_BREAK_EVERY_MAX,
     MANDATORY_BREAK_EVERY_MIN,
     MANDATORY_BREAK_MAX,
@@ -39,7 +39,7 @@ from crawler.common import (
     now_str,
     rand_delay,
 )
-from crawler.page_visit import PageVisit
+from code.page_visit import PageVisit
 
 
 # ---------------------------------------------------------------------------
@@ -107,7 +107,7 @@ class SessionContext:
 # log and the persisted diagnostics can tell those cases apart.
 # ---------------------------------------------------------------------------
 
-# Same ids scholarly treats as a captcha (crawler/scholarly_session.py mirrors
+# Same ids scholarly treats as a captcha (code/scholarly_session.py mirrors
 # scholarly/_navigator.py _has_captcha) plus the dos-captcha body class.
 _PAGE_CAPTCHA_IDS = ('gs_captcha_ccl', 'recaptcha', 'captcha-form')
 _PAGE_CAPTCHA_CLASSES = ('rc-doscaptcha-body',)
@@ -318,7 +318,7 @@ def assert_scholarly_patches_active(checks):
         raise RuntimeError(
             "Scholarly patch ineffective for: " + ", ".join(failed) + ". The "
             "installed scholarly version is incompatible with this crawler "
-            "(crawler/scholarly_session.py patches its internals). Refusing to "
+            "(code/scholarly_session.py patches its internals). Refusing to "
             "run with browser headers, rate-limit waits or pagination parsing "
             "silently disabled — pin a compatible scholarly version or update "
             "the patch layer."

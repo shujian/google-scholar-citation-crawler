@@ -34,7 +34,7 @@ scholarly 用行的 `data-cid` 拼 `url_scholarbib`；行没有被建 cluster �
 
 ### 一份入口只能有一个
 
-`crawler/cli.py` 曾复制了 `scholar_citation.main()` 的实现并分叉出必崩代码（对 `AuthorProfile` 调 `.get()`），而且**死代码不会自己暴露**：它没有调用方、没有测试，只在阅读时才发现。判据：**同一职责若有两份实现，删掉非活路的那份**，而不是让它们"保持一致"。
+`code/cli.py` 曾复制了 `scholar_citation.main()` 的实现并分叉出必崩代码（对 `AuthorProfile` 调 `.get()`），而且**死代码不会自己暴露**：它没有调用方、没有测试，只在阅读时才发现。判据：**同一职责若有两份实现，删掉非活路的那份**，而不是让它们"保持一致"。
 
 ### 决策函数的输入必须已经就绪
 
@@ -163,12 +163,12 @@ httpx 0.27.2 在 `Client.__init__` 里把 `NO_PROXY` 的每一项解析成 URLPa
 
 需求（用户定）：**连续两次得到相同结果，在"当前状态下"不再重试**。"当前状态"用**结果签名**表达——签名只包含会随抓取变化的量，因此 Scholar 计数一变，签名就变，自动恢复重试。
 
-- 签名（`crawler/citation_cache.py: fetch_outcome_signature`）
+- 签名（`code/citation_cache.py: fetch_outcome_signature`）
   - direct：`direct:{seen}/{scholar_total}`（例 `direct:0/49`）
   - year：`year:{Σseen}/{Σhist}={缺口数}[{短年:seen/hist},...]`（例 `year:241/235=2[2026:64/66]`）——**必须带上短年**，否则"填平 A 年、B 年仍缺"会被误判为"没变化"。无 diagnostics → 返回 `''`（不参与判定）。
-- 状态（`crawler/output_state.py`）：`_stall_signature` + `_stall_count`，随 `_fetch_state` 持久化；`record_fetch_outcome()` 在每次抓取返回后更新（相同 → count+1，不同 → 重置为 1）；`is_stalled()` = `count >= STALL_AFTER_ATTEMPTS(2)` 且当前签名与记录一致且无 `scholar_changed`。
+- 状态（`code/output_state.py`）：`_stall_signature` + `_stall_count`，随 `_fetch_state` 持久化；`record_fetch_outcome()` 在每次抓取返回后更新（相同 → count+1，不同 → 重置为 1）；`is_stalled()` = `count >= STALL_AFTER_ATTEMPTS(2)` 且当前签名与记录一致且无 `scholar_changed`。
 - 状态值：`resolve_citation_status_from_output()` 新增 **`stalled`**（仍在 need_fetch 之外 → 不发请求）。主循环打印 `-> stalled (same result N runs in a row)` 并保留已抓到的 citations；运行摘要打印 `Stalled (skip): N`；计划末尾打印 `Skipping N stalled paper(s)`。
-- 阈值：`crawler/config.py: STALL_AFTER_ATTEMPTS = 2`（经 common 再导出）。
+- 阈值：`code/config.py: STALL_AFTER_ATTEMPTS = 2`（经 common 再导出）。
 
 ### 三个必须注意的边界
 
@@ -267,7 +267,7 @@ for year, diagnostic in list(diagnostics.items()):
 
 ### 已知未修（需产品决策）
 
-- **`scholar_unyeared_count` 的真实含义**：它是 `scholar_total − histogram_total`，即 Scholar 自己的"Cited by N"与它自己直方图各年之和的差，**不是**"我们抓不到的无年份引用"。命名有误导性：year 模式在年份批次里会做 year 回填（`crawler/citation_fetch.py:843` 传 `fallback_year=year`，`citation_identity.py:101` 在 bib 无 `pub_year` 时用它），因此"在某年标签下抓到的引用会被填上该年"并正常计入该年 `seen`；对差额代码也不是放弃，而是放宽遍历起点（conservative start_year）。
+- **`scholar_unyeared_count` 的真实含义**：它是 `scholar_total − histogram_total`，即 Scholar 自己的"Cited by N"与它自己直方图各年之和的差，**不是**"我们抓不到的无年份引用"。命名有误导性：year 模式在年份批次里会做 year 回填（`code/citation_fetch.py:843` 传 `fallback_year=year`，`citation_identity.py:101` 在 bib 无 `pub_year` 时用它），因此"在某年标签下抓到的引用会被填上该年"并正常计入该年 `seen`；对差额代码也不是放弃，而是放宽遍历起点（conservative start_year）。
   直方图本身并不可靠，双向都会错：真实数据里存在 `cached_total > histogram_count` 的年份（如 `Deep matrix factorization` 2024 cached 177 / probe 169，`Adaptive nearest neighbor` 存 143 > "Cited by" 141），说明年份查询能返回比直方图更多的条目。
   **未验证**：那些差额引用是否在任何年份标签下都不会被返回（若确实不会，year 模式就系统性覆盖不到它们，需要一条全量/无过滤通道）。验证方法：挑一篇这样的论文做一次无过滤（direct）全量抓取，与 year 模式的结果比对。
 - **direct 模式中断**：快照里没有 dfd，因此只能保住"已抓到的引用"，缺口仍靠旧状态判断（若旧状态完整、只因 `scholar_changed` 才重抓，中断后可能丢掉这次重抓）。彻底解法是让 `save_progress` 在 direct 中途也生成一份 `direct_fetch_diagnostics`。
@@ -284,7 +284,7 @@ for year, diagnostic in list(diagnostics.items()):
 
 ### 新设计：全有或全无 + 版本一致性
 
-`complete_browser_fingerprint(header_overrides)`（在 `crawler/scholarly_session.py`）：
+`complete_browser_fingerprint(header_overrides)`（在 `code/scholarly_session.py`）：
 
 1. **完整性**：三者任一缺失 → 整组丢弃（保留硬编码默认指纹），避免部分覆盖产生新的矛盾
 2. **版本一致性**：正则 `\b(?:Edg|Edge|Firefox|OPR|Chrome)/(\d+)` 提取 UA 主版本，与 `sec-ch-ua` 中所有 `v="(\d+)"` 比对；UA 版本不在集合中 → 整组丢弃
@@ -446,7 +446,7 @@ Cookie 注入和 session 重建（`_full_session_setup`）时必须显式覆盖�
 
 ## 2026-07-05: 结构化日志系统 + 配置集中化
 
-### `crawler/log_utils.py` — 日志架构
+### `code/log_utils.py` — 日志架构
 
 **背景**：项目原先使用 `TeeStream` 类 + `sys.stdout` 替换来同时输出到控制台和日志文件。这导致所有 `print()` 输出混在一起，无法区分日志级别，没有 `--verbose` 控制。跨项目评审（与 citation_analysis_content 对比）建议迁移到 Python `logging` 模块。
 
@@ -456,15 +456,15 @@ Cookie 注入和 session 重建（`_full_session_setup`）时必须显式覆盖�
 3. **文件 handler 始终写 DEBUG 级别**。即使 console 为 INFO，文件始终记录完整日志，便于后期排查。
 4. **日期格式区分**。Console 用 `%H:%M:%S`（简洁），文件用 `%Y-%m-%d %H:%M:%S`（多天运行可辨识）。
 
-### `crawler/config.py` — 配置集中化
+### `code/config.py` — 配置集中化
 
-**背景**：原先所有调优常量散落在 `crawler/common.py` 顶部，没有单一配置入口。
+**背景**：原先所有调优常量散落在 `code/common.py` 顶部，没有单一配置入口。
 
 **实现方式**：
-- `crawler/config.py` 为配置的 canonical 来源
-- `crawler/common.py` 通过 `from crawler.config import ...` 重新导出所有常量
-- 所有现有 `from crawler.common import DELAY_MIN, ...` 无需修改
-- 新增代码建议直接 `from crawler.config import ...`
+- `code/config.py` 为配置的 canonical 来源
+- `code/common.py` 通过 `from code.config import ...` 重新导出所有常量
+- 所有现有 `from code.common import DELAY_MIN, ...` 无需修改
+- 新增代码建议直接 `from code.config import ...`
 
 ### `run.sh` — 便捷入口
 
@@ -473,7 +473,7 @@ Cookie 注入和 session 重建（`_full_session_setup`）时必须显式覆盖�
 ### 项目结构更新
 
 ```
-crawler/
+code/
   ├── config.py          # 新增：集中配置（canonical 来源）
   ├── log_utils.py       # 新增：结构化日志
   ├── common.py          # 修改：常量迁移至 config.py，保持 re-export
@@ -507,7 +507,7 @@ Google Scholar 的结果行 class 经常包含第三个 class `gs_scl`，导致�
 
 ## 2026-05-12: 代码规范修复
 
-- **`index_year_records()`**: 从 `scholar_citation.py` 中重复 3 次的 year_records 解析逻辑提取的共享函数，位于 `crawler/output_state.py`。接受一个 year records 列表，返回 `{year: record}` 字典。
+- **`index_year_records()`**: 从 `scholar_citation.py` 中重复 3 次的 year_records 解析逻辑提取的共享函数，位于 `code/output_state.py`。接受一个 year records 列表，返回 `{year: record}` 字典。
 - **`_direct_fetch_diagnostics_message()`**: 合并了原 `_direct_fetch_summary_message` 和 `_direct_fetch_log_message`，通过 `prefix` 参数区分不同场景。
 - **Bug**: `fetch_by_year` 中的 `year_fetched_citations` 变量从未赋值，已替换为 `year_batch.citations`。
 
@@ -523,8 +523,10 @@ Google Scholar 的结果行 class 经常包含第三个 class `gs_scl`，导致�
 
 ```
 google-scholar-citation-crawler/
-├── scholar_citation.py          # CLI 入口 + PaperCitationFetcher 编排器
-├── crawler/                     # 所有支撑模块
+├── run.sh / my_citation.sh      # 薄启动脚本（python -m code.scholar_citation）
+├── output/                      # 运行期产物：抓取产物 + logs/
+├── code/                        # 唯一代码目录（包名 code）
+│   ├── scholar_citation.py      # CLI 入口 + PaperCitationFetcher 编排器
 │   ├── __init__.py
 │   ├── common.py                # 常量 + 无状态工具函数
 │   ├── author_fetcher.py        # AuthorProfileFetcher
@@ -576,11 +578,11 @@ google-scholar-citation-crawler/
 pip install -r requirements.txt
 
 # 日常使用
-python scholar_citation.py --author YOUR_AUTHOR_ID
+python -m code.scholar_citation --author YOUR_AUTHOR_ID
 
 # 测试少量
-python scholar_citation.py --author YOUR_AUTHOR_ID --limit 2
-python scholar_citation.py --author YOUR_AUTHOR_ID --limit 1 --skip 1
+python -m code.scholar_citation --author YOUR_AUTHOR_ID --limit 2
+python -m code.scholar_citation --author YOUR_AUTHOR_ID --limit 1 --skip 1
 ```
 
 ### CLI 参数

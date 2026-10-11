@@ -7,7 +7,7 @@ from tests.conftest import (
 )
 import types
 import unittest
-import scholar_citation
+from code import scholar_citation
 
 class FetchPolicyAndStrategyTests(FetcherTestCase):
     def test_fetch_policy_allows_direct_mode_for_old_high_total_paper(self):

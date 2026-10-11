@@ -7,7 +7,7 @@ from tests.conftest import (
 )
 import types
 import unittest
-import scholar_citation
+from code import scholar_citation
 
 class MainLoopTests(FetcherTestCase):
     def test_run_main_loop_retry_restores_year_fetch_diagnostics_from_latest_cache(self):
@@ -69,8 +69,8 @@ class MainLoopTests(FetcherTestCase):
         with patch.object(self.fetcher, "_fetch_citations_with_progress", side_effect=fake_fetch), \
              patch.object(self.fetcher, "_wait_proxy_switch", return_value=None), \
              patch.object(self.fetcher, "_load_citation_cache", return_value=latest_cache), \
-             patch("scholar_citation.rand_delay", return_value=0), \
-             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("code.scholar_citation.rand_delay", return_value=0), \
+             patch("code.scholar_citation.time.sleep", return_value=None), \
              patch("sys.stdout", new_callable=StringIO):
             self.fetcher._run_main_loop(
                 publications=[pub],
@@ -140,8 +140,8 @@ class MainLoopTests(FetcherTestCase):
         with patch.object(self.fetcher, "_fetch_citations_with_progress", side_effect=fake_fetch), \
              patch.object(self.fetcher, "_wait_proxy_switch", return_value=None), \
              patch.object(self.fetcher, "_load_citation_cache", return_value=latest_cache), \
-             patch("scholar_citation.rand_delay", return_value=0), \
-             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("code.scholar_citation.rand_delay", return_value=0), \
+             patch("code.scholar_citation.time.sleep", return_value=None), \
              patch("sys.stdout", new_callable=StringIO):
             self.fetcher._run_main_loop(
                 publications=[pub],
@@ -208,8 +208,8 @@ class MainLoopTests(FetcherTestCase):
         with patch.object(self.fetcher, "_fetch_citations_with_progress", side_effect=fake_fetch), \
              patch.object(self.fetcher, "_wait_proxy_switch", return_value=None), \
              patch.object(self.fetcher, "_load_citation_cache", return_value=latest_cache), \
-             patch("scholar_citation.rand_delay", return_value=0), \
-             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("code.scholar_citation.rand_delay", return_value=0), \
+             patch("code.scholar_citation.time.sleep", return_value=None), \
              patch("sys.stdout", new_callable=StringIO) as fake_stdout:
             self.fetcher._run_main_loop(
                 publications=[pub],
@@ -249,8 +249,8 @@ class MainLoopTests(FetcherTestCase):
         with patch.object(self.fetcher, "_fetch_citations_with_progress", return_value=final_citations) as mock_fetch, \
              patch.object(self.fetcher, "_wait_proxy_switch", side_effect=AssertionError("should not wait for proxy switch")), \
              patch.object(scholar_citation, "datetime") as fake_datetime, \
-             patch("scholar_citation.rand_delay", return_value=0), \
-             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("code.scholar_citation.rand_delay", return_value=0), \
+             patch("code.scholar_citation.time.sleep", return_value=None), \
              patch("sys.stdout", new_callable=StringIO) as fake_stdout:
             fake_datetime.now.return_value = types.SimpleNamespace(
                 year=2026,
@@ -310,8 +310,8 @@ class MainLoopTests(FetcherTestCase):
                 "fetch_policy": {"strategy": "direct", "pub_year": 2024, "reason": "low_average_per_year"},
              }), \
              patch.object(self.fetcher, "_fetch_citations_with_progress", return_value=final_citations), \
-             patch("scholar_citation.rand_delay", return_value=0), \
-             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("code.scholar_citation.rand_delay", return_value=0), \
+             patch("code.scholar_citation.time.sleep", return_value=None), \
              patch("sys.stdout", new_callable=StringIO) as fake_stdout:
             self.fetcher._run_main_loop(
                 publications=publications,
@@ -387,8 +387,8 @@ class MainLoopTests(FetcherTestCase):
         with patch.object(self.fetcher, "_fetch_citations_with_progress", side_effect=fake_fetch), \
              patch.object(self.fetcher, "_wait_proxy_switch", return_value=None), \
              patch.object(self.fetcher, "_load_citation_cache", return_value=stale_retry_cache) as mock_load_cache, \
-             patch("scholar_citation.rand_delay", return_value=0), \
-             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("code.scholar_citation.rand_delay", return_value=0), \
+             patch("code.scholar_citation.time.sleep", return_value=None), \
              patch("sys.stdout", new_callable=StringIO) as fake_stdout:
             self.fetcher._run_main_loop(
                 publications=publications,
@@ -463,8 +463,8 @@ class MainLoopTests(FetcherTestCase):
         with patch.object(self.fetcher, "_fetch_citations_with_progress", return_value=fetched_citations) as mock_fetch, \
              patch.object(self.fetcher, "_wait_proxy_switch", return_value=None), \
              patch.object(self.fetcher, "_load_citation_cache", return_value=latest_cache) as mock_load_cache, \
-             patch("scholar_citation.rand_delay", return_value=0), \
-             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("code.scholar_citation.rand_delay", return_value=0), \
+             patch("code.scholar_citation.time.sleep", return_value=None), \
              patch("sys.stdout", new_callable=StringIO) as fake_stdout:
             self.fetcher._run_main_loop(
                 publications=[pub],
@@ -524,8 +524,8 @@ class MainLoopTests(FetcherTestCase):
              }), \
              patch.object(self.fetcher, "_fetch_citations_with_progress", side_effect=fake_fetch), \
              patch.object(self.fetcher, "_load_citation_cache", return_value={"direct_fetch_diagnostics": direct_fetch_diagnostics}), \
-             patch("scholar_citation.rand_delay", return_value=0), \
-             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("code.scholar_citation.rand_delay", return_value=0), \
+             patch("code.scholar_citation.time.sleep", return_value=None), \
              patch("sys.stdout", new_callable=StringIO) as fake_stdout:
             self.fetcher._run_main_loop(
                 publications=[pub],
@@ -621,8 +621,8 @@ class MainLoopTests(FetcherTestCase):
                                  "pub_year": 2024, "reason": "low_average_per_year"},
             }), \
              patch.object(self.fetcher, "_fetch_citations_with_progress", side_effect=fake_fetch), \
-             patch("scholar_citation.rand_delay", return_value=0), \
-             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("code.scholar_citation.rand_delay", return_value=0), \
+             patch("code.scholar_citation.time.sleep", return_value=None), \
              patch("sys.stdout", new_callable=StringIO):
             self.fetcher._run_main_loop(
                 publications=[pub],
@@ -741,7 +741,7 @@ class MainLoopTests(FetcherTestCase):
     # -- stalled papers (same outcome repeated) ----------------------------
 
     def test_stalled_paper_is_not_fetched_and_keeps_its_citations(self):
-        from crawler.output_state import PaperFetchState
+        from code.output_state import PaperFetchState
         pub = {
             "no": 1,
             "title": "Stalled Paper",
@@ -787,7 +787,7 @@ class MainLoopTests(FetcherTestCase):
 
     def test_two_identical_outcomes_stall_the_paper_across_runs(self):
         """The recorded counter is what eventually stops the retries."""
-        from crawler.output_state import PaperFetchState, PaperState
+        from code.output_state import PaperFetchState, PaperState
         pub = {
             "no": 1,
             "title": "Empty Page Paper",
@@ -823,8 +823,8 @@ class MainLoopTests(FetcherTestCase):
                               return_value=[]), \
                  patch.object(self.fetcher, "_load_citation_cache",
                               return_value=snapshot), \
-                 patch("scholar_citation.rand_delay", return_value=0), \
-                 patch("scholar_citation.time.sleep", return_value=None), \
+                 patch("code.scholar_citation.rand_delay", return_value=0), \
+                 patch("code.scholar_citation.time.sleep", return_value=None), \
                  patch("sys.stdout", new_callable=StringIO):
                 self.fetcher._run_main_loop(
                     publications=[pub],
@@ -847,7 +847,7 @@ class MainLoopTests(FetcherTestCase):
 
         # ...and it survives a write/read cycle: the persisted signature must
         # still describe the persisted numbers, or the stall would evaporate.
-        from crawler.output_state import load_paper_states
+        from code.output_state import load_paper_states
         with tempfile.TemporaryDirectory() as tmpdir:
             self.fetcher.profile_json = os.path.join(
                 tmpdir, "author_test-author_profile.json")

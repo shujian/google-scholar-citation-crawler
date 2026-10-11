@@ -7,7 +7,17 @@ from tests.conftest import (
 )
 import types
 import unittest
-import scholar_citation
+from code import scholar_citation
+
+
+def _no_proxy_config():
+    """Stub ProxyConfig so ``main()`` stays hermetic.
+
+    Without this, ``main()`` would resolve the proxy from the machine-local
+    ``crawler_config.json`` / system environment instead of test-local data.
+    """
+    return types.SimpleNamespace(proxy_url=None, no_proxy=None,
+                                 describe=lambda: "proxy=direct (none)")
 
 class YearFetchMainTests(FetcherTestCase):
     def test_materialize_year_fetch_citations_preserves_untouched_years(self):
@@ -33,7 +43,7 @@ class YearFetchMainTests(FetcherTestCase):
     def test_interrupted_year_persists_its_resume_offset(self):
         """The in-year offset must be written with the state, or the next run
         restarts the year at item 0 and re-walks everything already fetched."""
-        from crawler.output_state import PaperFetchState
+        from code.output_state import PaperFetchState
 
         class InterruptAfterFirstPage:
             def __init__(self, nav, url):
@@ -412,6 +422,8 @@ class YearFetchMainTests(FetcherTestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_args.output_dir = tmpdir
             with patch.object(scholar_citation, "parse_args", return_value=fake_args), \
+                 patch.object(scholar_citation, "resolve_proxy_config",
+                              return_value=_no_proxy_config()), \
                  patch.object(scholar_citation, "setup_proxy"), \
                  patch.object(scholar_citation, "setup_logging") as setup_logging, \
                  patch.object(scholar_citation, "AuthorProfileFetcher", FakeAuthorFetcher), \
@@ -465,7 +477,9 @@ class YearFetchMainTests(FetcherTestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_args.output_dir = tmpdir
             with patch.object(scholar_citation, "parse_args", return_value=fake_args), \
-                 patch.object(scholar_citation, "setup_proxy", side_effect=lambda: print("Proxy ready")), \
+                 patch.object(scholar_citation, "resolve_proxy_config",
+                              return_value=_no_proxy_config()), \
+                 patch.object(scholar_citation, "setup_proxy", side_effect=lambda *a, **k: print("Proxy ready")), \
                  patch.object(scholar_citation, "AuthorProfileFetcher", FakeAuthorFetcher), \
                  patch.object(scholar_citation, "PaperCitationFetcher", FakePaperFetcher), \
                  patch("sys.stdout", new_callable=StringIO) as fake_stdout:
@@ -534,7 +548,9 @@ class YearFetchMainTests(FetcherTestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_args.output_dir = tmpdir
             with patch.object(scholar_citation, "parse_args", return_value=fake_args), \
-                 patch.object(scholar_citation, "setup_proxy", side_effect=lambda: print("Proxy ready")), \
+                 patch.object(scholar_citation, "resolve_proxy_config",
+                              return_value=_no_proxy_config()), \
+                 patch.object(scholar_citation, "setup_proxy", side_effect=lambda *a, **k: print("Proxy ready")), \
                  patch.object(scholar_citation, "AuthorProfileFetcher", FakeAuthorFetcher), \
                  patch.object(scholar_citation, "PaperCitationFetcher", FakePaperFetcher), \
                  patch("sys.stdout", new_callable=StringIO) as fake_stdout:
@@ -652,7 +668,7 @@ class YearFetchMainTests(FetcherTestCase):
         cannot claim complete for a state is_complete() calls partial: 2025
         over-counts its probe (2 cached vs 1 probed) while 2026 stays short
         (2 cached vs 3 probed), leaving the aggregate satisfied (4 >= 4)."""
-        from crawler.output_state import PaperFetchState
+        from code.output_state import PaperFetchState
 
         pages = {
             (2025, 0): [
@@ -727,7 +743,7 @@ class YearFetchMainTests(FetcherTestCase):
     def test_year_empty_page_recorded_when_probe_expects_citations(self):
         """A year whose probe says N>0 but whose page returns no rows at all must
         be recorded as empty_page; a year with no probe data stays exhausted."""
-        from crawler.output_state import PaperFetchState
+        from code.output_state import PaperFetchState
 
         pages = {}  # every year query comes back with no rows
 
@@ -799,7 +815,7 @@ class YearFetchMainTests(FetcherTestCase):
         an empty list, deleting real citations (and, once stall detection kicks
         in, for good).
         """
-        from crawler.output_state import PaperFetchState
+        from code.output_state import PaperFetchState
 
         pages = {}  # every year query comes back with no rows
 
@@ -879,7 +895,7 @@ class YearFetchMainTests(FetcherTestCase):
         truncated response comes back smaller than the cached bucket; the cached
         rows must be kept alongside the freshly fetched ones.
         """
-        from crawler.output_state import PaperFetchState
+        from code.output_state import PaperFetchState
 
         pages = {
             (2025, 0): [
@@ -959,7 +975,7 @@ class YearFetchMainTests(FetcherTestCase):
         made the paper look complete while a whole year was still missing — so
         it was never re-fetched.
         """
-        from crawler.output_state import PaperFetchState
+        from code.output_state import PaperFetchState
 
         pages = {
             (2024, 0): [

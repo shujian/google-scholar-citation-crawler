@@ -3,8 +3,8 @@
 Sync output JSON _fetch_state with per-paper cache files and normalise
 all diagnostics via PaperFetchState.from_dict/to_dict round-trip.
 
-Usage:
-  python fix_output_fetch_state.py [output_dir]
+Usage (from the project root):
+  python -m code.fix_output_fetch_state [output_dir]
 
 If output_dir is omitted, defaults to ./output.
 """
@@ -13,10 +13,12 @@ import json
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Keep the project root importable so the tool also works when invoked as a
+# plain script path (``python code/fix_output_fetch_state.py``).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from crawler.output_state import PaperFetchState
-from crawler.pub_info import PubInfo
+from code.output_state import PaperFetchState  # noqa: E402
+from code.pub_info import PubInfo  # noqa: E402
 
 
 def migrate_one_file(json_path):

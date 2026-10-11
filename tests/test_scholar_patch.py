@@ -7,9 +7,15 @@ from tests.conftest import (
 )
 import types
 import unittest
-import scholar_citation
+from code import scholar_citation
 
 class ScholarPatchAndIdentityTests(FetcherTestCase):
+    def test_curl_save_path_defaults_to_output_dir(self):
+        """The fixture redirects the save path; the real default must stay output_dir/curl.txt."""
+        with tempfile.TemporaryDirectory() as d:
+            fetcher = scholar_citation.PaperCitationFetcher("test-author", output_dir=d)
+            self.assertEqual(fetcher._curl_save_path, os.path.join(d, "curl.txt"))
+
     def test_patch_scholarly_logs_request_url_before_page_fetch(self):
         nav = scholarly_mod.scholarly._Scholarly__nav
         seen_requests = []
@@ -60,8 +66,8 @@ class ScholarPatchAndIdentityTests(FetcherTestCase):
 
         with patch.object(scholar_citation.scholarly, "search_author_id", side_effect=fake_search), \
              patch.object(scholar_citation.scholarly, "fill", side_effect=fake_fill), \
-             patch("scholar_citation.rand_delay", return_value=0), \
-             patch("scholar_citation.time.sleep", return_value=None), \
+             patch("code.scholar_citation.rand_delay", return_value=0), \
+             patch("code.scholar_citation.time.sleep", return_value=None), \
              patch("sys.stdout", new_callable=StringIO) as fake_stdout:
             paper_fetcher = scholar_citation.PaperCitationFetcher("test-author", output_dir=".")
             paper_fetcher._delay_scale = 0
@@ -268,7 +274,7 @@ class ScholarPatchAndIdentityTests(FetcherTestCase):
 
 import bs4
 import types as _types
-from crawler.scholarly_session import (
+from code.scholarly_session import (
     citation_page_evidence,
     format_page_evidence,
     is_citation_list_url,
@@ -368,7 +374,7 @@ class StartupRobustnessTests(FetcherTestCase):
     """NO_PROXY normalisation and patch self-check (startup hardening)."""
 
     def test_sanitize_no_proxy_unbrackets_ipv6_entries(self):
-        from crawler.common import sanitize_no_proxy
+        from code.common import sanitize_no_proxy
         env = {'NO_PROXY': 'localhost,127.0.0.1,::1,[::1]',
                'no_proxy': 'localhost,[2001:db8::1]:8080'}
         changed = sanitize_no_proxy(env)
@@ -378,7 +384,7 @@ class StartupRobustnessTests(FetcherTestCase):
         self.assertEqual(env['no_proxy'], 'localhost,2001:db8::1')
 
     def test_sanitize_no_proxy_is_idempotent_and_leaves_other_entries(self):
-        from crawler.common import sanitize_no_proxy
+        from code.common import sanitize_no_proxy
         env = {'NO_PROXY': 'localhost,127.0.0.1,::1'}
         self.assertEqual(sanitize_no_proxy(env), 0)
         self.assertEqual(env['NO_PROXY'], 'localhost,127.0.0.1,::1')
@@ -387,14 +393,14 @@ class StartupRobustnessTests(FetcherTestCase):
     def test_httpx_client_survives_bracketed_no_proxy_after_sanitize(self):
         """Regression: httpx 0.27.2 raises InvalidURL on a bracketed IPv6 entry."""
         import httpx
-        from crawler.common import sanitize_no_proxy
+        from code.common import sanitize_no_proxy
         with patch.dict(os.environ, {'NO_PROXY': 'localhost,[::1]'}, clear=False):
             sanitize_no_proxy()
             with httpx.Client(http2=True, follow_redirects=True):
                 pass
 
     def test_assert_scholarly_patches_active_reports_ineffective_hooks(self):
-        from crawler.scholarly_session import assert_scholarly_patches_active
+        from code.scholarly_session import assert_scholarly_patches_active
 
         def hook():
             return None
@@ -411,7 +417,7 @@ class StartupRobustnessTests(FetcherTestCase):
         context unconditionally, so a stale histogram makes the next paper skip
         or mis-judge whole years.
         """
-        from crawler.scholarly_session import probe_citation_start_year
+        from code.scholarly_session import probe_citation_start_year
 
         nav = scholarly_mod.scholarly._Scholarly__nav
         ctx = scholar_citation.SessionContext(author_id="test-author")
@@ -449,8 +455,8 @@ class StartupRobustnessTests(FetcherTestCase):
         The old readers disagreed ('N/A' vs 'NA' vs ''), so the same record could
         count as unknown in one place and as a year in another.
         """
-        from crawler.citation_cache import is_unknown_year, normalize_citation_year, year_count_map
-        from crawler.citation_identity import extract_citation_info
+        from code.citation_cache import is_unknown_year, normalize_citation_year, year_count_map
+        from code.citation_identity import extract_citation_info
 
         for value in ('', 'NA', 'n/a', 'N/A', '?', None, 'none'):
             self.assertTrue(is_unknown_year(value), value)
@@ -503,7 +509,7 @@ class StartupRobustnessTests(FetcherTestCase):
             sys.modules.update(stubbed)
 
     def test_parse_args_rejects_out_of_range_values(self):
-        from crawler.cli import parse_args
+        from code.cli import parse_args
         for argv in (['--author', 'a', '--skip', '-1'],
                      ['--author', 'a', '--limit', '0'],
                      ['--author', 'a', '--accelerate', '0'],
@@ -512,7 +518,7 @@ class StartupRobustnessTests(FetcherTestCase):
                 parse_args(argv)
 
     def test_parse_args_accepts_valid_bounds(self):
-        from crawler.cli import parse_args
+        from code.cli import parse_args
         args = parse_args(['--author', 'a', '--skip', '0', '--limit', '1',
                            '--accelerate', '0.5', '-v'])
         self.assertEqual((args.skip, args.limit, args.accelerate), (0, 1, 0.5))

@@ -172,13 +172,19 @@ class FetcherTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        import scholar_citation as sc
+        from code import scholar_citation as sc
         cls.sc = sc
 
     def setUp(self):
         sc = self.sc
         scholarly_mod.scholarly._Scholarly__nav = _DummyNav()
         self.fetcher = sc.PaperCitationFetcher("test-author", output_dir=".")
+        # The fetcher is created with output_dir='.' for convenience, but tests
+        # must not drop files into the repository root: cookie-injection tests
+        # would otherwise write ./curl.txt into the working tree on every run.
+        self._scratch_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._scratch_dir.cleanup)
+        self.fetcher._curl_save_path = os.path.join(self._scratch_dir.name, "curl.txt")
         self.fetcher._completed_year_segments = set()
         self.fetcher._partial_year_start = {}
         self.fetcher._probed_year_counts = None
@@ -207,7 +213,7 @@ class FetcherTestCase(unittest.TestCase):
         self.fetcher._injected_header_overrides = {}
         # Mirror the production allowlist (including the browser-identity trio)
         # so tests exercise the same header-adoption rules as real runs.
-        from crawler.scholarly_session import _CURL_HEADER_ALLOWLIST
+        from code.scholarly_session import _CURL_HEADER_ALLOWLIST
         self.fetcher._curl_header_allowlist = set(_CURL_HEADER_ALLOWLIST)
 
     def _paged_direct_iterator(self, pages):

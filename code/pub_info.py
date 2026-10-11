@@ -1,5 +1,5 @@
 """
-crawler/pub_info.py — PubInfo dataclass for publication metadata.
+code/pub_info.py — PubInfo dataclass for publication metadata.
 
 PubInfo wraps the 8-field publication dict that appears as "pub" in
 the output JSON papers array.  It enforces a fixed set of keys and
@@ -9,7 +9,7 @@ a stable field order on serialisation.
 from dataclasses import dataclass
 from typing import Optional
 
-from crawler.citation_cache import normalize_citation_year
+from code.citation_cache import normalize_citation_year
 
 
 _PUB_FIELDS = [

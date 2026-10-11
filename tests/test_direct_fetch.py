@@ -7,7 +7,7 @@ from tests.conftest import (
 )
 import types
 import unittest
-import scholar_citation
+from code import scholar_citation
 
 class DirectFetchTests(FetcherTestCase):
     def test_fetch_citations_with_progress_resumes_direct_fetch_from_page_offset(self):
@@ -448,7 +448,7 @@ class DirectFetchTests(FetcherTestCase):
         nav._get_soup = lambda citedby_url: FakeSoup()
         original_probe = scholar_citation.PaperCitationFetcher._probe_citation_start_year
 
-        with patch("scholar_citation.time.sleep") as mock_sleep, \
+        with patch("code.scholar_citation.time.sleep") as mock_sleep, \
              patch("sys.stdout", new_callable=StringIO) as fake_stdout:
             start_year = original_probe(
                 self.fetcher,
@@ -922,7 +922,7 @@ class DirectFetchTests(FetcherTestCase):
         self.assertEqual([c["title"] for c in citations], ["Fresh-A", "Fresh-B", "Fresh-C"])
         # The fetch itself finished cleanly (no blocked page), so the attempt is
         # flagged complete; what is NOT complete is the data (3 of 98 rows).
-        from crawler.output_state import PaperFetchState
+        from code.output_state import PaperFetchState
         self.assertTrue(saved["complete_fetch_attempt"])
         self.assertFalse(PaperFetchState.from_dict(saved).is_complete(
             current_scholar_total=98, pub_year="2024"))
@@ -1128,7 +1128,7 @@ class DirectFetchTests(FetcherTestCase):
         skip, so counting an item that was never saved made the retry resume one
         row too far and silently drop that citation.
         """
-        from crawler.fetch_session import BatchFetchSession
+        from code.fetch_session import BatchFetchSession
 
         class FakeIterator:
             def __init__(self, items):

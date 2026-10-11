@@ -5,26 +5,33 @@ Google Scholar Citation Crawler
 - Fetches per-paper citation lists with incremental caching and resume support
 - Outputs JSON + Excel files
 
-Usage:
-  python scholar_citation.py --author YOUR_AUTHOR_ID
-  python scholar_citation.py --author "https://scholar.google.com/citations?user=YOUR_AUTHOR_ID&hl=en"
-  python scholar_citation.py --author YOUR_AUTHOR_ID --limit 1 --skip 1
+Run from the project root as a module (never as a file path — the package
+directory is named ``code``, which would shadow the standard-library module of
+the same name):
+
+  python -m code.scholar_citation --author YOUR_AUTHOR_ID
+  python -m code.scholar_citation --author "https://scholar.google.com/citations?user=YOUR_AUTHOR_ID&hl=en"
+  python -m code.scholar_citation --author YOUR_AUTHOR_ID --limit 1 --skip 1
+
+Proxy and other machine-local settings come from command-line arguments or from
+``crawler_config.json`` (see ``code.config``); this program requires no
+environment variable.  The two ``os.environ`` writes below happen before any
+third-party import and exist purely for those libraries (selenium telemetry);
+they are centralised in ``code.lib_env`` and never read back as configuration.
 """
 
-# Suppress Selenium telemetry before any other imports
-import os
-os.environ['SE_AVOID_STATS'] = 'true'
-os.environ['WDM_LOG_LEVEL'] = '0'
+from code.lib_env import configure_third_party_env, export_proxy_env  # noqa: E402
 
-# Normalise NO_PROXY *before* scholarly is imported: scholarly constructs an
-# httpx.Client at import time, and httpx 0.27.2 raises InvalidURL on a bracketed
-# IPv6 literal such as [::1] in NO_PROXY.
-from crawler.common import sanitize_no_proxy as _sanitize_no_proxy  # noqa: E402
-
-_sanitize_no_proxy()
+# Suppress Selenium telemetry before any other imports.  Importing ``code``
+# already normalised NO_PROXY, which must happen before ``scholarly`` is
+# imported: scholarly constructs an httpx.Client at import time, and httpx
+# 0.27.2 raises InvalidURL on a bracketed IPv6 literal such as [::1] in
+# NO_PROXY.
+configure_third_party_env()
 
 import re
 import json
+import os
 import time
 import sys
 import argparse
@@ -38,7 +45,7 @@ from scholarly.publication_parser import _SearchScholarIterator
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 
-from crawler.common import (
+from code.common import (
     DELAY_MAX,
     DELAY_MIN,
     MANDATORY_BREAK_EVERY_MAX,
@@ -56,10 +63,11 @@ from crawler.common import (
     extract_author_id,
     now_str,
     rand_delay,
+    resolve_proxy_config,
     setup_proxy,
     write_json_atomic,
 )
-from crawler.citation_cache import (
+from code.citation_cache import (
     year_count_map as _cc_year_count_map,
     normalize_year_count_map as _cc_normalize_year_count_map,
     dump_year_count_map as _cc_dump_year_count_map,
@@ -69,27 +77,27 @@ from crawler.citation_cache import (
     year_records_gap as _cc_year_records_gap,
     year_records_shortfall_years as _cc_year_records_shortfall_years,
 )
-from crawler.citation_strategy import (
+from code.citation_strategy import (
     normalize_pub_year as _cs_normalize_pub_year,
     resolve_citation_fetch_policy as _cs_resolve_citation_fetch_policy,
     selective_refresh_candidate_years as _cs_selective_refresh_candidate_years,
     build_citation_count_summary as _cs_build_citation_count_summary,
     format_year_fetch_diagnostics_summary as _cs_format_year_fetch_diagnostics_summary,
 )
-from crawler.citation_identity import (
+from code.citation_identity import (
     normalize_cites_id as _ci_normalize_cites_id,
     normalize_identity_part as _ci_normalize_identity_part,
     citation_identity_keys as _ci_citation_identity_keys,
     citation_identity_key as _ci_citation_identity_key,
     extract_citation_info as _ci_extract_citation_info,
 )
-from crawler.citation_io import (
+from code.citation_io import (
     load_citation_cache as _cio_load_citation_cache,
     derive_citation_cache_state as _cio_derive_citation_cache_state,
     resolve_citation_status_from_state as _cio_resolve_citation_status_from_state,
     save_citations_xlsx as _cio_save_citations_xlsx,
 )
-from crawler.output_state import (
+from code.output_state import (
     PaperFetchState,
     PaperState,
     index_year_records as _os_index_year_records,
@@ -97,13 +105,13 @@ from crawler.output_state import (
     resolve_citation_status_from_output as _os_resolve_citation_status_from_output,
     to_paper_fetch_state,
 )
-from crawler.pub_info import PubInfo
-from crawler.log_utils import setup_logging, get_logger
+from code.pub_info import PubInfo
+from code.log_utils import setup_logging, get_logger
 
 logger = get_logger(__name__)
 
-from crawler.author_fetcher import AuthorProfileFetcher  # noqa: F401
-from crawler.interactive import (
+from code.author_fetcher import AuthorProfileFetcher  # noqa: F401
+from code.interactive import (
     inject_cookies_from_curl as _int_inject_cookies,
     load_curl_from_file as _int_load_curl_from_file,
     prompt_first_curl as _int_prompt_first_curl,
@@ -111,13 +119,13 @@ from crawler.interactive import (
     try_interactive_captcha as _int_try_interactive_captcha,
     wait_proxy_switch as _int_wait_proxy_switch,
 )
-from crawler.scholarly_session import (
+from code.scholarly_session import (
     SessionContext,
     patch_scholarly as _ss_patch_scholarly,
     refresh_scholarly_session as _ss_refresh_scholarly_session,
     probe_citation_start_year as _ss_probe_citation_start_year,
 )
-import crawler.citation_fetch as _cf
+import code.citation_fetch as _cf
 
 
 # ============================================================
@@ -530,7 +538,7 @@ class PaperCitationFetcher:
 
     @staticmethod
     def _refresh_scholarly_session():
-        """Soft session reset (delegated to crawler.scholarly_session)."""
+        """Soft session reset (delegated to code.scholarly_session)."""
         _ss_refresh_scholarly_session()
 
     def _probe_citation_start_year(self, citedby_url, fetch_ctx=None, num_citations=None, pub_year=None):
@@ -741,7 +749,7 @@ class PaperCitationFetcher:
                                         pub_obj=None,
                                         fetch_policy=None,
                                         direct_resume_state=None):
-        from crawler.fetch_session import YearFetchSession
+        from code.fetch_session import YearFetchSession
         # The inner per-year context (_fetch_by_year) seeds itself from
         # self._completed_year_segments, not from the outer context created here,
         # so the per-paper completed years must be published on the fetcher as
@@ -783,7 +791,7 @@ class PaperCitationFetcher:
                        force_year_rebuild=False,
                        selective_refresh_years=None,
                        year_fetch_diagnostics=None):
-        from crawler.fetch_session import YearFetchSession
+        from code.fetch_session import YearFetchSession
         year_ctx = YearFetchSession(
             baseline=None,  # inner year_ctx — baseline handled by outer _fetch_citations_with_progress
             completed_year_segments=self._completed_year_segments,
@@ -1634,12 +1642,12 @@ class PaperCitationFetcher:
 # CLI Entry Point
 # ============================================================
 
-from crawler.cli import parse_args  # noqa: F401
+from code.cli import parse_args  # noqa: F401
 
 
 def main():
     """
-    CLI entry point.  Defined here (not in crawler.cli) so that tests can patch
+    CLI entry point.  Defined here (not in code.cli) so that tests can patch
     scholar_citation.parse_args / setup_proxy / AuthorProfileFetcher /
     PaperCitationFetcher and have those patches take effect.
     """
@@ -1666,7 +1674,17 @@ def main():
         log_path = None
 
     try:
-        setup_proxy()
+        # Proxy settings: command line > crawler_config.json > system default.
+        # The resolved values are also exported to the process environment
+        # because httpx (and thus scholarly) only understands env proxies.
+        proxy = resolve_proxy_config(
+            getattr(args, 'proxy_url', None),
+            getattr(args, 'no_proxy', None),
+            getattr(args, 'config', None),
+        )
+        logger.debug("Proxy resolution: %s", proxy.describe())
+        setup_proxy(proxy.proxy_url, proxy.no_proxy)
+        export_proxy_env(proxy.proxy_url, proxy.no_proxy)
         # Console-only logging: sys.stdout is the TeeStream that mirrors into the
         # run log, so a FileHandler here would be a second writer on the same
         # file and the two would overwrite each other's lines.

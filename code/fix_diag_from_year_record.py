@@ -8,15 +8,19 @@ inconsistent diagnostics using PaperFetchState methods:
   Year mode:   restore_year_diag_from_year_records()
   Direct mode: restore_direct_diag_from_citations(citations)
 
-Usage:
-  python fix_diag_from_year_record.py <output_json_path>
+Usage (from the project root):
+  python -m code.fix_diag_from_year_record <output_json_path>
 """
 
 import json
 import sys
 import os
 
-from crawler.output_state import PaperFetchState
+# Keep the project root importable so the tool also works when invoked as a
+# plain script path (``python code/fix_diag_from_year_record.py``).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from code.output_state import PaperFetchState  # noqa: E402
 
 
 def fix_output_file(path):

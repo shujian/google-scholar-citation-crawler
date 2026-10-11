@@ -6,7 +6,7 @@ while remaining backward-compatible with existing ``print()``-based output.
 
 Usage::
 
-    from crawler.log_utils import setup_logging, get_logger
+    from code.log_utils import setup_logging, get_logger
 
     logger = get_logger(__name__)
     logger.info("Starting crawl for author %s", author_id)

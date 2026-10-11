@@ -1,5 +1,5 @@
 """
-crawler/interactive.py — Manual captcha recovery and proxy-switch prompts.
+code/interactive.py — Manual captcha recovery and proxy-switch prompts.
 
 All public functions are pure (no class state).  PaperCitationFetcher keeps
 thin wrapper methods so existing call sites and tests don't need to change.
@@ -13,7 +13,7 @@ from datetime import datetime
 
 from scholarly import scholarly
 
-from crawler.scholarly_session import (
+from code.scholarly_session import (
     complete_browser_fingerprint as _int_complete_browser_fingerprint,
 )
 

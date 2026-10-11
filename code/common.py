@@ -5,11 +5,11 @@ import re
 import tempfile
 from datetime import datetime
 
-# ---- Backward-compatible re-exports from crawler.config ----
-# Constants have been centralised in crawler.config.  Existing imports from
-# crawler.common continue to work.  New code should import from crawler.config
+# ---- Backward-compatible re-exports from code.config ----
+# Constants have been centralised in code.config.  Existing imports from
+# code.common continue to work.  New code should import from code.config
 # directly.
-from crawler.config import (   # noqa: F401 — re-exported for compatibility
+from code.config import (   # noqa: F401 — re-exported for compatibility
     DELAY_MAX,
     DELAY_MIN,
     MANDATORY_BREAK_EVERY_MAX,
@@ -22,6 +22,13 @@ from crawler.config import (   # noqa: F401 — re-exported for compatibility
     SESSION_REFRESH_MIN,
     STALL_AFTER_ATTEMPTS,
     YEAR_BASED_THRESHOLD,
+    resolve_proxy_config,
+)
+from code.lib_env import (   # noqa: F401 — re-exported for compatibility
+    NO_PROXY_ENV_KEYS,
+    PROXY_ENV_KEYS,
+    export_proxy_env,
+    sanitize_no_proxy,
 )
 
 
@@ -99,57 +106,26 @@ class TeeStream:
         return any(getattr(stream, 'isatty', lambda: False)() for stream in self.streams)
 
 
-def setup_proxy():
-    """Configure proxy from environment variables."""
-    proxy_url = os.environ.get('https_proxy') or os.environ.get('http_proxy')
+def setup_proxy(proxy_url=None, no_proxy=None):
+    """Report the effective proxy configuration.
+
+    The values come from ``--proxy-url`` / ``--no-proxy`` (command line) or from
+    ``crawler_config.json``; see ``code.config.resolve_proxy_config``.  When both
+    arguments are ``None`` the config file and, as a last resort, the ambient
+    ``https_proxy`` / ``http_proxy`` / ``no_proxy`` values are consulted — that
+    environment fallback is the HTTP ecosystem convention (``httpx`` and
+    ``requests`` read it themselves), **not** a requirement of this program.
+    """
+    if proxy_url is None and no_proxy is None:
+        resolved = resolve_proxy_config()
+        proxy_url, no_proxy = resolved.proxy_url, resolved.no_proxy
     if not proxy_url:
-        print('Warning: No proxy detected, connecting directly')
+        print('Proxy: none configured, connecting directly')
     else:
         clean = proxy_url.replace('http://', '').replace('https://', '')
-        print(f'Proxy detected: {clean} (using system env proxy)')
-    bypass = os.environ.get('no_proxy') or os.environ.get('NO_PROXY')
-    if bypass:
-        print(f'Proxy bypass (no_proxy): {bypass}')
-
-
-_NO_PROXY_BRACKET_RE = re.compile(r'^\[([0-9A-Fa-f:.]+)\](?::\d+)?$')
-
-
-def sanitize_no_proxy(env=None):
-    """Rewrite bracketed IPv6 literals in ``NO_PROXY`` / ``no_proxy``.
-
-    httpx 0.27.2 turns every NO_PROXY entry into a URLPattern; an entry such as
-    ``[::1]`` becomes ``all://*[::1]`` and raises
-    ``httpx.InvalidURL: Invalid port: ':1]'`` while the client is constructed.
-    scholarly builds exactly such a client when its Navigator singleton is
-    created, i.e. during ``import scholarly`` — so a bracketed IPv6 entry in the
-    shell environment makes the crawler impossible to start at all.
-
-    ``[::1]`` -> ``::1``.  A port suffix is dropped: httpx cannot express
-    IPv6+port in NO_PROXY, and bypassing the proxy for every port of that host
-    is the harmless direction.
-
-    Call this BEFORE importing scholarly (any ``crawler.*`` import does it
-    automatically via ``crawler/__init__.py``).  Returns the number of
-    rewritten entries; the operation is idempotent.
-    """
-    env = os.environ if env is None else env
-    changed = 0
-    for name in ('NO_PROXY', 'no_proxy'):
-        raw = env.get(name)
-        if not raw or '[' not in raw:
-            continue
-        parts = []
-        for token in raw.split(','):
-            entry = token.strip()
-            match = _NO_PROXY_BRACKET_RE.match(entry)
-            if match:
-                parts.append(match.group(1))
-                changed += 1
-            else:
-                parts.append(entry)
-        env[name] = ','.join(parts)
-    return changed
+        print(f'Proxy: {clean} (configured via --proxy-url / crawler_config.json / system proxy)')
+    if no_proxy:
+        print(f'Proxy bypass (no_proxy): {no_proxy}')
 
 
 def extract_author_id(author_input):

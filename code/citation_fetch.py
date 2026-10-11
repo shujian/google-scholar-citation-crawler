@@ -1,5 +1,5 @@
 """
-crawler/citation_fetch.py — Citation fetch engine: direct and year-based modes.
+code/citation_fetch.py — Citation fetch engine: direct and year-based modes.
 
 Public API:
   fetch_citations_with_progress(fetcher, year_ctx, citedby_url, cache_path, title, ...)
@@ -17,17 +17,17 @@ import re
 import time
 from datetime import datetime
 
-from crawler.citation_cache import (
+from code.citation_cache import (
     is_data_complete,
     iter_year_records,
     year_records_data_complete,
 )
-from crawler.fetch_session import BatchFetchSession
+from code.fetch_session import BatchFetchSession
 
 from scholarly import scholarly
 import scholarly.publication_parser as _pub_parser
 
-from crawler.common import (
+from code.common import (
     SCHOLAR_PAGE_SIZE,
     SESSION_REFRESH_MAX,
     SESSION_REFRESH_MIN,
@@ -35,8 +35,8 @@ from crawler.common import (
     now_str,
     rand_delay,
 )
-from crawler.fetch_session import YearFetchSession  # replaces FetchContext
-from crawler.citation_models import ResumeState, _page_align
+from code.fetch_session import YearFetchSession  # replaces FetchContext
+from code.citation_models import ResumeState, _page_align
 
 
 def _normalize_direct_resume_state(state):

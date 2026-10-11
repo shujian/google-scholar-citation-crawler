@@ -4,8 +4,8 @@ import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from crawler.common import write_json_atomic
-from crawler.pub_info import PubInfo
+from code.common import write_json_atomic
+from code.pub_info import PubInfo
 
 
 @dataclass
