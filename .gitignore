@@ -28,3 +28,6 @@ curl.txt
 docs/
 tmp_compare_scholar.py
 .claude/
+
+# Codex 残留（已不再使用）
+.codex/
