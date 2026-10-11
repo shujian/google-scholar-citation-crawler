@@ -23,11 +23,21 @@ from crawler.scholarly_session import (
 # ---------------------------------------------------------------------------
 
 def save_curl_to_file(curl_str, path):
-    """Save a raw cURL string to *path* for reuse in future sessions."""
+    """Save a raw cURL string to *path* for reuse in future sessions.
+
+    Written 0600: the string carries live Scholar session cookies (and the
+    browser-identity headers), so it must not be world-readable — same rule the
+    downloader applies to its cookies.txt.
+    """
     try:
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-        with open(path, 'w', encoding='utf-8') as f:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
             f.write(curl_str)
+        try:
+            os.chmod(path, 0o600)      # 已有文件可能是宽松权限，纠正过来
+        except OSError:
+            pass
     except Exception as e:
         print(f"  (Could not save curl to {path}: {e})", flush=True)
 
@@ -43,6 +53,15 @@ def load_curl_from_file(path):
     except Exception as e:
         print(f"  (Could not load curl from {path}: {e})", flush=True)
         return None
+
+
+def _strip_control(value):
+    """Drop CR/LF/TAB from a pasted cookie name/value.
+
+    A value carrying a newline would otherwise leak into the saved cURL file and
+    into every later request header, so it can corrupt a whole session.
+    """
+    return re.sub(r'[\r\n\t]+', '', str(value))
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +92,10 @@ def inject_cookies_from_curl(
             pair = pair.strip()
             if '=' in pair:
                 k, v = pair.split('=', 1)
-                cookies[k.strip()] = v.strip()
+                k = _strip_control(k).strip()
+                v = _strip_control(v).strip()
+                if k:
+                    cookies[k] = v
         return cookies
 
     m = (re.search(r"(?:-b|--cookie) '([^']+)'", curl_str) or
@@ -145,6 +167,127 @@ def inject_cookies_from_curl(
         print(f"  Saved cookies to {curl_save_path}", flush=True)
     return len(cookies)
 
+
+# ---------------------------------------------------------------------------
+# Optional: harvest cookies from a real browser instead of copy-as-cURL
+# ---------------------------------------------------------------------------
+
+def _playwright_available():
+    """True only if playwright can actually be imported in this interpreter."""
+    try:
+        import playwright.sync_api  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _build_curl_from_page(page, cookies, url):
+    """Synthesize a `curl ... -H 'cookie: ...'` string from a live browser page.
+
+    Reusing the project's own cURL format means the harvested session goes
+    through exactly the same parse/inject/save path as a manual paste
+    (allowlist headers, browser-identity trio, curl.txt persistence).
+    """
+    import shlex
+
+    cookie_header = '; '.join(f"{c['name']}={c['value']}" for c in cookies
+                             if c.get("name") and c.get("value") is not None)
+    ident = {}
+    try:
+        ident = page.evaluate("""async () => {
+            const d = navigator.userAgentData;
+            const out = {ua: navigator.userAgent};
+            if (d && d.getHighEntropyValues) {
+                const h = await d.getHighEntropyValues(['fullVersionList', 'platform', 'mobile']);
+                out.brands = (h.brands || d.brands || []).map(b => `"${b.brand}";v="${b.version}"`).join(', ');
+                out.full = (h.fullVersionList || []).map(b => `"${b.brand}";v="${b.version}"`).join(', ');
+                out.mobile = h.mobile ? '?1' : '?0';
+                out.platform = `"${h.platform || ''}"`;
+            }
+            return out;
+        }""")
+    except Exception as e:
+        print(f"  (Could not read browser identity: {e})", flush=True)
+
+    parts = ["curl", shlex.quote(url or "")]
+    headers = [("cookie", cookie_header)]
+    if ident.get("ua"):
+        headers.append(("user-agent", ident["ua"]))
+    if ident.get("brands"):
+        headers.append(("sec-ch-ua", ident["brands"]))
+    if ident.get("full"):
+        headers.append(("sec-ch-ua-full-version-list", ident["full"]))
+    if ident.get("mobile"):
+        headers.append(("sec-ch-ua-mobile", ident["mobile"]))
+    if ident.get("platform"):
+        headers.append(("sec-ch-ua-platform", ident["platform"]))
+    for name, value in headers:
+        if value:
+            parts.append(f"-H {shlex.quote(f'{name}: {value}')}")
+    return ' '.join(parts)
+
+
+def try_browser_harvest(url, *, inject_fn):
+    """Open a visible browser, let the human solve the block, then harvest.
+
+    Returns True when cookies were harvested and injected.  Returns False when
+    playwright is unavailable / stdin is not a TTY / the human chose the manual
+    paste / the browser could not be driven — every one of those paths falls
+    back to the existing "paste a cURL" flow, so nothing regresses.
+
+    The point: on a machine that has playwright, the human no longer has to find
+    the request in DevTools and copy it — solving the challenge in the window is
+    enough.  (The downloader gained the same trick for publisher sites.)
+    """
+    if not _playwright_available() or not sys.stdin.isatty():
+        return False
+
+    from playwright.sync_api import sync_playwright
+
+    edge = "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
+    chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    executable = edge if os.path.isfile(edge) else chrome
+    args = ["--disable-blink-features=AutomationControlled"]
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        args.append("--no-sandbox")
+
+    print("  Opening a visible browser so you can solve the block...", flush=True)
+    print("  (If the browser cannot be opened, just paste a cURL as usual.)", flush=True)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(
+                headless=False,
+                executable_path=executable if os.path.isfile(executable) else None,
+                args=args,
+            )
+            ctx = browser.new_context()
+            page = ctx.new_page()
+            try:
+                page.goto(url, timeout=30000, wait_until="domcontentloaded")
+            except Exception as e:
+                print(f"  (Navigation: {e})", flush=True)
+            print("  Solve the captcha / log in there, then press Enter here.", flush=True)
+            print("  > ", end='', flush=True)
+            try:
+                input()
+            except (EOFError, KeyboardInterrupt):
+                print(flush=True)
+                browser.close()
+                return False
+            cookies = ctx.cookies(url) or []
+            if not cookies:
+                cookies = ctx.cookies() or []
+            curl_str = _build_curl_from_page(page, cookies, url)
+            browser.close()
+    except Exception as e:
+        print(f"  (Browser harvest unavailable: {type(e).__name__}: {e})", flush=True)
+        return False
+
+    if not cookies:
+        print("  (No cookies in that browser session — falling back to paste.)", flush=True)
+        return False
+    print(f"  Harvested {len(cookies)} cookies from the browser session.", flush=True)
+    return inject_fn(curl_str) > 0
 
 # ---------------------------------------------------------------------------
 # Shared multiline input reader (used by both first-page prompt and captcha)
@@ -227,7 +370,8 @@ def _read_multiline_input(timeout_after_silence=3.0):
     return lines
 
 
-def _inject_with_cookie_retry(inject_fn, skip_message, retry_message):
+def _inject_with_cookie_retry(inject_fn, skip_message, retry_message,
+                              harvest_fn=None, harvest_url=None, reader=None):
     """
     Read a pasted cURL and inject its cookies, re-prompting if the paste
     contains no cookies (a common mis-copy).
@@ -238,10 +382,16 @@ def _inject_with_cookie_retry(inject_fn, skip_message, retry_message):
     """
     while True:
         print("  > ", end='', flush=True)
-        lines = _read_multiline_input()
+        lines = (reader or _read_multiline_input)()
         if not lines:
             print(f"  {skip_message}", flush=True)
             return False
+        if harvest_fn is not None and len(lines) == 1 and lines[0].strip().lower() == 'browser':
+            if harvest_fn(harvest_url):
+                return True
+            print("  (Browser harvest did not produce cookies — paste a cURL instead.)",
+                  flush=True)
+            continue
         print(f"  Received {len(lines)} lines. Processing...", flush=True)
         result = inject_fn('\n'.join(lines))
         if result > 0:
@@ -255,7 +405,7 @@ def _inject_with_cookie_retry(inject_fn, skip_message, retry_message):
 # First-page proactive cookie prompt
 # ---------------------------------------------------------------------------
 
-def prompt_first_curl(*, inject_fn):
+def prompt_first_curl(*, inject_fn, harvest_fn=None):
     """
     Prompt the user to paste a browser cURL before the first Scholar request.
 
@@ -280,10 +430,15 @@ def prompt_first_curl(*, inject_fn):
     print(f"     → Copy as cURL (bash)", flush=True)
     print(f"  3. Paste here (detected automatically after 3s silence)", flush=True)
     print(f"     Press Enter immediately to skip.", flush=True)
+    if _playwright_available():
+        print(f"  — or type 'browser' + Enter: I open a browser window, you solve it,"
+              f" and I harvest the cookies automatically.", flush=True)
     print(f"{sep}", flush=True)
 
     return _inject_with_cookie_retry(
         inject_fn,
+        harvest_fn=harvest_fn,
+        harvest_url=None,
         skip_message="(Skipped — proceeding without cookies)",
         retry_message=("(No cookies found in your paste — you may have copied "
                         "the wrong request.  Re-copy from DevTools and paste "
@@ -295,7 +450,7 @@ def prompt_first_curl(*, inject_fn):
 # Interactive captcha prompt
 # ---------------------------------------------------------------------------
 
-def try_interactive_captcha(url, *, inject_fn):
+def try_interactive_captcha(url, *, inject_fn, harvest_fn=None):
     """
     Prompt the user to solve a captcha manually and inject the resulting
     cookies via *inject_fn(curl_str) -> int*.
@@ -332,10 +487,15 @@ def try_interactive_captcha(url, *, inject_fn):
         flush=True,
     )
     print(f"     (Press Enter on blank line to skip)", flush=True)
+    if _playwright_available():
+        print(f"  — or type 'browser' + Enter: I open this URL in a browser window,"
+              f" you solve it, and I harvest the cookies automatically.", flush=True)
     print(f"{sep}", flush=True)
 
     return _inject_with_cookie_retry(
         inject_fn,
+        harvest_fn=harvest_fn,
+        harvest_url=url,
         skip_message="(Skipped — using automatic wait)",
         retry_message=("(No cookies found in your paste — you may have copied "
                         "the wrong request.  Re-copy from DevTools and paste "

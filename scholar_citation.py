@@ -107,6 +107,7 @@ from crawler.interactive import (
     inject_cookies_from_curl as _int_inject_cookies,
     load_curl_from_file as _int_load_curl_from_file,
     prompt_first_curl as _int_prompt_first_curl,
+    try_browser_harvest as _int_try_browser_harvest,
     try_interactive_captcha as _int_try_interactive_captcha,
     wait_proxy_switch as _int_wait_proxy_switch,
 )
@@ -192,6 +193,7 @@ class PaperCitationFetcher:
             # Prompt once on first Scholar request (only in interactive TTY sessions)
             sctx.first_page_prompt_fn = lambda: _int_prompt_first_curl(
                 inject_fn=self._inject_cookies_from_curl,
+                harvest_fn=self._harvest_cookies_from_browser,
             )
 
 
@@ -1471,11 +1473,22 @@ class PaperCitationFetcher:
             self._session_ctx.curl_page_count = 1
         return result
 
+    def _harvest_cookies_from_browser(self, url=None):
+        """Optional: open a visible browser and harvest the session automatically.
+
+        Only used when the human types 'browser' at a cookie prompt *and* this
+        interpreter has playwright.  Everywhere else the manual paste flow is
+        untouched, so the crawler gains no hard dependency.
+        """
+        target = url or getattr(self, '_last_scholar_url', '') or 'https://scholar.google.com/'
+        return _int_try_browser_harvest(target, inject_fn=self._inject_cookies_from_curl)
+
     def _try_interactive_captcha(self, url):
         """Prompt user to solve captcha manually and inject resulting cookies."""
         result = _int_try_interactive_captcha(
             url,
             inject_fn=self._inject_cookies_from_curl,
+            harvest_fn=self._harvest_cookies_from_browser,
         )
         if result:
             self._captcha_solved_count += 1

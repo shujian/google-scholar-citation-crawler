@@ -17,7 +17,7 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 - **Two different completeness signals**: `fetch_complete` in the output is the *data* verdict (does every probed year have its rows?), while `_fetch_state.complete_fetch_attempt` records whether the last attempt finished cleanly (a blocked/empty page makes it false). `--fetch-mode rough` reads the latter
 - **Resume Support**: Interrupted fetches resume from the last checkpoint; on exit the in-flight paper's state (citations fetched so far + the live year probe) is written to the output, so a year left short is re-fetched next run instead of being reported complete
 - **Anti-Ban Strategies**: HTTP/2 via scholarly's native `httpx` client with full browser headers (fingerprint adopted from the injected browser cURL), randomized 45–90 s delays, mandatory 3–6 min breaks every 8–12 pages, browser header simulation
-- **Interactive Captcha Bypass**: `--interactive-captcha` lets you paste a browser cURL to inject real cookies and resume without restarting
+- **Interactive Captcha Bypass**: `--interactive-captcha` lets you paste a browser cURL to inject real cookies and resume without restarting; if playwright is installed you can type `browser` at the prompt instead and let it harvest the cookies from a real browser window
 - **Proxy Switch Wait**: On non-interactive failure, prompts hourly to switch proxy/IP until you type `ok`
 - **Change Tracking**: Records per-run citation-count history in the profile JSON
 - **Dual Output**: JSON and formatted Excel for both author profile and citations

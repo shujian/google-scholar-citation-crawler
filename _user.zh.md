@@ -2847,3 +2847,15 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 ### 345
 
 > 如果空闲，请更新相关的文档，并进行提交。
+
+### 346
+
+> 我在paper downloader和citation crawler里各有一套获取cookies的机制，请比较和分析一下，看他们是否互补，是否可以互相借鉴。
+
+### 347
+
+> 这些互相借鉴能带来事实上的便利吗？如果可以，请立刻落实他们。
+
+（已确认采纳：curl.txt 0600、拒绝含 CR/LF 的 cookie 值、可选浏览器自动收割；
+不采纳并说明理由：改存 Netscape 丢弃原始 cURL、按域限制注入、下载器侧补 sec-ch-ua 三件套。）
+

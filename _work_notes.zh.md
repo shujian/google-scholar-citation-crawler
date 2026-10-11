@@ -927,3 +927,53 @@ scholarly 的自动分页与手动分页冲突，`original_next` 自动加载下
 - **关键包**：`scholarly==1.7.11`、`openpyxl==3.1.5`、`curl_cffi>=0.7`、`httpx==0.27.2`
 - **TLS 指纹**：`curl_cffi.requests.Session(impersonate='chrome124')` 模拟 Chrome 124 的 TLS 握手签名，Google 无法从传输层区分 crawler 和浏览器
 - **代理**：通过系统 `https_proxy` 环境变量生效，`curl_cffi` 自动读取
+
+---
+
+## 2026-10-11：cookie 获取机制的两处加固 + 可选自动收割
+
+背景：用户要求对比阶段 2（paper_downloader）与阶段 1 的 cookie 获取机制、并在确认有实际便利后
+互相借鉴。结论是"cookie 本身不通用（域名不重叠：scholar.google.com vs 出版商/机构），但机制互补"。
+
+### 1. `curl.txt` 权限（借自阶段 2 的 cookies.txt 规则）
+
+`save_curl_to_file()` 原名 `open(path, 'w')`，按 umask 落成 0644 —— 整段 cURL 里含
+`-H 'cookie: ...'`（活的 `GSP`/`NID` 会话）与 UA 三件套，同机其它用户可读。
+现改为 `os.open(..., 0o600)` + `os.chmod` 纠正历史宽松权限（对应 `output/curl.txt` 已存在
+3,665 字节的旧文件）。`output/` 本来就在 `.gitignore` 里，所以这不是入库泄露，而是本机最小权限问题。
+
+### 2. 粘贴值清洗
+
+`inject_cookies_from_curl._parse_cookies()` 原样接受 `k=v`。若粘贴内容里混入换行
+（DevTools 复制到多行、终端粘贴断行），值里会带 `\n` 并进入 session header 与 curl.txt。
+新增模块级 `_strip_control()` 去掉 `\r\n\t`；空名直接丢弃。
+
+### 3. 可选：从真实浏览器自动收割（借自阶段 2 的 `--attended`）
+
+- 入口：cookie 提示处输入 `browser` + 回车（提示文案只在 `_playwright_available()` 为真时多打一行，
+  没有 playwright 的用户看到的界面与行为**完全不变**）
+- 实现：`try_browser_harvest(url, inject_fn=...)` 用 `sync_playwright()` 开**可见**浏览器
+  （macOS 优先 Edge 可执行文件，root 时补 `--no-sandbox`）→ goto → 等人按回车 →
+  `ctx.cookies(url)` 取 cookie + `navigator.userAgentData.getHighEntropyValues([...])` 取
+  品牌/完整版本/平台 → `_build_curl_from_page()` **合成一段 cURL** →
+  交给既有的 `inject_cookies_from_curl` 完成解析、白名单头、指纹一致性校验、会话注入与落盘
+  （即：复用全部既有路径，存储格式不变）
+- 失败面全部落回手工粘贴：没装 playwright / stdin 非 TTY / 浏览器起不来 / 收获 0 条 cookie /
+  用户在重问循环里改贴 cURL
+- 关键设计：**不引入硬依赖** —— playwright 只在 `try_browser_harvest` 内部 import，且先探测可用性；
+  `_inject_with_cookie_retry()` 新增可注入的 `reader` 形参，让这套交互可以 hermetic 测试
+
+### 不采纳的建议（附理由）
+
+| 建议 | 为什么不采纳 |
+|------|--------------|
+| 改存 Netscape、丢弃原始 cURL | 原始 cURL 正是 UA/sec-ch-ua 三件套的载体（`complete_browser_fingerprint` 依赖它保持指纹一致），只存 cookie 反而更差 |
+| 给 `session.cookies.set` 加域名限制 | 安全性有提升，但 GS 会跳 `googleusercontent` 等域，域写错会静默少发 cookie；风险高于收益，仅记录 |
+| 阶段 2 侧也存 sec-ch-ua 三件套 | 出版商不校验该头，收益低于复杂度 |
+
+### 测试
+
+`tests/test_cookie_acquisition.py`：0600（含纠正旧权限）、往返、CR/LF 清洗、
+`browser` 关键字路由、收割失败回落粘贴、空输入跳过、无 playwright/无 TTY 时不动作、
+合成 cURL 含 cookie 与身份三件套且三件套在 `_CURL_HEADER_ALLOWLIST` 内。
+
