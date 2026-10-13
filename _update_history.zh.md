@@ -1,3 +1,34 @@
+## 2026-10-13: 输出期去重不再按归一化标题合并（K123）
+
+### 问题
+
+`_dedup_citations_for_output()` 的身份键里带了**无条件归一化标题**（`title\t<归一化标题>`），
+于是"同一标题、不同 `cites_id`"的两条（同一作品的 arXiv 预印本与正式版、或同一 thesis 的
+两个落地页）会在写盘前被合并成一条 —— 与跨项目口径 K123「Google 认为不同就是不同、任何环节
+都不按标题去重」直接冲突，也让下游少了本该独立的引用条目。
+
+### 改动
+
+- 新增 `code/citation_identity.py: citation_output_identity_keys()`：有真实 `cites_id` 的行
+  **只**发 `cites_id` 键；无真实 id 的行沿用 `citation_identity_keys()` 的
+  `title+venue` / `title+authors` 全等回退键。有 id 的行与无 id 的行**永不互相匹配**。
+- `code/scholar_citation.py: PaperCitationFetcher._citation_output_identity_keys()` 改为委托该
+  函数，并同步两处 docstring（`_dedup_citations_for_output` 也写明"共享标题不算身份"）。
+- 新增 `tests/test_output_dedup.py`（6 例，含真实快照只读回归）；全套 257 → **263 例 OK**。
+
+### 实测（`paper_downloader/main/paper_citations.json`，只读）
+
+| 规则 | 输入 → 输出 | 折叠 |
+|------|------------|------|
+| 旧（+无条件标题键） | 9200 → 8971 | 229 |
+| 新（仅真实 `cites_id` / 无 id 全等） | 9200 → **9172** | **28** |
+
+折叠的 28 条**全部**是真实 `cites_id` 相同的两条（同一 cluster 在多次抓取间以不同元数据重复落盘），
+无一条是因标题相同被折叠；无 id 的 2191 条一条未丢。（原预期"9200 → 9200"，实测 28 条同 id
+重复，故为 9172；回归测试按语义断言"只有同 id 才允许折叠、无 id 一条不丢"，不写死数字。）
+
+---
+
 ## 2026-10-11: cookie 获取加固 + 可选浏览器自动收割（借自阶段 2）
 
 - **安全**：`output/curl.txt` 从 0644 改为 **0600**（内容是活的 Scholar 会话 cookie 与

@@ -2,6 +2,12 @@
 
 All user messages from the Google Scholar Citation Crawler development conversation.
 
+## 368. [2026-10-13]
+
+> 阶段 1 的输出期去重里带了一条"无条件按归一化标题合并"的身份键，会把"同标题、不同 cites_id"的条目合并掉；这与 K123「Google 认为不同就是不同」冲突。请改成只在真实 cites_id 相同时合并（或退回 citation_identity_keys() 的全等语义），并补测试；随后重新抓取。
+
+（已确认采纳：新增 `citation_output_identity_keys()`，有真实 id 只发 id 键、无 id 沿用 title+venue/authors 全等；有 id 与无 id 的行永不互配；补 `tests/test_output_dedup.py` 6 例。实测旧快照 9200 → 9172（折叠 28，全部为同 cites_id 重复），旧规则为 9200 → 8971。）
+
 ## 367. [2026-10-08]
 
 > 那些 cites_id 确实的论文，后续再抓取的时候会补全吗？cites_id 对应的是被引用的论文，还是那些引文？

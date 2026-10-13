@@ -109,6 +109,33 @@ def citation_identity_key(info):
     return citation_identity_keys(info)[0]
 
 
+def citation_output_identity_keys(info):
+    """
+    Return the identity keys used to collapse duplicate rows **in the output**.
+
+    Stricter than :func:`citation_identity_keys`, which always appends a
+    title-based fallback key: that extra key merged rows Scholar itself reports
+    as different clusters (same title, different ``cites_id``) and silently
+    dropped entries the downstream stages must keep apart (K123: "Google says
+    they differ, so they differ").
+
+    A row therefore only ever matches on Scholar's own identity:
+
+    * a row **with** a real ``cites_id`` yields that key only, so it still
+      collapses with rows carrying the same cluster id (the same work re-listed
+      by a later run with richer metadata);
+    * a row **without** one yields the ``title + venue`` (or ``title +
+      authors``) fallback key from :func:`citation_identity_keys`, so two rows
+      that are fully equal on those fields still collapse.
+
+    A row with a real ``cites_id`` is never matched against a row without one,
+    and two rows sharing only a normalised title are never merged.
+    """
+    if normalize_cites_id(info.get('cites_id')):
+        return citation_identity_keys(info)[:1]
+    return citation_identity_keys(info)
+
+
 def extract_citation_info(pub, fallback_year=None):
     """
     Convert a raw scholarly publication dict into a clean citation dict.

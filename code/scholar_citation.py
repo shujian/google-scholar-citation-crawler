@@ -89,6 +89,7 @@ from code.citation_identity import (
     normalize_identity_part as _ci_normalize_identity_part,
     citation_identity_keys as _ci_citation_identity_keys,
     citation_identity_key as _ci_citation_identity_key,
+    citation_output_identity_keys as _ci_citation_output_identity_keys,
     extract_citation_info as _ci_extract_citation_info,
 )
 from code.citation_io import (
@@ -616,15 +617,14 @@ class PaperCitationFetcher:
     def _citation_output_identity_keys(self, citation):
         """Keys used to collapse duplicate rows in the output.
 
-        The primary identity (cites_id when Scholar provides one) plus the
-        normalised title, so the same cluster listed twice with different
-        metadata — or once without a cites_id — still collapses to one row.
+        Delegates to :func:`code.citation_identity.citation_output_identity_keys`:
+        only a real ``cites_id`` (or, for rows without one, a fully equal
+        ``title + venue`` / ``title + authors``) collapses rows.  Scholar
+        listing one title under two different clusters means two entries, and
+        both are kept (K123) — the unconditional normalised-title key that used
+        to live here merged exactly those rows.
         """
-        keys = [self._citation_identity_key(citation)]
-        title = self._normalize_identity_part(citation.get('title'))
-        if title and title not in ('n/a', 'na', '?'):
-            keys.append(f"title\t{title}")
-        return keys
+        return _ci_citation_output_identity_keys(citation)
 
     def _dedup_citations_for_output(self, citations, title=''):
         """Keep one row per citation identity, preferring the richest metadata.
@@ -633,6 +633,12 @@ class PaperCitationFetcher:
         (different venue/year), which inflates the stored count and breaks the
         documented dedup contract.  The first occurrence wins ties so the order
         stays stable.
+
+        Rows are only considered duplicates when Scholar's own identity says so
+        (see :meth:`_citation_output_identity_keys`): a shared normalised title
+        is **not** enough, because Scholar reports the preprint and the
+        published version of one work as two clusters and the pipeline keeps
+        them apart (K123).
         """
         rows = list(citations or [])
         if len(rows) < 2:

@@ -2,6 +2,31 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
+## 2026-10-13: 「输出期去重」的身份键：标题不是身份
+
+**为什么输出期还要去重**：抓取期 `fetch_session` 用 `citation_identity_keys()`（含 `cites_id` 键）
+去重，但跨运行合并是"新结果与缓存取并集、绝不删行"（保权威性），所以同一 cluster 会在两次抓取
+之间以"arXiv 版 + 正式版"两套元数据各留一行 —— 输出期去重就是为了收掉这种**同 cluster** 的重复。
+
+**坑**：输出期那条身份键里额外塞了一个 `title\t<归一化标题>`，本意是"同一个 cluster 换过元数据
+或没 id 时也能收掉"，实际效果是**把不同 cluster 的同名条目也收掉了**：实测旧快照因此从 9200 掉到
+8971（229 条），其中 201 条是同标题、**不同** `cites_id` 的两条独立条目（K123 要求各留一条）。
+
+**现在的口径**（`citation_output_identity_keys()`）：
+
+| 行的情况 | 身份键 | 结果 |
+|---------|--------|------|
+| 有真实 `cites_id` | `cites_id\t<id>`（**只发这一条**） | 同 id 才合并 |
+| 无真实 `cites_id` | `meta\t<title>\t<venue>` 或 `…\t<authors>`（全等） | 全等才合并 |
+
+有 id 的行与无 id 的行永不互相匹配（一侧换过 id 的"同一条"会各留一行 —— 保守，符合
+"宁可两条、不可误合"）。真实快照：9200 → 9172，折叠的 28 条**全部**同 `cites_id`；无 id 的
+2191 条一条未丢。
+
+**回归测试**：`tests/test_output_dedup.py` 的 `OutputDedupSnapshotRegressionTest` 直接读
+`paper_downloader/main/paper_citations.json`（只读、文件不存在即 skip，保持 hermetic），断言的是
+**语义**（"只有同 id 才允许折叠、无 id 一条不丢"）而不是 9172 这个数字 —— 该快照每天重抓都会变。
+
 ## 2026-10-08: "看起来像 id 的哨兵值"比空值更危险
 
 scholarly 用行的 `data-cid` 拼 `url_scholarbib`；行没有被建 cluster 时属性缺失，`.get()` 返回 `None`，于是 URL 里出现 `info:None:scholar.google.com`。原正则 `info:([^:]+):` 会**成功匹配**并把 `'None'` 当 cluster id 存下来。
