@@ -2,6 +2,32 @@
 
 本文档记录开发中的关键技术细节、架构决策和踩坑记录。按时间顺序的更新历史见 [_update_history.zh.md](_update_history.zh.md)。
 
+## 2026-10-14: 数据修复工具为什么单独放 `code/data_upgrade/`
+
+**问题**：`fix_diag_from_year_record.py` / `fix_output_fetch_state.py` 平铺在 `code/` 下，与
+`output_state.py` / `citation_*.py` 这些主线模块同级，看不出它们**不在抓取流程里**。
+
+**做法**：`code/data_upgrade/`（带 `__init__.py`）承载一次性数据修复/升级工具；主线入口
+`python -m code.scholar_citation` 一字未动。**这些是数据修复/升级工具，与主线入口分开。**
+
+**坑（移动会真实踩到）**：两个脚本为了支持「直跑脚本路径」都有一段 `sys.path` 引导：
+`sys.path.insert(0, dirname(dirname(abspath(__file__))))`。原先脚本在 `code/` 下，两层 `dirname`
+正好是项目根；移进 `code/data_upgrade/` 后必须改成**三层**，否则直跑时 sys.path 里进的是 `code/`
+自身、`from code.output_state import PaperFetchState` 解析不到（`code` 会落到标准库）。
+模块形式 `python -m code.data_upgrade.fix_*` 本身不受影响（cwd 已在 sys.path），但两种形式都要保住。
+
+**「无引用」的核实口径**（先验证再搬）：`grep -rn "<模块名>" code/ tests/ *.md`，两个候选的命中只有
+文档清单 + 模块自身；`run.sh`、容器根 `preflight.sh`、`run_all_tests.sh` 均无引用 → 可搬。
+**被 import 的就必须留原地**：反例是 3.b 的 `json_to_md.py` —— 它被
+`tests/test_build_md_status.py`（`from code.json_to_md import build_md`）与
+`tests/test_atomic_save.py`（`import code.json_to_md as jm`）import，且是正式报告生成路径，
+所以判定**不搬**（本次跨仓库任务里 3.b 因此无改动）。
+
+**副作用检查**：`tests/test_no_env_config.py::_iter_code_modules()` 只 `os.listdir(CODE_DIR)`
+顶层 `.py`、**不递归** —— 搬进子目录的模块不再被该守卫扫描。这两个脚本本来就不读环境变量，
+边界没有因此松动；但**今后往 `code/` 的任一子目录加「读环境变量」的模块，该守卫不会报错**
+（遗留弱点，本轮未扩大守卫范围）。
+
 ## 2026-10-13: 「输出期去重」的身份键：标题不是身份
 
 **为什么输出期还要去重**：抓取期 `fetch_session` 用 `citation_identity_keys()`（含 `cites_id` 键）
@@ -568,7 +594,11 @@ google-scholar-citation-crawler/
 │   ├── citation_models.py       # YearRecord, ResumeState, FetchPolicy
 │   ├── output_state.py          # PaperFetchState / PaperState dataclass + 输出文件 _fetch_state 读写
 │   ├── pub_info.py              # PubInfo dataclass（pub 字段规范化）
-│   └── cli.py                   # parse_args() + _run_main(args)
+│   ├── cli.py                   # parse_args() + _run_main(args)
+│   └── data_upgrade/            # 一次性数据修复/升级工具（**与主线入口分开**，不算主线模块）
+│       ├── __init__.py
+│       ├── fix_diag_from_year_record.py  # python -m code.data_upgrade.fix_diag_from_year_record <output_json>
+│       └── fix_output_fetch_state.py     # python -m code.data_upgrade.fix_output_fetch_state [output_dir]
 ├── tests/                       # 单元测试（174 个，不需要网络）
 │   ├── conftest.py              # 共享 stubs + FetcherTestCase 基类
 │   ├── test_scholar_patch.py    # scholarly patch URL 日志、cookie 注入、CLI 解析
@@ -581,7 +611,6 @@ google-scholar-citation-crawler/
 │   ├── test_main_loop.py        # _run_main_loop retry、main() CLI 集成
 │   ├── test_output_state.py     # 输出状态读写、citation_status 优先级
 │   └── test_profile.py          # AuthorProfileFetcher 计数汇总和 JSON/Excel 输出
-├── fix_output_fetch_state.py    # 输出文件 _fetch_state 迁移/修复脚本
 ├── _update_history.zh.md        # 按时间顺序的更新历史
 ├── _user.zh.md                  # 用户输入记录
 ├── requirements.txt             # scholarly>=1.7, openpyxl>=3.1, curl_cffi>=0.7, httpx==0.27.2

@@ -1,3 +1,31 @@
+## 2026-10-14: 一次性数据修复工具移到 `code/data_upgrade/`
+
+### 问题
+
+两个数据修复脚本 `fix_diag_from_year_record.py` / `fix_output_fetch_state.py` 与主线模块平铺在
+`code/` 下，看不出它们**不是抓取流程的一部分** —— 容易被当成入口或支撑模块。
+
+### 改动
+
+- `git mv code/fix_diag_from_year_record.py code/data_upgrade/fix_diag_from_year_record.py`、
+  `git mv code/fix_output_fetch_state.py code/data_upgrade/fix_output_fetch_state.py`（保留历史），
+  并新增 `code/data_upgrade/__init__.py`。
+- 调用改成 `python -m code.data_upgrade.fix_diag_from_year_record <output_json>` /
+  `python -m code.data_upgrade.fix_output_fetch_state [output_dir]`。
+- 两个模块的 docstring 与「plain script path」注释同步改路径；`sys.path` 引导从两层 `dirname`
+  改为**三层**（脚本深了一层，否则直跑脚本路径时 `from code.output_state import ...` 解析不到包）。
+- **搬前核实无人 import**：`grep -rn "fix_diag_from_year_record\|fix_output_fetch_state" code/ tests/ *.md`
+  只命中文档清单与模块自身，`run.sh` / 容器根 `preflight.sh` / `run_all_tests.sh` 均无引用。
+- 文档：`AGENTS.md`（Development commands 的 Repair tools、目录治理树）、`README.md`（Project Structure）、
+  `_work_notes.zh.md`（项目结构树）改新路径，并写明「这些是数据修复/升级工具，与主线入口分开」。
+
+### 验证
+
+- 两种调用形式都通：`python -m code.data_upgrade.fix_*`（无参数打印 usage / 目录不存在报错）与直跑
+  `python code/data_upgrade/fix_*.py`（`from code.output_state import ...` 正常解析）。
+- 全套 **418 例 OK**（与搬前基线一致；`tests/test_no_env_config.py` 只遍历 `code/` 顶层 `.py`，
+  不递归，故模块数变化不影响它）。
+
 ## 2026-10-13: 输出期去重不再按归一化标题合并（K123）
 
 ### 问题

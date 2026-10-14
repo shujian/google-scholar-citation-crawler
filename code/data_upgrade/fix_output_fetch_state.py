@@ -4,7 +4,7 @@ Sync output JSON _fetch_state with per-paper cache files and normalise
 all diagnostics via PaperFetchState.from_dict/to_dict round-trip.
 
 Usage (from the project root):
-  python -m code.fix_output_fetch_state [output_dir]
+  python -m code.data_upgrade.fix_output_fetch_state [output_dir]
 
 If output_dir is omitted, defaults to ./output.
 """
@@ -14,8 +14,8 @@ import os
 import sys
 
 # Keep the project root importable so the tool also works when invoked as a
-# plain script path (``python code/fix_output_fetch_state.py``).
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# plain script path (``python code/data_upgrade/fix_output_fetch_state.py``).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from code.output_state import PaperFetchState  # noqa: E402
 from code.pub_info import PubInfo  # noqa: E402

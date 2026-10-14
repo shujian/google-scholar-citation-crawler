@@ -394,8 +394,10 @@ code/
   cite_format.py             # five citation formats + BibTeX from the row's Cite dialog (+ its cache)
   log_utils.py               # setup_logging() / get_logger()
   cli.py                     # parse_args() only — the entry point is code.scholar_citation.main()
-  fix_diag_from_year_record.py  # repair tool: rebuild diagnostics from source records
-  fix_output_fetch_state.py     # repair tool: re-sync _fetch_state with cache files
+  data_upgrade/              # one-off data repair/upgrade tools — kept apart from the main entry point
+    __init__.py
+    fix_diag_from_year_record.py  # python -m code.data_upgrade.fix_diag_from_year_record <output_json>
+    fix_output_fetch_state.py     # python -m code.data_upgrade.fix_output_fetch_state [output_dir]
   examples/run_example.sh    # minimal example invocation
 output/                      # crawl products (author_*.json/.xlsx) + logs/
 tests/                       # 418 unit tests, no network required

@@ -3078,3 +3078,34 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 
 执行说明：新增 `has_cite_format_work()` 并接进 `main()` 的短路判断；只补了既有
 `FakePaperFetcher` 的 stub 方法（未新增测试用例）；全套一次跑绿 418 例。
+
+## 2026-10-14（阶段 1：数据修复工具移入 `code/data_upgrade/`）
+
+用户原始输入（跨阶段任务书里属于阶段 1 的部分）：
+
+> **目标**：把"**数据修复/升级/维护**"类脚本挪到 **`code/data_upgrade/`**（各自加 `__init__.py`），
+> 调用变成 `python -m code.data_upgrade.<模块>`；主线入口留原地 ✓。
+>
+> **铁律（先验证再搬）**
+> 1. 只搬"**没有任何主线模块 import、也不被 `run.sh`/容器根 `preflight.sh`/`run_all_tests.sh`/
+>    文档描述的自动化流程调用**"的文件 ✓；搬前 `grep -rn "<模块名>" code/ tests/ *.md` 逐个确认 ✓，
+>    有调用就留原地 ✗ 并在报告里列出。
+> 2. **crawler**：候选 = `fix_diag_from_year_record.py`、`fix_output_fetch_state.py` ✓（已核实无人 import）。
+>    **必须留原地** ✗：`scholar_citation.py`、`cli.py`、`citation_*.py`、`author_fetcher.py`、
+>    `fetch_session.py`、`interactive.py`、`output_state.py`、`page_visit.py`、`profile_io.py`、
+>    `pub_info.py`、`config.py`、`common.py`、`lib_env.py`、`venue_detail.py`、`venue_quality.py`、
+>    `cite_format.py`。该仓库有 `code/examples/`、`code/shared/` 子目录，不要动 ✓。
+> 3. 两个仓库里若有 shell 脚本 → **本轮一律不动** ✗。
+>
+> **必做的同步**：`git mv` 保留历史 ✓；引用方 import 改新路径 ✓（若无引用方则无需 ✓）；
+> 各仓库 `AGENTS.md`/`README.md`（及 crawler 的中文备忘 `_*.zh.md`、`issues.md`）里**所有相关命令**
+> 改成新路径 ✓，并加一句"这些是数据修复/升级工具，与主线入口分开" ✓；crawler 的提交按该仓库惯例：
+> **英文 commit** ✓，并按既有要求往中文备忘**追加**记录 ✓；跑全套并报例数：crawler 基线 **418 例** ✓。
+
+执行说明：两个候选经全仓库 grep 确认无任何 import、也不被 `run.sh` / 根 `preflight.sh` /
+`run_all_tests.sh` 调用（只在文档清单里被提及）→ 只搬这两个；`git mv` 进 `code/data_upgrade/`
+并新增 `__init__.py`。两个脚本的 `sys.path` 引导由两层 `dirname` 改为**三层**（否则直跑脚本路径时
+`from code.output_state import ...` 会失败，docstring 里的「plain script path」承诺随之失效）；
+`AGENTS.md`（Repair tools + 目录治理树）/ `README.md`（Project Structure）/ `_work_notes.zh.md`
+（项目结构树）改新路径并注明"与主线入口分开"。`scholar_citation.py` 等主线模块、`run.sh` /
+`my_citation.sh` / `code/examples/` / `code/shared/`、`issues.md` 均未动。全套 **418 例一次跑绿**。

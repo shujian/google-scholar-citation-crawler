@@ -53,9 +53,10 @@ This file provides guidance to AI coding agents working with code in this reposi
 - Run all tests: `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests`
 - Run a single test file: `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_citation_status`
 - Run a single test: `PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_citation_status.CitationStatusTests.test_citation_status_stays_complete_when_seen_matches_current_total`
-- Repair tools (also modules, from the project root):
-  `python -m code.fix_diag_from_year_record <output_json>` /
-  `python -m code.fix_output_fetch_state [output_dir]`
+- Repair tools (data repair/upgrade only — kept apart from the main entry point;
+  also modules, from the project root):
+  `python -m code.data_upgrade.fix_diag_from_year_record <output_json>` /
+  `python -m code.data_upgrade.fix_output_fetch_state [output_dir]`
 - Example script: `code/examples/run_example.sh`
 
 ## 论文选择：按作者抓取，没有 `--papers`
@@ -86,7 +87,9 @@ google-scholar-citation-crawler/
 └── code/                          # 唯一代码目录（包名 code）
     ├── scholar_citation.py        # 入口：python -m code.scholar_citation
     ├── examples/run_example.sh
-    └── fix_*.py                   # 一次性数据修复工具（可 python -m code.fix_*）
+    └── data_upgrade/              # 一次性数据修复/升级工具（**与主线入口分开**）
+        ├── __init__.py
+        └── fix_*.py               # python -m code.data_upgrade.fix_*
 ```
 
 - **产物位置不变**：`output/author_<ID>_paper_citations.json` / `.xlsx`、`author_<ID>_profile.json`
