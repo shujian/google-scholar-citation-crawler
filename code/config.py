@@ -105,6 +105,14 @@ STALL_AFTER_ATTEMPTS = 2
 
 SCHOLAR_BASE_URL = "https://scholar.google.com"
 
+#: Resolve every citing entry's Cite dialog (five formats + BibTeX) by default
+#: whenever citations are crawled: that dialog is the only place the crawler can
+#: read a citing paper's *full* author list (Chicago / BibTeX) and its complete
+#: venue (Vancouver), which the citation-list page truncates.  Knobs, in the
+#: usual priority order: ``--cite-formats`` / ``--no-cite-formats`` > the
+#: ``cite_formats`` key in ``crawler_config.json`` > this default.
+CITE_FORMATS = True
+
 # ============================================================
 # Output
 # ============================================================
@@ -184,3 +192,18 @@ def resolve_proxy_config(cli_proxy_url=None, cli_no_proxy=None, config_path=None
     no_proxy, no_proxy_source = _pick(cli_no_proxy, "no_proxy", env_no_proxy)
     return ProxyConfig(proxy_url, no_proxy, proxy_source, no_proxy_source)
 
+
+def resolve_cite_formats(cli_value=None, config_path=None):
+    """Resolve whether the Cite-dialog step runs: CLI > config file > default.
+
+    Returns ``(enabled, source)`` where *source* is ``"cli"`` / ``"config"`` /
+    ``"default"``.  ``cli_value=None`` means "not specified on the command line"
+    (``--cite-formats`` and ``--no-cite-formats`` both default to None), so the
+    config file — and otherwise :data:`CITE_FORMATS` — decides.
+    """
+    file_cfg = load_config_file(config_path)
+    if cli_value is not None:
+        return bool(cli_value), "cli"
+    if file_cfg.get("cite_formats") is not None:
+        return bool(file_cfg["cite_formats"]), "config"
+    return CITE_FORMATS, "default"

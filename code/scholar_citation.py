@@ -63,6 +63,7 @@ from code.common import (
     extract_author_id,
     now_str,
     rand_delay,
+    resolve_cite_formats,
     resolve_proxy_config,
     setup_proxy,
     write_json_atomic,
@@ -143,7 +144,7 @@ class PaperCitationFetcher:
                  fetch_mode='normal',
                  interactive_captcha=False,
                  delay_scale=1.0,
-                 cite_formats=False):
+                 cite_formats=True):
         self.author_id = author_id
         self.output_dir = output_dir
         self.limit = limit
@@ -154,6 +155,9 @@ class PaperCitationFetcher:
         # Opt-in: one Cite-dialog request per citing entry (plus one for BibTeX)
         # is thousands of requests on a real profile, so a normal run must not
         # start paying for it.  See code/cite_format.py.
+        # On by default (see code.config.CITE_FORMATS): the Cite dialog is the only
+        # source of a citing paper's full author list and untruncated venue, so new
+        # data must carry it unless the caller opts out.
         self.cite_formats = bool(cite_formats)
         self._captcha_solved_count = 0
         self._delay_scale = delay_scale
@@ -912,8 +916,8 @@ class PaperCitationFetcher:
 
         ``main()`` skips Phase 2 completely when Scholar's totals did not move,
         and the formats step runs inside Phase 2's save — so that shortcut must
-        ask this first, or an enabled ``--cite-formats`` would never run again
-        once the citation counts stopped changing.
+        ask this first, or the Cite-dialog step would never run again once the
+        citation counts stopped changing.
 
         A citation is pending when it carries a ``cid``, still needs its dialog
         (``code.venue_quality.citation_needs_cite_dialog``: venue incomplete or
@@ -1557,7 +1561,7 @@ class PaperCitationFetcher:
         return _int_wait_proxy_switch(max_hours, scale=self._delay_scale)
 
     def _enrich_cite_formats(self, final_results):
-        """Fill ``citation['cite']`` from Scholar's Cite dialog (--cite-formats).
+        """Fill ``citation['cite']`` from Scholar's Cite dialog (on by default).
 
         One request per citation that carries a ``cid``, plus one for the signed
         BibTeX download.  Requests reuse the patched scholarly session that
@@ -1577,7 +1581,7 @@ class PaperCitationFetcher:
                      for c in (result.get('citations') or [])
                      if isinstance(c, dict)]
         print("\n" + "=" * 70)
-        print("  Fetching citation formats (Cite dialog, --cite-formats)")
+        print("  Fetching citation formats (Cite dialog; --no-cite-formats skips this)")
         print("=" * 70)
         stats = _cite_format.enrich_citations_with_cite_formats(
             citations,
@@ -1790,6 +1794,14 @@ def main():
             getattr(args, 'config', None),
         )
         logger.debug("Proxy resolution: %s", proxy.describe())
+        cite_formats, cite_formats_source = resolve_cite_formats(
+            getattr(args, 'cite_formats', None),
+            getattr(args, 'config', None),
+        )
+        logger.debug("Cite-dialog step: %s (%s)", cite_formats, cite_formats_source)
+        if not cite_formats:
+            print("Note: --no-cite-formats — citing entries will keep the list page's "
+                  "abbreviated authors and truncated venue (citation['cite'] stays empty).")
         setup_proxy(proxy.proxy_url, proxy.no_proxy)
         export_proxy_env(proxy.proxy_url, proxy.no_proxy)
         # Console-only logging: sys.stdout is the TeeStream that mirrors into the
@@ -1818,7 +1830,7 @@ def main():
             fetch_mode=args.fetch_mode,
             interactive_captcha=args.interactive_captcha,
             delay_scale=delay_scale,
-            cite_formats=getattr(args, 'cite_formats', False),
+            cite_formats=cite_formats,
         )
         citation_fetcher._patch_scholarly()
 
@@ -1846,7 +1858,7 @@ def main():
                         print("  All citation caches are complete. Skipping citation fetch.")
                         print("=" * 70 + "\n")
                         return
-                    print("\nNo changes in totals, but --cite-formats still has "
+                    print("\nNo changes in totals, but the Cite-dialog step still has "
                           "citations outside its cache. Continuing...")
                 else:
                     print("\nNo changes in totals, but some citations are incomplete. Continuing fetch...")

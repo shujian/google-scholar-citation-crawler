@@ -10,6 +10,7 @@ from datetime import datetime
 # code.common continue to work.  New code should import from code.config
 # directly.
 from code.config import (   # noqa: F401 — re-exported for compatibility
+    CITE_FORMATS,
     DELAY_MAX,
     DELAY_MIN,
     MANDATORY_BREAK_EVERY_MAX,
@@ -22,6 +23,7 @@ from code.config import (   # noqa: F401 — re-exported for compatibility
     SESSION_REFRESH_MIN,
     STALL_AFTER_ATTEMPTS,
     YEAR_BASED_THRESHOLD,
+    resolve_cite_formats,
     resolve_proxy_config,
 )
 from code.lib_env import (   # noqa: F401 — re-exported for compatibility

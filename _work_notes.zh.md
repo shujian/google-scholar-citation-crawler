@@ -1513,3 +1513,27 @@ pub 侧 229 / 8 / 4 不变。
 `normalized 229 / raw 8 / null 4`（pub）与 `normalized 2,550 / raw 5,257 / null 1,221`（引文）。
 **踩坑**：改 `stats['canonical']` 时用了 `replace(..., 1)`，而工具里该模式出现两次 → 断言失败、
 脚本中断（好在断言在写盘前，没有留下半成品）。这类"同名多处"要么不带 count、要么先 grep 计数。
+
+## venue/citation 六轮：Cite 对话框步骤默认开启（2026-10-15）
+
+**为什么改默认**：用户要"保证 scholar 新抓下来的数据中获取了该信息"。事实是：引文列表页给的信息**先天不全**
+——venue 被截到中位 25 字符（全库 61.8% 带 `…`）、authors 是缩写（只有 6.2% 含任一全名）；
+而 Cite 对话框一次请求就能给 **Chicago 全作者全名**、**Vancouver venue 全称 + 卷期页**，
+BibTeX 再给一份全作者全名 + venue + volume/number/pages。**只增不改**、有缓存、可续跑、
+失败不写缓存、条目"venue 已完整且作者已全名"时零请求跳过 —— 代价与风险都可控，所以把它从
+可选改成默认，是让"新数据自带完整信息"的唯一直接办法。
+
+**设计要点**：
+1. **三态解析**：CLI 的 `--cite-formats` / `--no-cite-formats` 都 `default=None`（"未指定"），
+   由 `resolve_cite_formats(cli, config_path)` 按 **CLI > 配置文件 `cite_formats` > `CITE_FORMATS=True`**
+   解析并返回来源（`cli` / `config` / `default`），`main()` 记 debug 日志。这样"默认开"不是硬编码在
+   调用点，而是可配置、可审计的一条链路 —— 与本仓库"零环境变量、参数 > 文件 > 默认"的既定约定一致。
+2. **fetcher 默认也改成 True**，避免"main 说开、直接构造 fetcher 却是关"的分叉；要关就显式传
+   `cite_formats=False`（测试即这么用）。
+3. **短路不再吞掉这一步**：`has_cite_format_work()`（2026-10-14 加的）判定"有 `cid` 且不在缓存且仍需对话框"
+   → 即使引文总数没变也继续跑 Phase 2；默认开启后它同时成了**存量回填**的入口。
+4. **`cid` 是硬门槛**：对话框按 `cid` 寻址（`info:<cid>:scholar.google.com`），而 `cid` 只在
+   2026-10-14 之后写入的条目上（现 39/9,028）。所以"保证"对**新抓的数据**成立；存量要么重抓
+   （`--fetch-mode force`）、要么等它自然重抓。这一点已在 AGENTS/README 写明，避免误解成"全库立刻都有"。
+5. **成本**：每条约 1 次（+ BibTeX 1 次）请求，详情类路径按 1/10 延迟（`DETAIL_PAGE_DELAY_FACTOR`），
+   被拦即停/失败跳过，靠 `output/cite_format_cache.json` 续跑。要省请求：`--no-cite-formats`。

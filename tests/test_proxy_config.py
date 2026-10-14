@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from code import config as config_module  # noqa: E402
 from code.config import (  # noqa: E402
+    resolve_cite_formats,
     CONFIG_FILENAME,
     ConfigError,
     ProxyConfig,
@@ -156,6 +157,39 @@ class ResolveProxyConfigTests(unittest.TestCase):
             with patch.dict(os.environ, env, clear=False):
                 resolved = self._resolve(tmpdir)
             self.assertEqual(resolved.proxy_url, "http://env-http:9")
+
+
+class ResolveCiteFormatsTests(unittest.TestCase):
+    """The Cite-dialog step: CLI > config file > default (on)."""
+
+    def _resolve(self, tmpdir, payload=None, cli=None):
+        path = os.path.join(tmpdir, CONFIG_FILENAME)
+        if payload is not None:
+            _write_config(tmpdir, payload)
+        with patch.object(config_module, "DEFAULT_CONFIG_PATH", path):
+            return resolve_cite_formats(cli)
+
+    def test_on_by_default(self):
+        """New data must carry citation["cite"], so the step is opt-out."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.assertEqual(self._resolve(tmpdir), (True, "default"))
+
+    def test_config_file_can_turn_it_off(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.assertEqual(self._resolve(tmpdir, {"cite_formats": False}),
+                             (False, "config"))
+
+    def test_cli_wins_over_the_config_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.assertEqual(self._resolve(tmpdir, {"cite_formats": False}, cli=True),
+                             (True, "cli"))
+            self.assertEqual(self._resolve(tmpdir, {"cite_formats": True}, cli=False),
+                             (False, "cli"))
+
+    def test_other_config_keys_do_not_affect_it(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.assertEqual(self._resolve(tmpdir, {"proxy_url": "http://x:1"}),
+                             (True, "default"))
 
 
 class SystemProxyEnvTests(unittest.TestCase):

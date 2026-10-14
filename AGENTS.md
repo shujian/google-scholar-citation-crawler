@@ -47,7 +47,7 @@ This file provides guidance to AI coding agents working with code in this reposi
 - Force re-fetch specific papers: `python -m code.scholar_citation --author YOUR_AUTHOR_ID --fetch-mode force --skip 2 --limit 3`
 - Enable debug logging: `python -m code.scholar_citation --author YOUR_AUTHOR_ID -v`
 - Use interactive captcha recovery: `python -m code.scholar_citation --author YOUR_AUTHOR_ID --interactive-captcha`
-- Also store every citing entry's five citation formats + BibTeX (opt-in, one request per entry): `python -m code.scholar_citation --author YOUR_AUTHOR_ID --cite-formats --skip 0 --limit 1`
+- Every citing entry's five citation formats + BibTeX are resolved by default (one request per entry); `--no-cite-formats` skips that step: `python -m code.scholar_citation --author YOUR_AUTHOR_ID --skip 0 --limit 1`
 - Speed up waits for debugging: `python -m code.scholar_citation --author YOUR_AUTHOR_ID --interactive-captcha --accelerate 0.1`
 - Override the proxy: `python -m code.scholar_citation --author YOUR_AUTHOR_ID --proxy-url http://127.0.0.1:7890`
 - Run all tests: `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests`
@@ -98,7 +98,8 @@ google-scholar-citation-crawler/
   仍是根 AGENTS.md 数据契约规定的路径，不要移动。
 - **日志与运行期中间产物**一律进 `output/`（含 `output/logs/`）。
 - **不依赖任何环境变量**：旋钮走命令行参数，成组配置走项目根 `crawler_config.json`，
-  优先级 **命令行参数 > 配置文件 > 代码内默认值**。`--config PATH` 可指向别的配置文件；
+  优先级 **命令行参数 > 配置文件 > 代码内默认值**。布尔开关同理，例如 Cite 对话框那一步：
+  `--cite-formats` / `--no-cite-formats` > 配置键 `cite_formats` > 默认 **开启**。`--config PATH` 可指向别的配置文件；
   默认文件缺失不算错误，显式指定的文件缺失/损坏会直接报错退出。
 - `code/lib_env.py` 是 `code/` 下**唯一**接触 `os.environ` 的模块：它只为第三方库摆设环境
   （selenium 遥测开关、httpx 0.27.2 需要的 `NO_PROXY` 规范化），并把解析后的代理写进环境
@@ -114,7 +115,7 @@ google-scholar-citation-crawler/
 其中 `lib_env.py` 管第三方库环境、`venue_detail.py` 管出版详情页的完整 venue、`cite_format.py` 管施引
 条目的五种引用格式与 BibTeX、`venue_quality.py` 判「venue 是否已经完整/是否只是预印本源」、
 `venue_key.py` 把 venue 归一成身份键（会议 = `名+年份`、期刊 = 缩写名））；
-`tests/` 有 459 个测试，
+`tests/` 有 465 个测试，
 20 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」）。
 
 ### 新增模块
@@ -149,7 +150,7 @@ google-scholar-citation-crawler/
   解析按 DOM 配对（`th.gs_cith` + `td > div.gs_citr`），页面开头的 `<style>` 提到 `.gs_citr{…}`，
   朴素正则会把 CSS 当引用；BibTeX 走同一响应里**带签名**的 `scholar.bib` 链接（第二次请求）。
   **只增不改**：`title`/`authors`/`venue`/`year`/`url`/`cites_id` 一字不动（venue 与 cites_id 参与身份键，
-  同 `venue_detail.py` 的教训）。**默认关闭**（`--cite-formats`）：每个施引条目一次请求、BibTeX 再一次，
+  同 `venue_detail.py` 的教训）。**默认开启**（`--no-cite-formats` 可关）：每个施引条目一次请求、BibTeX 再一次，
   全库是数千次；缓存 `output/cite_format_cache.json` 按 `cid` 记录已解析页面，可续跑，失败不写缓存。
   **该条目已经不用再问这个页面时就不抓**（`code/venue_quality.citation_needs_cite_dialog`：
   venue 已完整**并且** `authors` 已是全名形态，两者都齐才跳过）—— 跳过零请求、不写缓存；
@@ -215,9 +216,13 @@ The program always runs in two sequential phases from `main()`:
 - Writes `venue_key` / `venue_key_source` on every citing entry the same way
   (list-page venues are often truncated by Scholar, so those rows keep raw keys
   until the table is extended — `venue_key_source` tells the two apart)
-- With `--cite-formats` (opt-in), resolves each citing entry's five citation formats
-  and BibTeX from Scholar's Cite dialog before writing the output
-  (`code/cite_format.py`, cached in `output/cite_format_cache.json`)
+- Resolves each citing entry's five citation formats and BibTeX from Scholar's
+  Cite dialog before writing the output (`code/cite_format.py`, cached in
+  `output/cite_format_cache.json`).  **On by default** — it is the only source of
+  a citing paper's full author list (Chicago / BibTeX `author`) and untruncated
+  venue (Vancouver) — and `--no-cite-formats` skips it; an entry without a `cid`
+  cannot be addressed, so rows written before that field existed stay untouched
+  until their paper is re-fetched
 - Writes consolidated citation outputs to `author_<ID>_paper_citations.json` and `.xlsx`
 
 ### Citation fetch strategy
@@ -347,8 +352,11 @@ dependencies are stubbed in `tests/conftest.py`).
   labels, missing cells, `&quot;`/`&amp;` decoding, inline `<i>` spacing), BibTeX parsing
   (nested/escaped braces, quoted and bare values, multiline collapsing, truncated records),
   graceful degradation (request error, captcha page, BibTeX failure retried from the cached
-  signed URL, interrupt) and cache/resume behaviour, plus the `--cite-formats` wiring
-  (`_save_output` writes the field only when the flag is on).
+  signed URL, interrupt) and cache/resume behaviour, plus the wiring: the CLI flag
+  is unspecified by default (`None`) and resolves through
+  `code.config.resolve_cite_formats()` (CLI > `crawler_config.json` > default on),
+  the fetcher defaults to on, and `_save_output` writes the field unless the step
+  was opted out.
 - `tests/test_venue_quality.py` covers the "do not fetch it again" rule hermetically:
   the preprint/truncation/missing predicates, the full-name check (including name
   particles and initial-only lists), the four citation-level combinations, and both

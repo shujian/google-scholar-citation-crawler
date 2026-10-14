@@ -715,28 +715,36 @@ class CiteCacheTests(unittest.TestCase):
 
 class CliWiringTests(unittest.TestCase):
 
-    def test_the_flag_defaults_to_off(self):
+    def test_the_flag_is_unspecified_by_default(self):
+        """None means "not given", so the config file / default decides."""
         from code.cli import parse_args
         args = parse_args(['--author', 'abc'])
-        self.assertFalse(args.cite_formats)
+        self.assertIsNone(args.cite_formats)
 
     def test_the_flag_enables_the_step(self):
         from code.cli import parse_args
         args = parse_args(['--author', 'abc', '--cite-formats'])
         self.assertTrue(args.cite_formats)
 
-    def test_the_fetcher_has_it_off_by_default(self):
-        fetcher = sc.PaperCitationFetcher('test-author', output_dir='.')
-        self.assertFalse(fetcher.cite_formats)
+    def test_the_opt_out_disables_the_step(self):
+        from code.cli import parse_args
+        args = parse_args(['--author', 'abc', '--no-cite-formats'])
+        self.assertFalse(args.cite_formats)
 
-    def test_the_fetcher_takes_the_flag(self):
-        fetcher = sc.PaperCitationFetcher('test-author', output_dir='.',
-                                          cite_formats=True)
+    def test_the_fetcher_has_it_on_by_default(self):
+        """The Cite dialog is the only source of full authors + full venue."""
+        fetcher = sc.PaperCitationFetcher('test-author', output_dir='.')
         self.assertTrue(fetcher.cite_formats)
+
+    def test_the_fetcher_takes_an_explicit_override(self):
+        self.assertTrue(sc.PaperCitationFetcher('test-author', output_dir='.',
+                                                cite_formats=True).cite_formats)
+        self.assertFalse(sc.PaperCitationFetcher('test-author', output_dir='.',
+                                                 cite_formats=False).cite_formats)
 
 
 class SaveOutputWiringTests(unittest.TestCase):
-    """``_save_output`` enrichment is additive and strictly opt-in."""
+    """``_save_output`` enrichment is additive; the step is on unless opted out."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -750,9 +758,11 @@ class SaveOutputWiringTests(unittest.TestCase):
             'citation_for_view': '', 'venue_full': '', 'venue_full_source': '',
         }
 
-    def _fetcher(self, cite_formats):
+    def _fetcher(self, cite_formats=None):
+        # cite_formats=None means "do not pass it at all", i.e. exercise the default.
+        kwargs = {} if cite_formats is None else {'cite_formats': cite_formats}
         fetcher = sc.PaperCitationFetcher('test-author', output_dir=self._tmp.name,
-                                          cite_formats=cite_formats)
+                                          **kwargs)
         fetcher._paper_states = {}
         fetcher._mid_paper_state = {}
         fetcher._profile_data = {'publications': [dict(self.pub)]}
@@ -776,6 +786,17 @@ class SaveOutputWiringTests(unittest.TestCase):
         self.assertEqual(cite['bibtex']['volume'], '8')
         self.assertIn('citation formats resolved: 1/1', output)
         self.assertTrue(os.path.exists(self.cache_path))
+
+    def test_the_default_fetcher_writes_the_cite_field(self):
+        """No flag at all: new rows must still carry the Cite-dialog data."""
+        nav = _FakeNav(pages={CID_PATH: default_page()}, bibs={BIB_URL: BIBTEX_TEXT})
+        saved, output = self._save(self._fetcher(), [citation()], nav)
+        cite = saved['papers'][0]['citations'][0]['cite']
+        self.assertEqual(cite['chicago'], CHICAGO)
+        # the BibTeX record carries the full author list of the citing paper
+        self.assertIn('Zhang, Jie and Bu, Haoyu', cite['bibtex']['author'])
+        self.assertIn('and Meng, Dan', cite['bibtex']['author'])
+        self.assertIn('citation formats resolved: 1/1', output)
 
     def test_cid_is_persisted_in_the_output(self):
         nav = _FakeNav(pages={CID_PATH: default_page()}, bibs={BIB_URL: BIBTEX_TEXT})

@@ -3185,3 +3185,16 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 （备份 `output/venue_key_backup_20261014_201404/`，幂等复跑 0 改动）。
 `VENUE_CANONICAL` 表与 `canonical_venue()` 函数**名字未改** —— 它们指的是"规范名"本身，
 且与 3.a.2 的同名概念对齐；若你希望这两个也跟着改，说一声。
+
+## 2026-10-15（续 5）: 保证新抓的数据都带 Cite 对话框信息（默认开启）
+
+> 请保证scholar新抓下来的数据中获取了该信息。
+
+把 Cite 对话框那一步从"可选"改成**默认开启**：新抓/重抓的每条引文都会写 `citation['cite']`
+（五种格式 + BibTeX），其中 **Chicago 给全作者全名**、**Vancouver 给 venue 全称 + 卷期页**、
+**BibTeX 的 `author` 也给全作者全名** —— 这三样正是引文列表页给不了的。
+用户若想省请求可显式 `--no-cite-formats`（或在 `crawler_config.json` 写 `"cite_formats": false`）。
+
+两个仍然成立的前提（已写进文档）：
+1. 只有带 `cid` 的条目能寻址对话框 —— 目前全库 39/9,028 条有（存量条目要重抓才会带上 `cid`）；
+2. 该条目 venue 已完整**且** authors 已是全名时**不发请求**（对话框没有新东西可给）。

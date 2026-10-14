@@ -1911,3 +1911,24 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 更新 229 条 pub + 2,779 条引文文件记录，改完后字段分布 = `normalized` 229+2,550、`raw` 8+5,257、
 `null` 4+1,221；幂等复跑 0 改动。下游无人读取该值（全仓 grep 确认），故无兼容性问题。
 `VENUE_CANONICAL` / `canonical_venue()` 名字保留（指"规范名"、与 3.a.2 对齐）。
+
+## 2026-10-15（续 5）: Cite 对话框步骤默认开启（用户要求"新抓的数据必须带该信息"）
+
+用户口径："请保证 scholar 新抓下来的数据中获取了该信息"（指 `cite.chicago` 等 Cite 对话框数据）。
+
+- `code/config.py`：新增常量 `CITE_FORMATS = True` 与 `resolve_cite_formats(cli_value, config_path)`
+  → 返回 `(enabled, source)`，优先级 **命令行 > `crawler_config.json` 的 `cite_formats` 键 > 默认开启**
+  （与 `resolve_proxy_config` 同一套写法）；`code/common.py` 相应再导出。
+- `code/cli.py`：`--cite-formats` 默认值改为 `None`（"未指定"），新增 `--no-cite-formats`
+  显式关闭；help 写明"默认开启、关掉就只有列表页的缩写作者与截断 venue"。
+- `code/scholar_citation.py`：`PaperCitationFetcher.__init__` 的 `cite_formats` 默认改为 **True**；
+  `main()` 用 `resolve_cite_formats()` 解析并把生效值传给 fetcher（debug 日志记来源；
+  `--no-cite-formats` 时打印一行提示）；短路消息与横幅措辞改为不再依赖 `--cite-formats`。
+- 测试：`ResolveCiteFormatsTests`（4 例：默认开 / 配置文件可关 / CLI 覆盖文件 / 其它键不影响）、
+  `CliWiringTests` 更新与新增（未指定为 `None`、`--cite-formats` 开、`--no-cite-formats` 关、
+  fetcher 默认开、显式覆盖两侧）；全套 **459 → 464 例**全绿。
+- 文档：`AGENTS.md`（CLI、配置约定、Phase 2、`cite_format.py` 模块段、测试表）、`README.md`
+  （Features、CLI 参考、Citation Formats 一节标题与正文）；根 `AGENTS.md` 数据契约补一句
+  `citation['cite']` 的现状。
+- **未做真机验证**：这类改动要真跑一次抓取才能看到对话框请求的成功率（当前 Scholar 限流状态未知），
+  留待下次运行；行为上"失败不写缓存、下次重试、不中断主流程"由既有 38 例测试覆盖。
