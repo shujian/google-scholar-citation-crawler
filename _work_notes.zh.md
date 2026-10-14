@@ -1087,3 +1087,84 @@ stub 放回去（与既有 `test_real_scholarly_still_exposes_every_patched_hook
 `httpx.Client(http2=True)` 在 0.27.2 上构造时就 `import h2`，缺包抛 `ImportError`（不是发请求时才抛）。
 `httpx[http2]` 只是 extras 语法，装的东西与 `httpx` 相同外加 `h2`，所以对外行为不变。
 守卫测试读 `requirements.txt` 断言 `httpx[http2]==`，把"干净安装能跑起来"钉在源码层。
+
+## 2026-10-14: 出版详情页 → venue_full（抓取、解析、缓存）
+
+### 页面与 token
+
+- 详情页 URL 模板用 **scholarly 自己的** `publication_parser._CITATIONPUB`
+  （`/citations?hl=en&view_op=view_citation&citation_for_view={0}`）。实测带不带 `&user=` 都返回同一页
+  （都 200 / ~89 KB），所以不自己发明形状；`nav._get_soup()` 会**前置域名**
+  （`'https://scholar.google.com' + url`），因此必须传**相对路径**（传绝对 URL 会拼成坏 URL）。
+- token（`<author_id>:<token>`）**不必**从详情页找：作者 profile 页的标题链接
+  （`a.gsc_a_at`，scholarly 的 `_citation_pub` 用正则 `citation_for_view=([\w-]*:[\w-]*)` 抽出）
+  就是详情页链接。scholarly 存成 `publication['author_pub_id']`，我们的 patched
+  `_citation_pub` 又把同一个 href 存成 `pub_url`。于是：
+  - 新抓的 profile：`PubInfo.from_scholarly()` 用 `author_pub_id`，URL 兜底；
+  - **旧 profile（没有该字段）也能用**：`PubInfo.from_dict()` 从 `url` 里解析。
+  现存 `output/author_HF3-E9kAAAAJ_profile.json` 的 241 条里 241 条都能解析出 token（0 缺失）。
+- 详情页是「自己 profile 的论文」，所以量级是**每篇源论文一次**（241），而不是每个施引条目一次（8,998）。
+
+### 抓取机制（复用，不新起一套）
+
+- 用 `scholarly._Scholarly__nav._get_soup(rel_path)` —— 与 **year probe** 完全同一入口，
+  于是自动经过 `patched_get_page()`：请求前 `rand_delay(delay_scale)`（45–90 s × `--accelerate`）、
+  `PageVisit` 的 captcha/重试/5–10 min cooldown/代理切换提示、页数计数与 session 刷新判定。
+  本模块**不**直接碰 `page_visit.py` / `scholarly_session.py`（它们只在 patched session 里成立）。
+- 调用位置在 **Phase 1**（`AuthorProfileFetcher.run()` 里、写 profile 之前）。`main()` 在 Phase 1
+  之前就已 `_patch_scholarly()`，所以延迟等逻辑天然生效；放 Phase 2 的问题是
+  `has_pending_work()` 为假时整段被跳过。
+- `nav._get_soup` 不存在时（例如被单测替身/未 patch 的会话）只打印一行提示并返回 None，
+  profile 照旧保存，`venue_full` 留空。
+
+### 解析：为什么必须按「标签-值配对」
+
+真实页面结构（实测抓下来的 89 KB 页面）：
+
+```html
+<div id="gsc_oci_table">
+  <div class="gs_scl"><div class="gsc_oci_field">Authors</div><div class="gsc_oci_value">…</div></div>
+  <div class="gs_scl"><div class="gsc_oci_field">Publication date</div><div class="gsc_oci_value">2024/6</div></div>
+  <div class="gs_scl"><div class="gsc_oci_field">Conference</div><div class="gsc_oci_value">Proceedings of …</div></div>
+  …
+</div>
+```
+
+**坑（用户也踩过）**：页面 `<head>` 里有一大段 `<style>`，其中就有
+`.gsc_oci_field{float:left;…}` 与 `.gsc_oci_value{margin-left:116px;…}`。任何
+"`gsc_oci_value[^>]*>(.*?)<`" 式的朴素正则会把 CSS 文本当成字段值（还会把字段错位）。
+因此解析用 BeautifulSoup DOM 配对：`div.gs_scl` → `gsc_oci_field`（标签）+ `gsc_oci_value`（值），
+标签小写化，值 `get_text(' ')` 后再 `' '.join(split())` 规范化空白（换行/多空格/`\xa0` 都压成单空格）。
+测试里专门放了一段写着 `.gsc_oci_value{…}` 的 `<style>` 来钉这个行为。
+
+**标签集合**：实测同一作者多篇论文（TACL / ICLR / ACM TKDD / Nature Comput. Sci. / 中文信息学报 /
+arXiv）**全部**把 venue 放在 `Journal` 行（连 ICLR 这种会议也是 `Journal => International Conference on
+Learning Representations`），只有部分会议论文用 `Conference`。所以判定是**标签集合**而不是按论文类型映射：
+`journal / conference / book / publication / periodical`，按页面顺序取第一个有非空值的。
+本 profile 首轮 11 条命中里 `journal` 与 `conference` 都出现过。
+
+**没有字段表 = 抓取失败，不是"没有 venue"**：captcha / consent / 跳转页没有任何 `gs_scl` 行，
+`parse_detail_fields()` 返回 `{}`，调用方记为 `failed` 且**不写缓存**（下次重试）。
+真正的"有表格但缺 venue 标签"才记 `no_venue_field` 并写缓存（避免每轮重复请求同一页）。
+
+### 缓存与续跑
+
+- `output/venue_detail_cache.json`：`{token: {status, venue_full, venue_label, fetched_at}}`，
+  `status ∈ {ok, no_venue_field}`，用 `write_json_atomic()` **每抓一页写一次**（文件才几十 KB），
+  所以 Ctrl+C/崩溃都不丢已抓到的进度。
+- 命中缓存的 token **不发请求**；`failed` 的 token 不写缓存 → 下轮自动重试；
+  缓存文件损坏只告警并按空缓存继续（不会让整轮抓取失败）。
+- `KeyboardInterrupt` 不是 `Exception`，会继续向上抛（编排只 catch `Exception`），所以 Ctrl+C 立刻生效
+  且已抓进度在缓存里。
+
+### 边界与已知取舍
+
+- **`venue` 绝不覆盖**：见 `_update_history.zh.md` 同日条目（身份键漂移）。
+- 抓不到时写**空字符串**（不是 null、也不是删 key）：`PubInfo.to_dict()` 是固定 schema，
+  下游 `.get('venue_full')` 语义稳定。
+- **`--skip/--limit` 不限制详情页**：详情页按"每篇 publication"抓，属于 Phase 1；曾实现过窗口后主动
+  回退（要改构造签名 + 既有测试替身，是用户未要求的额外行为）。缓存让"先试几篇再续跑"仍然可行
+  （中途停掉即可）。
+- **输出文件何时带上 `venue_full`**：`_save_output()` 用 `PubInfo.from_dict(pub).to_dict()` 重建
+  `pub`，所以只要 Phase 2 跑过一次，`author_<ID>_paper_citations.json` 就会带上它；若某轮
+  "无变化 + 无待抓" 直接跳过 Phase 2，输出文件保持旧内容（下次真跑才更新）。这一条已记入 `issues.md`。

@@ -1632,3 +1632,38 @@ ICANON-only 方案解决 SSH/tmux 下粘贴 cURL 卡死问题。
 - `AGENTS.md` 目录树里删掉不存在的 `environment.yml`；测试例数 266 → 273；
   「Interactive recovery」补一句"24h 窗口随 `--accelerate` 缩放"；依赖节改为 `httpx[http2]==0.27.2`。
 - `README.md`：依赖行、http2 extra 说明、"Proxy Switch Wait" 条目同步。
+
+## 2026-10-14: venue_full —— 从出版详情页取完整 venue（只加不覆盖）
+
+### 问题
+
+Google Scholar 的**引用列表页**（`scholar?cites=…`）给的 venue 是**截断**的（`Proceedings of the …`）：
+本 profile 实测 **106/241** 条被截断。而对**我们自己 profile 里的论文**，Scholar 还有一张**详情页**
+（`citations?view_op=view_citation&citation_for_view=<author>:<token>`），字段里给的是完整全称
+（实测 `user=HF3-E9kAAAAJ`、`citation_for_view=HF3-E9kAAAAJ:xtoqd-5pKcoC`：HTTP 200、89 KB，
+`Conference = Proceedings of the 2024 Conference of the North American Chapter of the Association for
+Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`）。
+在此之前 `code/` 里 `view_citation` / `citation_for_view` **0 命中** —— 这个页面从未抓过。
+
+### 改动
+
+- 新增 `code/venue_detail.py`：`citation_for_view` token 解析、详情页「标签-值配对」解析
+  （DOM 配对，避开页面开头 `<style>` 里的 `.gsc_oci_value{…}` 误判）、按 token 的 JSON 缓存、
+  以及逐条降级的编排函数。
+- `code/pub_info.py`：`pub` 新增 3 个字段 `citation_for_view` / `venue_full` / `venue_full_source`
+  （`to_dict()` 固定 schema；`from_dict()` 从存储字段或 `url` 恢复 token，旧 profile 无需重抓；
+  `from_scholarly()` 优先采用 scholarly 的 `author_pub_id`）。**`venue` 一个字节都不改。**
+- `code/author_fetcher.py`：新增 `fetch_venue_details()`，由 `run()` 在 publications 定稿后、
+  写 profile 之前调用；抓取走既有 patched session（`nav._get_soup`），单条失败/无 venue 字段只计数、
+  不写 `venue_full`、不中断抓取。
+- 测试：新增 `tests/test_venue_detail.py`（37 例，hermetic、不联网）。全套 **273 → 310 例**，全绿。
+- 文档：`AGENTS.md`（新增模块说明 / Phase 1 说明 / 依赖图 / 测试表 / 例数 20 模块 16 文件 310 例）、
+  `README.md`（Features 条目、Output Files 表加缓存文件、新增「Full Venue Strings (`venue_full`)」节、
+  项目结构、例数 256 → 310）。
+
+### 为什么绝不覆盖 `venue`
+
+`venue` 参与元数据身份键（`code/citation_identity.py` 的 `meta\t{title}\t{venue}`，下游 3.a 各阶段
+同口径，K123/K125 同类教训）。改写它会让历史身份键漂移、把已经分析过的数据重新判成"不符"。
+所以 `venue_full` 是**纯增量**字段，下游 3.a.1 以后可以优先采用它（本轮不改下游，已记入
+`issues.md`）。

@@ -2907,3 +2907,57 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 - ② 采纳"拒绝覆盖"的强解释：失败且旧 profile 有 publications 时**不写任何文件**（旧 JSON 逐字节不变），
   内存里保留旧列表并返回 True，让 Phase 2 继续用盘上的旧 profile。
 - 未按原文改的地方：无（`environment.yml` 确认不存在，按原文删掉 AGENTS.md 该行）。
+
+## 2026-10-14（阶段 1：venue_full —— 从出版详情页取完整 venue）
+
+用户原始输入（全文）：
+
+> 仓库：`/Users/huangshujian/Workspaces/citation_management/google-scholar-citation-crawler`（阶段 1 抓取）。**只改这一个仓库**，**不要 `git push`**。先读它的 `AGENTS.md` / `README.md` 与 `issues.md` / `suggestion.md` 的约定（该仓库要求：**英文 commit message**、并按既有惯例往中文备忘里**追加**记录）。
+>
+> ## 背景（已实测确认，不要推翻）
+>
+> Google Scholar 的**引用列表页**（`scholar?cites=…`）给我们的 venue 是**截断的**（如 `'Proceedings of the …'`），全库 **5,561/8,998** 条施引条目都这样；但对**我们自己 profile 里的论文**，Scholar 有一个**详情页**给出完整全称：
+>
+> ```
+> https://scholar.google.com.hk/citations?view_op=view_citation&hl=en&user=<USER_ID>&citation_for_view=<USER_ID>:<TOKEN>
+> ```
+>
+> 实测（`user=HF3-E9kAAAAJ`，`citation_for_view=HF3-E9kAAAAJ:xtoqd-5pKcoC`）：HTTP 200、89 KB，字段值里含 `Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics`（完整全称 ✓）。
+> 而 crawler 代码里 grep `view_citation` / `citation_for_view` / `view_op` **0 命中** —— 我们从未抓过这个页面。当前该 profile 的 `pub.venue` 截断 **106/241**。
+>
+> ## 要做的事（用户已批准的范围，就这 4 步）
+>
+> 1. **拿到每个 publication 的 `citation_for_view` token**：作者 profile 页（`citations?user=…`）里每个论文条目本来就有这个链接。在既有的 profile 解析路径里（`code/author_fetcher.py` 及其调用的解析函数）**顺便**把它解析出来并随 publication 记录保存。
+> 2. **对每个 publication 抓一次详情页**（不是每个施引条目 —— 量级是"源论文数"，这份数据 ~241，全库也就几百）：用仓库**既有**的会话/抓取机制（`code/fetch_session.py` 那一套；注意 `code/page_visit.py` / `code/scholarly_session.py` 在本仓库跑不起来，不要用），遵守既有的延迟/代理/重试逻辑（`min_delay`/`max_delay`、`--accelerate` 缩放、代理等待），并做**可续跑+缓存**（仓库已有 `code/citation_cache.py`，按你的判断复用或做同类机制）。
+> 3. **解析详情页字段**：字段是成对的 `gsc_oci_field`（标签）+ `gsc_oci_value`（值）。注意**开头有一段 `<style>` 会被朴素正则误当值**（我踩过），要按"标签-值配对"解析而不是只抓 `gsc_oci_value`。取 venue 类标签（`Journal` / `Book` / `Conference` / `Publication` 等，按实际页面确定），把值做**空白规范化**（连续空白/换行压成单空格）。
+> 4. **只加新字段，绝不覆盖 `venue`**：在 `pub` 上新增例如 `venue_full`（+ 来源标记如 `venue_full_source: "scholar_detail"`；抓不到就不写或写空）。**原因必须写进 docstring/文档**：`code/citation_identity.py` 用 `venue` 参与**元数据身份键**，覆盖它会让历史身份键漂移（与 K125/K123 同类教训）。
+>    下游（3.a.1 的 venue 修复）以后可以优先采用 `venue_full` —— 但**本轮不要改下游**。
+>
+> ## 验收与报告
+>
+> - **测试**：hermetic（夹具 HTML 片段放临时目录/内联、**不联网**），覆盖：token 解析（含一个条目没有该链接时优雅跳过）、详情页字段配对解析（含 `<style>` 干扰、字段顺序变化、缺失 venue 标签、空白/换行规范化）、新字段落盘且 **`venue` 逐字节不变**、抓取失败/网络异常时**优雅降级**（不写 `venue_full`、不中断整个抓取）、缓存/续跑行为。全套必须全绿（基线 **273 例**，报最终例数）。同步更新 `AGENTS.md`（模块说明/测试表/例数）与需要的 `README.md`。
+> - **真实覆盖率实测**（这是用户最想要的数字）：用 `user=HF3-E9kAAAAJ` 这一个作者**实际跑一次**（会发网络请求，请遵守延迟；如遇验证码/限流就停下并如实报告，不要硬闯），然后给出：241 个 publication 里原来截断 106 条中，**多少条拿到了完整 `venue_full`**、多少条抓取失败/无 venue 字段，并给 5 条前后对照样例。**只写 `output/` 下的新字段/缓存**，不要改动下游仓库任何东西。
+> - **提交**：英文 commit（按该仓库惯例），**不 push**；如该仓库要求往中文备忘追加记录，就照做。
+>
+> ## 最终用中文回报
+>
+> ①改了哪些文件、token 从哪来、详情页怎么抓/怎么缓存、字段怎么解析；②新增用例名与最终例数；③**真实覆盖率数字 + 5 条对照样例**；④commit hash；⑤你判断"不该这么做/有风险"的点（先别做）。
+
+执行说明（本次实际取舍）：
+
+- **token 来源**：作者 profile 页里每个论文条目的标题链接**本来就是**详情页链接，所以 `pub['url']`
+  里已经带 `citation_for_view=<author>:<token>`（现存 241 条 profile **全部**命中）；scholarly 自己
+  也把它存成 `author_pub_id`。因此**不需要重抓 profile**：`PubInfo` 从「存储字段 → `url`」依次解析，
+  旧 profile 直接可用。
+- **详情页抓取放在 Phase 1**（`AuthorProfileFetcher.run()` 末尾）：`main()` 在 Phase 1 之前就装好了
+  patched session，详情页走 `scholarly._Scholarly__nav._get_soup()`（与 year probe 同一入口），
+  延迟 / `--accelerate` 缩放 / captcha 恢复 / 代理等待全部照旧。放 Phase 2 的风险是
+  `has_pending_work()` 为假时整段会被跳过（本次实测为真，但不能依赖）。
+- **没有**给详情页加 `--skip/--limit` 窗口（曾实现，随后主动回退）：它要改
+  `AuthorProfileFetcher` 的构造签名并牵动既有测试替身，属于用户未要求的额外改动；缓存已保证可续跑。
+- **抓不到写空**（`venue_full: ""` / `venue_full_source: ""`）而不是删 key：`PubInfo` 是固定 schema，
+  下游 `.get()` 语义不变；`venue` 逐字节不变。
+- **真实覆盖率实测**用 `--accelerate 0.3`（约 20 s/请求）跑一次 `--author HF3-E9kAAAAJ`，
+  并在 Phase 1 结束、Phase 2 开始前停掉进程：避免顺带触发引文重抓（`has_pending_work()` 为真）。
+- 输出侧：`pub` 由 `_save_output()` 走 `PubInfo.from_dict()` 重建，所以只要 Phase 2 跑过一次，
+  `author_<ID>_paper_citations.json` 就会带上 `venue_full`。本次为控制范围**没有**让 Phase 2 跑。

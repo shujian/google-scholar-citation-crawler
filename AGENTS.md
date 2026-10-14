@@ -104,8 +104,9 @@ google-scholar-citation-crawler/
 
 详细项目结构见 `_work_notes.zh.md` 的「项目结构」节（含各模块中文说明），对外简介见 `README.md` 的「Development Notes → Project Structure」节。
 
-简况：`code/` 有 19 个支撑模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志，
-其中 `lib_env.py` 管第三方库环境）；`tests/` 有 273 个测试，15 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」）。
+简况：`code/` 有 20 个支撑模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志，
+其中 `lib_env.py` 管第三方库环境、`venue_detail.py` 管出版详情页的完整 venue）；`tests/` 有 310 个测试，
+16 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」）。
 
 ### 新增模块
 
@@ -118,6 +119,15 @@ google-scholar-citation-crawler/
   策略包装**：迭代/拆分/幂等/回写的引擎 `code/shared/lib_env.py::sanitize_entries()` 由阶段 1 提供，
   3.a.1 / 3.a.2 / 3.b 经各自的 `code/_shared.py` 消费同一个引擎（它们传「丢弃 + bool」策略，
   本仓库传「解括号 + 计数」，两侧行为与测试一字未改）。见根 AGENTS.md「跨仓库共享代码」。
+- **`code/venue_detail.py`**（2026-10-14）：从出版**详情页**
+  （`/citations?hl=en&view_op=view_citation&citation_for_view=<author>:<token>`）读**完整 venue**，
+  写进 `pub['venue_full']`（+ `venue_full_source: "scholar_detail"`）。引用列表页给的 venue 是
+  **截断**的；详情页字段是成对的 `gsc_oci_field`(标签) + `gsc_oci_value`(值)，解析按 DOM 配对
+  （页面开头有一段 `<style>` 提到 `.gsc_oci_value{…}`，朴素正则会把 CSS 当值）。**绝不覆盖
+  `pub['venue']`**：它参与 `code/citation_identity.py` 的元数据身份键 `meta\t{title}\t{venue}`
+  与下游身份校验（K123/K125 同类教训），改写会让历史身份键漂移。抓取走**既有的 patched session**
+  （`scholarly._Scholarly__nav._get_soup()`，与 year probe 同一入口），所以延迟/`--accelerate`/
+  captcha/代理等待照旧；缓存 `output/venue_detail_cache.json` 按 token 记录已解析页面，可续跑。
 - **`run.sh`**：便捷入口，自动检测 conda 环境后执行 `python -m code.scholar_citation`。
 
 ## Architecture overview
@@ -128,6 +138,9 @@ The program always runs in two sequential phases from `main()`:
 - Fetches author basic info and publication list from Google Scholar every run
 - Detects citation-count changes by comparing with the previous profile
 - Sorts publications by citation count (descending) before downstream processing
+- Fetches each publication's Scholar **detail page** once and stores the untruncated
+  venue in the additive `pub['venue_full']` field (`code/venue_detail.py`); the
+  truncated `pub['venue']` is never rewritten
 - Maintains `change_history` inside `author_<ID>_profile.json`
 - Writes both JSON and formatted Excel outputs
 
@@ -203,15 +216,16 @@ code/scholar_citation.py  (orchestrator + PaperCitationFetcher — python -m cod
   ├── code.lib_env                (env staging for third-party libs + NO_PROXY normalise + proxy bridge)
   ├── code.common                 (utilities, backward-compat re-exports from config)
   ├── code.log_utils              (structured logging — setup_logging, get_logger)
-  ├── code.author_fetcher         ← code.profile_io
-  ├── code.profile_io             ← (no intra-package deps)
+  ├── code.author_fetcher         ← code.profile_io, code.venue_detail
+  ├── code.profile_io             ← code.pub_info
+  ├── code.venue_detail           ← code.common (detail-page parsing + venue cache; bs4)
+  ├── code.pub_info               ← code.citation_cache, code.venue_detail
   ├── code.citation_cache         (pure year/diagnostics functions)
   ├── code.citation_strategy      ← code.citation_cache
   ├── code.citation_identity      (pure dedup / info extract)
   ├── code.citation_io            ← code.citation_cache, code.citation_strategy
   ├── code.citation_models        (dataclasses for citations, diagnostics, resume state)
   ├── code.output_state           ← code.citation_io, code.citation_cache
-  ├── code.pub_info               (PubInfo dataclass)
   ├── code.citation_fetch         ← code.common, code.fetch_session, code.citation_cache, code.citation_models
   ├── code.fetch_session          ← code.citation_models, code.output_state, code.common
   ├── code.page_visit             (per-page captcha/proxy/retry recovery)
@@ -239,6 +253,11 @@ dependencies are stubbed in `tests/conftest.py`).
 - `tests/test_proxy_config.py` covers config-file loading and the CLI > file > system-default
   proxy resolution (temporary files + patched environment, never the developer's real
   `crawler_config.json`).
+- `tests/test_venue_detail.py` covers the `venue_full` step hermetically: token parsing
+  (stored field / legacy URL / no link at all), detail-page field pairing (the `<style>`
+  trap, reordered rows, missing venue label, whitespace collapsing), the new fields
+  surviving a profile round trip with `venue` byte-identical, graceful degradation
+  (request error, page without a field table, interrupt) and cache/resume behaviour.
 - When changing year-based fetching, resume behavior, or CLI flags, update the
   corresponding test file first rather than adding integration coverage.
 

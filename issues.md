@@ -46,3 +46,20 @@
    写入日志文件；只有 `code/log_utils.py` 与 `code/scholar_citation.py` 使用 `get_logger()`。
    约定是**新代码一律用 logger**，存量在后续迭代里逐步迁移；全部迁完才可能移除 `TeeStream`
    （2026-07-05 的跨项目代码评审留下的「后续建议」，至今未做）。
+
+## 五、下游 3.a.1（另一个独立 git 仓库）：venue 修复可优先用 `venue_full`
+
+2026-10-14 起，阶段 1 会在 `pub` 上多写三个**只增不改**的字段：`citation_for_view`（出版详情页的
+token）、`venue_full`（详情页给的**未截断** venue）、`venue_full_source`（目前恒为 `"scholar_detail"`）。
+本 profile 实测 241 篇里有 **106 篇**的 `venue` 是被 Scholar 列表页截断的。
+
+→ 建议：3.a.1 的 venue 修复**优先采用 `venue_full`**（为空时回退 `venue`）。**阶段 1 本轮不改下游**；
+`venue` 自身仍旧绝不覆盖（它参与元数据身份键，见本仓库 `AGENTS.md`）。
+
+两个给下游的提醒：
+
+1. `venue_full` 只在阶段 1 的 **Phase 2 跑过一次**之后才会出现在
+   `output/author_<ID>_paper_citations.json` 里（`pub` 由 `_save_output()` 重建）。若某轮
+   「总数无变化 + 无待抓引文」直接跳过 Phase 2，输出文件保持旧内容（profile JSON 仍然是新的）。
+2. 详情页抓取是**每篇源论文一次**网络请求（241 量级），受 `--accelerate` 缩放、约 20–65 s/篇；
+   缓存 `output/venue_detail_cache.json` 可续跑，删掉它才会重新请求。

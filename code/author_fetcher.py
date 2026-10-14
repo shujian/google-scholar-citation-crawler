@@ -1,6 +1,11 @@
 """
 code/author_fetcher.py — AuthorProfileFetcher: fetch author profile data
 from Google Scholar and persist as author_<ID>_profile.json / .xlsx.
+
+Phase 2 of this class also fills ``pub['venue_full']`` from each publication's
+Scholar detail page (one request per publication, cached in
+``output/venue_detail_cache.json``); see ``code/venue_detail.py`` for why the
+truncated ``venue`` field is never overwritten.
 """
 
 import os
@@ -17,6 +22,10 @@ from code.profile_io import (
     build_profile_count_summary,
     save_profile_xlsx as write_profile_xlsx,
 )
+from code.venue_detail import (
+    CACHE_FILENAME as VENUE_DETAIL_CACHE_FILENAME,
+    enrich_publications_with_venue_full,
+)
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 
@@ -30,6 +39,7 @@ class AuthorProfileFetcher:
         # Output files
         self.profile_json = os.path.join(output_dir, f"author_{author_id}_profile.json")
         self.profile_xlsx = os.path.join(output_dir, f"author_{author_id}_profile.xlsx")
+        self.venue_detail_cache = os.path.join(output_dir, VENUE_DETAIL_CACHE_FILENAME)
 
         print(f"Output files: author_{author_id}_profile.json / .xlsx")
 
@@ -165,6 +175,30 @@ class AuthorProfileFetcher:
     # I/O helpers
     # ------------------------------------------------------------------
 
+    def fetch_venue_details(self, publications):
+        """Fill ``pub['venue_full']`` from each publication's Scholar detail page.
+
+        One request per publication (hundreds, not one per citing entry),
+        issued through the patched scholarly session that ``main()`` installs
+        *before* this class runs, so the standard waits, ``--accelerate``
+        scaling, captcha recovery and proxy prompts all still apply.  Pages
+        parsed by an earlier run come from ``output/venue_detail_cache.json``.
+
+        Returns the stats dict, or None when no navigator is available (in which
+        case ``venue_full`` simply stays empty — the profile is still written).
+        """
+        nav = getattr(scholarly, '_Scholarly__nav', None)
+        get_soup = getattr(nav, '_get_soup', None)
+        if not callable(get_soup):
+            print("  Publication detail pages unavailable (no scholarly "
+                  "navigator); leaving venue_full empty.")
+            return None
+        return enrich_publications_with_venue_full(
+            publications,
+            cache_path=self.venue_detail_cache,
+            get_soup=get_soup,
+        )
+
     def load_prev_profile(self):
         """Load the previous profile from the output JSON file."""
         return AuthorProfile.load(self.profile_json)
@@ -247,6 +281,19 @@ class AuthorProfileFetcher:
             publications = []
 
         print(f"\nFetch complete: {len(publications)} publications")
+
+        # Full venue strings: one detail-page request per publication (cached
+        # across runs).  Pure addition — pub['venue'] is left alone.
+        print("\n" + "=" * 70)
+        print("  Fetching full venue strings (publication detail pages)")
+        print("=" * 70)
+        venue_stats = self.fetch_venue_details(publications)
+        if venue_stats:
+            print(f"  venue_full resolved: {venue_stats['resolved']}/{venue_stats['total']} "
+                  f"(fetched {venue_stats['fetched']}, cached {venue_stats['cache_hits']}, "
+                  f"no venue field {venue_stats['no_venue_field']}, "
+                  f"failed {venue_stats['failed']}, "
+                  f"no token {venue_stats['missing_token']})")
 
         # Build the new profile
         profile = AuthorProfile(

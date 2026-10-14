@@ -17,6 +17,7 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 - **Two different completeness signals**: `fetch_complete` in the output is the *data* verdict (does every probed year have its rows?), while `_fetch_state.complete_fetch_attempt` records whether the last attempt finished cleanly (a blocked/empty page makes it false). `--fetch-mode rough` reads the latter
 - **Resume Support**: Interrupted fetches resume from the last checkpoint; on exit the in-flight paper's state (citations fetched so far + the live year probe) is written to the output, so a year left short is re-fetched next run instead of being reported complete
 - **Anti-Ban Strategies**: HTTP/2 via scholarly's native `httpx` client with full browser headers (fingerprint adopted from the injected browser cURL), randomized 45–90 s delays, mandatory 3–6 min breaks every 8–12 pages, browser header simulation
+- **Full venue strings (`venue_full`)**: the citation-list pages truncate venues (`Proceedings of the 2024 Conference of the North American Chapter of the …`). Each publication's Scholar *detail* page (`citations?view_op=view_citation&citation_for_view=…`) is therefore fetched once per run to read the untruncated value — one request per publication (hundreds), not per citing entry (thousands). It is stored in a **new** field `pub['venue_full']` (plus `pub['venue_full_source'] = "scholar_detail"` and the detail-page token `pub['citation_for_view']`); `venue` itself is never rewritten, because it takes part in identity keys downstream. The requests go through the same patched session (same waits, `--accelerate` scaling, captcha recovery, proxy prompt), and parsed pages are cached in `output/venue_detail_cache.json` — so an interrupted run resumes and a later run asks for nothing twice
 - **Interactive Captcha Bypass**: `--interactive-captcha` lets you paste a browser cURL to inject real cookies and resume without restarting; if playwright is installed you can type `browser` at the prompt instead and let it harvest the cookies from a real browser window
 - **Proxy Switch Wait**: On non-interactive failure, prompts hourly to switch proxy/IP until you type `ok` (the 24 h window scales with `--accelerate`)
 - **Change Tracking**: Records per-run citation-count history in the profile JSON
@@ -127,7 +128,40 @@ prints a warning, and the JSON is left untouched.
 | `author_<ID>_profile.xlsx` | Excel: Author Overview, Publications, Change History |
 | `author_<ID>_paper_citations.json` | Per-paper citation lists |
 | `author_<ID>_paper_citations.xlsx` | Excel: Summary, All Citations, Run Metadata |
+| `venue_detail_cache.json` | Publication detail pages already parsed (`citation_for_view` token → full venue). Makes the `venue_full` step resumable; safe to delete to re-read every page |
 | `output/logs/author_<ID>_run_<ts>.log` | Full log of each run (mirrors stdout) |
+
+## Full Venue Strings (`venue_full`)
+
+Scholar's citation-list pages truncate the venue (`Proceedings of the 2024
+Conference of the North American Chapter of the …`), so the profile step ends by
+reading each publication's **detail page** once
+(`citations?hl=en&view_op=view_citation&citation_for_view=<author>:<token>`),
+where the field is spelled out in full:
+
+```json
+{
+  "venue": "Proceedings of the 2024 Conference of the North American Chapter of the …, 2024",
+  "venue_full": "Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)",
+  "venue_full_source": "scholar_detail",
+  "citation_for_view": "HF3-E9kAAAAJ:xtoqd-5pKcoC"
+}
+```
+
+Notes:
+
+- One request per **publication** (hundreds), not per citing entry (thousands).
+- Requests go through the same patched session as everything else, so the
+  standard delays, `--accelerate` scaling, captcha recovery and proxy wait all
+  apply. `output/venue_detail_cache.json` records every parsed page, so an
+  interrupted run resumes and a later run issues no request for a page it
+  already has. A page whose request failed is **not** cached and is retried next
+  run; a publication that cannot be resolved simply keeps `venue_full: ""` and
+  the rest of the run continues.
+- **`venue` is never overwritten.** It takes part in metadata identity keys
+  (`code/citation_identity.py`, and the downstream stages' identity checks), so
+  rewriting it would drift keys that historical data was analysed under.
+  `venue_full` is purely additive.
 
 ## Rate Limiting & Anti-Ban Strategies
 
@@ -294,13 +328,14 @@ code/
   citation_models.py         # YearRecord, ResumeState, FetchPolicy dataclasses
   output_state.py            # PaperFetchState / PaperState + output file _fetch_state read/write
   pub_info.py                # PubInfo dataclass for publication field normalization
+  venue_detail.py            # venue_full from the publication detail page (+ its cache)
   log_utils.py               # setup_logging() / get_logger()
   cli.py                     # parse_args() only — the entry point is code.scholar_citation.main()
   fix_diag_from_year_record.py  # repair tool: rebuild diagnostics from source records
   fix_output_fetch_state.py     # repair tool: re-sync _fetch_state with cache files
   examples/run_example.sh    # minimal example invocation
 output/                      # crawl products (author_*.json/.xlsx) + logs/
-tests/                       # 256 unit tests, no network required
+tests/                       # 310 unit tests, no network required
 run.sh                       # thin launcher: conda-aware python -m code.scholar_citation
 crawler_config.json          # machine-local runtime config (gitignored)
 ```
