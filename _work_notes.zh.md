@@ -1004,3 +1004,17 @@ scholarly 的自动分页与手动分页冲突，`original_next` 自动加载下
 `browser` 关键字路由、收割失败回落粘贴、空输入跳过、无 playwright/无 TTY 时不动作、
 合成 cURL 含 cookie 与身份三件套且三件套在 `_CURL_HEADER_ALLOWLIST` 内。
 
+
+## NO_PROXY 消毒：引擎与策略分离（2026-10-14）
+
+四个仓库过去各有一份 `sanitize_no_proxy`，且**行为已分叉**（本仓库解括号 + 计数；3.a.1/3.a.2/3.b
+丢弃 + bool），两边都有测试钉死，所以共享的是**引擎而不是策略**：
+
+- 引擎（`code/shared/lib_env.py::sanitize_entries`，宿主＝阶段 1）：`env` 默认 `os.environ`、
+  遍历两种大小写、`raw` 没有 `[` 就跳过、按 `,` 拆分并 trim、命中计数、`join` 后回写、幂等。
+- 策略参数：`keys`（哪些变量）、`pattern`（编译好的正则，可带捕获组）、`unwrap`（命中后保留捕获组
+  还是整条丢弃）、`count`（返回计数还是 bool）、`always_write`（含 `[` 但没命中时是否照样回写 ——
+  本仓库历史行为是回写）。
+- 跨仓库消费路径：3.x 各自的 `code/_shared.py` 把阶段 1 的 `code/` 追加进 `sys.path`（机制 A，
+  `shared` 是 PEP 420 命名空间包），然后 `from shared.lib_env import sanitize_entries`。
+- 解码细节：`ast.get_source_segment()` 会去掉首行缩进，改文件时要补回 4 空格，否则语法错误。

@@ -105,7 +105,7 @@ google-scholar-citation-crawler/
 详细项目结构见 `_work_notes.zh.md` 的「项目结构」节（含各模块中文说明），对外简介见 `README.md` 的「Development Notes → Project Structure」节。
 
 简况：`code/` 有 19 个支撑模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志，
-其中 `lib_env.py` 管第三方库环境）；`tests/` 有 257 个测试，14 个文件。
+其中 `lib_env.py` 管第三方库环境）；`tests/` 有 266 个测试，15 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」）。
 
 ### 新增模块
 
@@ -114,7 +114,10 @@ google-scholar-citation-crawler/
   `code/common.py` 中的常量已迁移至此并保持向后兼容 re-export。
 - **`code/log_utils.py`**：结构化日志系统。`setup_logging(verbose, log_file)` 配置 console + 可选 file handler；活入口 `code.scholar_citation.main()` 只启用 console handler（它写 `sys.stdout`，也就是 `TeeStream`），因为再挂一个 FileHandler 会成为同一文件的第二个写者并互相覆盖。现有 `print()` 调用仍通过 `TeeStream` 写入日志文件；新增代码应使用 `get_logger()` 获取 logger 并调用结构化日志方法。
 - **`code/lib_env.py`**（2026-10-10）：第三方库环境摆设 + `NO_PROXY` 规范化 + 代理环境桥接，
-  是允许出现 `os.environ` 的唯一模块（见上）。
+  是允许出现 `os.environ` 的唯一模块（见上）。**2026-10-14 起它的 `sanitize_no_proxy()` 只是一层
+  策略包装**：迭代/拆分/幂等/回写的引擎 `code/shared/lib_env.py::sanitize_entries()` 由阶段 1 提供，
+  3.a.1 / 3.a.2 / 3.b 经各自的 `code/_shared.py` 消费同一个引擎（它们传「丢弃 + bool」策略，
+  本仓库传「解括号 + 计数」，两侧行为与测试一字未改）。见根 AGENTS.md「跨仓库共享代码」。
 - **`run.sh`**：便捷入口，自动检测 conda 环境后执行 `python -m code.scholar_citation`。
 
 ## Architecture overview

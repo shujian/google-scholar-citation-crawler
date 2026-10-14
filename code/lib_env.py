@@ -29,6 +29,7 @@ httpx has no other channel for proxy settings.
 
 import os
 import re
+from code.shared.lib_env import sanitize_entries
 
 # ---- selenium / webdriver_manager telemetry -------------------------------
 
@@ -74,24 +75,19 @@ def sanitize_no_proxy(env=None):
     Call this BEFORE importing scholarly (importing ``code`` does it
     automatically via ``code/__init__.py``).  Returns the number of rewritten
     entries; the operation is idempotent.
+    
+    迭代 / 拆分 / 幂等 / 回写 那一半逻辑现在只有一份：阶段 1 的
+    `code/shared/lib_env.py::sanitize_entries()`（本侧只传自己的「策略」：哪些变量、哪个正则算命中、
+    命中后怎么办、返回什么）。
     """
-    env = os.environ if env is None else env
-    changed = 0
-    for name in ('NO_PROXY', 'no_proxy'):
-        raw = env.get(name)
-        if not raw or '[' not in raw:
-            continue
-        parts = []
-        for token in raw.split(','):
-            entry = token.strip()
-            match = _NO_PROXY_BRACKET_RE.match(entry)
-            if match:
-                parts.append(match.group(1))
-                changed += 1
-            else:
-                parts.append(entry)
-        env[name] = ','.join(parts)
-    return changed
+    return sanitize_entries(
+        env,
+        keys=('NO_PROXY', 'no_proxy'),
+        pattern=_NO_PROXY_BRACKET_RE,
+        unwrap=True,        # 本侧语义：解括号 `[::1]` -> `::1`
+        count=True,         # 返回被改写的条目数
+        always_write=True,  # 含 `[` 就回写（历史行为）
+    )
 
 
 # ---- ambient proxy fallback (last resort) ---------------------------------
