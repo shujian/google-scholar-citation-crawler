@@ -49,7 +49,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from code.common import write_json_atomic  # noqa: E402
-from code.venue_key import resolve_venue_key  # noqa: E402
+from code.venue_key import citation_venue_key, resolve_venue_key  # noqa: E402
 
 PROFILE_GLOB = 'author_*_profile.json'
 CITATIONS_GLOB = 'author_*_paper_citations.json'
@@ -93,7 +93,9 @@ def _scan_pub(pub, stats, unknown):
 
 
 def _scan_citation(citation, stats, unknown):
-    key, source = resolve_venue_key(citation.get('venue'), citation.get('year'))
+    # citation_venue_key() prefers the Cite dialog's BibTeX venue when the row has
+    # one (it is untruncated), and otherwise behaves like the old call.
+    key, source = citation_venue_key(citation)
     stats['total'] += 1
     if key is None:
         stats['no_venue'] += 1

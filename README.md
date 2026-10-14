@@ -216,6 +216,13 @@ every citing entry therefore carry a normalized key: **venue name + year**.
   apart, and the two spellings `NIPS` / `ACMMM` collapse onto `NeurIPS` / `ACM MM`.
 - The year is the first 4-digit year inside the venue string (the conference
   edition), falling back to the record's own `year`.
+- **A citing entry prefers the Cite dialog's venue**: `citation['cite'].bibtex`
+  carries `journal` / `booktitle` / `series` untruncated, so `venue_key` is derived
+  from it whenever the dialog data is present, and only falls back to the
+  citation-list `venue` (cut off at ~25 characters) otherwise.  The five formatted
+  strings are deliberately not parsed — the venue sits between the authors, the
+  title and the volume there, and reading the title as the venue would
+  mis-normalize the key.
 - **Unknown venues keep their own text** (`venue_key_source: "raw"`) so the values
   are reviewable; a row with no venue at all (empty / `NA` / `N/A`) gets
   `venue_key: null`, because a key of `NA` would merge unrelated records. Citation
@@ -260,7 +267,8 @@ scholar?q=info:<cid>:scholar.google.com/&output=cite&scirp=0&hl=en
 One request returns all five formats, plus a signed BibTeX link in the same HTML.
 They are stored in a new, purely additive field (this runs by default — pass
 `--no-cite-formats` to skip the requests, at the cost of keeping the list page's
-abbreviated authors and truncated venue):
+abbreviated authors and truncated venue).  Storing them also refreshes
+`venue_key` from the BibTeX venue, which is the untruncated one:
 
 ```json
 {

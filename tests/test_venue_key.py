@@ -18,6 +18,9 @@ from tests.conftest import patch  # noqa: E402,F401  (installs the stubs)
 from code.venue_key import (  # noqa: E402
     SOURCE_NORMALIZED,
     SOURCE_RAW,
+    citation_venue_key,
+    cite_dialog_venue,
+    SOURCE_RAW,
     VENUE_CANONICAL,
     canonical_venue,
     describe_venue_key,
@@ -225,6 +228,61 @@ class KeyShapeTests(unittest.TestCase):
             self.assertTrue(full_name, name)
             for alias in aliases:
                 self.assertNotEqual(alias, '', name)
+
+
+class CiteDialogVenueTests(unittest.TestCase):
+    """A citing entry prefers the Cite dialog's BibTeX venue over the list page."""
+
+    def test_bibtex_journal_wins_over_the_list_page_venue(self):
+        citation = {'venue': 'Proceedings of the 2025 …', 'year': '2025',
+                    'cite': {'bibtex': {'journal': 'Cybersecurity', 'volume': '8'}}}
+        self.assertEqual(citation_venue_key(citation), ('Cybersecurity', SOURCE_RAW))
+
+    def test_a_known_conference_in_the_bibtex_booktitle_is_normalized(self):
+        citation = {
+            'venue': 'Proceedings of the 2025 …', 'year': '2025',
+            'cite': {'bibtex': {
+                'booktitle': 'Proceedings of the 62nd Annual Meeting of the '
+                             'Association for Computational Linguistics'}},
+        }
+        self.assertEqual(citation_venue_key(citation), ('ACL2025', SOURCE_NORMALIZED))
+
+    def test_field_precedence_and_the_field_name(self):
+        citation = {'year': '2024', 'cite': {'bibtex': {
+            'journal': '', 'booktitle': 'Proceedings of the 2024 Conference on '
+                                        'Empirical Methods in Natural Language Processing',
+            'series': 'Lecture Notes in Computer Science'}}}
+        self.assertEqual(cite_dialog_venue(citation),
+                         ('Proceedings of the 2024 Conference on Empirical Methods '
+                          'in Natural Language Processing', 'booktitle'))
+        self.assertEqual(citation_venue_key(citation), ('EMNLP2024', SOURCE_NORMALIZED))
+
+    def test_placeholders_and_unrelated_fields_are_ignored(self):
+        for bibtex in ({'journal': 'N/A', 'booktitle': '  ', 'publisher': 'Springer'},
+                       {'title': 'Some paper', 'publisher': 'Springer'},
+                       {}):
+            with self.subTest(bibtex=bibtex):
+                citation = {'venue': 'ACL 2024', 'year': '2024',
+                            'cite': {'bibtex': bibtex}}
+                # no usable venue field -> the list-page venue is used as before
+                self.assertEqual(citation_venue_key(citation), ('ACL2024', SOURCE_NORMALIZED))
+
+    def test_the_formatted_strings_are_deliberately_not_parsed(self):
+        """Only BibTeX names the venue unambiguously; the rest embed the title."""
+        citation = {'venue': 'Proceedings of the 2025 …', 'year': '2025',
+                    'cite': {'mla': 'Zhang, Jie, et al. "T." Cybersecurity 8.1 (2025): 55.',
+                             'apa': 'Zhang, J. (2025). T. Cybersecurity, 8(1), 55.',
+                             'chicago': 'Zhang, Jie. "T." Cybersecurity 8 (2025): 55.',
+                             'vancouver': 'Zhang J. T. Cybersecurity. 2025;8(1):55.'}}
+        self.assertEqual(cite_dialog_venue(citation), (None, None))
+        self.assertEqual(citation_venue_key(citation),
+                         ('Proceedings of the 2025 …', SOURCE_RAW))
+
+    def test_without_a_cite_field_nothing_changes(self):
+        citation = {'venue': 'ACL 2024', 'year': '2024'}
+        self.assertEqual(citation_venue_key(citation), ('ACL2024', SOURCE_NORMALIZED))
+        self.assertEqual(citation_venue_key({'venue': 'NA', 'year': '2024'}), (None, None))
+        self.assertEqual(citation_venue_key(None), (None, None))
 
 
 class WiringTests(unittest.TestCase):

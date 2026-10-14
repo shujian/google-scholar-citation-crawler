@@ -33,6 +33,9 @@ Rules (as decided 2026-10-15):
   ``SSRN``, ``TechRxiv``, ``Research Square``, ``preprints.org`` (no year) —
   matched as a substring so every spelling, including a truncated one, lands on
   the same key.  A venue that only says "Preprint" names no server and stays raw.
+* for a **citing entry** the Cite dialog's BibTeX venue (``journal`` /
+  ``booktitle`` / ``series``) is preferred over the citation-list page's
+  ``venue``, which Scholar truncates — see :func:`citation_venue_key`.
 * a venue we cannot identify keeps its own text: ``venue_key`` = the venue string
   (``venue_key_source`` = ``'raw'``).  A journal without a widely used
   abbreviation keeps its own short name (``Neurocomputing``, ``IEEE Access``).  That is a temporary, reviewable state — the
@@ -477,6 +480,51 @@ def resolve_venue_key(venue, year=None):
     if server:
         return server, SOURCE_NORMALIZED
     return normalize_venue_text(venue), SOURCE_RAW
+
+
+#: BibTeX fields that name the venue, most specific first.
+_BIBTEX_VENUE_FIELDS = ('journal', 'booktitle', 'series')
+
+
+def cite_dialog_venue(citation):
+    """Return ``(venue text, bibtex field)`` from a citing entry's Cite dialog.
+
+    Only the BibTeX record is used.  ``journal`` (article) / ``booktitle``
+    (inproceedings) / ``series`` are plain venue names, whereas the five
+    *formatted* strings embed the venue between the authors, the title and the
+    volume/date — parsing those would risk reading the title as the venue and
+    mis-normalizing the key, so they are deliberately ignored.  Returns
+    ``(None, None)`` when there is no usable field.
+    """
+    if not isinstance(citation, dict):
+        return None, None
+    cite = citation.get('cite')
+    bibtex = cite.get('bibtex') if isinstance(cite, dict) else None
+    if not isinstance(bibtex, dict):
+        return None, None
+    for field in _BIBTEX_VENUE_FIELDS:
+        value = normalize_venue_text(bibtex.get(field))
+        if value and not is_missing_venue(value):
+            return value, field
+    return None, None
+
+
+def citation_venue_key(citation):
+    """Return ``(venue_key, source)`` for a citing entry.
+
+    The Cite dialog's BibTeX venue is preferred over the citation-list page's
+    ``venue``, which Scholar truncates at ~25 characters ("Proceedings of the …");
+    when the dialog carries no venue the behaviour is exactly as before
+    (``citation['venue']``).  ``citation_venue_key`` is what the crawler and the
+    data-upgrade tool both call, so a row that gains its ``cite`` later gets the
+    better key on the next pass.
+    """
+    if not isinstance(citation, dict):
+        return None, None
+    text, _field = cite_dialog_venue(citation)
+    if text:
+        return resolve_venue_key(text, citation.get('year'))
+    return resolve_venue_key(citation.get('venue'), citation.get('year'))
 
 
 def venue_key(venue, year=None):

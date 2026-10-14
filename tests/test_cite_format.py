@@ -798,6 +798,27 @@ class SaveOutputWiringTests(unittest.TestCase):
         self.assertIn('and Meng, Dan', cite['bibtex']['author'])
         self.assertIn('citation formats resolved: 1/1', output)
 
+    def test_the_derived_venue_key_follows_the_dialog_venue(self):
+        """The BibTeX journal is untruncated, so it replaces the list-page key."""
+        row = citation()
+        self.assertEqual(row['venue_key'], VENUE_FULL)  # from the list page, pre-dialog
+        nav = _FakeNav(pages={CID_PATH: default_page()}, bibs={BIB_URL: BIBTEX_TEXT})
+        saved, _ = self._save(self._fetcher(), [row], nav)
+        saved_row = saved['papers'][0]['citations'][0]
+        self.assertEqual(saved_row['venue_key'], 'Cybersecurity')  # bibtex journal
+        self.assertEqual(saved_row['venue_key_source'], 'raw')
+
+    def test_a_known_conference_booktitle_yields_a_normalized_key(self):
+        bibtex = BIBTEX_TEXT.replace('journal={Cybersecurity}',
+                                     'booktitle={Proceedings of the 2024 Conference on '
+                                     'Empirical Methods in Natural Language Processing}')
+        nav = _FakeNav(pages={CID_PATH: default_page()}, bibs={BIB_URL: bibtex})
+        saved, _ = self._save(self._fetcher(), [citation()], nav)
+        saved_row = saved['papers'][0]['citations'][0]
+        # the venue-string year (the conference edition) wins over the record year
+        self.assertEqual(saved_row['venue_key'], 'EMNLP2024')
+        self.assertEqual(saved_row['venue_key_source'], 'normalized')
+
     def test_cid_is_persisted_in_the_output(self):
         nav = _FakeNav(pages={CID_PATH: default_page()}, bibs={BIB_URL: BIBTEX_TEXT})
         saved, _ = self._save(self._fetcher(True), [citation()], nav)

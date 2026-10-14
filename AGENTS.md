@@ -115,7 +115,7 @@ google-scholar-citation-crawler/
 其中 `lib_env.py` 管第三方库环境、`venue_detail.py` 管出版详情页的完整 venue、`cite_format.py` 管施引
 条目的五种引用格式与 BibTeX、`venue_quality.py` 判「venue 是否已经完整/是否只是预印本源」、
 `venue_key.py` 把 venue 归一成身份键（会议 = `名+年份`、期刊 = 缩写名））；
-`tests/` 有 465 个测试，
+`tests/` 有 474 个测试，
 20 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」）。
 
 ### 新增模块
@@ -152,6 +152,8 @@ google-scholar-citation-crawler/
   **只增不改**：`title`/`authors`/`venue`/`year`/`url`/`cites_id` 一字不动（venue 与 cites_id 参与身份键，
   同 `venue_detail.py` 的教训）。**默认开启**（`--no-cite-formats` 可关）：每个施引条目一次请求、BibTeX 再一次，
   全库是数千次；缓存 `output/cite_format_cache.json` 按 `cid` 记录已解析页面，可续跑，失败不写缓存。
+  写进 `citation['cite']` 的同时**顺手刷新** `venue_key` / `venue_key_source`（用 BibTeX 里未截断的
+  `journal`/`booktitle`/`series`；对话框没给 venue 字段时保持原值），所以"新数据的 venue_key 也是完整的"。
   **该条目已经不用再问这个页面时就不抓**（`code/venue_quality.citation_needs_cite_dialog`：
   venue 已完整**并且** `authors` 已是全名形态，两者都齐才跳过）—— 跳过零请求、不写缓存；
   但**已缓存的对话框仍会复用**，以免重跑把上一轮付过钱的 `cite` 从输出里抹掉。
@@ -184,6 +186,11 @@ google-scholar-citation-crawler/
   按文本长度降序尝试，所以 TACL 期刊不会被 ACL 会议吞掉、`CCMT`/`CWMT`/`WMT` 各归其位、
   Findings 是**独立于主会**的 venue。两处刻意的合并：`NIPS` → `NeurIPS`、`ACMMM` → `ACM MM`
   （同一会议不能有两个 key）。年份取 venue 串里第一个 4 位年份（会议届次），没有才退回记录自身的 year。
+  **引文侧优先用 Cite 对话框里的 venue**：`citation['cite'].bibtex` 的 `journal` / `booktitle` / `series`
+  是**未截断**的发表地名，所以 `code.venue_key.citation_venue_key()` 优先用它算 key，拿不到才退回
+  列表页那个被截到 ~25 字符的 `venue`（五种格式化串**故意不解析** —— venue 夹在作者/标题/卷期之间，
+  解析有把标题当 venue 的风险）。抓取时在写完 `citation['cite']` 之后立即刷新这两个派生字段，
+  数据修复工具用的是同一个函数，所以"先抓的没有对话框、后补上对话框"的行在下次跑脚本时会自动升级。
   **认不出的 venue 先用它自己的串当 key**（`venue_key_source='raw'`；认出来的写 `'normalized'`）—— 这是可审阅的临时状态，
   数据修复工具会把所有不同取值连计数导出来，再由人决定往词表里补什么；占位值（空/`NA`/`N/A`）
   **不给 key**（"没有 venue" 不是 venue，`NA` 当 key 会把无关记录并成一条）。
@@ -355,8 +362,9 @@ dependencies are stubbed in `tests/conftest.py`).
   signed URL, interrupt) and cache/resume behaviour, plus the wiring: the CLI flag
   is unspecified by default (`None`) and resolves through
   `code.config.resolve_cite_formats()` (CLI > `crawler_config.json` > default on),
-  the fetcher defaults to on, and `_save_output` writes the field unless the step
-  was opted out.
+  the fetcher defaults to on, `_save_output` writes the field unless the step was
+  opted out, and that write also refreshes `venue_key` from the dialog's BibTeX
+  venue (a known conference in `booktitle` becomes `EMNLP2024`-style normalized).
 - `tests/test_venue_quality.py` covers the "do not fetch it again" rule hermetically:
   the preprint/truncation/missing predicates, the full-name check (including name
   particles and initial-only lists), the four citation-level combinations, and both
@@ -379,7 +387,11 @@ dependencies are stubbed in `tests/conftest.py`).
   Research Square / preprints.org, while a bare "Preprint" stays raw),
   **a host name not matching an acronym** (`kdd.org` / `iclr.cc` stay raw),
   **no bare "Findings" venue** (an unnamed host resolves to Findings of ACL while
-  a named one keeps its host), the extended table (ICASSP / IJCNN / PAKDD / LREC / NLPCC),
+  a named one keeps its host), **the Cite dialog's BibTeX venue winning over the
+  truncated list page** (`citation_venue_key`: journal/booktitle/series, field
+  precedence, placeholder and unrelated fields ignored, the five formatted
+  strings deliberately not parsed, no regression without a `cite`),
+  the extended table (ICASSP / IJCNN / PAKDD / LREC / NLPCC),
   `CCMT`/`CWMT`/`WMT` staying apart, the two spellings of one Chinese journal
   collapsing onto one key, the year rule (venue string first, record year as
   fallback), unknown venues keeping their raw text, missing venues getting **no**

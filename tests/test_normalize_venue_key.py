@@ -181,6 +181,25 @@ class ToolTests(unittest.TestCase):
         report_all = tool.summarize(tool.build_plan(self.output_dir))
         self.assertEqual(len(report_all['files']), 3)
 
+    def test_a_citation_with_a_cite_dialog_uses_the_dialog_venue(self):
+        """The tool and the crawler share one resolver, so a re-run upgrades it."""
+        with open(self.citations_path, 'r', encoding='utf-8') as handle:
+            payload = json.load(handle)
+        citations = payload['papers'][0]['citations']
+        citations[0]['cite'] = {'bibtex': {
+            'booktitle': 'Proceedings of the 62nd Annual Meeting of the '
+                         'Association for Computational Linguistics'}}
+        citations[0]['venue'] = 'Proceedings of the 2025 …'
+        citations[0].pop('venue_key', None)
+        citations[0].pop('venue_key_source', None)
+        with open(self.citations_path, 'w', encoding='utf-8') as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+        self._run('--apply')
+        updated = self._read(self.citations_path)['papers'][0]['citations'][0]
+        self.assertEqual(updated['venue_key'], 'ACL2024')  # venue year, not record year
+        self.assertEqual(updated['venue_key_source'], 'normalized')
+        self.assertEqual(updated['venue'], 'Proceedings of the 2025 …')  # never rewritten
+
     def test_other_fields_of_a_citation_are_untouched(self):
         with open(self.citations_path, 'r', encoding='utf-8') as handle:
             before = json.load(handle)['papers'][0]['citations']

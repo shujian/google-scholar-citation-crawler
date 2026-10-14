@@ -1932,3 +1932,20 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   `citation['cite']` 的现状。
 - **未做真机验证**：这类改动要真跑一次抓取才能看到对话框请求的成功率（当前 Scholar 限流状态未知），
   留待下次运行；行为上"失败不写缓存、下次重试、不中断主流程"由既有 38 例测试覆盖。
+
+## 2026-10-15（续 6）: `venue_key` 引文侧优先用 Cite 对话框的完整 venue
+
+用户确认"这两个都是"（既确认 Cite 默认开启，也要 `venue_key` 改用对话框里的 venue）。
+
+- `code/venue_key.py`：新增 `cite_dialog_venue(citation)`（返回 `(venue 文本, bibtex 字段)`，字段优先级
+  `journal` → `booktitle` → `series`；占位值/空值跳过；**只认 BibTeX**，五种格式化串不解析）与
+  `citation_venue_key(citation)`（有对话框 venue 就用它算 key，否则沿用原逻辑）。
+- `code/cite_format.py`：写完 `citation['cite']` 之后立即用 `citation_venue_key()` 刷新
+  `venue_key` / `venue_key_source`（对话框没给 venue 字段时保持原值）。
+- `code/data_upgrade/normalize_venue_key.py`：引文侧改用同一个 `citation_venue_key()`，所以存量行只要
+  已有 `cite`，重跑脚本就会升级它的 key（当前 0 条有 `cite` → 实测仍是 0 改动、幂等）。
+- 测试 465 → **474 例**全绿：`CiteDialogVenueTests` 6 例（journal/booktitle/series 优先级、已知会议 →
+  `ACL2025` 归一化、占位值与无关字段忽略、格式化串不解析、无 `cite` 时行为不变）、
+  `test_cite_format` 2 例（保存时 key 跟着 BibTeX 走：`Cybersecurity` / `EMNLP2024`）、
+  工具 1 例（带 `cite` 的行被升级为 `ACL2024` 且 `venue` 一字不改）。
+- 文档：crawler `AGENTS.md` / `README.md`；根 `AGENTS.md` 契约段与 `KNOWN_ISSUES.md` D18 补记。

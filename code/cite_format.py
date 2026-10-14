@@ -78,6 +78,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 from code.common import write_json_atomic
+from code.venue_key import citation_venue_key
 from code.venue_quality import citation_needs_cite_dialog
 
 
@@ -286,6 +287,11 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
     BibTeX download failed keeps its signed ``bib_url`` in the cache so the retry
     costs one request instead of two.
 
+    Writing ``citation['cite']`` also refreshes the derived ``venue_key`` /
+    ``venue_key_source`` from the BibTeX venue (``journal`` / ``booktitle`` /
+    ``series``): that string is untruncated, unlike the citation-list page's
+    ``venue``.  A dialog without a venue field leaves the existing key alone.
+
     Returns a stats dict: ``total``, ``with_cid``, ``missing_cid``,
     ``skipped_complete``, ``cache_hits``, ``fetched``, ``failed``, ``resolved``,
     ``bib_fetched``, ``bib_from_cache``, ``bib_failed``, ``bib_missing``.
@@ -383,6 +389,12 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
         if entry.get('bibtex'):
             payload['bibtex'] = entry['bibtex']
         citation[CITE_FIELD] = payload
+        # The dialog's BibTeX venue is untruncated, so refresh the derived key now
+        # that it is available; without a venue field in the dialog this falls
+        # back to citation['venue'], i.e. exactly the previous behaviour.
+        key, key_source = citation_venue_key(citation)
+        citation['venue_key'] = key
+        citation['venue_key_source'] = key_source
         stats['resolved'] += 1
 
     return stats

@@ -1537,3 +1537,23 @@ BibTeX 再给一份全作者全名 + venue + volume/number/pages。**只增不�
    （`--fetch-mode force`）、要么等它自然重抓。这一点已在 AGENTS/README 写明，避免误解成"全库立刻都有"。
 5. **成本**：每条约 1 次（+ BibTeX 1 次）请求，详情类路径按 1/10 延迟（`DETAIL_PAGE_DELAY_FACTOR`），
    被拦即停/失败跳过，靠 `output/cite_format_cache.json` 续跑。要省请求：`--no-cite-formats`。
+
+## venue_key 七轮：引文侧改用 Cite 对话框的 venue（2026-10-15）
+
+**动机**：用户要"新抓的数据 venue 也是完整的"。引文列表页的 `venue` 被 Scholar 截到中位 25 字符
+（全库 61.8% 带 `…`），而 Cite 对话框的 **BibTeX** 里有未截断的 `journal`（article）/
+`booktitle`（inproceedings）/ `series` —— 这才是算 `venue_key` 该用的串。
+
+**为什么只认 BibTeX、不解析那五种格式化串**：`chicago`/`vancouver`/`mla`/`apa`/`harvard` 里 venue 夹在
+作者、**标题**、卷期/日期之间（如 `… Meng D. Cybersecurity. 2025 Feb 5;8(1):55.`），没有可靠分隔符；
+一旦把标题当 venue，就会算出一个**错误的** `venue_key`，而 key 是要参与去重的 —— 错比 raw 更糟。
+BibTeX 是结构化字段，零歧义，所以只用它；字段优先级 `journal` → `booktitle` → `series`
+（article 用 journal、inproceedings 用 booktitle、`series` 只作兜底，如 LNCS）。
+
+**实现与一致性**：`citation_venue_key()` 是**唯一判据**，被抓取侧（`cite_format` 写完 `cite` 后刷新）
+与数据修复工具（`normalize_venue_key` 的引文分支）共用 → "先抓的行、后补的对话框"在下次跑脚本时自动升级，
+不需要两条实现。`resolve_venue_key()` 保持原样（pub 侧与"没有 cite 的引文"行为一字未变）。
+
+**边界**：① 对话框里没有 venue 字段（BibTeX 缺失或字段为空）→ 保持原来的 key（列表页那个），不猜；
+② 年份仍按"venue 串里的第一个 4 位年份优先" —— 所以 `Proceedings of the 2024 Conference …` +
+记录 year=2025 会得到 `EMNLP2024`（会议届次），这是既定口径，测试里已钉住（我第一版测试写错成 2025）。
