@@ -183,7 +183,7 @@ google-scholar-citation-crawler/
   按文本长度降序尝试，所以 TACL 期刊不会被 ACL 会议吞掉、`CCMT`/`CWMT`/`WMT` 各归其位、
   Findings 是**独立于主会**的 venue。两处刻意的合并：`NIPS` → `NeurIPS`、`ACMMM` → `ACM MM`
   （同一会议不能有两个 key）。年份取 venue 串里第一个 4 位年份（会议届次），没有才退回记录自身的 year。
-  **认不出的 venue 先用它自己的串当 key**（`venue_key_source='raw'`）—— 这是可审阅的临时状态，
+  **认不出的 venue 先用它自己的串当 key**（`venue_key_source='raw'`；认出来的写 `'normalized'`）—— 这是可审阅的临时状态，
   数据修复工具会把所有不同取值连计数导出来，再由人决定往词表里补什么；占位值（空/`NA`/`N/A`）
   **不给 key**（"没有 venue" 不是 venue，`NA` 当 key 会把无关记录并成一条）。
   与 3.a.2 的关系：按工作区的共享代码约定，唯一实体最终应放本阶段并由 3.a.2 经 `code/_shared.py`
@@ -361,7 +361,7 @@ dependencies are stubbed in `tests/conftest.py`).
   detail/Cite/BibTeX URLs and plain `delay_scale` for citation-list and profile pages
   (`--accelerate` stacking included), and a source-level guard asserts the two new
   modules define no delay of their own.
-- `tests/test_venue_key.py` covers the canonical venue identity: acronyms and
+- `tests/test_venue_key.py` covers the normalized venue identity: acronyms and
   spelled-out proceedings forms, Findings as its **own** venue (different from its
   host conference), TACL-not-ACL, longest-match-wins (Nature sub-journals, CL vs
   ACL), the two deliberate spelling merges (`NIPS` → `NeurIPS`, `ACMMM` → `ACM MM`),

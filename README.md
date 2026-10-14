@@ -18,7 +18,7 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 - **Resume Support**: Interrupted fetches resume from the last checkpoint; on exit the in-flight paper's state (citations fetched so far + the live year probe) is written to the output, so a year left short is re-fetched next run instead of being reported complete
 - **Anti-Ban Strategies**: HTTP/2 via scholarly's native `httpx` client with full browser headers (fingerprint adopted from the injected browser cURL), randomized 45–90 s delays, mandatory 3–6 min breaks every 8–12 pages, browser header simulation
 - **Full venue strings (`venue_full`)**: the citation-list pages truncate venues (`Proceedings of the 2024 Conference of the North American Chapter of the …`). Each publication's Scholar *detail* page (`citations?view_op=view_citation&citation_for_view=…`) is therefore fetched once per run to read the untruncated value — one request per publication (hundreds), not per citing entry (thousands). It is stored in a **new** field `pub['venue_full']` (plus `pub['venue_full_source'] = "scholar_detail"` and the detail-page token `pub['citation_for_view']`); `venue` itself is never rewritten, because it takes part in identity keys downstream. Publications whose `venue` is **already complete** (non-empty, untruncated, not a preprint source) are skipped without a request and without a cache entry The requests go through the same patched session (same waits, `--accelerate` scaling, captcha recovery, proxy prompt), and parsed pages are cached in `output/venue_detail_cache.json` — so an interrupted run resumes and a later run asks for nothing twice
-- **Venue identity keys (`venue_key`)**: every publication and every citing entry carries a canonical `venue_key` — the venue name plus the year (`ACL2026`, `EMNLP2025`, `Findings of ACL2026`, `NeurIPS2024`) — so downstream stages can tell "same title, different venue" apart. Names come from the same vocabulary stage 3.a.2 uses (spelled-out proceedings titles resolve to their acronym, TACL stays the journal, and **Findings is a venue of its own**, not its host conference). Venues outside the table keep their own text as the key with `venue_key_source: "raw"`, which marks them as reviewable rather than canonical; a row without a venue gets no key at all
+- **Venue identity keys (`venue_key`)**: every publication and every citing entry carries a normalized `venue_key` — the venue name plus the year (`ACL2026`, `EMNLP2025`, `Findings of ACL2026`, `NeurIPS2024`) — so downstream stages can tell "same title, different venue" apart. Names come from the same vocabulary stage 3.a.2 uses (spelled-out proceedings titles resolve to their acronym, TACL stays the journal, and **Findings is a venue of its own**, not its host conference). Venues outside the table keep their own text as the key with `venue_key_source: "raw"`, which marks them as reviewable rather than normalized; a row without a venue gets no key at all
 - **Citation formats + BibTeX (`--cite-formats`)**: every citing entry keeps its Scholar cluster id as `cid`, and with `--cite-formats` the entry's Cite dialog (`scholar?q=info:<cid>:scholar.google.com/&output=cite`) gives all five formats — MLA / APA / **Chicago** (full author names) / Harvard / **Vancouver** (full venue + volume/issue/pages) — plus a parsed BibTeX record, stored in the additive `citation['cite']` field. Opt-in because it costs one request per citing entry (plus one for BibTeX); parsed pages are cached in `output/cite_format_cache.json`, and an entry whose venue is already complete **and** whose authors are already spelled out in full is skipped without a request (those two things are all the dialog returns)
 - **Interactive Captcha Bypass**: `--interactive-captcha` lets you paste a browser cURL to inject real cookies and resume without restarting; if playwright is installed you can type `browser` at the prompt instead and let it harvest the cookies from a real browser window
 - **Proxy Switch Wait**: On non-interactive failure, prompts hourly to switch proxy/IP until you type `ok` (the 24 h window scales with `--accelerate`)
@@ -175,14 +175,14 @@ Notes:
 Downstream dedup/uniqueness checks need to know *which venue* a record belongs
 to, and Scholar writes the same venue in a dozen shapes (acronym, spelled-out
 proceedings title, journal form, truncated). Both the profile's publications and
-every citing entry therefore carry a canonical key: **venue name + year**.
+every citing entry therefore carry a normalized key: **venue name + year**.
 
 ```json
 {
   "venue": "Proceedings of the 2024 Conference of the North American Chapter of the …, 2024",
   "venue_full": "Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)",
   "venue_key": "NAACL2024",
-  "venue_key_source": "canonical"
+  "venue_key_source": "normalized"
 }
 ```
 
@@ -217,12 +217,12 @@ every citing entry therefore carry a canonical key: **venue name + year**.
   are reviewable; a row with no venue at all (empty / `NA` / `N/A`) gets
   `venue_key: null`, because a key of `NA` would merge unrelated records. Citation
   list pages truncate venues aggressively, so many citing entries stay `raw` until
-  the table is extended — filter on `venue_key_source == "canonical"` when a key
+  the table is extended — filter on `venue_key_source == "normalized"` when a key
   must be trustworthy.
 - Publications derive the key from `venue_full or venue` (the detail page resolves
   what the list page cut off); citing entries use their own `venue`.
-- Real data (author `HF3-E9kAAAAJ`): publications **229 canonical / 8 raw** / 4 without
-  a venue; citing entries **2,550 canonical / 5,257 raw** out of 9,028 (1,221 have no
+- Real data (author `HF3-E9kAAAAJ`): publications **229 normalized / 8 raw** / 4 without
+  a venue; citing entries **2,550 normalized / 5,257 raw** out of 9,028 (1,221 have no
   venue at all).  The raw remainder is dominated by venues Scholar truncated to ~25
   characters (`Proceedings of the …` 556, `Findings of the …` 207,
   `IEEE Transactions on …` 138), which no table can restore.  A host name is not a

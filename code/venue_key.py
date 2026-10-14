@@ -316,8 +316,13 @@ VENUE_CANONICAL = {
                     ['Journal of Natural Language Processing']),
 }
 
-#: ``venue_key_source`` values.
-SOURCE_CANONICAL = 'canonical'
+#: ``venue_key_source`` values.  ``normalized`` means the key came from the venue
+#: table (or the preprint-server list) — i.e. the venue was recognised and replaced
+#: by its standard name; ``raw`` means the original text was kept as the key.
+#: (Named 2026-10-15 by user request: the *value* says "normalized"; the table and
+#: ``canonical_venue()`` keep the word "canonical" for the standard *name* itself,
+#: matching stage 3.a.2's vocabulary.)
+SOURCE_NORMALIZED = 'normalized'
 SOURCE_RAW = 'raw'
 
 #: Preprint servers: a preprint's venue *is* the server, so the key is the
@@ -455,7 +460,7 @@ def pick_venue_year(venue, year=None):
 def resolve_venue_key(venue, year=None):
     """Return ``(venue_key, source)``.
 
-    * known venue → ``('<canonical name><year>', 'canonical')``
+    * known venue → ``('<normalized name><year>', 'normalized')``
     * unknown venue → ``('<venue text>', 'raw')`` so it can be reviewed
     * no venue at all → ``(None, None)``
     """
@@ -466,11 +471,11 @@ def resolve_venue_key(venue, year=None):
         if VENUE_CANONICAL[name][1] == 'journal':
             # A journal is a continuous venue, not a yearly edition: its key is
             # the short name alone (TACL, TASLP, Nature Machine Intelligence).
-            return name, SOURCE_CANONICAL
-        return f"{name}{pick_venue_year(venue, year) or ''}", SOURCE_CANONICAL
+            return name, SOURCE_NORMALIZED
+        return f"{name}{pick_venue_year(venue, year) or ''}", SOURCE_NORMALIZED
     server = preprint_venue_key(venue)
     if server:
-        return server, SOURCE_CANONICAL
+        return server, SOURCE_NORMALIZED
     return normalize_venue_text(venue), SOURCE_RAW
 
 
@@ -480,7 +485,7 @@ def venue_key(venue, year=None):
 
 
 def venue_key_source(venue, year=None):
-    """Return only the source (``'canonical'`` / ``'raw'`` / ``None``)."""
+    """Return only the source (``'normalized'`` / ``'raw'`` / ``None``)."""
     return resolve_venue_key(venue, year)[1]
 
 

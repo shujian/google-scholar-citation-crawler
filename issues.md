@@ -152,7 +152,7 @@ cite 页路径 —— 上述 venue 判据成立**并且**该条目 `authors` 已
    按当前口径它们各自成为 `venue_key`，若下游直接拿 `venue_key` 判"同一篇"，
    这些条目会**误并**（例如两条 `Proceedings of the …` 其实来自不同会议）。
    → 三个候选，请挑一个（选定后我改 `code/venue_key.py` + 重跑存量脚本，幂等且带备份）：
-   ① 截断（含 `…`）的 venue **不给 key**（`null`），下游只用 canonical；
+   ① 截断（含 `…`）的 venue **不给 key**（`null`），下游只用 `normalized`；
    ② 保留 raw 但**另加标记**（如 `venue_key_source='raw_truncated'`），由消费方自行过滤；
    ③ 补「截断前缀 → 会议」的显式规则（只对**唯一**可判定的前缀生效，如 `Advances in Neural …` → NeurIPS），
       其余仍按 ①② 处理。**我倾向 ① + ③ 组合**：既不误并，又能救回可判定的那部分。

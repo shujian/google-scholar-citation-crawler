@@ -94,7 +94,7 @@ class ToolTests(unittest.TestCase):
         payload = self._read(self.profile_path)
         pubs = payload['publications']
         self.assertEqual(pubs[0]['venue_key'], 'ACL2024')
-        self.assertEqual(pubs[0]['venue_key_source'], 'canonical')
+        self.assertEqual(pubs[0]['venue_key_source'], 'normalized')
         self.assertEqual(pubs[1]['venue_key'], 'EMNLP2024')  # venue_full wins
         self.assertEqual(pubs[2]['venue_key'], 'Journal of Obscure Studies 1 (2), 3-4, 2019')
         self.assertEqual(pubs[2]['venue_key_source'], 'raw')
@@ -153,7 +153,7 @@ class ToolTests(unittest.TestCase):
         citations = {row['venue']: row['count'] for row in report['unknown_citations']}
         self.assertIn('Proceedings of the …', citations)
         self.assertEqual(report['citations']['total'], 3)  # pub + 2 citations
-        self.assertEqual(report['citations']['canonical'], 2)  # pub + C1
+        self.assertEqual(report['citations']['normalized'], 2)  # pub + C1
 
     def test_missing_output_dir_is_an_error(self):
         code, output = self._run_for('/nonexistent/dir')

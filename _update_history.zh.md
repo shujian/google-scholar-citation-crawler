@@ -1900,3 +1900,14 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 - 存量重跑（`--apply`，备份 `output/venue_key_backup_20261014_200331/`）：引文侧新增 59 条 canonical
   （bioRxiv 37 / SSRN 21 / medRxiv 1）→ canonical 2,491 → **2,550**、raw 5,316 → **5,257**；
   pub 侧不变（229 / 8 / 4）。幂等复跑 0 改动。测试 456 → **459 例**全绿。
+
+## 2026-10-15（续 4）: `venue_key_source` 取值改名 `canonical` → `normalized`
+
+用户要求"叫做 normalized"。改动：`code/venue_key.py` 的 `SOURCE_CANONICAL = 'canonical'` →
+`SOURCE_NORMALIZED = 'normalized'`（语义不变）；数据修复工具的统计键与打印标签同步
+（`normalized` / `raw` / `no venue`）；两个测试文件与 `README.md` / `AGENTS.md` / `issues.md`
+里的取值引用同步（措辞上，key 本身也统一说 "normalized 的 key"）。
+**存量迁移**：`normalize_venue_key --apply`（备份 `output/venue_key_backup_20261014_201404/`）
+更新 229 条 pub + 2,779 条引文文件记录，改完后字段分布 = `normalized` 229+2,550、`raw` 8+5,257、
+`null` 4+1,221；幂等复跑 0 改动。下游无人读取该值（全仓 grep 确认），故无兼容性问题。
+`VENUE_CANONICAL` / `canonical_venue()` 名字保留（指"规范名"、与 3.a.2 对齐）。

@@ -1494,3 +1494,22 @@ TechRxiv / Research Square（含 `researchsquare.com`）/ preprints.org）。语
 
 **存量**：引文侧 canonical 2,491 → 2,550（新增 59：bioRxiv 37 / SSRN 21 / medRxiv 1），raw 5,316 → 5,257；
 pub 侧 229 / 8 / 4 不变。
+
+## venue_key 五轮：取值改名 canonical → normalized（2026-10-15）
+
+**动机**：用户看字段值时问"canonical 是什么意思"，随后要求改叫 `normalized`。取值属于**数据契约**，
+所以三件事一起做：① 常量与取值改名（`SOURCE_CANONICAL` → `SOURCE_NORMALIZED`，值 `'canonical'` →
+`'normalized'`）；② 工具与测试、文档全部同步；③ **存量数据用同一个工具迁移**（这是本工具第二次
+证明"派生字段"的价值 —— 改规则或改口径只要重跑一次，不用重新抓取）。
+
+**没跟着改的名字**：`VENUE_CANONICAL`（词表）与 `canonical_venue()`（函数）。理由：它们说的是
+"规范**名**"这件事，而 `canonical` 在算法/CS 里的正典含义就是"等价类的唯一代表"；同时 3.a.2 里
+有同名的 `canonical_venue()` / `VENUE_ALIASES`，两处术语对齐比字面统一更重要。取值则用
+`normalized`（"已归一化"），因为它是给下游看的**结果标记**，语义是"这个 key 是归一化产物、
+不是原串"。已在 `SOURCE_NORMALIZED` 上方写清这条区分。
+
+**迁移实测**：229 条 pub + 2,779 条引文文件记录被改写（= 229 pub + 2,550 引文），备份
+`output/venue_key_backup_20261014_201404/`，复跑 0 改动；字段分布
+`normalized 229 / raw 8 / null 4`（pub）与 `normalized 2,550 / raw 5,257 / null 1,221`（引文）。
+**踩坑**：改 `stats['canonical']` 时用了 `replace(..., 1)`，而工具里该模式出现两次 → 断言失败、
+脚本中断（好在断言在写盘前，没有留下半成品）。这类"同名多处"要么不带 count、要么先 grep 计数。

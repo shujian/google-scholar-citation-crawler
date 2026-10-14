@@ -3174,3 +3174,14 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 `venue_key`（不带年份，子串匹配，含 `researchsquare.com` 域名形态）。只写 `Preprint`、没点出服务器名的
 仍保持 raw。顺带修掉一个潜伏 bug：宿主名里的 `www.`/`kdd.org`/`iclr.cc` 原本会命中 `WWW`/`KDD`/`ICLR`
 会议（短缩写只看了词边界）—— 现在缩写两侧额外拒绝相邻的点；当前数据零影响（含 `www.` 的 venue 0 条）。
+
+## 2026-10-15（续 4）: `venue_key_source` 的取值改名 canonical → normalized
+
+> 我希望叫做normalized请修改并更新文档。
+
+`venue_key_source` 的取值 `'canonical'` → **`'normalized'`**（常量 `SOURCE_CANONICAL` →
+`SOURCE_NORMALIZED`），含义不变：key 来自词表（会议/期刊/预印本服务器），即"venue 被认出来并换成了
+规范名"；`'raw'`（原串照抄）与 `null`（没有 venue）不变。存量已用同一个工具迁移
+（备份 `output/venue_key_backup_20261014_201404/`，幂等复跑 0 改动）。
+`VENUE_CANONICAL` 表与 `canonical_venue()` 函数**名字未改** —— 它们指的是"规范名"本身，
+且与 3.a.2 的同名概念对齐；若你希望这两个也跟着改，说一声。

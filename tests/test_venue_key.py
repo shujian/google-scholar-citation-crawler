@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tests.conftest import patch  # noqa: E402,F401  (installs the stubs)
 
 from code.venue_key import (  # noqa: E402
-    SOURCE_CANONICAL,
+    SOURCE_NORMALIZED,
     SOURCE_RAW,
     VENUE_CANONICAL,
     canonical_venue,
@@ -80,7 +80,7 @@ class CanonicalNameTests(unittest.TestCase):
                      'arxiv.org/abs/2402.18567',
                      'URL https://arxiv. org/abs/2403.14541'):
             with self.subTest(text=text):
-                self.assertEqual(resolve_venue_key(text, '2024'), ('arXiv', SOURCE_CANONICAL))
+                self.assertEqual(resolve_venue_key(text, '2024'), ('arXiv', SOURCE_NORMALIZED))
         # a known venue mentioned alongside an arXiv id still wins
         self.assertEqual(venue_key('ACL 2024 (arXiv:2402.18567)'), 'ACL2024')
 
@@ -98,7 +98,7 @@ class CanonicalNameTests(unittest.TestCase):
         }
         for text, expected in cases.items():
             with self.subTest(text=text[:40]):
-                self.assertEqual(resolve_venue_key(text, '2024'), (expected, SOURCE_CANONICAL))
+                self.assertEqual(resolve_venue_key(text, '2024'), (expected, SOURCE_NORMALIZED))
 
     def test_a_bare_preprint_names_no_server(self):
         self.assertEqual(resolve_venue_key('Preprint', '2022'), ('Preprint', SOURCE_RAW))
@@ -197,7 +197,7 @@ class KeyShapeTests(unittest.TestCase):
         key, source = resolve_venue_key('Journal of Obscure Studies 1 (2), 3-4, 2019')
         self.assertEqual(key, 'Journal of Obscure Studies 1 (2), 3-4, 2019')
         self.assertEqual(source, SOURCE_RAW)
-        self.assertEqual(resolve_venue_key('ACL 2024'), ('ACL2024', SOURCE_CANONICAL))
+        self.assertEqual(resolve_venue_key('ACL 2024'), ('ACL2024', SOURCE_NORMALIZED))
 
     def test_missing_venue_has_no_key(self):
         for value in (None, '', 'NA', 'N/A', 'None', '  '):
@@ -235,7 +235,7 @@ class WiringTests(unittest.TestCase):
         pub = PubInfo.from_dict({'title': 'T', 'year': '2024', 'venue': 'ACL 2024'})
         out = pub.to_dict()
         self.assertEqual(out['venue_key'], 'ACL2024')
-        self.assertEqual(out['venue_key_source'], SOURCE_CANONICAL)
+        self.assertEqual(out['venue_key_source'], SOURCE_NORMALIZED)
 
     def test_pub_info_prefers_the_untruncated_detail_page_venue(self):
         from code.pub_info import PubInfo
@@ -252,7 +252,7 @@ class WiringTests(unittest.TestCase):
         """A stale stored key must not survive serialisation."""
         from code.pub_info import PubInfo
         pub = PubInfo.from_dict({'title': 'T', 'year': '2024', 'venue': 'ACL 2024',
-                                 'venue_key': 'STALE', 'venue_key_source': 'canonical'})
+                                 'venue_key': 'STALE', 'venue_key_source': 'normalized'})
         self.assertEqual(pub.to_dict()['venue_key'], 'ACL2024')
 
     def test_extract_citation_info_writes_venue_key(self):
@@ -265,7 +265,7 @@ class WiringTests(unittest.TestCase):
             'pub_url': 'https://example.com',
         })
         self.assertEqual(info['venue_key'], 'Findings of ACL2025')
-        self.assertEqual(info['venue_key_source'], SOURCE_CANONICAL)
+        self.assertEqual(info['venue_key_source'], SOURCE_NORMALIZED)
         # additive only: the identity fields are untouched
         self.assertEqual(info['venue'],
                          'Findings of the Association for Computational Linguistics: ACL 2025')

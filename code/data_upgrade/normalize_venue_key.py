@@ -2,7 +2,7 @@
 """
 Add / refresh the derived ``venue_key`` field in the crawler's output files.
 
-``venue_key`` is the canonical ``<venue name><year>`` identity (``ACL2026``,
+``venue_key`` is the normalized ``<venue name><year>`` identity (``ACL2026``,
 ``Findings of ACL2026``) produced by ``code/venue_key.py`` for the *future*
 dedup / uniqueness checks.  New data gets it automatically (``PubInfo`` and
 ``extract_citation_info`` write it), but rows that were already on disk never
@@ -31,6 +31,7 @@ Behaviour:
   with a ``manifest.json`` (path + sha256 before + change counts).
 * idempotent: a second run reports 0 changes.
 * unknown venues keep the venue text as their key (``venue_key_source='raw'``);
+  recognised venues get ``venue_key_source='normalized'``;
   the report lists every distinct one with its count so the table in
   ``code/venue_key.py`` can be extended deliberately.
 """
@@ -83,8 +84,8 @@ def _scan_pub(pub, stats, unknown):
     stats['total'] += 1
     if key is None:
         stats['no_venue'] += 1
-    elif source == 'canonical':
-        stats['canonical'] += 1
+    elif source == 'normalized':
+        stats['normalized'] += 1
     else:
         stats['raw'] += 1
         unknown[key] = unknown.get(key, 0) + 1
@@ -96,8 +97,8 @@ def _scan_citation(citation, stats, unknown):
     stats['total'] += 1
     if key is None:
         stats['no_venue'] += 1
-    elif source == 'canonical':
-        stats['canonical'] += 1
+    elif source == 'normalized':
+        stats['normalized'] += 1
     else:
         stats['raw'] += 1
         unknown[key] = unknown.get(key, 0) + 1
@@ -105,7 +106,7 @@ def _scan_citation(citation, stats, unknown):
 
 
 def _empty_stats():
-    return {'total': 0, 'canonical': 0, 'raw': 0, 'no_venue': 0, 'updated': 0}
+    return {'total': 0, 'normalized': 0, 'raw': 0, 'no_venue': 0, 'updated': 0}
 
 
 def plan_profile(path):
@@ -168,7 +169,7 @@ def build_plan(output_dir, author=None):
             if kind == 'profile':
                 payload, stats, unknown = plan_profile(path)
                 plan['pubs']['total'] += stats['total']
-                for field in ('canonical', 'raw', 'no_venue', 'updated'):
+                for field in ('normalized', 'raw', 'no_venue', 'updated'):
                     plan['pubs'][field] += stats[field]
                 _merge_unknown(plan['unknown_pubs'], unknown)
             else:
@@ -256,9 +257,10 @@ def print_summary(report, dry_run=True):
         print(f"  {entry['path']}: {entry['updated']}/{entry['total']} records updated")
     pubs, citations = report['pubs'], report['citations']
     print(f"  publications: {pubs['total']} scanned, {pubs['updated']} updated "
-          f"(canonical {pubs['canonical']}, raw {pubs['raw']}, no venue {pubs['no_venue']})")
+          f"(normalized {pubs['normalized']}, raw {pubs['raw']}, "
+          f"no venue {pubs['no_venue']})")
     print(f"  citations   : {citations['total']} scanned, {citations['updated']} updated "
-          f"(canonical {citations['canonical']}, raw {citations['raw']}, "
+          f"(normalized {citations['normalized']}, raw {citations['raw']}, "
           f"no venue {citations['no_venue']})")
     for label, rows in (('publications', report['unknown_pubs']),
                         ('citations', report['unknown_citations'])):
