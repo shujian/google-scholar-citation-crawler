@@ -3109,3 +3109,29 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 `AGENTS.md`（Repair tools + 目录治理树）/ `README.md`（Project Structure）/ `_work_notes.zh.md`
 （项目结构树）改新路径并注明"与主线入口分开"。`scholar_citation.py` 等主线模块、`run.sh` /
 `my_citation.sh` / `code/examples/` / `code/shared/`、`issues.md` 均未动。全套 **418 例一次跑绿**。
+
+## 2026-10-15: venue 归一化 → venue_key（会议名+年份），并要求存量修复 + 未来自动正确
+
+> 我们现在来对venue的名称进行一下归一化：ACL、EMNLP、NAACL、AAAI、IJCAI、NeurIPS、ICML等学术会议最终的
+> venue_key为会议名称+年份，比如ACL2026，注意Findings of ACL 2026视为与ACL2026不同的两个会议。未来参与
+> 论文去重和唯一性判断，以这个venue_key为标准。相关内容请落实到一个数据修复的脚本中，并应用到当前数据中。
+> 且保证未来scholar crawler再新增或者更新的数据也有正确的venue_key字段值。
+
+确认过的四点（提问后你逐条选择）：
+1. 写在哪一层 → **作者自己的论文 `pub` + 每条引文 `citations[]`**（两层都写）。
+2. 认不出的 venue → **先令 `venue_key` 等于 venue 本身**，由你确认归一化结果后再补词表。
+3. `Findings of ACL 2026` 的 key 形态 → **`Findings of ACL2026`**。
+4. 与下游 3.a.2 已有的规范表的关系 → **阶段 1 先独立一份**（与 3.a.2 逐条对齐）+ 把"按共享政策迁移
+   唯一实体"记成跨仓待办。
+
+后续追问（只读调查，未改文件）：
+- 「venue_full resolved: 143/241（fetched 0, cached 149, …, already complete 92）为什么只获取了 143 个？」
+  → 241 = 92（venue 已完整、设计上跳过，永远不计入 resolved）+ 149 候选；149 里 143 条缓存可用的
+  `venue_full`，另 6 条详情页确实没有 venue 标签行（4 条 venue 为空：系统评测报告/补充材料；2 条中文
+  会议论文被截断）。本行 `no venue field 0` 是因为该计数器只统计**本次真正发请求**的条目。
+- 「为什么会有没有重新抓取却已经 complete 的论文，请比较一下他们的 venue 是不是确实是完整的」
+  → `code/venue_quality.py` 是 15:53 的提交（`73ec01b`）**才新建**的，而 14:35/15:32 那两次抓取发生在
+  规则存在之前且都因限流中断（只走到 87 个 publication）→ 92 篇里的 30 篇留有缓存、62 篇从未轮到。
+  逐条对比那 30 篇：列表页 `venue` **全部比详情页 `venue_full` 更完整**（带卷/期/页码/年份，
+  详情页那一行只有 venue 名称），所以它们确实完整，跳过是对的；我上一轮"先查缓存再跳过可提到 173"
+  的建议因此**撤回**（会把 `Ijcai 17 (2017), 3203-3209, 2017` 覆盖成 `Ijcai`）。

@@ -9,6 +9,7 @@ identity key and a clean dict suitable for caching.
 import re
 
 from code.citation_cache import normalize_citation_year
+from code.venue_key import resolve_venue_key
 
 _SCHOLARPUBRE = re.compile(r'cites=([\d,]*)')
 
@@ -159,21 +160,31 @@ def extract_citation_info(pub, fallback_year=None):
     identity key, and ``cites_id``/``authors``/``venue``/``title``/``year``/
     ``url`` are unchanged byte for byte — but it is what makes Scholar's Cite
     dialog addressable later (see ``code/cite_format.py``).
+
+    ``venue_key`` / ``venue_key_source`` are derived from the row's venue + year
+    by ``code/venue_key.py`` (``ACL2026``; the raw venue text when the venue is
+    not in the table; ``None`` when the row carries no venue).  Citation-list
+    venues are frequently truncated by Scholar, so many rows keep their raw text
+    until the table is extended — the data-upgrade tool lists them for review.
     """
     bib = pub.get('bib', {})
     authors = bib.get('author', [])
     year = normalize_citation_year(bib.get('pub_year'), fallback_year)
+    venue = bib.get('venue', 'N/A')
     raw_cites_id = pub.get('cites_id')
     if raw_cites_id in (None, '', [], ()):
         raw_cites_id = _extract_cites_id_from_url(pub.get('citedby_url'))
     if raw_cites_id in (None, '', [], ()):
         raw_cites_id = _extract_cid_from_scholarbib(pub.get('url_scholarbib'))
+    key, key_source = resolve_venue_key(venue, year)
     return {
         'title':    bib.get('title', 'N/A'),
         'authors':  ', '.join(authors) if isinstance(authors, list) else str(authors),
-        'venue':    bib.get('venue', 'N/A'),
+        'venue':    venue,
         'year':     year,
         'url':      pub.get('pub_url', pub.get('eprint_url', 'N/A')),
         'cites_id': normalize_cites_id(raw_cites_id),
         'cid':      _extract_cid_from_scholarbib(pub.get('url_scholarbib')),
+        'venue_key': key,
+        'venue_key_source': key_source,
     }

@@ -1371,3 +1371,49 @@ venue 跑批在 15:05（第 88 页）触发整站限流；crawler 自带的 **3 
 `No changes in totals, but --cite-formats still has citations outside its cache. Continuing...`
 并照常进 Phase 2（各篇按 `complete` 走缓存、不重抓引文，只有格式那一步干活）。
 `tests/test_year_fetch_main.py` 的 `FakePaperFetcher` 补了同名 stub（沿用 `has_pending_work` 的既有约定）。
+
+## venue_key：规范发表地名 + 年份（2026-10-15）
+
+**为什么**：下游判断"同一篇作品"时，标题/年份/作者/URL 之外还差一个维度 —— 发表地。
+而 Scholar 把同一个发表地写成十几种形态（缩写 `ACL 2024`、全称 `Proceedings of the 62nd Annual
+Meeting of the Association for Computational Linguistics`、期刊形态、以及被截断的 `…`）。
+`venue_key` 就是把这些折叠成 **规范名 + 年份** 的唯一键。
+
+**词表从哪来**：不新造标准 —— 3.a.2 已有 `VENUE_PRESTIGE`（51 会议 + 30 期刊）+ `VENUE_ALIASES`
++ `_venue_match()` 的匹配语义（多词子串；≤5 字符的全大写缩写要词边界，所以 `CL` 不会命中 `ACL`；
+其它单名要整名，所以 `Science` 不命中 `Science China`），按文本长度降序尝试，所以
+`Transactions of the Association for Computational Linguistics` 先命中期刊 `TACL` 而不会被会议
+`ACL` 吞掉，`Findings of the Association for Computational Linguistics: ACL` 先命中
+`Findings of ACL`（**独立于**主会 `ACL`）。两处**刻意合并**：`NIPS` → `NeurIPS`、`ACMMM` → `ACM MM`
+（3.a.2 里它们是两个键、两个 tier 相同的会议；做去重键时同一会议不能有两个 key）。
+
+**输入选哪个 venue 串**：pub 用 `venue_full or venue`（详情页的未截断名能救回列表页被截断的那批：
+只用 `venue` 时 241 篇里仅 51 篇可识别，用 `venue_full` 后 120 篇）；施引条目没有详情页，
+只能用列表页的 `venue`（因此 raw 居多）。
+
+**年份**：取 venue 串里第一个 1990–2035 的 4 位年份（会议届次，如
+`Findings of the …: ACL 2024, 8411-8423, 2024` → 2024；`Ijcai 17 (2017), 3203-3209, 2017` → 2017），
+串里没有才退回记录自身的 `year`；两者都没有 → 只有规范名、没有年份。
+
+**认不出的怎么办**：`venue_key` = venue 自身串 + `venue_key_source='raw'`。这是**可审阅的临时状态**：
+`code/data_upgrade/normalize_venue_key.py --review-file …` 会导出所有不同取值连计数。占位值
+（空/`NA`/`N/A`/`None`）**不给 key**（`NA` 当 key 会把上千条无关记录并成一条）。审阅后往
+`VENUE_CANONICAL` 里补一行即可，重跑脚本覆盖。
+
+**派生字段，不落状态**：`PubInfo.venue_key/venue_key_source` 是 property，`to_dict()` 时按
+`venue_full or venue` 重算；`from_dict()` 不读回存过的值。好处是**不可能写出陈旧 key**（详情页
+晚到、手工改过 venue 都会自动跟上），代价是每次序列化多一次匹配（纯字符串，可忽略）。
+
+**存量修复工具** `code/data_upgrade/normalize_venue_key.py`：默认 dry-run（连备份目录都不建），
+`--apply` 才写；只用 `write_json_atomic` 改这两个字段，其余键逐字节不变；备份目录
+`output/venue_key_backup_<stamp>/` + `manifest.json`（原路径 + 改动前 sha256 + 计数）；
+幂等（第二次跑 0 改动）。**踩坑**：备份目录的默认值最初写成相对 cwd 的 `output/…`，测试里
+（`--output-dir` 指向临时目录）于是把备份写进了**本仓库真实的 `output/`** —— 已改为
+`os.path.join(output_dir, …)`；另有两处小坑：未识别的计数器用了普通 dict 直接 `+= 1`（KeyError），
+以及"无 venue 记录"因为 `.get()` 默认值相等而从未被写入显式 `null`（改成先判 `'venue_key' in record`）。
+
+**引文侧的现实**：实测 9,269 条施引条目里 7,690 条是 raw —— Scholar 在引用列表页把 venue 截到约
+25 字符（`Proceedings of the …` x556、`Findings of the …` x207、`IEEE Transactions on …` x138 …），
+其中 2,912 个不同取值。**这些串彼此不可区分**（`Proceedings of the …` 可能来自任何会议），
+所以直接把 raw 当去重键会误并 —— 已记进 `issues.md` 待你决定（截断的给 null / 补前缀规则 /
+只信 canonical）。可辨识的那 354 条 canonical（如 `Neurocomputing`、`ACL 2024` 这类短名）不受影响。

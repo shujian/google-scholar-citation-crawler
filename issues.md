@@ -128,3 +128,43 @@ cite 页路径 —— 上述 venue 判据成立**并且**该条目 `authors` 已
 会丢卷期页码；同理，跳过"已经完整"的施引条目，等于放弃 Cite 对话框本可补上的
 卷期/页码/年份（`cite.bibtex.volume|number|pages`、`cite.vancouver`）。用户已知悉并接受。
 反过来，**已有的缓存条目仍然复用**：重跑不会把上一轮付过钱的 `cite` 从输出里抹掉。
+
+## 八、venue_key（2026-10-15）：跨仓共享与引文侧截断，需你决定
+
+1. **规范词表暂时有两份（跨仓共享待办）**
+   本仓库新加的 `code/venue_key.py` 与 3.a.2 的 `citation_analysis_info/code/config.py`
+   （`VENUE_PRESTIGE` + `VENUE_ALIASES`）+ `code/core/classifier.py`（`_venue_match` /
+   `canonical_venue` / `normalize_venue`）**是同一套语义的两份实体**。按工作区「跨仓库共享代码」
+   的长期约定（2026-10-14 用户定：唯一实体放**最早需要它的阶段**，消费方经 `code/_shared.py`
+   注入后导入），唯一实体应落在**阶段 1**（`code/shared/venue_key.py`），3.a.2 改成薄再导出。
+   本轮按你的选择先各持一份（改动面小、可后补）；**两份必须逐条对齐**，`tests/test_venue_key.py`
+   把规范名钉住以便发现漂移。
+   → 待办：做这次共享迁移（跨仓改动，需跑容器根 `./run_all_tests.sh` 六套），或明确"两份长期并存"。
+   另有两处刻意的差异（做迁移时要决定谁让谁）：`NIPS`/`NeurIPS` 与 `ACMMM`/`ACM MM` 在 3.a.2 里
+   是**两组键**，而 `venue_key` 把它们**各合并成一个**（去重键不能有两个同义键）。
+
+2. **引文侧 venue 被 Scholar 截到约 25 字符 → raw 键不可直接当去重键**
+   实测 9,269 条施引条目：`canonical` 354、`raw` 7,690、无 venue 1,225；raw 里有 2,912 个不同取值，
+   且最高频的是**彼此不可区分的截断前缀** —— `Proceedings of the …` x556、`Findings of the …` x207、
+   `IEEE Transactions on …` x138、`International Conference on …` x49 …
+   按当前口径它们各自成为 `venue_key`，若下游直接拿 `venue_key` 判"同一篇"，
+   这些条目会**误并**（例如两条 `Proceedings of the …` 其实来自不同会议）。
+   → 三个候选，请挑一个（选定后我改 `code/venue_key.py` + 重跑存量脚本，幂等且带备份）：
+   ① 截断（含 `…`）的 venue **不给 key**（`null`），下游只用 canonical；
+   ② 保留 raw 但**另加标记**（如 `venue_key_source='raw_truncated'`），由消费方自行过滤；
+   ③ 补「截断前缀 → 会议」的显式规则（只对**唯一**可判定的前缀生效，如 `Advances in Neural …` → NeurIPS），
+      其余仍按 ①② 处理。**我倾向 ① + ③ 组合**：既不误并，又能救回可判定的那部分。
+   注：pub 侧不受影响（`venue_full or venue` 已让 241 篇里 120 篇 canonical，raw 的 117 篇是中文期刊、
+   小众会议、arXiv 预印本等**本身不在词表**的值，串本身带年份、可区分）。
+
+3. **`venue_quality.py` 的取舍说明与实测方向相反（文档待改，非代码）**
+   `code/venue_quality.py` 的 docstring 写"详情页/对话框**只能再加**卷期页码"，据此论证"跳过已完整
+   的条目代价不大"。但逐条对比 92 篇"已 complete"里带详情页缓存的 **30** 篇：列表页 `venue`
+   **全部**比详情页 `venue_full` 更长（`Ijcai 17 (2017), 3203-3209, 2017` → `Ijcai`；
+   `Proceedings of the AAAI … 34 (05), 9298-9305, 2020` → `... artificial intelligence`），
+   即详情页给的是**更少**的信息（只有 venue 名称）。所以"跳过已完整"这个决定**比文档说的更安全**
+   （跳过 = 保住信息量更大的列表页串），但 docstring 的理由需要按实测改写；
+   全 149 候选里 93 篇是"截断 → 补全"（功能本意）、50 篇是"列表页更全"。
+   → 待办：更正 `venue_quality.py` docstring / `AGENTS.md` 相应段落（本轮只记在这里，未动代码与文档，
+   因为这是你上一轮提问的调查结论，不属于本次 venue_key 需求）。
+   **同时撤回**我在上一轮提的"先查缓存再跳过可把 resolved 提到 173"：那 30 篇的缓存值写回去是**降级**。

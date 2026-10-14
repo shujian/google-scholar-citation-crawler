@@ -1814,3 +1814,27 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 `_save_output()` 里 —— 于是开了 `--cite-formats` 也可能再也不执行。现在短路会先问新增的
 `has_cite_format_work()`（`cid` 存在 + 不在 `cite_format_cache.json` + 仍需要对话框 → 有待办），
 有待办就继续跑 Phase 2（引文照旧走缓存，只做格式那一步）。
+
+## 2026-10-15: venue_key（规范发表地名 + 年份）与存量归一化脚本
+
+新增 `code/venue_key.py`：`venue_key` = 规范发表地名 + 年份（`ACL2026`、`Findings of ACL2026`），
+供下游做论文去重/唯一性判断；规范名与匹配算法沿用 3.a.2 已有的词表（51 会议 + 30 期刊，
+`VENUE_PRESTIGE` + `VENUE_ALIASES` + `_venue_match` 的语义），**Findings 按主会分条且独立于主会**，
+`TACL` 期刊不被 `ACL` 会议吞掉，两处拼写变体合并（`NIPS` → `NeurIPS`、`ACMMM` → `ACM MM`）。
+认不出的 venue 先用自身串当 key（`venue_key_source='raw'`）等待人工确认，占位值（空/`NA`/`N/A`）
+**不给 key**。年份取 venue 串里第一个 4 位年份，缺失才退回记录自身 `year`。
+
+- `code/pub_info.py`：`venue_key` / `venue_key_source` 为**派生字段**（`venue_full or venue` + year），
+  在 `to_dict()` 时重算 —— 所以详情页晚到、或历史 profile 里有旧值，都不会写出陈旧 key。
+- `code/citation_identity.extract_citation_info()`：每条施引条目同样写这两个字段（只增不改，
+  `title`/`authors`/`venue`/`year`/`url`/`cites_id` 一字不动）。
+- 新增 `code/data_upgrade/normalize_venue_key.py`：把规则应用到**存量**输出（默认 dry-run，
+  `--apply` 才写，只改这两个派生字段，备份 + `manifest.json`，幂等），并导出每个"认不出的 venue"
+  连计数（`--review-file`）供人工审阅后扩表。
+- 测试：`tests/test_venue_key.py` 18 例、`tests/test_normalize_venue_key.py` 8 例；全套 **449 例**全绿。
+- 存量应用实测（作者 `HF3-E9kAAAAJ`）：profile 241 篇 → canonical 120 / raw 117 / 无 venue 4；
+  引文 9,269 条 → canonical 354 / raw 7,690 / 无 venue 1,225；备份
+  `output/venue_key_backup_20261014_194422/`，审阅清单 `output/venue_key_review.json`。
+  引文侧 raw 居多是因为 Scholar 的引用列表页把 venue 截到约 25 字符（`Proceedings of the …` x556），
+  这些串彼此不可区分，**不宜直接当去重键** —— 已在 `issues.md` 记下待决。
+- `AGENTS.md` / `README.md` 同步（新模块、两个字段、CLI、测试表、例数 418 → 449）。

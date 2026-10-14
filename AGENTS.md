@@ -56,7 +56,8 @@ This file provides guidance to AI coding agents working with code in this reposi
 - Repair tools (data repair/upgrade only — kept apart from the main entry point;
   also modules, from the project root):
   `python -m code.data_upgrade.fix_diag_from_year_record <output_json>` /
-  `python -m code.data_upgrade.fix_output_fetch_state [output_dir]`
+  `python -m code.data_upgrade.fix_output_fetch_state [output_dir]` /
+  `python -m code.data_upgrade.normalize_venue_key [--apply] [--author ID]`
 - Example script: `code/examples/run_example.sh`
 
 ## 论文选择：按作者抓取，没有 `--papers`
@@ -89,7 +90,8 @@ google-scholar-citation-crawler/
     ├── examples/run_example.sh
     └── data_upgrade/              # 一次性数据修复/升级工具（**与主线入口分开**）
         ├── __init__.py
-        └── fix_*.py               # python -m code.data_upgrade.fix_*
+        ├── fix_*.py               # python -m code.data_upgrade.fix_*
+        └── normalize_venue_key.py # python -m code.data_upgrade.normalize_venue_key
 ```
 
 - **产物位置不变**：`output/author_<ID>_paper_citations.json` / `.xlsx`、`author_<ID>_profile.json`
@@ -108,11 +110,12 @@ google-scholar-citation-crawler/
 
 详细项目结构见 `_work_notes.zh.md` 的「项目结构」节（含各模块中文说明），对外简介见 `README.md` 的「Development Notes → Project Structure」节。
 
-简况：`code/` 有 22 个支撑模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志，
+简况：`code/` 有 23 个支撑模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志，
 其中 `lib_env.py` 管第三方库环境、`venue_detail.py` 管出版详情页的完整 venue、`cite_format.py` 管施引
-条目的五种引用格式与 BibTeX、`venue_quality.py` 判「venue 是否已经完整/是否只是预印本源」）；
-`tests/` 有 418 个测试，
-18 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」）。
+条目的五种引用格式与 BibTeX、`venue_quality.py` 判「venue 是否已经完整/是否只是预印本源」、
+`venue_key.py` 把 venue 归一成 `会议名+年份` 的身份键）；
+`tests/` 有 449 个测试，
+20 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」）。
 
 ### 新增模块
 
@@ -161,6 +164,19 @@ google-scholar-citation-crawler/
   薄包装。取舍见 `issues.md`：跳过的条目放弃了 Cite 对话框本可补上的卷期/页码。
 - **`run.sh`**：便捷入口，自动检测 conda 环境后执行 `python -m code.scholar_citation`。
 
+- **`code/venue_key.py`**（2026-10-15）：**`venue_key` = 规范发表地名 + 年份**（`ACL2026`、
+  `Findings of ACL2026`），供下游做论文去重/唯一性判断。规范名沿用 3.a.2 已有的词表
+  （`citation_analysis_info/code/config.py` 的 `VENUE_PRESTIGE` + `VENUE_ALIASES`：51 个会议 + 30 个期刊），
+  匹配算法也照抄它的 `_venue_match`（多词子串 / 短全大写缩写要词边界 / 其它单名要整名），
+  按文本长度降序尝试，所以 TACL 期刊不会被 ACL 会议吞掉、Findings 是**独立于主会**的 venue。
+  两处刻意的合并：`NIPS` → `NeurIPS`、`ACMMM` → `ACM MM`（同一会议不能有两个 key）。
+  年份取 venue 串里第一个 4 位年份（会议届次），没有才退回记录自身的 year。
+  **认不出的 venue 先用它自己的串当 key**（`venue_key_source='raw'`）—— 这是可审阅的临时状态，
+  数据修复工具会把所有不同取值连计数导出来，再由人决定往词表里补什么；占位值（空/`NA`/`N/A`）
+  **不给 key**（"没有 venue" 不是 venue，`NA` 当 key 会把无关记录并成一条）。
+  与 3.a.2 的关系：按工作区的共享代码约定，唯一实体最终应放本阶段并由 3.a.2 经 `code/_shared.py`
+  消费；本次先各持一份并逐条对齐，迁移记在 `issues.md`。
+
 ## Architecture overview
 
 The program always runs in two sequential phases from `main()`:
@@ -172,6 +188,9 @@ The program always runs in two sequential phases from `main()`:
 - Fetches each publication's Scholar **detail page** once and stores the untruncated
   venue in the additive `pub['venue_full']` field (`code/venue_detail.py`); the
   truncated `pub['venue']` is never rewritten
+- Derives `pub['venue_key']` / `pub['venue_key_source']` from `venue_full or venue` +
+  year (`code/venue_key.py`); both are recomputed on every serialisation, so they
+  can never go stale
 - Maintains `change_history` inside `author_<ID>_profile.json`
 - Writes both JSON and formatted Excel outputs
 
@@ -181,6 +200,9 @@ The program always runs in two sequential phases from `main()`:
 - Resumes from in-memory state (`_mid_paper_state`, `_paper_states`)
 - Persists every citing entry's Scholar cluster id as the additive `cid` field
   (`extract_citation_info`; pure parsing, no request)
+- Writes `venue_key` / `venue_key_source` on every citing entry the same way
+  (list-page venues are often truncated by Scholar, so those rows keep raw keys
+  until the table is extended — `venue_key_source` tells the two apart)
 - With `--cite-formats` (opt-in), resolves each citing entry's five citation formats
   and BibTeX from Scholar's Cite dialog before writing the output
   (`code/cite_format.py`, cached in `output/cite_format_cache.json`)
@@ -327,6 +349,20 @@ dependencies are stubbed in `tests/conftest.py`).
   detail/Cite/BibTeX URLs and plain `delay_scale` for citation-list and profile pages
   (`--accelerate` stacking included), and a source-level guard asserts the two new
   modules define no delay of their own.
+- `tests/test_venue_key.py` covers the canonical venue identity: acronyms and
+  spelled-out proceedings forms, Findings as its **own** venue (different from its
+  host conference), TACL-not-ACL, longest-match-wins (Nature sub-journals, CL vs
+  ACL), the two deliberate spelling merges (`NIPS` → `NeurIPS`, `ACMMM` → `ACM MM`),
+  the year rule (venue string first, record year as fallback), unknown venues
+  keeping their raw text, missing venues getting **no** key, plus the two writers
+  (`PubInfo` and `extract_citation_info`) and that `PubInfo` prefers
+  `venue_full` and never reads a stale stored key back.
+- `tests/test_normalize_venue_key.py` covers the data-upgrade tool: dry-run writes
+  nothing (no backup directory either), `--apply` fills both fields while every
+  other key stays byte-identical, the previous version is copied into the backup
+  directory with a manifest, a second run is a no-op, the review report lists each
+  distinct unrecognised venue with its count, `--author` scans only that author,
+  and a missing/empty output directory is an error rather than a silent pass.
 - When changing year-based fetching, resume behavior, or CLI flags, update the
   corresponding test file first rather than adding integration coverage.
 

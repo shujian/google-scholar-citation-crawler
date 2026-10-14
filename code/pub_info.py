@@ -5,11 +5,15 @@ PubInfo wraps the publication dict that appears as "pub" in the output JSON
 papers array.  It enforces a fixed set of keys and a stable field order on
 serialisation.
 
-The three fields after ``citedby_url`` are additive (2026-10-14):
-``citation_for_view`` is the token of the publication's Scholar detail page and
+The fields after ``citedby_url`` are additive (2026-10-14/15):
+``citation_for_view`` is the token of the publication's Scholar detail page,
 ``venue_full`` is the untruncated venue read from that page (with
-``venue_full_source`` recording where it came from).  ``venue`` itself is never
-rewritten — see ``code/venue_detail.py`` for why.
+``venue_full_source`` recording where it came from) and ``venue_key`` /
+``venue_key_source`` are the canonical ``<venue name><year>`` identity derived
+from them by ``code/venue_key.py``.  ``venue`` itself is never rewritten — see
+``code/venue_detail.py`` for why.  The two ``venue_key*`` fields are **derived**:
+they are recomputed on every serialisation (never read back), so they cannot go
+stale when ``venue_full`` arrives after the object was constructed.
 """
 
 from dataclasses import dataclass
@@ -17,12 +21,14 @@ from typing import Optional
 
 from code.citation_cache import normalize_citation_year
 from code.venue_detail import extract_citation_for_view
+from code.venue_key import resolve_venue_key
 
 
 _PUB_FIELDS = [
     'no', 'title', 'year', 'venue', 'authors',
     'num_citations', 'url', 'citedby_url',
     'citation_for_view', 'venue_full', 'venue_full_source',
+    'venue_key', 'venue_key_source',
 ]
 
 
@@ -41,6 +47,23 @@ class PubInfo:
     citation_for_view: str = ""
     venue_full: str = ""
     venue_full_source: str = ""
+
+    # -- derived fields -----------------------------------------------------
+
+    @property
+    def venue_key(self):
+        """Canonical ``<venue name><year>`` (raw venue when unrecognised)."""
+        return self._resolved_venue_key()[0]
+
+    @property
+    def venue_key_source(self):
+        """``'canonical'`` / ``'raw'`` / ``None``."""
+        return self._resolved_venue_key()[1]
+
+    def _resolved_venue_key(self):
+        # The detail page's untruncated name is the better input when present;
+        # the list-page venue is the fallback.
+        return resolve_venue_key(self.venue_full or self.venue, self.year)
 
     @classmethod
     def from_dict(cls, d):
@@ -97,7 +120,13 @@ class PubInfo:
         )
 
     def to_dict(self):
-        """Serialize to the dict written as "pub" in the output JSON."""
+        """Serialize to the dict written as "pub" in the output JSON.
+
+        ``venue_key`` / ``venue_key_source`` are recomputed here, so a profile
+        written before the detail page was fetched is upgraded as soon as
+        ``venue_full`` exists.
+        """
+        key, source = self._resolved_venue_key()
         return {
             'no': self.no,
             'title': self.title,
@@ -110,6 +139,8 @@ class PubInfo:
             'citation_for_view': self.citation_for_view,
             'venue_full': self.venue_full,
             'venue_full_source': self.venue_full_source,
+            'venue_key': key,
+            'venue_key_source': source,
         }
 
 
