@@ -2961,3 +2961,65 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
   并在 Phase 1 结束、Phase 2 开始前停掉进程：避免顺带触发引文重抓（`has_pending_work()` 为真）。
 - 输出侧：`pub` 由 `_save_output()` 走 `PubInfo.from_dict()` 重建，所以只要 Phase 2 跑过一次，
   `author_<ID>_paper_citations.json` 就会带上 `venue_full`。本次为控制范围**没有**让 Phase 2 跑。
+
+## 2026-10-14（阶段 1：施引条目的五种引用格式 `cid` / `cite`）
+
+用户原始输入（全文）：
+
+> 仓库：`/Users/huangshujian/Workspaces/citation_management/google-scholar-citation-crawler`（阶段 1）。**只改这一个仓库**，**不要 `git push`**，英文 commit（按该仓库惯例），并按既有要求往中文备忘（`issues.md` / `_user.zh.md` / `_update_history.zh.md` / `_work_notes.zh.md`）追加记录。先读 `AGENTS.md` 与刚提交的两个 commit（`a7e6d94` / `fe75fba`），**复用**其中新建的 `code/venue_detail.py` 的模式（token/缓存/降级/原子写）。
+>
+> ## 背景（已实测确认）
+>
+> 对**施引条目**（`pub.citations[]`，字段现为 `authors/cites_id/title/url/venue/year`），Scholar 有一个 cite 接口一次给出全部引用格式：
+>
+> ```
+> https://scholar.google.com.hk/scholar?q=info:<CID>:scholar.google.com/&output=cite&scirp=0&hl=en
+> ```
+>
+> 实测（`<CID>=nYGTsUfPxnMJ`）HTTP 200 / 2.7 KB，含 **MLA / APA / Chicago / Harvard / Vancouver** 五种文本，例如：
+> - Chicago：`Zhang, Jie, Haoyu Bu, Hui Wen, Yongji Liu, Haiqiang Fei, Rongrong Xi, Lun Li, Yun Yang, Hongsong Zhu, and Dan Meng. "When llms meet cybersecurity: A systematic literature review."` ← **全作者全名**
+> - Vancouver：`… Cybersecurity. 2025 Feb 5;8(1):55.` ← **venue 全称 + 卷期页码**
+>
+> 页面上另有**带签名**的 BibTeX 链接 `scholar.googleusercontent.com/scholar.bib?q=info:<CID>:scholar.google.com/&output=citation&scisdr=…`
+>
+> `<CID>` 就是 Scholar 结果行的 `data-cid`；本仓库 `code/citation_identity.py:16` 已有 `_SCHOLARBIB_CID_RE = re.compile(r'info:([^:]+):scholar\.google\.com')`（说明解析现场拿得到它）。
+>
+> ## 用户已批准的范围（1–4）
+>
+> 1. **持久化 `<CID>`**：在引用条目上**新增字段**（如 `cid`），**绝不改动 `cites_id` / `authors` / `venue` / `title` / `year` / `url`**（`cites_id` 与 `venue` 都参与身份键，见仓库既有教训）。
+> 2. **抓 cite 页**：按 `<CID>` 请求上面的 URL（一次请求即可拿到 5 种格式；BibTeX 若要结构化字段，再从同一响应里取带签名的 `scholar.bib` 链接抓第二次 —— 是否要 BibTeX 由你判断性价比，但**必须**把 Chicago/Vancouver 文本留下来）。
+> 3. **存结构化新字段**：例如 `cite = {"chicago": ..., "vancouver": ..., "bibtex": {...}}`，或按你判断摊平成 `authors_full` / `venue_full` / `volume` / `pages`；**只增不改**，缺失就不写。
+> 4. **遵守既有抓取礼仪**：走仓库既有的会话/延迟/代理/重试机制；**不要**用 `--accelerate 0.3` 之类激进档（上一次 75 页就触发限流 ✗）；命中的结果做**磁盘缓存**（参考 `code/venue_detail.py` 的 `output/venue_detail_cache.json` 模式，原子写、失败不写缓存、损坏只告警），保证可续跑。
+>
+> ## 实验范围（这次只做实验，**不要**铺全量）
+>
+> - 样本：**先 `155`（4 条引用）冒烟 → 再 `062`（28 条）**。**不要**碰 `003`（776 条）✗。
+> - 只写 crawler 自己的 `output/`（缓存/报告）✓；**不要动 `papers/`** ✗（不要跑阶段 2）；**不要改下游仓库** ✗。
+> - 若再次遇到 `Cannot Fetch from Google Scholar` / captcha：**立刻停下**，如实记录已经拿到多少、第几条开始失败、冷却是否救得回来 ✓，不要硬闯 ✗。
+>
+> ## 必须回报的四组数字
+>
+> 1. **请求成功率**：成功/失败条数、第几条开始失败、平均每条耗时（用于外推 5,561 条的成本）；
+> 2. **全名覆盖率**：样本里现有 `authors` 是缩写串（如 `H Wang, F Zhang`）的条目中，有多少条从 Chicago 拿到了全名 ✓（给 5 条前后对照）；
+> 3. **venue 修复率**：样本里 `venue` 含 `…` 的条目，有多少条拿到完整全称 ✓（给 5 条前后对照）；并说明 `venue_full` 与 `venue` 在**非截断**条目上的关系（是否更短/丢卷期页码 —— 上次实测发现它不是超集 ✗，请在这次样本上再核一遍）；
+> 4. BibTeX 那条路（签名链接）能不能稳定拿到结构化字段（能/不能 + 样例）。
+>
+> ## 其他
+>
+> - 测试：hermetic（夹具 HTML 内联/临时目录、**不联网**）：`cid` 持久化与旧数据兼容、cite 页五格式解析（含 `<style>` 干扰、字段缺失、HTML 实体 `&quot;`/`&amp;`）、缓存命中不重复请求、失败降级不写缓存、`venue`/`cites_id`/`authors` **逐字节不变**。全套必须全绿（基线 **310 例**，报最终例数），同步文档与例数。
+> - 提交：一个英文 commit（实验代码+测试+文档）+ 一个中文备忘提交（实测记录），**不 push**。
+> - 最后用中文回报：①改动与 token 来源；②用例名与最终例数；③上面四组数字与样例；④commit hash；⑤风险/你认为不该这么做的点。
+
+执行说明（本次实际取舍）：
+
+- **`cid` 的持久化是零成本的**（`url_scholarbib` → `data-cid` 纯解析），所以它**无条件**落盘；
+  抓 Cite 对话框才是昂贵部分，做成显式开关 `--cite-formats`（默认关）。
+- **BibTeX 值一次请求**：`bibtex.author` 是 ` and ` 分隔的全名列表（机器可切分），比从 Chicago 文本里
+  抽作者可靠；`journal`/`volume`/`pages` 是结构化 venue 证据，所以第二条请求保留。
+- **存成 `citation['cite']`**（五种格式摊平 + 嵌套 `bibtex`），而不是写 `authors_full`/`venue_full`：
+  施引条目上的 `venue_full` 会与 `pub['venue_full']`（详情页那个字段）**同名不同义**，容易误用；
+  格式文本本身是原始证据，怎么抽由下游决定。
+- **富化放在 `_save_output()`**（写 JSON 之前），不在抓取循环里：去重已完成、中断也落盘、
+  缓存只 load/save 一轮。
+- **不给这条路径新增强制长休息**：与 venue 详情页同一个入口，既有行为保持一致；产品问题记 `issues.md`。
+- 真实小样本实测按用户要求"先 155 再 062"，并**遇到限流立刻停下**（记录见本文件稍后的实测段）。

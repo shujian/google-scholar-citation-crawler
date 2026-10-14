@@ -55,6 +55,18 @@ def _extract_cid_from_scholarbib(url):
     return _clean_cites_id(match.group(1))
 
 
+def extract_cid_from_scholarbib(url_scholarbib):
+    """Public accessor for the row's ``data-cid`` (scholarly: url_scholarbib).
+
+    The cid addresses Scholar's **Cite dialog** for that result row — one page
+    carrying all five citation formats plus the signed BibTeX link
+    (``code/cite_format.py``).  It is deliberately a *separate* value from
+    ``cites_id``: ``cites_id`` identifies the cited work's cluster list and takes
+    part in the identity keys, the cid identifies one citing row.
+    """
+    return _extract_cid_from_scholarbib(url_scholarbib)
+
+
 def normalize_cites_id(cites_id):
     """Return a normalised string cites_id, or None if absent/empty/invalid."""
     if cites_id in (None, '', [], ()):
@@ -141,6 +153,12 @@ def extract_citation_info(pub, fallback_year=None):
     Convert a raw scholarly publication dict into a clean citation dict.
 
     fallback_year is used when the bib has no usable pub_year.
+
+    ``cid`` is the row's Scholar cluster id (scholarly keeps it in
+    ``url_scholarbib``).  It is **purely additive** — it is not part of any
+    identity key, and ``cites_id``/``authors``/``venue``/``title``/``year``/
+    ``url`` are unchanged byte for byte — but it is what makes Scholar's Cite
+    dialog addressable later (see ``code/cite_format.py``).
     """
     bib = pub.get('bib', {})
     authors = bib.get('author', [])
@@ -157,4 +175,5 @@ def extract_citation_info(pub, fallback_year=None):
         'year':     year,
         'url':      pub.get('pub_url', pub.get('eprint_url', 'N/A')),
         'cites_id': normalize_cites_id(raw_cites_id),
+        'cid':      _extract_cid_from_scholarbib(pub.get('url_scholarbib')),
     }

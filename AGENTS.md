@@ -47,6 +47,7 @@ This file provides guidance to AI coding agents working with code in this reposi
 - Force re-fetch specific papers: `python -m code.scholar_citation --author YOUR_AUTHOR_ID --fetch-mode force --skip 2 --limit 3`
 - Enable debug logging: `python -m code.scholar_citation --author YOUR_AUTHOR_ID -v`
 - Use interactive captcha recovery: `python -m code.scholar_citation --author YOUR_AUTHOR_ID --interactive-captcha`
+- Also store every citing entry's five citation formats + BibTeX (opt-in, one request per entry): `python -m code.scholar_citation --author YOUR_AUTHOR_ID --cite-formats --skip 0 --limit 1`
 - Speed up waits for debugging: `python -m code.scholar_citation --author YOUR_AUTHOR_ID --interactive-captcha --accelerate 0.1`
 - Override the proxy: `python -m code.scholar_citation --author YOUR_AUTHOR_ID --proxy-url http://127.0.0.1:7890`
 - Run all tests: `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests`
@@ -104,9 +105,10 @@ google-scholar-citation-crawler/
 
 详细项目结构见 `_work_notes.zh.md` 的「项目结构」节（含各模块中文说明），对外简介见 `README.md` 的「Development Notes → Project Structure」节。
 
-简况：`code/` 有 20 个支撑模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志，
-其中 `lib_env.py` 管第三方库环境、`venue_detail.py` 管出版详情页的完整 venue）；`tests/` 有 310 个测试，
-16 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」）。
+简况：`code/` 有 21 个支撑模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志，
+其中 `lib_env.py` 管第三方库环境、`venue_detail.py` 管出版详情页的完整 venue、`cite_format.py` 管施引
+条目的五种引用格式与 BibTeX）；`tests/` 有 383 个测试，
+17 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」）。
 
 ### 新增模块
 
@@ -128,6 +130,18 @@ google-scholar-citation-crawler/
   与下游身份校验（K123/K125 同类教训），改写会让历史身份键漂移。抓取走**既有的 patched session**
   （`scholarly._Scholarly__nav._get_soup()`，与 year probe 同一入口），所以延迟/`--accelerate`/
   captcha/代理等待照旧；缓存 `output/venue_detail_cache.json` 按 token 记录已解析页面，可续跑。
+- **`code/cite_format.py`**（2026-10-14）：从 Scholar 的 **Cite 对话框**
+  （`/scholar?q=info:<cid>:scholar.google.com/&output=cite&scirp=0&hl=en`）读**五种引用格式**
+  （MLA / APA / Chicago / Harvard / Vancouver）与 BibTeX，写进施引条目的
+  `citation['cite']`（`{'mla': …, 'chicago': …, 'vancouver': …, 'bibtex': {…}}`）。**Chicago 给全作者
+  全名、Vancouver 给 venue 全称 + 卷期页码**，正是引文列表页给不了的。`cid`（= 结果行的
+  `data-cid`，scholarly 放在 `url_scholarbib`）由 `citation_identity.extract_citation_info()` **纯解析**
+  （不发请求）随条目落盘，**与 `cites_id` 是两个概念**（后者是被引作品的 cluster，参与身份键）。
+  解析按 DOM 配对（`th.gs_cith` + `td > div.gs_citr`），页面开头的 `<style>` 提到 `.gs_citr{…}`，
+  朴素正则会把 CSS 当引用；BibTeX 走同一响应里**带签名**的 `scholar.bib` 链接（第二次请求）。
+  **只增不改**：`title`/`authors`/`venue`/`year`/`url`/`cites_id` 一字不动（venue 与 cites_id 参与身份键，
+  同 `venue_detail.py` 的教训）。**默认关闭**（`--cite-formats`）：每个施引条目一次请求、BibTeX 再一次，
+  全库是数千次；缓存 `output/cite_format_cache.json` 按 `cid` 记录已解析页面，可续跑，失败不写缓存。
 - **`run.sh`**：便捷入口，自动检测 conda 环境后执行 `python -m code.scholar_citation`。
 
 ## Architecture overview
@@ -148,6 +162,11 @@ The program always runs in two sequential phases from `main()`:
 - Reads the saved profile JSON output (cross-run state) and in-memory mid-paper state (same-run resume)
 - Decides per paper whether citation data is `missing`, `partial`, `complete`, or `skip_zero`
 - Resumes from in-memory state (`_mid_paper_state`, `_paper_states`)
+- Persists every citing entry's Scholar cluster id as the additive `cid` field
+  (`extract_citation_info`; pure parsing, no request)
+- With `--cite-formats` (opt-in), resolves each citing entry's five citation formats
+  and BibTeX from Scholar's Cite dialog before writing the output
+  (`code/cite_format.py`, cached in `output/cite_format_cache.json`)
 - Writes consolidated citation outputs to `author_<ID>_paper_citations.json` and `.xlsx`
 
 ### Citation fetch strategy
@@ -219,10 +238,11 @@ code/scholar_citation.py  (orchestrator + PaperCitationFetcher — python -m cod
   ├── code.author_fetcher         ← code.profile_io, code.venue_detail
   ├── code.profile_io             ← code.pub_info
   ├── code.venue_detail           ← code.common (detail-page parsing + venue cache; bs4)
+  ├── code.cite_format            ← code.common (Cite-dialog parsing + format cache; bs4)
   ├── code.pub_info               ← code.citation_cache, code.venue_detail
   ├── code.citation_cache         (pure year/diagnostics functions)
   ├── code.citation_strategy      ← code.citation_cache
-  ├── code.citation_identity      (pure dedup / info extract)
+  ├── code.citation_identity      (pure dedup / info extract; hands out the row cid)
   ├── code.citation_io            ← code.citation_cache, code.citation_strategy
   ├── code.citation_models        (dataclasses for citations, diagnostics, resume state)
   ├── code.output_state           ← code.citation_io, code.citation_cache
@@ -258,6 +278,15 @@ dependencies are stubbed in `tests/conftest.py`).
   trap, reordered rows, missing venue label, whitespace collapsing), the new fields
   surviving a profile round trip with `venue` byte-identical, graceful degradation
   (request error, page without a field table, interrupt) and cache/resume behaviour.
+- `tests/test_cite_format.py` covers the Cite-dialog step hermetically: `cid` persistence
+  from `url_scholarbib` (including the `info:None:` placeholder and rows written before
+  the field existed) with `title`/`authors`/`venue`/`year`/`url`/`cites_id` byte-identical,
+  label↔cell pairing for the five formats (the `<style>` trap, reordered/duplicate/unknown
+  labels, missing cells, `&quot;`/`&amp;` decoding, inline `<i>` spacing), BibTeX parsing
+  (nested/escaped braces, quoted and bare values, multiline collapsing, truncated records),
+  graceful degradation (request error, captcha page, BibTeX failure retried from the cached
+  signed URL, interrupt) and cache/resume behaviour, plus the `--cite-formats` wiring
+  (`_save_output` writes the field only when the flag is on).
 - When changing year-based fetching, resume behavior, or CLI flags, update the
   corresponding test file first rather than adding integration coverage.
 

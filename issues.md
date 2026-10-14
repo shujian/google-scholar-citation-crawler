@@ -68,3 +68,25 @@ token）、`venue_full`（详情页给的**未截断** venue）、`venue_full_so
    「总数无变化 + 无待抓引文」直接跳过 Phase 2，输出文件保持旧内容（profile JSON 仍然是新的）。
 2. 详情页抓取是**每篇源论文一次**网络请求（241 量级），受 `--accelerate` 缩放、约 20–65 s/篇；
    缓存 `output/venue_detail_cache.json` 可续跑，删掉它才会重新请求。
+
+## 六、施引条目的引用格式（`cid` / `cite` / `--cite-formats`，2026-10-14）
+
+阶段 1 现在**无条件**把每个施引条目的 Scholar cluster id 存成 `citation['cid']`（纯解析、不发请求，
+`data-cid` 就是 scholarly 的 `url_scholarbib`），并在**显式开启** `--cite-formats` 时抓该条目的
+Cite 对话框，把五种格式 + BibTeX 存进 `citation['cite']`（只增不改）。需要你决策的点：
+
+1. **默认关闭是刻意的**：每个施引条目 1 次请求（BibTeX 再 1 次），全库是数千次量级 ——
+   与「每篇源论文一次」的 venue 详情页（241 量级）不是一个成本级。是否默认开启、或只对
+   「作者是缩写串 / venue 被截断」的条目开启，需要你拍板。缓存 `output/cite_format_cache.json`
+   让重跑几乎零成本（命中不发请求），所以"先小样本试、再决定铺不铺"是可行路径。
+2. **下游可以怎么用**（本轮**没改**下游，3.a.1 现在读不到这两个新字段）：
+   - 全名：`cite.chicago` 与 `cite.bibtex.author` 都给全作者全名（`M Bu` → `Bu, Haoyu`）；
+   - venue：`cite.bibtex.journal` / `booktitle` 给未截断的 venue，`cite.vancouver` 还给卷期页码；
+   - 仍然**绝不覆盖 `venue`**（身份键），下游要用请写新字段或只在 enrich 阶段作为证据。
+3. **`cid` 与 `cites_id` 是两个东西**：`cid` 只定位「这一条施引结果行」的 Cite 对话框，
+   **绝不参与任何身份键**，别拿它当 `cites_id` 用（`cites_id` 是被引作品的 cluster 列表）。
+4. **BibTeX 链接是带签名的**（`scisdr` / `scisig`）：签名只在本次响应里有效，所以缓存把 URL 一起存，
+   只用它重试失败的那一次请求；签名若过期只会退化成「该条没有 bibtex」，不影响五种格式。
+5. **这条路径没有强制长休息**：Cite 对话框走 `nav._get_soup()` → `patched_get_page()`，与 venue 详情页
+   同一个入口（只有 45–90 s 请求前延迟，没有引用列表页那种每 8–12 页的 3–6 分钟长休息）。
+   与上面第二节第 5 条是同一个产品问题：**是否给这条路径也接上强制长休息？**

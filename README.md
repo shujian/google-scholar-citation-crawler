@@ -18,6 +18,7 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 - **Resume Support**: Interrupted fetches resume from the last checkpoint; on exit the in-flight paper's state (citations fetched so far + the live year probe) is written to the output, so a year left short is re-fetched next run instead of being reported complete
 - **Anti-Ban Strategies**: HTTP/2 via scholarly's native `httpx` client with full browser headers (fingerprint adopted from the injected browser cURL), randomized 45–90 s delays, mandatory 3–6 min breaks every 8–12 pages, browser header simulation
 - **Full venue strings (`venue_full`)**: the citation-list pages truncate venues (`Proceedings of the 2024 Conference of the North American Chapter of the …`). Each publication's Scholar *detail* page (`citations?view_op=view_citation&citation_for_view=…`) is therefore fetched once per run to read the untruncated value — one request per publication (hundreds), not per citing entry (thousands). It is stored in a **new** field `pub['venue_full']` (plus `pub['venue_full_source'] = "scholar_detail"` and the detail-page token `pub['citation_for_view']`); `venue` itself is never rewritten, because it takes part in identity keys downstream. The requests go through the same patched session (same waits, `--accelerate` scaling, captcha recovery, proxy prompt), and parsed pages are cached in `output/venue_detail_cache.json` — so an interrupted run resumes and a later run asks for nothing twice
+- **Citation formats + BibTeX (`--cite-formats`)**: every citing entry keeps its Scholar cluster id as `cid`, and with `--cite-formats` the entry's Cite dialog (`scholar?q=info:<cid>:scholar.google.com/&output=cite`) gives all five formats — MLA / APA / **Chicago** (full author names) / Harvard / **Vancouver** (full venue + volume/issue/pages) — plus a parsed BibTeX record, stored in the additive `citation['cite']` field. Opt-in because it costs one request per citing entry (plus one for BibTeX); parsed pages are cached in `output/cite_format_cache.json`
 - **Interactive Captcha Bypass**: `--interactive-captcha` lets you paste a browser cURL to inject real cookies and resume without restarting; if playwright is installed you can type `browser` at the prompt instead and let it harvest the cookies from a real browser window
 - **Proxy Switch Wait**: On non-interactive failure, prompts hourly to switch proxy/IP until you type `ok` (the 24 h window scales with `--accelerate`)
 - **Change Tracking**: Records per-run citation-count history in the profile JSON
@@ -63,7 +64,8 @@ usage: python -m code.scholar_citation [-h] --author AUTHOR [--output-dir DIR]
                                        [--config PATH] [--proxy-url URL]
                                        [--no-proxy LIST] [--skip M] [--limit N]
                                        [--fetch-mode {rough,normal,exact,force}]
-                                       [--interactive-captcha] [--accelerate SCALE] [-v]
+                                       [--interactive-captcha] [--cite-formats]
+                                       [--accelerate SCALE] [-v]
 
 required:
   --author AUTHOR               Google Scholar author ID or full profile URL
@@ -80,6 +82,9 @@ optional:
   --fetch-mode {rough,normal,exact,force}
                                 Controls re-fetch aggressiveness (default: normal)
   --interactive-captcha         Enable interactive captcha bypass (see below)
+  --cite-formats                Also store each citing entry's five citation formats
+                                (MLA/APA/Chicago/Harvard/Vancouver) + BibTeX in
+                                citation["cite"]; one request per entry, cached
   --accelerate SCALE            Scale all deliberate waits (e.g. 0.1 = 10× faster);
                                 must be > 0. Waits exist to avoid Scholar's rate
                                 limits, so pair it with --interactive-captcha
@@ -129,6 +134,7 @@ prints a warning, and the JSON is left untouched.
 | `author_<ID>_paper_citations.json` | Per-paper citation lists |
 | `author_<ID>_paper_citations.xlsx` | Excel: Summary, All Citations, Run Metadata |
 | `venue_detail_cache.json` | Publication detail pages already parsed (`citation_for_view` token → full venue). Makes the `venue_full` step resumable; safe to delete to re-read every page |
+| `cite_format_cache.json` | Cite dialogs already parsed (row `cid` → the five formats + signed BibTeX URL + parsed BibTeX). Makes `--cite-formats` resumable; safe to delete to re-read every dialog |
 | `output/logs/author_<ID>_run_<ts>.log` | Full log of each run (mirrors stdout) |
 
 ## Full Venue Strings (`venue_full`)
@@ -162,6 +168,57 @@ Notes:
   (`code/citation_identity.py`, and the downstream stages' identity checks), so
   rewriting it would drift keys that historical data was analysed under.
   `venue_full` is purely additive.
+
+## Citation Formats & BibTeX (`--cite-formats`)
+
+Every citing entry keeps the Scholar cluster id of its result row as
+`citation['cid']` (the row's `data-cid`; scholarly exposes it as
+`url_scholarbib`). It is **not** `cites_id`: that one identifies the *cited*
+work's cluster and takes part in identity keys, while `cid` addresses that row's
+Cite dialog:
+
+```
+scholar?q=info:<cid>:scholar.google.com/&output=cite&scirp=0&hl=en
+```
+
+One request returns all five formats, plus a signed BibTeX link in the same HTML.
+With `--cite-formats` they are stored in a new, purely additive field:
+
+```json
+{
+  "title": "…", "authors": "H Wang, F Zhang", "venue": "Proceedings of the 2025 …",
+  "cites_id": "3724674774839834281", "cid": "nYGTsUfPxnMJ",
+  "cite": {
+    "mla": "…", "apa": "…",
+    "chicago": "Zhang, Jie, Haoyu Bu, …, and Dan Meng. \"…\" Cybersecurity 8, no. 1 (2025): 55.",
+    "harvard": "…",
+    "vancouver": "Zhang J, Bu H, …, Meng D. …. Cybersecurity. 2025 Feb 5;8(1):55.",
+    "bibtex": {
+      "entry_type": "article", "key": "zhang2025llms",
+      "author": "Zhang, Jie and Bu, Haoyu and … and Meng, Dan",
+      "journal": "Cybersecurity", "volume": "8", "number": "1", "pages": "55", "year": "2025"
+    }
+  }
+}
+```
+
+Notes:
+
+- **Off by default.** It costs one request per citing entry (plus one for
+  BibTeX) — thousands for a real profile — so a normal run never pays for it.
+  `output/cite_format_cache.json` records every parsed dialog, so a repeat run
+  issues no request for a page it already has.
+- **Additive only.** `title` / `authors` / `venue` / `year` / `url` / `cites_id`
+  are never rewritten (`venue` and `cites_id` take part in downstream identity
+  keys); whatever a dialog does not provide is simply absent from `cite`.
+- Requests reuse the patched session (standard delays, captcha recovery, proxy
+  wait), but this path takes the per-request delay **without** the mandatory
+  3–6 min break that citation-list pagination applies — the same property that
+  got the detail-page pass rate-limited in October 2026 (see `issues.md`).
+- A page that fails (request error, captcha/consent page, no citation table) is
+  **not** cached and is retried next run. When only the BibTeX download fails,
+  the dialog stays cached together with its signed URL, so the retry costs one
+  request instead of two.
 
 ## Rate Limiting & Anti-Ban Strategies
 
@@ -329,13 +386,14 @@ code/
   output_state.py            # PaperFetchState / PaperState + output file _fetch_state read/write
   pub_info.py                # PubInfo dataclass for publication field normalization
   venue_detail.py            # venue_full from the publication detail page (+ its cache)
+  cite_format.py             # five citation formats + BibTeX from the row's Cite dialog (+ its cache)
   log_utils.py               # setup_logging() / get_logger()
   cli.py                     # parse_args() only — the entry point is code.scholar_citation.main()
   fix_diag_from_year_record.py  # repair tool: rebuild diagnostics from source records
   fix_output_fetch_state.py     # repair tool: re-sync _fetch_state with cache files
   examples/run_example.sh    # minimal example invocation
 output/                      # crawl products (author_*.json/.xlsx) + logs/
-tests/                       # 310 unit tests, no network required
+tests/                       # 383 unit tests, no network required
 run.sh                       # thin launcher: conda-aware python -m code.scholar_citation
 crawler_config.json          # machine-local runtime config (gitignored)
 ```

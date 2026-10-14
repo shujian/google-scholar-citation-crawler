@@ -1182,3 +1182,88 @@ Learning Representations`），只有部分会议论文用 `Conference`。所以
   更稳的做法是给直接 `_get_soup` 路径也接上强制长休息（本轮**没做**，属于新行为，需要用户拍板，
   已记入 `issues.md` 第二节）。
 - 续跑很便宜：`output/venue_detail_cache.json` 命中不发请求，重跑时已抓的 81 条直接复用。
+
+## 2026-10-14: 施引条目的五种引用格式（`cid` / `cite` / `--cite-formats`）
+
+**为什么**：引文列表页给每条施引条目一行缩写（`H Wang, F Zhang` + 截断 venue），而每条结果行的
+**Cite 对话框**一次给全部五种格式：`/scholar?q=info:<cid>:scholar.google.com/&output=cite&scirp=0&hl=en`
+（实测 `scholar.google.com` 与 `scholar.google.com.hk` 返回同一份约 2.7 KB 的 HTML）。其中
+**Chicago 给全作者全名**、**Vancouver 给 venue 全称 + 卷期页码**、同一份响应里还有**带签名的 BibTeX 链接**。
+
+**`cid` 从哪来（不需要额外请求）**：scholarly 解析结果行时把 `data-cid` 写进
+`pub['url_scholarbib']`（`/scholar?hl=en&q=info:<cid>:scholar.google.com/&output=cite&scirp=<pos>&hl=en`）。
+仓库原本只用它做 `cites_id` 的兜底（`_extract_cid_from_scholarbib`）；现在 `extract_citation_info()`
+额外输出 `'cid'`（并暴露公开函数 `extract_cid_from_scholarbib`），**纯解析、零请求**，所以旧数据
+「没有 cid」也能被识别（字段缺失 → `None`，与 `cites_id` 的缺省值同款）。
+
+**页面结构（实测）**：
+
+```html
+<div id="gs_citt"><table>
+  <tr><th scope="row" class="gs_cith">MLA</th><td><div tabindex="0" class="gs_citr">…</div></td></tr>
+  <!-- APA / Chicago / Harvard / Vancouver 同款 -->
+</table></div>
+<div id="gs_citi">
+  <a class="gs_citi" href="https://scholar.googleusercontent.com/scholar.bib?q=info:<cid>:…&scisdr=…&scisig=…">BibTeX</a>
+  <a class="gs_citi" href="…scholar.enw…">EndNote</a> …  <!-- 还有 RefMan / RefWorks -->
+</div>
+```
+
+- 解析按 DOM 配对（`th.gs_cith` → 它的兄弟 `td` → `div.gs_citr`），**不用正则**：页面可以带
+  `<style>` 段提到 `.gs_citr{…}`，朴素正则会把它读成引用文本（与 `venue_detail.py` 的 `<style>` 坑同类）。
+- 值用 `get_text()`（**无分隔符**）再规范化空白。**这个选择是实测出来的**：`get_text(' ')` 会把
+  `<i>Cybersecurity</i>, <i>8</i>(1)` 拼成 `Cybersecurity , 8 (1)`（标点前多出空格），
+  无分隔符拼接才等于页面上的 `Cybersecurity, 8(1)`。
+- 实体交给 bs4 解码（`&quot;` → `"`、`&amp;` → `&`）；**只保留五个已知标签**，缺哪个就没有哪个 key
+  （页面没有 `gs_cith` 行 = captcha/consent/跳转页 = 抓取失败，不写缓存）。
+
+**BibTeX**：从同一份 Cite 响应里取带签名的 `scholar.bib` 链接，用 `nav._get_page(url)`（绝对 URL；
+scholarly 自己的 `_fill_publication` 也是 `_get_bibtex()` + `_get_page()` 这么走的）拿纯文本，解析成
+`{entry_type, key, <field>: value}`（支持嵌套花括号、`\{`、双引号值、裸值、跨行值）。
+实测 `@article{zhang2025llms, …}` →
+`{'entry_type': 'article', 'key': 'zhang2025llms', 'author': 'Zhang, Jie and … and Meng, Dan',
+'journal': 'Cybersecurity', 'volume': '8', 'number': '1', 'pages': '55', 'year': '2025', 'publisher': 'Springer'}`。
+**为什么值一次请求**：`bibtex.author` 是 ` and ` 分隔的全名列表，机器可切分，比从 Chicago 文本里
+抽作者可靠；`journal`/`booktitle`/`volume`/`pages` 是结构化的 venue 证据。
+
+**只增不改**：新增 `citation['cite'] = {mla, apa, chicago, harvard, vancouver, bibtex}`（缺的 key 不写），
+`title`/`authors`/`venue`/`year`/`url`/`cites_id` 一字不动 —— `venue` 与 `cites_id` 参与身份键
+（同一课在 `venue_detail.py` 与 K123/K125 已记过）。`cid` 同样**不进** `citation_identity_keys()` /
+`citation_output_identity_keys()`，所以去重语义、论文内编号与下游身份校验都不受影响。
+
+**接线与开关**：`--cite-formats`（默认**关**）→ `PaperCitationFetcher(cite_formats=…)` →
+`_save_output()` 在写 JSON **之前**对全部 `final_results` 的 citations 跑一次
+`cite_format.enrich_citations_with_cite_formats()`。放在这里而不是抓取循环里的三个原因：
+①去重已完成，抓的就是最终要写出的那批；②中断（Ctrl+C）也会走到 `_save_output`，已抓到的格式照样落盘；
+③缓存只 load/save 一轮（若放进 `_build_entry`，241 篇论文会反复读写同一个文件）。
+**默认关闭**是因为成本：每个施引条目 1 次请求（BibTeX 再 1 次），全库是数千次量级，
+与「每篇源论文一次」的 venue 详情页（241 量级）不是一个成本级 —— 见 `issues.md` 第六节。
+
+**缓存与续跑**：`output/cite_format_cache.json`，key = `cid`：
+
+```json
+{"nYGTsUfPxnMJ": {"formats": {"mla": "…", "chicago": "…", "vancouver": "…"},
+                  "bib_url": "https://scholar.googleusercontent.com/scholar.bib?…&scisig=…",
+                  "bibtex": {"author": "…", "journal": "Cybersecurity", "volume": "8"},
+                  "fetched_at": "2026-10-14T…"}}
+```
+
+- 每抓到一条就 `write_json_atomic()` 写一次，Ctrl+C / 崩溃都不丢已抓进度；命中缓存的 cid **不发请求**。
+- **失败不写缓存**：请求异常、captcha/consent 页（没有五个标签）都记 `failed` 且**不缓存** → 下轮重试。
+- 一个刻意保留的例外：**Cite 页成功但 BibTeX 下载失败**时，缓存保留该页与它的签名 URL（无 `bibtex`），
+  下轮只用那一个请求重试 BibTeX，而不是重抓整页 —— 页本身成功了，不该丢；签名若过期只退化成
+  「该条没有 bibtex」，不影响五种格式。
+- 缓存损坏只告警并按空缓存继续（`venue_detail.py` 同款）。
+
+**限流性质（与 venue 详情页同源）**：Cite 对话框走 `nav._get_soup()` → `patched_get_page()`，
+只有 45–90 s 的请求前延迟，**没有**引用列表页那种每 8–12 页的 3–6 分钟强制长休息
+（`patched_load_url()`）。`issues.md` 第二节第 5 条已就这条路径提过产品问题，本次沿用既有行为、
+不新增机制。
+
+**测试**：`tests/test_cite_format.py`（71 例）钉住 `cid` 持久化（含 `info:None:` 占位、无
+`url_scholarbib` 的旧行、`cid` 不泄漏进 `cites_id`）、五个标签的 DOM 配对（`<style>` 干扰、顺序、
+重复标签、未知标签、缺 `<td>`、空值）、实体解码与 `<i>` 拼接间距、BibTeX 解析（嵌套/转义花括号、
+引号值、裸值、多行、截断、非 bibtex 文本）、优雅降级（请求异常、captcha 页、BibTeX 失败后只重试 bib、
+KeyboardInterrupt 保留已抓内容）、缓存/续跑/原子写，以及 `--cite-formats` 接线
+（关闭时零请求、开启时 `_save_output` 写出 `cite`、没有 navigator 也能写出输出）。
+全套 310 → **383** 例。

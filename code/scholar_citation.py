@@ -108,6 +108,7 @@ from code.output_state import (
 )
 from code.pub_info import PubInfo
 from code.log_utils import setup_logging, get_logger
+from code import cite_format as _cite_format
 
 logger = get_logger(__name__)
 
@@ -138,7 +139,8 @@ class PaperCitationFetcher:
                  limit=None, skip=0, save_every=10,
                  fetch_mode='normal',
                  interactive_captcha=False,
-                 delay_scale=1.0):
+                 delay_scale=1.0,
+                 cite_formats=False):
         self.author_id = author_id
         self.output_dir = output_dir
         self.limit = limit
@@ -146,6 +148,10 @@ class PaperCitationFetcher:
         self.save_every = save_every
         self.fetch_mode = fetch_mode
         self.interactive_captcha = interactive_captcha
+        # Opt-in: one Cite-dialog request per citing entry (plus one for BibTeX)
+        # is thousands of requests on a real profile, so a normal run must not
+        # start paying for it.  See code/cite_format.py.
+        self.cite_formats = bool(cite_formats)
         self._captcha_solved_count = 0
         self._delay_scale = delay_scale
         self._injected_cookies = {}
@@ -1512,6 +1518,43 @@ class PaperCitationFetcher:
         """Wait up to max_hours (shortened by --accelerate) for the user to switch proxy/IP."""
         return _int_wait_proxy_switch(max_hours, scale=self._delay_scale)
 
+    def _enrich_cite_formats(self, final_results):
+        """Fill ``citation['cite']`` from Scholar's Cite dialog (--cite-formats).
+
+        One request per citation that carries a ``cid``, plus one for the signed
+        BibTeX download.  Requests reuse the patched scholarly session that
+        ``_patch_scholarly()`` installed, so the usual waits, captcha recovery and
+        proxy prompts apply; anything already parsed is served from
+        ``output/cite_format_cache.json`` without a request.  Returns the stats
+        dict, or None when no navigator is available (the output is still written).
+        """
+        nav = getattr(scholarly, '_Scholarly__nav', None)
+        get_soup = getattr(nav, '_get_soup', None)
+        get_page = getattr(nav, '_get_page', None)
+        if not callable(get_soup):
+            print("  Cite dialogs unavailable (no scholarly navigator); leaving "
+                  "citation['cite'] empty.", flush=True)
+            return None
+        citations = [c for result in final_results
+                     for c in (result.get('citations') or [])
+                     if isinstance(c, dict)]
+        print("\n" + "=" * 70)
+        print("  Fetching citation formats (Cite dialog, --cite-formats)")
+        print("=" * 70)
+        stats = _cite_format.enrich_citations_with_cite_formats(
+            citations,
+            cache_path=os.path.join(self.output_dir, _cite_format.CACHE_FILENAME),
+            get_soup=get_soup,
+            get_page=get_page,
+        )
+        print(f"  citation formats resolved: {stats['resolved']}/{stats['with_cid']} "
+              f"(fetched {stats['fetched']}, cached {stats['cache_hits']}, "
+              f"failed {stats['failed']}, no cid {stats['missing_cid']})")
+        print(f"  bibtex: {stats['bib_fetched']} fetched, "
+              f"{stats['bib_from_cache']} cached, {stats['bib_failed']} failed, "
+              f"{stats['bib_missing']} unavailable")
+        return stats
+
     def _save_output(self, results):
         """Save citation results to JSON and Excel."""
         print("\n" + "=" * 70)
@@ -1608,6 +1651,25 @@ class PaperCitationFetcher:
             print(f"Warning: {len(dropped_titles)} paper(s) present in the previous "
                   f"output are missing from the current profile and are dropped "
                   f"(e.g. {', '.join(sorted(dropped_titles)[:2])[:110]})", flush=True)
+
+        # Opt-in: resolve every citation's five formats (MLA/APA/Chicago/Harvard/
+        # Vancouver) + BibTeX from Scholar's Cite dialog, keyed by the row's cid.
+        # Before the JSON write so the new fields land in the same save.  This is
+        # the longest step of the save, and Ctrl+C is exactly how a run that hit
+        # Scholar's rate limit is meant to end — so an interrupt (or a failure)
+        # here must never cost the citation data that is already on hand: the
+        # resolved formats are in output/cite_format_cache.json and the JSON is
+        # written without them.
+        if getattr(self, 'cite_formats', False):
+            try:
+                self._enrich_cite_formats(final_results)
+            except KeyboardInterrupt:
+                print("  Citation-format step interrupted; writing the output with "
+                      "what was already resolved (the cache keeps the rest).", flush=True)
+            except Exception as e:
+                print(f"Warning: citation-format step failed "
+                      f"({type(e).__name__}: {e}); writing the output without it", flush=True)
+
         output_payload = {
             'author_id': self.author_id,
             'fetch_time': datetime.now().isoformat(),
@@ -1717,6 +1779,7 @@ def main():
             fetch_mode=args.fetch_mode,
             interactive_captcha=args.interactive_captcha,
             delay_scale=delay_scale,
+            cite_formats=getattr(args, 'cite_formats', False),
         )
         citation_fetcher._patch_scholarly()
 

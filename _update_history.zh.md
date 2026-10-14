@@ -1699,3 +1699,47 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 
   另注：`book` 标签下的两条（no.23 / no.27）实际都是会议论文集，说明"标签集合"这一判定是必要的
   —— Scholar 不保证按论文类型给标签。
+
+## 2026-10-14: `cid` + `cite` —— 施引条目的五种引用格式与 BibTeX（`--cite-formats`）
+
+### 问题
+
+引文列表页对每条施引条目只给一行缩写：作者是 `H Wang, F Zhang` 这样的首字母串，venue 被截断成
+`Proceedings of the 2025 …`。上一轮已经从**出版详情页**解决了我们**自己论文**的 venue 截断
+（`venue_full`），但**施引条目**（全库数千条）的缩写作者与截断 venue 一直没有来源。
+
+### 改动
+
+1. **`cid`（纯解析，无条件落盘）**：每条结果行都有 Scholar 的 `data-cid`，scholarly 把它放在
+   `url_scholarbib` 里。`code/citation_identity.py` 新增公开函数 `extract_cid_from_scholarbib()`，
+   并让 `extract_citation_info()` 多输出一个 `'cid'` 字段。**不发任何请求**，也不改动
+   `title`/`authors`/`venue`/`year`/`url`/`cites_id`。
+2. **`code/cite_format.py`（新模块）**：按 `cid` 请求 Cite 对话框
+   （`/scholar?q=info:<cid>:scholar.google.com/&output=cite&scirp=0&hl=en`，一次拿全部五种格式），
+   DOM 配对解析 MLA/APA/Chicago/Harvard/Vancouver，并从同一份响应里取**带签名**的 `scholar.bib`
+   链接再取一次，解析成结构化 BibTeX（`author` 是 ` and ` 分隔的全名列表）。
+   结果写进**新增**字段 `citation['cite']`；`citation['cid']` 之外一个旧字段都不动。
+3. **`--cite-formats`（默认关闭）**：`cli.py` 新开关 → `PaperCitationFetcher(cite_formats=…)` →
+   `_save_output()` 在写 JSON 前对最终 citations 跑一次富化。默认关闭是因为成本：**每个施引条目
+   1 次请求**（BibTeX 再 1 次），全库数千次，与 venue 详情页的 241 量级不是一个成本级。
+4. **缓存/续跑**：`output/cite_format_cache.json`（key = `cid`），原子写、命中不发请求、
+   **失败不写缓存**；Cite 页成功而 BibTeX 失败时保留签名 URL，下轮只重试那一次请求。
+5. **抓取礼仪**：沿用既有 patched session（`nav._get_soup()` / `nav._get_page()`），
+   延迟 / `--accelerate` / captcha / 代理等待照旧；**没有**新增强制长休息（与 venue 详情页同一性质，
+   产品决策记在 `issues.md` 第六节）。
+
+### 为什么不覆盖 `venue` / 不用 `cid` 参与身份
+
+`venue` 参与元数据身份键，`cites_id` 参与引用身份键（`citation_identity_keys()` /
+`citation_output_identity_keys()`），改写或新增参与键都会让历史身份漂移（K123/K125 的同一条教训）。
+所以 `cid` 与 `cite` 都是**纯增量**，去重语义与下游身份校验完全不变。
+
+### 测试与文档
+
+- 新增 `tests/test_cite_format.py`（71 例）：`cid` 持久化与旧数据兼容、五格式 DOM 配对
+  （`<style>` 干扰 / 缺字段 / `&quot;`、`&amp;` 实体 / `<i>` 拼接间距）、BibTeX 结构化解析、
+  缓存命中不重复请求、失败不写缓存、`venue`/`cites_id`/`authors` 逐字节不变、`--cite-formats` 接线。
+  全套 310 → **383** 例，全绿。
+- `AGENTS.md`（模块说明 / 依赖图 / Phase 2 / 测试表 / 例数）、`README.md`（Features、CLI、
+  Output Files、新章节 Citation Formats & BibTeX、Project Structure）、`issues.md` 第六节同步。
+- 小样本真实实测另行记录在本文件与 `_work_notes.zh.md`（2026-10-14 第二次追加）。

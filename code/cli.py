@@ -27,6 +27,7 @@ examples:
   python -m code.scholar_citation --author AUTHOR_ID --fetch-mode rough
   python -m code.scholar_citation --author AUTHOR_ID --fetch-mode force --skip 0 --limit 5
   python -m code.scholar_citation --author AUTHOR_ID --interactive-captcha
+  python -m code.scholar_citation --author AUTHOR_ID --cite-formats --skip 0 --limit 1
   python -m code.scholar_citation --author AUTHOR_ID --proxy-url http://127.0.0.1:7890
 '''
     )
@@ -65,6 +66,12 @@ examples:
                              'cURL (Chrome DevTools → Copy as cURL) to inject fresh cookies and '
                              'selected headers; retries indefinitely instead of giving up after '
                              'MAX_RETRIES')
+    parser.add_argument('--cite-formats', dest='cite_formats', action='store_true',
+                        help='Also resolve each citing entry\'s five citation formats '
+                             '(MLA/APA/Chicago/Harvard/Vancouver) plus BibTeX from Scholar\'s '
+                             'Cite dialog and store them in citation["cite"]. Costs one request '
+                             'per citing entry (plus one for BibTeX) — opt-in, cached in '
+                             'output/cite_format_cache.json across runs')
     parser.add_argument('--accelerate', type=float, default=1.0, metavar='SCALE',
                         help='Scale all deliberate waits by SCALE. Example: --accelerate 0.1 '
                              'runs waits at 1/10 of the normal duration. Default: 1.0. '
