@@ -1667,3 +1667,35 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 同口径，K123/K125 同类教训）。改写它会让历史身份键漂移、把已经分析过的数据重新判成"不符"。
 所以 `venue_full` 是**纯增量**字段，下游 3.a.1 以后可以优先采用它（本轮不改下游，已记入
 `issues.md`）。
+
+### 真实覆盖率实测（2026-10-14，`--author HF3-E9kAAAAJ`，`--accelerate 0.3`）
+
+跑法：`python -m code.scholar_citation --author HF3-E9kAAAAJ --accelerate 0.3`（Phase 1 的
+详情页抓取约 20 s/请求），Phase 1 未跑完即被 Scholar 限流，按用户要求停下（见下）。
+
+| 口径 | 总数 | 拿到 `venue_full` | 抓取失败/未抓到 | 无 venue 标签 | 无 token |
+|------|------|------------------|------------------|---------------|----------|
+| 全部 publication | 241 | **81**（cache `status=ok`） | 160（未跑到，被限流中断） | 0 | 0 |
+| 原 `venue` 被截断（含 `…`） | 106 | **43** | 63（未跑到） | 0 | 0 |
+
+- 缓存 `output/venue_detail_cache.json`：81 条全部 `status=ok`；标签分布 `conference` 44 /
+  `journal` 29 / `book` 8。**没有一个 `venue_full` 里还带截断号 `…`**。
+- 限流经过：约 30 分钟、约 **75 个详情页**成功后（页计数 87）Scholar 开始返回
+  `Cannot Fetch from Google Scholar.`（scholarly 耗尽重试）；`PageVisit` 的 3 分钟冷却
+  （`--accelerate 0.3` 缩放后）也未能恢复。**没有出现 captcha**（`0 captcha solves`）。
+  按用户「遇限流就停、不要硬闯」的要求停进程，未再重试。
+- 因 Phase 1 未跑完，本轮**没有重写** `author_<ID>_profile.json`（仍是 2026-10-13 的版本）：
+  结果只落在缓存里。缓存命中不发请求，所以下一次（限流解除后、用默认延迟）跑到 Phase 1 末尾时
+  会直接复用这 81 条并继续抓剩下的，最后一次性写进 profile。
+- 5 条前后对照样例（`venue` → `venue_full`）：
+
+| no | venue（截断） | venue_full | 标签 |
+|----|---------------|------------|------|
+| 4 | Proceedings of the 2024 Conference of the North American Chapter of the …, 2024 | Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers) | conference |
+| 5 | Proceedings of the 2019 Conference of the North American Chapter of the …, 2019 | Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1 (Long and Short Papers) | conference |
+| 9 | Proceedings of the AAAI conference on artificial intelligence 35 (15), 13745 …, 2021 | Proceedings of the AAAI conference on artificial intelligence | journal |
+| 13 | Proceedings of the 53rd Annual Meeting of the Association for Computational …, 2015 | Proceedings of the 53rd Annual Meeting of the Association for Computational Linguistics | journal |
+| 23 | Proceedings of the 29th ACM international conference on information …, 2020 | Proceedings of the 29th ACM international conference on information & knowledge management | book |
+
+  另注：`book` 标签下的两条（no.23 / no.27）实际都是会议论文集，说明"标签集合"这一判定是必要的
+  —— Scholar 不保证按论文类型给标签。

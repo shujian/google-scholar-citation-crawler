@@ -1168,3 +1168,17 @@ Learning Representations`），只有部分会议论文用 `Conference`。所以
 - **输出文件何时带上 `venue_full`**：`_save_output()` 用 `PubInfo.from_dict(pub).to_dict()` 重建
   `pub`，所以只要 Phase 2 跑过一次，`author_<ID>_paper_citations.json` 就会带上它；若某轮
   "无变化 + 无待抓" 直接跳过 Phase 2，输出文件保持旧内容（下次真跑才更新）。这一条已记入 `issues.md`。
+
+### 详情页抓取的限流实测（2026-10-14）
+
+- 实测：`--accelerate 0.3`（约 20 s/请求）连续抓 **75 个左右详情页**（约 30 分钟）后开始被限流
+  （scholarly 抛 `Cannot Fetch from Google Scholar.`，无 captcha）；`PageVisit` 的 2 次快重试 +
+  3 分钟冷却（缩放后）都没能恢复，冷却结束后同一篇仍失败。
+- **为什么比引文列表页更容易被限流**：引文列表页走 `_SearchScholarIterator` → `patched_load_url()`，
+  那里有「每 8–12 页强制长休息 3–6 分钟」；详情页走 `nav._get_soup()` → `patched_get_page()`，
+  **只有 45–90 s 的请求前延迟，没有强制长休息**。year probe 也是同一个入口，所以这是该路径的既有性质，
+  不是本次新引入的（本次只是把它的调用量从"每篇论文一次"放大到"每篇 publication 一次"）。
+- 结论（给后续决策）：要跑完整 241 篇，用**默认延迟**（不加 `--accelerate`）并分成几轮跑；
+  更稳的做法是给直接 `_get_soup` 路径也接上强制长休息（本轮**没做**，属于新行为，需要用户拍板，
+  已记入 `issues.md` 第二节）。
+- 续跑很便宜：`output/venue_detail_cache.json` 命中不发请求，重跑时已抓的 81 条直接复用。
