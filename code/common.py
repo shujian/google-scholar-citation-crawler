@@ -23,6 +23,8 @@ from code.config import (   # noqa: F401 — re-exported for compatibility
     SESSION_REFRESH_MIN,
     STALL_AFTER_ATTEMPTS,
     YEAR_BASED_THRESHOLD,
+    ensure_papers_root,
+    papers_root,
     resolve_cite_formats,
     resolve_proxy_config,
 )

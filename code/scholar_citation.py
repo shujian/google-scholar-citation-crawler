@@ -63,6 +63,7 @@ from code.common import (
     extract_author_id,
     now_str,
     rand_delay,
+    ensure_papers_root,
     resolve_cite_formats,
     resolve_proxy_config,
     setup_proxy,
@@ -1766,6 +1767,10 @@ def main():
     author_id = extract_author_id(args.author)
 
     os.makedirs(args.output_dir, exist_ok=True)
+    # 论文数据树的物理位置在本仓库的 output 下（2026-10-15 起）：由本阶段负责**创建**，
+    # 消费方（阶段 2 / 3.x / 阶段 4）一律经各自的 `papers` 符号链接读写。只建不删、幂等。
+    papers_dir = ensure_papers_root(args.output_dir, author_id)
+    logger.debug("Papers root: %s", papers_dir)
 
     original_stdout = sys.stdout
     log_file = None

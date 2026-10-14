@@ -3221,3 +3221,17 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 - **(b) 三处过期文档对齐**：crawler `_work_notes.zh.md` 的「项目结构」节（K80）、crawler
   `issues.md` 六.1「默认关闭是刻意的」（`6f83505` 起默认开启）、`TO_RUN.md` 第 3/4 条
   （第 3 条的 `--paper` 参数不存在 ✗、数字过期）+ 新增第 5 条（K76 的验证通道）。
+
+## 2026-10-15（续 8）: 用户搬了 papers 的物理位置，要求核对并更新全部文档与代码
+
+> 请注意，我把 papers 的物理位置搬到了阶段一中，现在他是 output 下的一个带 author 名的目录。
+> 然后在阶段 2、3、4 中都是通过符号链接向这个位置的子目录进行读写。请确认一下有没有问题，
+> 然后帮我更新所有文档和相关代码。
+
+核对结论（实测）：树完整（27 GB / 241 篇 + `progress.json` + `old/` + `.shared/`）；
+阶段 2 的 `SHARED_ROOT/papers`、阶段 4 的 `WORKSPACE_DIR/paper_downloader/papers`、
+3.a.1/3.a.2/3.b 的两跳链接都解析到同一棵树且可写；不会被 git 提交（在阶段 1 的 gitignored `output/` 下）；
+阶段 1 没有代码会删/清 output 下的目录。**发现并修掉/记下的问题**：① `preflight.sh` 用 `find "$PAPERS"`
+但 `$PAPERS` 现在是符号链接 → 计数恒为 0（改用 `find -L`，实测 0 → 241 篇）；② 远程 SSHFS 只挂
+`paper_downloader/` 时相对链接的 `..` 落在挂载点外 → 链接悬空（文档里加了警告与两种解法）；
+③ 阶段 4 没有自己的 `papers` 链接（走阶段 2 那一跳），已在根文档写明。

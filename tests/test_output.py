@@ -10,6 +10,42 @@ import unittest
 import shutil
 from code import scholar_citation
 from code.output_state import PaperFetchState
+class PapersRootTests(unittest.TestCase):
+    """论文数据树的物理位置（2026-10-15 起在阶段 1 的 output 下）。
+
+    `papers_root()` / `ensure_papers_root()` 是**唯一**给出这个路径的地方；消费方
+    （阶段 2 / 3.x / 阶段 4）一律经各自的 `papers` 符号链接，不直接拼这个路径。
+    """
+
+    def test_path_shape(self):
+        from code.config import papers_root
+        self.assertEqual(papers_root("/tmp/out", "HF3-E9kAAAAJ"),
+                         "/tmp/out/author_HF3-E9kAAAAJ_papers")
+
+    def test_created_and_idempotent_without_touching_content(self):
+        from code.config import ensure_papers_root, papers_root
+        with tempfile.TemporaryDirectory() as tmp:
+            path = ensure_papers_root(tmp, "A1")
+            self.assertTrue(os.path.isdir(path))
+            self.assertEqual(path, papers_root(tmp, "A1"))
+            marker = os.path.join(path, "001-Some_Paper")
+            os.makedirs(marker)
+            with open(os.path.join(marker, "keep.txt"), "w", encoding="utf-8") as handle:
+                handle.write("downstream data")
+            # 再跑一次：路径不变、目录里的东西一个都不能动（阶段 2/3.x 往里写过东西）
+            self.assertEqual(ensure_papers_root(tmp, "A1"), path)
+            self.assertTrue(os.path.isfile(os.path.join(marker, "keep.txt")))
+
+    def test_main_creates_it(self):
+        """`main()` 真的接了线（不是只有 helper）。"""
+        from code import config as config_module
+        source = open(os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "code", "scholar_citation.py"),
+            encoding="utf-8").read()
+        self.assertIn("ensure_papers_root(args.output_dir, author_id)", source)
+        self.assertIs(config_module.ensure_papers_root, config_module.ensure_papers_root)
+
+
 class OutputAndReconciliationTests(FetcherTestCase):
     def test_save_output_writes_excel_run_metadata_from_json_payload(self):
         pub = {

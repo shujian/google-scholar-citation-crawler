@@ -105,6 +105,24 @@ STALL_AFTER_ATTEMPTS = 2
 
 SCHOLAR_BASE_URL = "https://scholar.google.com"
 
+
+def papers_root(output_dir, author_id):
+    """论文数据树（`papers/`）在本仓库里的**物理位置**。
+
+    2026-10-15 起，整条流水线共用的论文数据树放在阶段 1 的 output 下：
+    ``<output_dir>/author_<ID>_papers/``。阶段 2 / 3.a.1 / 3.a.2 / 3.b / 阶段 4 **都不直接
+    使用这个路径**，而是经各自的 ``papers`` 符号链接访问（链见根 AGENTS.md「仓库地图」）——
+    这里只负责**创建**它（谁拥有物理位置谁负责建），以及在文档/日志里报出真实路径。
+    """
+    return os.path.join(output_dir, f"author_{author_id}_papers")
+
+
+def ensure_papers_root(output_dir, author_id):
+    """确保论文数据树的物理位置存在；**只建不删**，已存在时原样返回（幂等）。"""
+    path = papers_root(output_dir, author_id)
+    os.makedirs(path, exist_ok=True)
+    return path
+
 #: Resolve every citing entry's Cite dialog (five formats + BibTeX) by default
 #: whenever citations are crawled: that dialog is the only place the crawler can
 #: read a citing paper's *full* author list (Chicago / BibTeX) and its complete

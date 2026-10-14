@@ -96,6 +96,12 @@ google-scholar-citation-crawler/
 
 - **产物位置不变**：`output/author_<ID>_paper_citations.json` / `.xlsx`、`author_<ID>_profile.json`
   仍是根 AGENTS.md 数据契约规定的路径，不要移动。
+- **`output/author_<ID>_papers/` 是整条流水线共用的论文数据树（2026-10-15 起）**：物理位置在本仓库
+  的 output 下（27 GB 级，gitignore），阶段 2 / 3.a.1 / 3.a.2 / 3.b / 阶段 4 **都不直接拼这个路径**，
+  而是经各自的 `papers` 符号链接访问（整条链见根 `AGENTS.md`「仓库地图」的共享数据段）。
+  本阶段负责**创建**它（`code.config.papers_root()` / `ensure_papers_root()`，`main()` 每次运行都
+  幂等确保存在，只建不删）—— 这是"谁拥有物理位置谁负责建"的落点；论文子目录与 `cite` 文件的
+  创建/编号按 `KNOWN_ISSUES.md` Y-6 的分步计划**后续**搬过来（当前仍在阶段 2 的 `preflight_repairs`）。
 - **日志与运行期中间产物**一律进 `output/`（含 `output/logs/`）。
 - **不依赖任何环境变量**：旋钮走命令行参数，成组配置走项目根 `crawler_config.json`，
   优先级 **命令行参数 > 配置文件 > 代码内默认值**。布尔开关同理，例如 Cite 对话框那一步：
@@ -117,7 +123,7 @@ google-scholar-citation-crawler/
 `venue_key.py`（**薄再导出**）把 venue 归一成身份键（会议 = `名+年份`、期刊 = 缩写名、
 预印本 = 服务器名）—— 规则的**唯一实体**在 `code/shared/venue_key.py`（本仓库是宿主），
 阶段 2 / 3.a.1 / 3.a.2 / 阶段 4 经各自的 `code/_shared.py` 消费同一份）；
-`tests/` 有 484 个测试，
+`tests/` 有 487 个测试，
 21 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」；
 `test_shared_venue_key.py` 守住「venue_key 判据只有一份，在 `code/shared/venue_key.py`」）。
 

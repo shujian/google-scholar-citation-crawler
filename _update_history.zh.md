@@ -1979,3 +1979,15 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 - 根 `TO_RUN.md`：第 3 条的 `--paper 155` 改成真正的 `--skip 154 --limit 1`（crawler 没有 `--paper`，
   实测 `pub.no == 位置+1`）、第 4 条按实测重写（143 已有 / 92 篇按设计零请求跳过 / **真待抓只剩 6 篇**）、
   新增第 5 条 = **K76 的验证通道**（year 模式论文对照 Scholar 直方图，并确认 direct 模式下该字段无信息量）。
+
+## 2026-10-15（续 8）: papers 物理位置在阶段 1（用户搬迁）—— 代码与文档同步
+
+用户把论文数据树搬到 `output/author_<ID>_papers/`，阶段 2/3/4 经符号链接读写。本仓库的改动：
+
+- **`code/config.py`**：新增 `papers_root(output_dir, author_id)` 与
+  `ensure_papers_root(output_dir, author_id)` —— 全流水线**唯一**给出这个物理路径的地方，
+  只建不删、幂等；`code/common.py` 再导出。
+- **`code/scholar_citation.py`**：`main()` 每次运行幂等确保该目录存在（`logger.debug` 报路径）。
+- **测试 484 → 487**：`PapersRootTests`（路径形状 / 幂等且不碰目录内既有内容 / `main()` 真的接线）。
+- **文档**：`AGENTS.md` 的目录治理节写明"物理位置在本仓库 output 下、消费方一律经各自的
+  `papers` 链接、本阶段负责创建"；`README.md` 输出表加一行说明该目录里有什么。

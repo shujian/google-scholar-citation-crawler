@@ -139,6 +139,7 @@ prints a warning, and the JSON is left untouched.
 | `author_<ID>_paper_citations.xlsx` | Excel: Summary, All Citations, Run Metadata |
 | `venue_detail_cache.json` | Publication detail pages already parsed (`citation_for_view` token → full venue). Makes the `venue_full` step resumable; safe to delete to re-read every page |
 | `cite_format_cache.json` | Cite dialogs already parsed (row `cid` → the five formats + signed BibTeX URL + parsed BibTeX). Makes `--cite-formats` resumable; safe to delete to re-read every dialog |
+| `author_<ID>_papers/` | **The pipeline's shared papers tree** (physical home since 2026-10-15): `<NNN>-<slug>/` per publication with the PDFs, `citations_meta.json`, `enrich_info/`, `analysis_info/`, `analysis_content/`, `.shared/work/`, `progress.json`, `old/`. Created here (idempotently); every later stage reaches it through its own `papers` symlink, never by this path |
 | `output/logs/author_<ID>_run_<ts>.log` | Full log of each run (mirrors stdout) |
 
 ## Full Venue Strings (`venue_full`)
