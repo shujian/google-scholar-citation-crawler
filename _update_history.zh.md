@@ -1561,3 +1561,74 @@ ICANON-only 方案解决 SSH/tmux 下粘贴 cURL 卡死问题。
 - 为什么共享引擎而不是统一语义：3.x 那三份是「丢弃 + bool」，两套语义都被各自测试钉死，
   按「整体搬迁不改语义」只能共享引擎、把策略留给调用方。
 - 新增 `tests/test_lib_env_shared.py`（3 例）：引擎同源、包装确实委托、行为回归。全套 266 例通过。
+
+---
+
+## 2026-10-14（第二轮）: 阶段 1 抓取器审计修复（5 项）
+
+另一轮审计逐行核实出的 5 个问题，一次修完；全套测试 **266 → 273 例 OK**。
+
+### ① 探针页数重复计数
+
+- 根因：`probe_citation_start_year()` 在调 `nav._get_soup()` 前手动 `ctx.total_page_count += 1`，
+  而 `nav._get_soup()` 内部走 `nav._get_page()` —— 已被 patch 成 `patched_get_page()`，
+  那里**也**计数一次。于是每次探针算两页，8–12 页长休息与 10–20 页刷新大约提前一半触发。
+- 改动：删掉探针里那一次手动计数，只保留 `patched_get_page()` 里的唯一一处。
+- 测试：`tests/test_scholar_patch.py::test_probe_counts_one_page_through_real_get_soup`
+  —— 用**真实** `scholarly.Navigator._get_soup` + 打桩底层 `_get_page`（不打桩 `_get_soup`），
+  断言 `total_page_count`/`curl_page_count` 各只 +1。
+
+### ② 抓取失败不再把 profile 覆盖成 0 篇
+
+- 根因：`fetch_publications()` 失败时 `return []`，与"该作者确实没有论文"无法区分；`run()`
+  随后无条件 `save_profile()`，于是引用总数变化（`force_refresh=True`）时的抓取失败会把
+  已有 profile 写成 0 篇，且看不出是失败。
+- 改动：失败返回 `None`；`run()` 里"失败 **且** 旧 profile 有 publications"时**拒绝覆盖**——
+  不写 JSON/Excel，内存里保留旧列表，打印
+  `Failed to fetch publications; keeping the previous N publication(s) from <path>` 后继续
+  （Phase 2 用盘上的旧 profile）；旧 profile 本来就没有 publications 时行为不变（照旧保存）。
+- 测试：`tests/test_profile.py::AuthorProfileFetchFailureTests`（2 例）：旧 profile 逐字节未改写 +
+  告警；旧 profile 无 publications 时仍照常写入新 basics。
+
+### ③ 换代理等待 24h 也受 `--accelerate` 缩放
+
+- 根因：`interactive.wait_proxy_switch(max_hours=24)` 不受加速系数影响，`--accelerate` 只缩放了
+  `rand_delay`/cooldown/长休息；非交互模式下一旦被拦，单篇论文最多阻塞 24h（多篇即数天）。
+- 改动：`wait_proxy_switch(max_hours=24, scale=1.0)` 内部 `max_hours *= scale`（默认行为不变）；
+  加速系数在**唯一一处**接线：`PaperCitationFetcher._wait_proxy_switch()` 传 `scale=self._delay_scale`。
+  `page_visit.py` 与探针都通过 `ctx.wait_proxy_switch_fn()` 这个**无参**回调走到该包装方法，
+  因此不需要（也不应该）改这两个调用点的签名。
+- 测试：`tests/test_page_visit.py::test_wait_proxy_switch_shortens_with_accelerate_scale`
+  （假时钟 + 打桩 `select.select`：24h×1.0 与 24h×0.1）；
+  `tests/test_scholar_patch.py::test_wait_proxy_switch_scales_with_accelerate`（断言包装方法把
+  `_delay_scale` 传下去）。
+
+### ④ 被替换掉的 httpx client 现在会 close()
+
+- 根因：`code/scholarly_session.py` 全文没有 `.close()`：初始替换 scholarly 原生 session、软刷新
+  `patched_new_session()` 里"建一个立刻丢掉"、captcha `patched_handle_captcha2()` 重建
+  都把旧 client 的连接池丢给 GC。
+- 改动：新增局部 `_close_quietly()`（无 `close()`（测试替身）/重复 close 都不致命），在三处
+  替换/丢弃前调用。**有意不关**的一个：scholarly `_get_page()` 的 403 重试分支把旧 session 存在
+  局部变量里，继续用它发下一次请求——关掉它会变成"用已关闭的 client"（该 client 其实已被
+  scholarly 自己的 `pm._new_session()` 关掉，这是 scholarly 的既有行为，不在本仓库修）。
+  captcha 重建时同一个新 client 会同时占据 `_session1`/`_session2`，关闭旧的两个前后不会关到新的。
+- 测试：`tests/test_scholar_patch.py::test_replaced_httpx_clients_are_closed`（初始替换 / 软刷新 /
+  captcha 三条路径的旧 client 都收到 `close()`，新 client 未被关闭）。
+- 已知偏差：`pm._session` 会因初始替换而被提前关闭；`scholarly` 的请求路径只读
+  `nav._session1/_session2`（`pm._session` 仅被我们已替换掉的 webdriver 版 `_handle_captcha2`
+  使用），且 httpx 重复 `close()` 幂等，所以无功能影响。
+
+### ⑦ 干净安装 ImportError：requirements 声明 http2 extra
+
+- 根因：`requirements.txt` 只写 `httpx==0.27.2`，而 `_make_http2_session()` 用
+  `httpx.Client(http2=True)`；httpx 0.27.2 在缺 `h2` 时构造即抛 `ImportError`。本机 conda
+  环境恰好装了 `h2`，所以一直没暴露。
+- 改动：`httpx[http2]==0.27.2`（对外行为不变）。README 依赖行与说明、AGENTS.md 依赖节同步。
+- 测试：`tests/test_scholar_patch.py::test_requirements_declare_the_httpx_http2_extra`（源码级守卫）。
+
+### 文档漂移
+
+- `AGENTS.md` 目录树里删掉不存在的 `environment.yml`；测试例数 266 → 273；
+  「Interactive recovery」补一句"24h 窗口随 `--accelerate` 缩放"；依赖节改为 `httpx[http2]==0.27.2`。
+- `README.md`：依赖行、http2 extra 说明、"Proxy Switch Wait" 条目同步。

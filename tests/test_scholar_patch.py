@@ -580,6 +580,115 @@ class StartupRobustnessTests(FetcherTestCase):
         finally:
             nav._set_retries = original_set_retries
 
+    def test_probe_counts_one_page_through_real_get_soup(self):
+        """The probe must not count its own request twice.
+
+        nav._get_soup() calls nav._get_page(), i.e. patched_get_page, which
+        already increments ctx.total_page_count; the extra increment in
+        probe_citation_start_year made the mandatory 8-12 page break fire after
+        about half the intended number of pages.
+        """
+        import importlib
+        from code.scholarly_session import probe_citation_start_year
+
+        nav = scholarly_mod.scholarly._Scholarly__nav
+        hist_html = (
+            '<html><body>'
+            '<div class="gs_rs_hist_dialog-g_bar_wrapper">'
+            '<a class="gs_hist_g_a" data-year="2021" data-count="7"></a>'
+            '</div></body></html>'
+        )
+        nav._get_page = lambda pagerequest, premium=False: hist_html
+        self.fetcher._patch_scholarly()
+        ctx = self.fetcher._session_ctx
+        ctx.first_page_prompt_fn = None
+
+        # The real scholarly Navigator._get_soup, applied to the stub nav: the
+        # probe's own call path must not be stubbed away.
+        stubbed = {name: sys.modules.pop(name)
+                   for name in list(sys.modules)
+                   if name == 'scholarly' or name.startswith('scholarly.')}
+        try:
+            real_scholarly = importlib.import_module('scholarly')
+            real_get_soup = type(real_scholarly.scholarly._Scholarly__nav)._get_soup
+        finally:
+            for name in list(sys.modules):
+                if name == 'scholarly' or name.startswith('scholarly.'):
+                    del sys.modules[name]
+            sys.modules.update(stubbed)
+        nav._get_soup = types.MethodType(real_get_soup, nav)
+
+        with patch("sys.stdout", new_callable=StringIO):
+            start = probe_citation_start_year("/scholar?cites=1", ctx, num_citations=7)
+
+        self.assertEqual(start, 2021)
+        self.assertEqual(ctx.total_page_count, 1)
+        self.assertEqual(ctx.curl_page_count, 1)
+
+    def test_replaced_httpx_clients_are_closed(self):
+        """Dropping a client without closing it leaks its connection pool."""
+        nav = scholarly_mod.scholarly._Scholarly__nav
+
+        class _Recorder:
+            def __init__(self):
+                self.headers = {}
+                self.cookies = {}
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        def _is_closed(session):
+            # A recorder marks itself closed; a real httpx.Client reports it.
+            return session.closed if hasattr(session, "closed") else session.is_closed
+
+        old1, old2 = _Recorder(), _Recorder()
+        nav._session1, nav._session2 = old1, old2
+
+        self.fetcher._patch_scholarly()
+        self.fetcher._session_ctx.first_page_prompt_fn = None
+        self.assertTrue(old1.closed)
+        self.assertTrue(old2.closed)
+        self.assertIsNot(nav._session1, old1)
+        self.assertIsNot(nav._session1, nav._session2)
+
+        # patched _new_session() builds a client and replaces it immediately
+        previous = nav._session1
+        nav._new_session(premium=True)
+        self.assertTrue(_is_closed(previous))
+        self.assertIsNot(nav._session1, previous)
+
+        # captcha rebuild: both old slots are replaced by one shared client
+        prev1, prev2 = nav._session1, nav._session2
+        shared = nav.pm1._handle_captcha2(None)
+        self.assertTrue(_is_closed(prev1))
+        self.assertTrue(_is_closed(prev2))
+        self.assertIs(shared, nav._session1)
+        self.assertIs(shared, nav._session2)
+        self.assertFalse(_is_closed(shared))
+
+    def test_wait_proxy_switch_scales_with_accelerate(self):
+        calls = []
+        self.fetcher._delay_scale = 0.25
+        with patch.object(scholar_citation, "_int_wait_proxy_switch",
+                          side_effect=lambda max_hours=24, scale=1.0:
+                          calls.append((max_hours, scale)) or True):
+            result = self.fetcher._wait_proxy_switch()
+
+        self.assertTrue(result)
+        self.assertEqual(calls, [(24, 0.25)])
+
+    def test_requirements_declare_the_httpx_http2_extra(self):
+        """httpx.Client(http2=True) needs the h2 package.
+
+        A clean `pip install -r requirements.txt` must pull h2 in, otherwise the
+        crawler raises ImportError the moment it builds its first session.
+        """
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "requirements.txt"), "r", encoding="utf-8") as f:
+            requirements = f.read()
+        self.assertIn("httpx[http2]==", requirements)
+
 
 if __name__ == '__main__':
     unittest.main()

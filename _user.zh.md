@@ -2875,3 +2875,35 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 本轮完成：`lib_env.py` 的 NO_PROXY 消毒（引擎共享、策略保留）；此前已完成身份判定与 `-p` 语法解析。
 受阻项：`work_identity.py`/`work_store.py`/论文解析族（两个项目的 hermetic 夹具按模块打桩
 `PAPERS_DIR`，直接搬会让夹具失去隔离、有写进真实 `papers/` 的风险）。
+
+
+## 2026-10-14（阶段 1 抓取器审计修复，5 项）
+
+用户原始输入（全文）：
+
+> 你在仓库 `/Users/huangshujian/Workspaces/citation_management/google-scholar-citation-crawler` 里修 5 个已核实的问题（阶段 1 抓取器）。**先读该仓库的 `AGENTS.md` 并遵守它**（工作语言中文、但代码与提交信息用英文；任务完成后要追加三份笔记）。只改这个仓库，**不要碰仓库之外的任何文件**（尤其不要碰容器根的 AGENTS.md / KNOWN_ISSUES.md，也不要碰 paper_downloader/、citation_analysis_info/ 等其它仓库），**不要 git push**。
+>
+> 统一要求：最小改动、不引入新依赖、不改无关代码、不加多余注释；测试一律 hermetic（不联网、不抓取）；改完在仓库根跑 `PYTHONDONTWRITEBYTECODE=1 ~/miniforge3/envs/scholar/bin/python -B -m unittest discover -s tests` 必须全绿（当前基线 266 例），并把最终例数报给我；最后**一个 commit**（英文信息，说清做了什么以及为什么）。
+>
+> ① 探针请求把页数计了两次（`code/scholarly_session.py:726` 手动 `ctx.total_page_count += 1`，而 `:732` 的 `nav._get_soup` 内部经 `patched_get_page`（`:439`）已经计过一次）→ 删掉 `:726`；补一个"探针走真实 `_get_soup` → `patched_get_page` 时页数只 +1"的用例（可打桩底层 http，但不要打桩 `nav._get_soup`）。
+>
+> ② 抓取失败会把 profile 覆盖成 0 篇（`code/author_fetcher.py:156-159` 返回 `[]`，`:255` 无条件 `save_profile`）→ 失败返回 `None`，`run()` 里"本次失败且已有旧 profile 且旧 profile 里有 publications"时拒绝覆盖、保留旧 publications 并打告警；补"旧 profile 未改写 + 旧列表保留 + 告警"与"旧 profile 本来没有 publications 时仍照旧保存"两个用例。
+>
+> ③ 代理等待 24h 不受 `--accelerate` 缩放（`code/interactive.py:510`、`code/scholar_citation.py:1511-1513`、调用点 `code/page_visit.py:104`、`code/scholarly_session.py:744-745`）→ 把加速系数传进 `wait_proxy_switch`，`max_hours = 24 * scale`（默认不变），三个调用点接上；测试断言默认不缩放、给 scale 后按比例缩小（打桩 sleep，不真等）。
+>
+> ④ 换 httpx client 时从不 close 旧的（`:393-394`、`:405-412`、`:417-425`）→ 替换/丢弃前 `close()`（幂等/容错），别关掉仍在使用的那个，至少不出现"用已关闭的 client"；测试断言被替换的旧 client 收到 `close()`。
+>
+> ⑦ 干净安装直接 ImportError（HTTP/2 缺 h2）→ `requirements.txt` 改 `httpx[http2]==0.27.2`；补一条源码级守卫测试。
+>
+> 顺带文档漂移：`AGENTS.md:81` 把 `environment.yml` 列为仓库文件，但仓库里没有 → 按实际修正（删掉该项，不新增文件）。
+>
+> 收尾：按该仓库 AGENTS.md 追加 `_user.zh.md` / `_update_history.zh.md` / `_work_notes.zh.md`，检查 `README.md` 是否需要同步；一个 commit（英文）。最后给中文简报：改动文件清单与关键 diff、新增测试文件名与用例数、discover 最终例数、commit hash、以及"不该按上面写法改"的地方（若有，先别改、先报告）。
+
+执行说明（本次实际取舍）：
+
+- ③ 的 scale **只在一处接线**（`PaperCitationFetcher._wait_proxy_switch` 传 `scale=self._delay_scale`）：
+  `page_visit.py:104` 与探针都通过 `ctx.wait_proxy_switch_fn()` 这个**无参**回调调用它，改调用点签名
+  会破坏既有零参回调约定（多个测试也用零参 lambda）。
+- ② 采纳"拒绝覆盖"的强解释：失败且旧 profile 有 publications 时**不写任何文件**（旧 JSON 逐字节不变），
+  内存里保留旧列表并返回 True，让 Phase 2 继续用盘上的旧 profile。
+- 未按原文改的地方：无（`environment.yml` 确认不存在，按原文删掉 AGENTS.md 该行）。

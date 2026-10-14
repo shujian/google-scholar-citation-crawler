@@ -162,6 +162,39 @@ class InteractiveInputGuardTests(unittest.TestCase):
         self.assertFalse(confirmed)
         self.assertIn("stdin closed", stdout.getvalue())
 
+    def test_wait_proxy_switch_shortens_with_accelerate_scale(self):
+        """--accelerate must shorten this wait too: 24h per paper is days long."""
+        from code import interactive
+        from code.interactive import wait_proxy_switch
+
+        class _Clock:
+            def __init__(self):
+                self.now = 0.0
+
+            def time(self):
+                return self.now
+
+            def sleep(self, seconds):
+                self.now += seconds
+
+        def _waited(max_hours, scale):
+            clock = _Clock()
+
+            def fake_select(read, write, error, timeout):
+                clock.now += timeout
+                return ([], [], [])
+
+            with patch.object(interactive, "time", clock), \
+                 patch("select.select", side_effect=fake_select), \
+                 patch("sys.stdout", new_callable=StringIO):
+                confirmed = wait_proxy_switch(max_hours=max_hours, scale=scale)
+            self.assertFalse(confirmed)
+            return clock.now
+
+        # Default scale keeps the documented 24h window.
+        self.assertAlmostEqual(_waited(24, 1.0), 24 * 3600, delta=1)
+        self.assertAlmostEqual(_waited(24, 0.1), 2.4 * 3600, delta=1)
+
 
 if __name__ == '__main__':
     unittest.main()

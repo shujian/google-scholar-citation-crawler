@@ -231,5 +231,65 @@ class AuthorProfileDataclassTests(unittest.TestCase):
         self.assertEqual(record["changed_citations"], [])
 
 
+class AuthorProfileFetchFailureTests(unittest.TestCase):
+    """A failed publication fetch must never be written as "0 publications"."""
+
+    def _fetcher(self, tmpdir):
+        from code.author_fetcher import AuthorProfileFetcher
+        return AuthorProfileFetcher("test-author", output_dir=tmpdir, delay_scale=0)
+
+    def _write_prev_profile(self, path, publications, citedby=10):
+        AuthorProfile(
+            author_info={"name": "Test Author", "citedby": citedby},
+            publications=publications,
+            fetch_time="2026-04-01T00:00:00",
+            change_history=[],
+        ).save_json(path)
+
+    def _run_with_failing_fetch(self, fetcher, citedby=11):
+        from code import author_fetcher as af
+        with patch.object(fetcher, "fetch_basics",
+                          return_value=({"name": "Test Author", "citedby": citedby}, True)), \
+             patch.object(af.scholarly, "search_author_id", return_value={"scholar_id": "test-author"}), \
+             patch.object(af.scholarly, "fill", side_effect=RuntimeError("blocked")), \
+             patch("code.author_fetcher.traceback.print_exc", return_value=None), \
+             patch("code.author_fetcher.time.sleep", return_value=None), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            success = fetcher.run()
+        return success, stdout.getvalue()
+
+    def test_failed_fetch_keeps_the_previous_publications(self):
+        publications = [
+            {"no": 1, "title": "Paper A", "num_citations": 5, "url": "", "citedby_url": ""},
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fetcher = self._fetcher(tmpdir)
+            self._write_prev_profile(fetcher.profile_json, publications)
+            with open(fetcher.profile_json, "rb") as f:
+                before = f.read()
+
+            success, output = self._run_with_failing_fetch(fetcher)
+
+            with open(fetcher.profile_json, "rb") as f:
+                after = f.read()
+            self.assertTrue(success)
+            self.assertEqual(after, before)
+            self.assertIn("keeping the previous 1 publication(s)", output)
+            self.assertIn(fetcher.profile_json, output)
+
+    def test_failed_fetch_still_saves_when_there_was_no_publication_list(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fetcher = self._fetcher(tmpdir)
+            self._write_prev_profile(fetcher.profile_json, [])
+
+            success, _ = self._run_with_failing_fetch(fetcher)
+
+            self.assertTrue(success)
+            with open(fetcher.profile_json, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            self.assertEqual(saved["author_info"]["citedby"], 11)
+            self.assertEqual(saved["publications"], [])
+
+
 if __name__ == '__main__':
     unittest.main()

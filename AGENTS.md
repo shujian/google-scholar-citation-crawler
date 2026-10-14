@@ -78,7 +78,7 @@ This file provides guidance to AI coding agents working with code in this reposi
 ```
 google-scholar-citation-crawler/
 ├── AGENTS.md / README.md / issues.md / *_notes.zh.md / *_history.zh.md / *_user.zh.md
-├── requirements.txt / environment.yml
+├── requirements.txt
 ├── run.sh / my_citation.sh（本机个人脚本，gitignored）
 ├── crawler_config.json（本机运行期配置，gitignored）
 ├── output/                        # 所有运行期产物：抓取产物 + logs/ + 遗留缓存
@@ -105,7 +105,7 @@ google-scholar-citation-crawler/
 详细项目结构见 `_work_notes.zh.md` 的「项目结构」节（含各模块中文说明），对外简介见 `README.md` 的「Development Notes → Project Structure」节。
 
 简况：`code/` 有 19 个支撑模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志，
-其中 `lib_env.py` 管第三方库环境）；`tests/` 有 266 个测试，15 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」）。
+其中 `lib_env.py` 管第三方库环境）；`tests/` 有 273 个测试，15 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」）。
 
 ### 新增模块
 
@@ -193,6 +193,7 @@ All patch state is held in `SessionContext`; per-paper cross-run state is in `Pa
   allowlisted headers are injected into the patched scholarly sessions
 - In interactive mode: retries indefinitely
 - In non-interactive mode: waits up to 24h prompting the user to switch proxy and type `ok`
+  (that window is scaled by `--accelerate` like every other wait)
 
 ## Module dependency map
 
@@ -243,7 +244,8 @@ dependencies are stubbed in `tests/conftest.py`).
 
 ## Dependencies and runtime assumptions
 
-- `httpx==0.27.2` is pinned for compatibility with the current scholarly integration.
+- `httpx[http2]==0.27.2` is pinned for compatibility with the current scholarly integration; the
+  `[http2]` extra is what installs `h2`, without which `httpx.Client(http2=True)` raises `ImportError`.
 - **本程序不要求任何环境变量**。代理优先来自 `--proxy-url` / `--no-proxy`，其次
   `crawler_config.json` 的 `proxy_url` / `no_proxy`（本机文件，gitignored），最后才回退到系统的
   `https_proxy` / `http_proxy` / `no_proxy`（HTTP 生态通用约定，`httpx` / `requests` 自身也读）。

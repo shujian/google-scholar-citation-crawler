@@ -1018,3 +1018,72 @@ scholarly 的自动分页与手动分页冲突，`original_next` 自动加载下
 - 跨仓库消费路径：3.x 各自的 `code/_shared.py` 把阶段 1 的 `code/` 追加进 `sys.path`（机制 A，
   `shared` 是 PEP 420 命名空间包），然后 `from shared.lib_env import sanitize_entries`。
 - 解码细节：`ast.get_source_segment()` 会去掉首行缩进，改文件时要补回 4 空格，否则语法错误。
+
+
+## 阶段 1 抓取器审计修复的技术细节（2026-10-14，第二轮）
+
+### 探针为什么会被计两页（①）
+
+`probe_citation_start_year()` 直接调 `nav._get_soup(citedby_url)`。scholarly 1.7.11 的
+`Navigator._get_soup()` 实现是 `self._get_page('https://scholar.google.com' + url)` + BeautifulSoup，
+而 `nav._get_page` 已被本仓库替换为 `patched_get_page()`，其中 `ctx.total_page_count += 1`。
+所以"探针自己 +1"就是同一个 HTTP 请求被计两次。**判据**：只要请求最终经过 `nav._get_page`，
+页数就已在那一处统计；任何在调用前手动加页数的代码都是重复计数。
+探针测试若整体打桩 `nav._get_soup`（原有 `test_probe_failure_clears_previous_paper_histogram`
+就是这样），就绕过了 `patched_get_page`，所以覆盖不到这条路径。
+
+新用例的写法：保留 stub `nav`，但把**真实** `scholarly.Navigator._get_soup` 绑定到它
+（`types.MethodType`），底层 `_get_page` 由 lambda 返回固定 histogram HTML。取真实函数需要在
+`sys.modules` 里临时摘掉 scholarly stub、`importlib.import_module('scholarly')`，取完再把
+stub 放回去（与既有 `test_real_scholarly_still_exposes_every_patched_hook` 同一套路）。
+
+### 抓取失败的哨兵语义（②）
+
+`fetch_publications()` 的返回值现在有三种含义：`[非空列表]` 抓到了、`[]` 抓到了但确实没有论文、
+`None` 抓取失败。区分 `[]` 与 `None` 是必要的，因为 `run()` 的写盘决策依赖它。
+`run()` 的规则：
+
+- `None` + 旧 profile 有 publications → **完全不写**（JSON 逐字节不变），保留旧列表，打印告警，返回 True。
+  选"完全不写"而不是"用旧 publications 写一份新 profile"，是因为后者会混搭"新 basics + 旧列表"，
+  而且 `fetch_time`/`change_history` 都会动，旧文件就不再是可回退的权威快照。
+- `None` + 旧 profile 没有 publications（或根本没有旧 profile）→ 与改动前一致，照旧保存空列表。
+- 非 `None` → 原逻辑。
+
+`main()` 在 `run()` 之后重新 `load_prev_profile()`，所以"没写盘"就意味着 Phase 2 拿到的是盘上那份
+旧 profile（含旧 publications），不会出现"Phase 1 内存里有 0 篇 → Phase 2 按 0 篇写输出"的二次损坏。
+
+### 加速系数的接线点（③）
+
+`ctx.wait_proxy_switch_fn` 是**零参**回调：`page_visit.py` 与探针都写 `ctx.wait_proxy_switch_fn()`，
+多个测试也用零参 lambda。改调用点签名会连带改这套约定，所以 scale 只在一个地方接线 ——
+`PaperCitationFetcher._wait_proxy_switch()`（`ctx.wait_proxy_switch_fn` 的实际绑定对象）把
+`self._delay_scale` 传给 `interactive.wait_proxy_switch(max_hours, scale)`。这样两个调用点、
+以及未来任何经 ctx 的调用，都自动缩放。
+
+测试用"假时钟"替代 `code.interactive.time`，并把 `select.select` 换成"把 timeout 加进假时钟、
+返回空就绪列表"的桩，于是循环按虚拟时间走完：24h×1.0 → 86400s，24h×0.1 → 8640s（不真等）。
+
+### close() 的边界：哪些旧 client 不能关（④）
+
+三处替换都补了 `_close_quietly()`，但有一个**故意不关**的：
+
+- scholarly `Navigator._get_page()` 的 403 分支是 `self._new_session(premium=...)` 然后 `continue`，
+  而循环里发请求用的是**循环外读到的局部 `session` 变量**（指向替换前的那个 client）。
+  这个 client 我们无法安全关闭，否则该次重试会变成"用已关闭的 client"
+  （httpx 会抛 `RuntimeError: Cannot send a request, as the client has been closed.`）。
+- 事实上它在生产里**已经**被 scholarly 自己关掉：`pm._new_session()` 会 `_close_session()` 掉
+  `pm._session`，而 `pm._session` 恰好就是替换前的 `nav._session1`。这是 scholarly 的既有行为，
+  本仓库不修；`PageVisit` 会把随之而来的异常当作一次失败尝试，下一次 `patched_get_page()` 读到的
+  已是新 client，所以自愈。
+- `patched_handle_captcha2()` 里新 client 同时占 `_session1`/`_session2`，关闭旧的两个时用
+  `is not new_session` 排除新 client；旧的两个可能是同一个对象（上一次 captcha 重建造成的），
+  httpx `Client.close()` 幂等（本机验证：连关两次 OK），所以重复关闭无害。
+- `patched_new_session()` 关的是 `original_new_session()` **刚建出来又被我们立刻丢掉**的那个
+  （生产里就是 `pm._session`）；scholarly 的请求路径只读 `nav._session1/_session2`，
+  `pm._session` 只被我们已经替换掉的 webdriver 版 `_handle_captcha2` 使用，所以安全。
+
+### requirements 的 http2 extra（⑦）
+
+`httpx.Client(http2=True)` 在 0.27.2 上构造时就 `import h2`，缺包抛 `ImportError`（不是发请求时才抛）。
+`httpx[http2]` 只是 extras 语法，装的东西与 `httpx` 相同外加 `h2`，所以对外行为不变。
+守卫测试读 `requirements.txt` 断言 `httpx[http2]==`，把"干净安装能跑起来"钉在源码层。

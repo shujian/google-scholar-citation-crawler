@@ -507,12 +507,16 @@ def try_interactive_captcha(url, *, inject_fn, harvest_fn=None):
 # Proxy-switch wait loop
 # ---------------------------------------------------------------------------
 
-def wait_proxy_switch(max_hours=24):
+def wait_proxy_switch(max_hours=24, scale=1.0):
     """
     Block up to *max_hours* waiting for the user to type 'ok' to confirm a
     proxy switch.  Returns True if confirmed, False if timed out.
+
+    *scale* is the ``--accelerate`` factor: this wait is shortened like every
+    other wait, so a debugging run cannot block for a day per paper.
     """
     import select as _select
+    max_hours = max_hours * scale
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"\n  [{now}] Scholar is blocking this IP.", flush=True)
     print(f"  Please switch your proxy/IP, then type  ok  and press Enter.", flush=True)

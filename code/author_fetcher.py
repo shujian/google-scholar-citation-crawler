@@ -112,6 +112,9 @@ class AuthorProfileFetcher:
         When *force_refresh* is False and *prev_publications* is provided,
         the list from the previous output file is returned directly, avoiding
         a network request.
+
+        Returns None when the fetch failed.  An empty list means "this author
+        has no publications", which must never be confused with a failure.
         """
         if not force_refresh:
             if prev_publications:
@@ -156,7 +159,7 @@ class AuthorProfileFetcher:
         except Exception as e:
             print(f"Failed to fetch publications: {e}")
             traceback.print_exc()
-            return []
+            return None
 
     # ------------------------------------------------------------------
     # I/O helpers
@@ -231,6 +234,17 @@ class AuthorProfileFetcher:
             force_refresh=force_refresh,
             prev_publications=prev_profile.publications if prev_profile else None,
         )
+        if publications is None:
+            prev_publications = prev_profile.publications if prev_profile else []
+            if prev_publications:
+                # A failed fetch is not evidence that the author has no papers.
+                # Writing it would replace a good publication list with zero
+                # papers and the failure would be invisible in the output.
+                print(f"Failed to fetch publications; keeping the previous "
+                      f"{len(prev_publications)} publication(s) from "
+                      f"{self.profile_json}", flush=True)
+                return True
+            publications = []
 
         print(f"\nFetch complete: {len(publications)} publications")
 

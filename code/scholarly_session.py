@@ -383,6 +383,16 @@ def patch_scholarly(ctx: SessionContext) -> None:
         if ctx.injected_cookies:
             session.headers['sec-fetch-site'] = 'same-origin'
 
+    def _close_quietly(session):
+        # httpx clients own a connection pool: every client we drop must be
+        # closed or its sockets stay open for the rest of the run.  A session
+        # without close() (test doubles) or a double close must never break the
+        # run.
+        try:
+            session.close()
+        except Exception:
+            pass
+
     # Replace HTTP/1.1 sessions with HTTP/2, preserving existing cookies
     old_cookies = {}
     for old_session in (nav._session1, nav._session2):
@@ -390,6 +400,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
             old_cookies.update(dict(old_session.cookies))
         except Exception:
             pass
+        _close_quietly(old_session)
     nav._session1 = _make_http2_session()
     nav._session2 = _make_http2_session()
     for session in (nav._session1, nav._session2):
@@ -404,9 +415,14 @@ def patch_scholarly(ctx: SessionContext) -> None:
 
     def patched_new_session(premium=True, **kwargs):
         original_new_session(premium=premium, **kwargs)
+        # original_new_session() just built a client that is discarded right
+        # away (scholarly reads nav._session1/_session2, never pm._session, so
+        # nothing keeps using it).
         if premium:
+            _close_quietly(nav._session1)
             nav._session1 = _make_http2_session()
         else:
+            _close_quietly(nav._session2)
             nav._session2 = _make_http2_session()
         for session in (nav._session1, nav._session2):
             _full_session_setup(session)
@@ -417,6 +433,12 @@ def patch_scholarly(ctx: SessionContext) -> None:
     def patched_handle_captcha2(pagerequest):
         new_session = _make_http2_session()
         _full_session_setup(new_session)
+        # One client serves both slots from here on.  Close the replaced ones
+        # (closing the same client twice is harmless) so no slot keeps a client
+        # whose pool was dropped.
+        for old_session in (nav._session1, nav._session2):
+            if old_session is not new_session:
+                _close_quietly(old_session)
         nav._session1 = new_session
         nav._session2 = new_session
         return new_session
@@ -723,12 +745,13 @@ def probe_citation_start_year(
 
     while True:
         attempt += 1
-        ctx.total_page_count += 1
         for session in (nav._session1, nav._session2):
             session.headers['referer'] = ctx.last_scholar_url
         ctx.current_attempt_url = full_url
 
         try:
+            # nav._get_soup() goes through nav._get_page(), i.e. through
+            # patched_get_page, which already counts this page exactly once.
             soup = nav._get_soup(citedby_url)
             ctx.last_scholar_url = full_url
         except Exception as e:

@@ -18,7 +18,7 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 - **Resume Support**: Interrupted fetches resume from the last checkpoint; on exit the in-flight paper's state (citations fetched so far + the live year probe) is written to the output, so a year left short is re-fetched next run instead of being reported complete
 - **Anti-Ban Strategies**: HTTP/2 via scholarly's native `httpx` client with full browser headers (fingerprint adopted from the injected browser cURL), randomized 45–90 s delays, mandatory 3–6 min breaks every 8–12 pages, browser header simulation
 - **Interactive Captcha Bypass**: `--interactive-captcha` lets you paste a browser cURL to inject real cookies and resume without restarting; if playwright is installed you can type `browser` at the prompt instead and let it harvest the cookies from a real browser window
-- **Proxy Switch Wait**: On non-interactive failure, prompts hourly to switch proxy/IP until you type `ok`
+- **Proxy Switch Wait**: On non-interactive failure, prompts hourly to switch proxy/IP until you type `ok` (the 24 h window scales with `--accelerate`)
 - **Change Tracking**: Records per-run citation-count history in the profile JSON
 - **Dual Output**: JSON and formatted Excel for both author profile and citations
 - **Run Summary**: Prints elapsed time, total pages accessed, and new citations at the end of each run
@@ -26,13 +26,13 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 ## Requirements
 
 - Python 3.8+
-- Dependencies: `scholarly>=1.7, openpyxl>=3.1, httpx==0.27.2`
+- Dependencies: `scholarly>=1.7, openpyxl>=3.1, httpx[http2]==0.27.2`
 
 ```bash
 pip install -r requirements.txt
 ```
 
-> **Note**: `httpx` is pinned to `0.27.2` for compatibility with `scholarly 1.7.11`. Newer versions break internal session handling.
+> **Note**: `httpx` is pinned to `0.27.2` for compatibility with `scholarly 1.7.11`. Newer versions break internal session handling. The `[http2]` extra is required: the crawler builds its sessions with `httpx.Client(http2=True)`, which raises `ImportError` when the `h2` package is missing.
 >
 > **Note**: A `NO_PROXY` / `no_proxy` entry that wraps an IPv6 literal in brackets (e.g. `[::1]`, common on macOS when a local proxy is running) is normalised automatically before `scholarly` is imported (`code/lib_env.py`). Without that, `httpx 0.27.2` raises `InvalidURL: Invalid port: ':1]'` while scholarly builds its client at import time, and the crawler cannot start at all.
 >

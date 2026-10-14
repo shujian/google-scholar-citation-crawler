@@ -1509,8 +1509,8 @@ class PaperCitationFetcher:
         return result
 
     def _wait_proxy_switch(self, max_hours=24):
-        """Wait up to max_hours for the user to switch proxy/IP."""
-        return _int_wait_proxy_switch(max_hours)
+        """Wait up to max_hours (shortened by --accelerate) for the user to switch proxy/IP."""
+        return _int_wait_proxy_switch(max_hours, scale=self._delay_scale)
 
     def _save_output(self, results):
         """Save citation results to JSON and Excel."""
