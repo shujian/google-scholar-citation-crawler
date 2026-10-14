@@ -78,7 +78,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 from code.common import write_json_atomic
-from code.venue_key import citation_venue_key
+from code.shared.venue_key import citation_venue_key
 from code.venue_quality import citation_needs_cite_dialog
 
 

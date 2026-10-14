@@ -9,7 +9,7 @@ identity key and a clean dict suitable for caching.
 import re
 
 from code.citation_cache import normalize_citation_year
-from code.venue_key import resolve_venue_key
+from code.shared.venue_key import resolve_venue_key
 
 _SCHOLARPUBRE = re.compile(r'cites=([\d,]*)')
 

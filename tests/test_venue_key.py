@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tests.conftest import patch  # noqa: E402,F401  (installs the stubs)
 
-from code.venue_key import (  # noqa: E402
+from code.shared.venue_key import (  # noqa: E402
     SOURCE_NORMALIZED,
     SOURCE_RAW,
     citation_venue_key,

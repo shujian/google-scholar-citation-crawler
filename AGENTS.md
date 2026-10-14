@@ -114,9 +114,12 @@ google-scholar-citation-crawler/
 简况：`code/` 有 23 个支撑模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志，
 其中 `lib_env.py` 管第三方库环境、`venue_detail.py` 管出版详情页的完整 venue、`cite_format.py` 管施引
 条目的五种引用格式与 BibTeX、`venue_quality.py` 判「venue 是否已经完整/是否只是预印本源」、
-`venue_key.py` 把 venue 归一成身份键（会议 = `名+年份`、期刊 = 缩写名））；
-`tests/` 有 475 个测试，
-20 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」）。
+`venue_key.py`（**薄再导出**）把 venue 归一成身份键（会议 = `名+年份`、期刊 = 缩写名、
+预印本 = 服务器名）—— 规则的**唯一实体**在 `code/shared/venue_key.py`（本仓库是宿主），
+阶段 2 / 3.a.1 / 3.a.2 / 阶段 4 经各自的 `code/_shared.py` 消费同一份）；
+`tests/` 有 484 个测试，
+21 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」；
+`test_shared_venue_key.py` 守住「venue_key 判据只有一份，在 `code/shared/venue_key.py`」）。
 
 ### 新增模块
 
@@ -167,7 +170,9 @@ google-scholar-citation-crawler/
   薄包装。取舍见 `issues.md`：跳过的条目放弃了 Cite 对话框本可补上的卷期/页码。
 - **`run.sh`**：便捷入口，自动检测 conda 环境后执行 `python -m code.scholar_citation`。
 
-- **`code/venue_key.py`**（2026-10-15）：**会议 = 规范名 + 年份**（`ACL2026`、`Findings of ACL2026`、
+- **`code/shared/venue_key.py`**（2026-10-15，**跨仓库共享宿主**；`code/venue_key.py` 只是
+  `from code.shared.venue_key import *` 的**薄再导出**，保住历史 import 路径）：
+  **会议 = 规范名 + 年份**（`ACL2026`、`Findings of ACL2026`、
   `ICASSP2025`），**期刊 = 缩写名、不带年份**（`TACL`、`TASLP`、`Nature Machine Intelligence` ——
   期刊是连续出版物、不是年度届次；2026-10-15 用户定），**预印本 = 服务器名**（`arXiv`、`bioRxiv`、
   `medRxiv`、`SSRN`、`TechRxiv`、`Research Square`、`preprints.org`，不带年份；大小写不敏感子串匹配，
@@ -187,15 +192,19 @@ google-scholar-citation-crawler/
   Findings 是**独立于主会**的 venue。两处刻意的合并：`NIPS` → `NeurIPS`、`ACMMM` → `ACM MM`
   （同一会议不能有两个 key）。年份取 venue 串里第一个 4 位年份（会议届次），没有才退回记录自身的 year。
   **引文侧优先用 Cite 对话框里的 venue**：`citation['cite'].bibtex` 的 `journal` / `booktitle` / `series`
-  是**未截断**的发表地名，所以 `code.venue_key.citation_venue_key()` 优先用它算 key，拿不到才退回
+  是**未截断**的发表地名，所以 `code.shared.venue_key.citation_venue_key()` 优先用它算 key，拿不到才退回
   列表页那个被截到 ~25 字符的 `venue`（五种格式化串**故意不解析** —— venue 夹在作者/标题/卷期之间，
   解析有把标题当 venue 的风险）。抓取时在写完 `citation['cite']` 之后立即刷新这两个派生字段，
   数据修复工具用的是同一个函数，所以"先抓的没有对话框、后补上对话框"的行在下次跑脚本时会自动升级。
   **认不出的 venue 先用它自己的串当 key**（`venue_key_source='raw'`；认出来的写 `'normalized'`）—— 这是可审阅的临时状态，
   数据修复工具会把所有不同取值连计数导出来，再由人决定往词表里补什么；占位值（空/`NA`/`N/A`）
   **不给 key**（"没有 venue" 不是 venue，`NA` 当 key 会把无关记录并成一条）。
-  与 3.a.2 的关系：按工作区的共享代码约定，唯一实体最终应放本阶段并由 3.a.2 经 `code/_shared.py`
-  消费；本次先各持一份并逐条对齐，迁移记在 `issues.md`。
+  **与 3.a.2 的关系（2026-10-15 已落地）**：按工作区的共享代码约定，唯一实体就在本文件
+  （宿主 = 阶段 1），四个消费方经各自的 `code/_shared.py` 注入后 `from shared.venue_key import ...`
+  消费同一份 —— **不再有第二份副本**（各消费方有 `tests/test_shared_venue_key.py` 守卫）。
+  **`venue_key_name(key)`**（本次新增）：从 key 取「发表地名称」——只去掉尾部 4 位年份
+  （`ACL2026` → `ACL`、`Findings of ACL2026` → `Findings of ACL`；期刊 / 预印本 / 裸会议名原样），
+  是「剥年份」的**唯一实现**：3.a.2 的 tier 查表与阶段 4 的展示名都调它。
 
 ## Architecture overview
 
@@ -405,6 +414,11 @@ dependencies are stubbed in `tests/conftest.py`).
   fallback), unknown venues keeping their raw text, missing venues getting **no**
   key, plus the two writers (`PubInfo` and `extract_citation_info`) and that
   `PubInfo` prefers `venue_full` and never reads a stale stored key back.
+- `tests/test_shared_venue_key.py`（9 例，2026-10-15）守住 venue_key 判据的**唯一实体**：
+  `code/venue_key.py` 是薄再导出（逐个 `assertIs` 共享件、源码级断言没有实现副本、体量 < 60 行）、
+  `code/shared/` 无 `__init__.py`（PEP 420 命名空间包）、功能测试走共享路径；
+  以及 `venue_key_name()` 的去年份规则（会议剥年份 / 期刊·预印本·裸名原样 / 非字符串与空 → `''` /
+  越界年份与数字粘连不动 / 与 `venue_key()` 的往返）。
 - `tests/test_normalize_venue_key.py` covers the data-upgrade tool: dry-run writes
   nothing (no backup directory either), `--apply` fills both fields while every
   other key stays byte-identical, the previous version is copied into the backup

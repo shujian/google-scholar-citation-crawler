@@ -49,7 +49,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from code.common import write_json_atomic  # noqa: E402
-from code.venue_key import citation_venue_key, resolve_venue_key  # noqa: E402
+from code.shared.venue_key import citation_venue_key, resolve_venue_key  # noqa: E402
 
 PROFILE_GLOB = 'author_*_profile.json'
 CITATIONS_GLOB = 'author_*_paper_citations.json'

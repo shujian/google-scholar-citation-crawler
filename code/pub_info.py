@@ -21,7 +21,7 @@ from typing import Optional
 
 from code.citation_cache import normalize_citation_year
 from code.venue_detail import extract_citation_for_view
-from code.venue_key import resolve_venue_key
+from code.shared.venue_key import resolve_venue_key
 
 
 _PUB_FIELDS = [
