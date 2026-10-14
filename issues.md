@@ -72,14 +72,18 @@ token）、`venue_full`（详情页给的**未截断** venue）、`venue_full_so
 ## 六、施引条目的引用格式（`cid` / `cite` / `--cite-formats`，2026-10-14）
 
 阶段 1 现在**无条件**把每个施引条目的 Scholar cluster id 存成 `citation['cid']`（纯解析、不发请求，
-`data-cid` 就是 scholarly 的 `url_scholarbib`），并在**显式开启** `--cite-formats` 时抓该条目的
-Cite 对话框，把五种格式 + BibTeX 存进 `citation['cite']`（只增不改）。需要你决策的点：
+`data-cid` 就是 scholarly 的 `url_scholarbib`），并**默认开启**抓取该条目的 Cite 对话框，
+把五种格式 + BibTeX 存进 `citation['cite']`（只增不改）。
 
-1. **默认关闭是刻意的**：每个施引条目 1 次请求（BibTeX 再 1 次），全库是数千次量级 ——
-   与「每篇源论文一次」的 venue 详情页（241 量级）不是一个成本级。是否默认开启、或只对
-   「作者是缩写串 / venue 被截断」的条目开启，需要你拍板。缓存 `output/cite_format_cache.json`
-   让重跑几乎零成本（命中不发请求），所以"先小样本试、再决定铺不铺"是可行路径。
-2. **下游可以怎么用**（本轮**没改**下游，3.a.1 现在读不到这两个新字段）：
+1. **默认开启（2026-10-15 用户定，crawler `6f83505`）**：引文列表页给不了**全作者全名**（实测仅
+   6.2% 含任一全名）与**未截断的 venue**（61.8% 被 Scholar 截到约 25 字符），而 Cite 对话框一次请求
+   就能给出这两样 —— 所以"新抓的数据必须带上它"优先于省请求。关掉用 `--no-cite-formats`，或在
+   `crawler_config.json` 写 `"cite_formats": false`（解析链 `code.config.resolve_cite_formats()`：
+   参数 > 配置文件 > 默认开）。成本仍是每个施引条目 1 次请求（BibTeX 再 1 次），但：**已有 `cid` 的
+   条目才计费**（老的 8,989 条没有 `cid`，要重抓才有）、**venue 已完整且作者已是全名时零请求跳过**、
+   缓存 `output/cite_format_cache.json` 让重跑几乎零成本（命中不发请求）、失败不写缓存且能续跑。
+   另外 `citation['cite']` 存在时 `venue_key` 也改用 BibTeX 里未截断的 venue（`citation_venue_key()`）。
+2. **下游可以怎么用**（本节写于 2026-10-14，**下游当时没改**；3.a.1 仍不读这两个字段 —— 要用需另开一轮）：
    - 全名：`cite.chicago` 与 `cite.bibtex.author` 都给全作者全名（`M Bu` → `Bu, Haoyu`）；
    - venue：`cite.bibtex.journal` / `booktitle` 给未截断的 venue，`cite.vancouver` 还给卷期页码；
    - 仍然**绝不覆盖 `venue`**（身份键），下游要用请写新字段或只在 enrich 阶段作为证据。

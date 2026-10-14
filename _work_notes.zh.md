@@ -582,6 +582,9 @@ google-scholar-citation-crawler/
 │   ├── common.py                # 常量 + 无状态工具函数
 │   ├── author_fetcher.py        # AuthorProfileFetcher
 │   ├── profile_io.py            # profile JSON / Excel 输出
+│   ├── config.py                # 集中配置常量 + crawler_config.json 读取/解析
+│   ├── log_utils.py             # 结构化日志（setup_logging / get_logger）
+│   ├── lib_env.py               # 第三方库环境摆设 + NO_PROXY 规范化（唯一 os.environ 豁免）
 │   ├── citation_cache.py        # year-count / diagnostics 纯函数
 │   ├── citation_strategy.py     # fetch policy、refresh 策略、reconciliation
 │   ├── citation_identity.py     # citation 去重键与信息提取
@@ -593,27 +596,26 @@ google-scholar-citation-crawler/
 │   ├── interactive.py           # cURL cookie 注入、captcha 提示、proxy-switch 等待
 │   ├── citation_models.py       # YearRecord, ResumeState, FetchPolicy
 │   ├── output_state.py          # PaperFetchState / PaperState dataclass + 输出文件 _fetch_state 读写
+│   ├── venue_detail.py          # 出版详情页 → pub['venue_full']（按 token 缓存）
+│   ├── venue_quality.py         # 「venue 是否已完整 / 是否预印本源 / 作者是否全名」纯判据
+│   ├── venue_key.py             # venue → 身份键 venue_key（会议=名+年、期刊=缩写、预印本=服务器）
+│   ├── cite_format.py           # Cite 对话框五格式 + BibTeX → citation['cite']（默认开启）
 │   ├── pub_info.py              # PubInfo dataclass（pub 字段规范化）
 │   ├── cli.py                   # parse_args() + _run_main(args)
 │   └── data_upgrade/            # 一次性数据修复/升级工具（**与主线入口分开**，不算主线模块）
 │       ├── __init__.py
 │       ├── fix_diag_from_year_record.py  # python -m code.data_upgrade.fix_diag_from_year_record <output_json>
-│       └── fix_output_fetch_state.py     # python -m code.data_upgrade.fix_output_fetch_state [output_dir]
-├── tests/                       # 单元测试（174 个，不需要网络）
+│       ├── fix_output_fetch_state.py     # python -m code.data_upgrade.fix_output_fetch_state [output_dir]
+│       └── normalize_venue_key.py        # python -m code.data_upgrade.normalize_venue_key [--apply]
+├── tests/                       # 单元测试（当前 475 个，不需要网络）
 │   ├── conftest.py              # 共享 stubs + FetcherTestCase 基类
-│   ├── test_scholar_patch.py    # scholarly patch URL 日志、cookie 注入、CLI 解析
-│   ├── test_year_fetch_early.py # year fetch early-stop / histogram-authoritative
-│   ├── test_fetch_policy.py     # Fetch policy 选择、refresh 策略
-│   ├── test_direct_fetch.py     # Direct fetch：progress save、early-stop、resume、dedup
-│   ├── test_year_fetch_main.py  # Year fetch：materialize、selective refresh
-│   ├── test_output.py           # save_output、flush promotion、reconciliation
-│   ├── test_citation_status.py  # _citation_status、rehydrate、diagnostics 边界
-│   ├── test_main_loop.py        # _run_main_loop retry、main() CLI 集成
-│   ├── test_output_state.py     # 输出状态读写、citation_status 优先级
-│   └── test_profile.py          # AuthorProfileFetcher 计数汇总和 JSON/Excel 输出
+│   └── test_*.py                # 20 个文件，每个覆盖一个功能域
+│                                #   （逐文件清单见 AGENTS.md 的「Testing notes」—— 那里是唯一权威，
+│                                #    本节不再复制一份，免得两处各自过期，K80）
 ├── _update_history.zh.md        # 按时间顺序的更新历史
 ├── _user.zh.md                  # 用户输入记录
-├── requirements.txt             # scholarly>=1.7, openpyxl>=3.1, curl_cffi>=0.7, httpx==0.27.2
+├── requirements.txt             # scholarly>=1.7, openpyxl>=3.1, httpx[http2]==0.27.2
+│                                #   （curl_cffi 已于 2026-08-11 弃用并从依赖中移除，见下文「curl_cffi 全面失败」记录）
 └── README.md                    # 对外功能说明
 ```
 
@@ -647,9 +649,12 @@ python -m code.scholar_citation --author YOUR_AUTHOR_ID --limit 1 --skip 1
 | `--output-dir` | 输出目录，默认 `./output` |
 | `--skip M` | 跳过前 M 篇论文（按引用数降序） |
 | `--limit N` | 在 skip 之后处理 N 篇 |
-| `--fetch-mode` | `rough` / `normal` / `force`（默认 normal） |
+| `--fetch-mode` | `rough` / `normal` / `exact` / `force`（默认 normal） |
 | `--interactive-captcha` | 交互式验证码恢复 |
+| `--cite-formats` / `--no-cite-formats` | 施引条目的 Cite 对话框五格式 + BibTeX（**默认开启**，见 `code/cite_format.py`） |
+| `--proxy-url` / `--no-proxy` / `--config PATH` | 代理与配置文件（优先级：参数 > `crawler_config.json` > 默认） |
 | `--accelerate SCALE` | 等待倍率（默认 1.0，0.1 = 10× 快） |
+| `-v` / `--verbose` | 打开 debug 日志 |
 
 ---
 
@@ -1557,3 +1562,26 @@ BibTeX 是结构化字段，零歧义，所以只用它；字段优先级 `journ
 **边界**：① 对话框里没有 venue 字段（BibTeX 缺失或字段为空）→ 保持原来的 key（列表页那个），不猜；
 ② 年份仍按"venue 串里的第一个 4 位年份优先" —— 所以 `Proceedings of the 2024 Conference …` +
 记录 year=2025 会得到 `EMNLP2024`（会议届次），这是既定口径，测试里已钉住（我第一版测试写错成 2025）。
+
+## K78 复现与修复细节（2026-10-15）
+
+**为什么"少个字段"会变成"少抓数据"**：`PaperFetchState._infer_strategy_and_summary()`
+（`code/output_state.py:245`）的推断顺序是 `fetch_strategy` → 有 `year_fetch_diagnostics`/`year_records`
+就当年模式 → 否则看 direct 诊断。而**每篇论文**（含 direct 模式）都会写一份 `year_fetch_diagnostics`
+（`build_year_records()` 从缓存引用反推，direct 模式下每个年份的 `histogram_count` 都是 0，
+`code/citation_fetch.py:316`）。所以：**没有 `fetch_strategy` 的快照一律被读成年模式**，
+再配 `histogram_total = 0` → `is_data_complete('year')` 恒真 → `need_fetch()` False。
+
+因此 K78 的修法必须同时解决两件事，缺一不可：
+1. direct 模式下**每次落盘都带 `direct_fetch_diagnostics`**（本次：在 `save_progress()` 里就地构建，
+   `termination_reason='interrupted'`；抓完后 post-loop 构建覆盖成真实 reason）；
+2. `fetch_strategy` 那一行（`:438-442`）**依赖诊断是否存在**才会写 `'direct'` —— 诊断补齐后它才成立。
+   （只补 1 不补 2 也够，因为二者同源；只补 2 不补 1 则 `is_complete` 会走 direct 分支，
+   但快照仍缺诊断证据，报告/`stall` 签名会少信息。）
+
+**验证方式**：用现成的 `tests/test_direct_fetch.py` harness 复现（中断迭代器 → 查 `_mid_paper_state`
+→ `PaperFetchState.from_dict` 再问 `is_complete`/`need_fetch`）。这条"装载后行为"才是有意义的断言 ——
+只断言快照里有某个字段是抓不住这类"写入端正常、读取端误判"的 bug 的。**真实数据未被咬到**：
+169 篇 direct 论文全部带诊断，坏形状 0 例（若曾有，症状是"某篇引用数远小于 Cited by 却再不被重抓"）。
+
+**成本**：本次改动只在 direct 模式多构建一个 5 字段小字典，无额外请求、无新配置键。

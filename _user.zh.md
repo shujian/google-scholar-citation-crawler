@@ -3209,3 +3209,15 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
    那个被 Scholar 截到 ~25 字符的 `venue`。**五种格式化串故意不解析**（venue 夹在作者/标题/卷期之间，
    解析有把标题当 venue 的风险）。抓取时写完 `cite` 立即刷新这两个派生字段；数据修复工具用同一个
    函数，所以"先抓的行后来补上对话框"会在下次跑脚本时自动升级（存量当前 0 条有 `cite`，故实测 0 改动）。
+
+## 2026-10-15（续 7）: 查 KNOWN_ISSUES 里 crawler 相关部分后动手
+
+> 再查一下known issues里跟crawler相关的部分。→ 动手
+
+按上一轮列出的清单执行 (a)+(b)：
+- **(a) 修 K78**：direct 模式的中断快照缺 `direct_fetch_diagnostics`（连 `fetch_strategy` 也是 null）
+  → 重新装载后被推断成 year 模式，**2/25 的中断抓取被判为 complete**（`need_fetch=False`），
+  剩余引用永远不会被抓 —— 这是静默的少抓，不是"只是少个诊断字段"。已修 + 回归测试。
+- **(b) 三处过期文档对齐**：crawler `_work_notes.zh.md` 的「项目结构」节（K80）、crawler
+  `issues.md` 六.1「默认关闭是刻意的」（`6f83505` 起默认开启）、`TO_RUN.md` 第 3/4 条
+  （第 3 条的 `--paper` 参数不存在 ✗、数字过期）+ 新增第 5 条（K76 的验证通道）。

@@ -1949,3 +1949,33 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   `test_cite_format` 2 例（保存时 key 跟着 BibTeX 走：`Cybersecurity` / `EMNLP2024`）、
   工具 1 例（带 `cite` 的行被升级为 `ACL2024` 且 `venue` 一字不改）。
 - 文档：crawler `AGENTS.md` / `README.md`；根 `AGENTS.md` 契约段与 `KNOWN_ISSUES.md` D18 补记。
+
+## 2026-10-15（续 7）: 修 K78（direct 中断快照）+ 对齐 crawler 相关过期文档
+
+**K78 —— 影响比台账描述更重**：direct 模式执行中每页落盘、以及 Ctrl+C/限流停车时的那次落盘，
+都发生在 direct 诊断构建之前，于是快照写成 `direct_fetch_diagnostics: null` + `fetch_strategy: null`
+（`code/citation_fetch.py`）。重新装载时 `PaperFetchState._infer_strategy_and_summary()` 会因
+`year_fetch_diagnostics` 恒存在（direct 模式记录里 `histogram_count` 全为 0）而**推断成 year**，
+于是 `is_data_complete('year')` 拿 `seen >= histogram_total(0)` 判为**完整** →
+`need_fetch()` 返回 False，**剩余引用再也不会补抓**。实测复现：2/25 条时快照重载 → strategy=year、
+`is_complete(25)=True`；修复后 → strategy=direct、`is_complete=False`、`need_fetch=True`。
+- 修法：`save_progress()` 在 direct 模式下、诊断尚未构建时用**当前已知值**构建一份
+  （`termination_reason='interrupted'`）；抓完后 post-loop 的构建仍会用真实 reason 覆盖。
+- 测试：`tests/test_direct_fetch.py::test_partial_save_records_direct_diagnostics_so_it_never_reads_as_complete`
+  （先红后绿）。全套 **474 → 475 例**全绿。
+- **现有数据未受影响**：实测 `output/` 里 241 篇中 direct 模式 **169 篇全部带 `direct_fetch_diagnostics`**，
+  缺 `fetch_strategy` 的 36 篇都是 0 引用（skip_zero），**坏形状 0 例**。
+- **残留（未做）**：`_infer_strategy_and_summary()` 的"有 year 诊断就推断 year"这条**结构陷阱**仍在 ——
+  将来任何"缺 `fetch_strategy` 的 direct 快照"仍会被误读。要根治得让 year 推断要求
+  "存在真实 probe（`histogram_count > 0` 或 `probed_year_counts` 非空）"，改动面比本次大，留给下一轮。
+
+**三处过期文档对齐**（K80 + 我上一轮发现的）：
+- crawler `_work_notes.zh.md`「项目结构」节：测试数 174 → **475**、逐文件清单改为指向 AGENTS.md
+  （那里是唯一权威，避免两处各自过期）、`requirements.txt` 去掉已移除的 `curl_cffi`、
+  模块树补上 `config.py`/`log_utils.py`/`lib_env.py`/`venue_detail.py`/`venue_quality.py`/
+  `venue_key.py`/`cite_format.py`、CLI 表补 `exact`/`-v`/`--cite-formats`/代理与配置文件。
+- crawler `issues.md` 六.1：改为"**默认开启**（2026-10-15 用户定）"并写清成本边界（只有带 `cid` 的
+  条目计费、已完整条目零请求、缓存续跑）与 `venue_key` 的连带变化。
+- 根 `TO_RUN.md`：第 3 条的 `--paper 155` 改成真正的 `--skip 154 --limit 1`（crawler 没有 `--paper`，
+  实测 `pub.no == 位置+1`）、第 4 条按实测重写（143 已有 / 92 篇按设计零请求跳过 / **真待抓只剩 6 篇**）、
+  新增第 5 条 = **K76 的验证通道**（year 模式论文对照 Scholar 直方图，并确认 direct 模式下该字段无信息量）。
