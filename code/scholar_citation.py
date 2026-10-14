@@ -109,6 +109,9 @@ from code.output_state import (
 from code.pub_info import PubInfo
 from code.log_utils import setup_logging, get_logger
 from code import cite_format as _cite_format
+from code.venue_quality import (
+    citation_needs_cite_dialog as _vq_citation_needs_cite_dialog,
+)
 
 logger = get_logger(__name__)
 
@@ -902,6 +905,41 @@ class PaperCitationFetcher:
             st = self._citation_status(pub)
             if st in ('missing', 'partial'):
                 return True
+        return False
+
+    def has_cite_format_work(self):
+        """True when ``--cite-formats`` still has citations to resolve.
+
+        ``main()`` skips Phase 2 completely when Scholar's totals did not move,
+        and the formats step runs inside Phase 2's save — so that shortcut must
+        ask this first, or an enabled ``--cite-formats`` would never run again
+        once the citation counts stopped changing.
+
+        A citation is pending when it carries a ``cid``, still needs its dialog
+        (``code.venue_quality.citation_needs_cite_dialog``: venue incomplete or
+        authors not yet spelled out) and is not already in
+        ``output/cite_format_cache.json``.
+        """
+        if not getattr(self, 'cite_formats', False):
+            return False
+        if not os.path.exists(self.out_json):
+            return True
+        try:
+            with open(self.out_json, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            return True
+        cache = _cite_format.load_cite_cache(
+            os.path.join(self.output_dir, _cite_format.CACHE_FILENAME))
+        for paper in data.get('papers', []):
+            for citation in paper.get('citations', []) or []:
+                if not isinstance(citation, dict):
+                    continue
+                cid = _cite_format.normalize_cid(citation.get('cid'))
+                if not cid or cid in cache:
+                    continue
+                if _vq_citation_needs_cite_dialog(citation):
+                    return True
         return False
 
     def run(self):
@@ -1799,11 +1837,17 @@ def main():
 
             if prev_citations == curr_citations and prev_pubs == curr_pubs and args.fetch_mode != 'force':
                 if not citation_fetcher.has_pending_work():
-                    print("\n" + "=" * 70)
-                    print(f"  No changes detected (citations: {curr_citations}, publications: {curr_pubs})")
-                    print("  All citation caches are complete. Skipping citation fetch.")
-                    print("=" * 70 + "\n")
-                    return
+                    # The opt-in formats step runs inside Phase 2's save, so this
+                    # shortcut must not swallow it while its cache does not cover
+                    # the citations yet.
+                    if not citation_fetcher.has_cite_format_work():
+                        print("\n" + "=" * 70)
+                        print(f"  No changes detected (citations: {curr_citations}, publications: {curr_pubs})")
+                        print("  All citation caches are complete. Skipping citation fetch.")
+                        print("=" * 70 + "\n")
+                        return
+                    print("\nNo changes in totals, but --cite-formats still has "
+                          "citations outside its cache. Continuing...")
                 else:
                     print("\nNo changes in totals, but some citations are incomplete. Continuing fetch...")
 

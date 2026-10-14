@@ -545,6 +545,9 @@ class YearFetchMainTests(FetcherTestCase):
             def has_pending_work(self):
                 return False
 
+            def has_cite_format_work(self):
+                return False
+
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_args.output_dir = tmpdir
             with patch.object(scholar_citation, "parse_args", return_value=fake_args), \

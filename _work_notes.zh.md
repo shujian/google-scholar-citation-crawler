@@ -1327,3 +1327,18 @@ venue 跑批在 15:05（第 88 页）触发整站限流；crawler 自带的 **3 
 完全依赖「缓存 + 续跑 + 被拦即停」；若将来证明拦截是**按时间窗**而非按量，这个结论要重估。
 
 全套测试 383 → **418** 例（`test_scholar_patch.py` +8、新增 `test_venue_quality.py` 27 例）。
+
+## 2026-10-14: `--cite-formats` 的 `has_pending_work()` 短路坑
+
+**坑**：`main()` 在「引用总数 + 论文数都没变」时若 `has_pending_work()` 为假就**整段跳过 Phase 2**，
+而 `--cite-formats` 的富化跑在 Phase 2 的 `_save_output()` 里 —— 于是计数一旦稳定，开了这个开关也
+**永远不会再执行**（缓存没覆盖的那些条目永远拿不到 `cite`）。
+
+**修复**：新增 `PaperCitationFetcher.has_cite_format_work()`（只在 `cite_formats` 打开时有效）：
+输出 JSON 缺失/不可读 → 视为有待办；否则逐条看 `cid` 存在、不在
+`output/cite_format_cache.json` 里、且 `code.venue_quality.citation_needs_cite_dialog()` 为真
+（venue 不完整或作者未全名）→ 有待办。`main()` 的短路改成两级：`has_pending_work()` 为假时
+再看 `has_cite_format_work()`，仍有待办就打印
+`No changes in totals, but --cite-formats still has citations outside its cache. Continuing...`
+并照常进 Phase 2（各篇按 `complete` 走缓存、不重抓引文，只有格式那一步干活）。
+`tests/test_year_fetch_main.py` 的 `FakePaperFetcher` 补了同名 stub（沿用 `has_pending_work` 的既有约定）。

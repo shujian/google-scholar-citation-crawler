@@ -1779,3 +1779,10 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 - `AGENTS.md`（patch 层延迟说明 / 新模块 / 依赖图 / 测试表 / 例数）、`README.md`（Features、限流一节、
   venue_full 与 Citation Formats 两节、Project Structure）、`issues.md`（第六节取舍 + 第七节冷却实测）
   同步。
+
+## 2026-10-14: 修 `--cite-formats` 被 `has_pending_work()` 短路吞掉
+
+`main()` 在「引用总数/论文数未变且没有待抓引文」时会整段跳过 Phase 2，而格式富化在 Phase 2 的
+`_save_output()` 里 —— 于是开了 `--cite-formats` 也可能再也不执行。现在短路会先问新增的
+`has_cite_format_work()`（`cid` 存在 + 不在 `cite_format_cache.json` + 仍需要对话框 → 有待办），
+有待办就继续跑 Phase 2（引文照旧走缓存，只做格式那一步）。
