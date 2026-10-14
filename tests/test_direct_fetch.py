@@ -178,6 +178,63 @@ class DirectFetchTests(FetcherTestCase):
             "citedby_url": "/scholar?cites=123",
         })
 
+    def test_partial_save_records_direct_diagnostics_so_it_never_reads_as_complete(self):
+        """K78 — a mid-scan snapshot must not reload as a finished 'year' fetch.
+
+        Without the direct diagnostics the reloaded state inferred 'year' from the
+        year_fetch_diagnostics every paper carries (histogram_total 0 in direct
+        mode), so an interrupted 2/25 fetch looked COMPLETE and its remaining
+        citations were never fetched.
+        """
+        from code.output_state import PaperFetchState
+
+        cache_path = os.path.join(tempfile.gettempdir(), "paper-direct-partial-diag.json")
+
+        class InterruptAfterTwo:
+            def __init__(self):
+                self.items = [
+                    {"bib": {"title": "First", "author": ["A"], "venue": "V", "pub_year": "2024"}, "pub_url": "u1"},
+                    {"bib": {"title": "Second", "author": ["B"], "venue": "V", "pub_year": "2024"}, "pub_url": "u2"},
+                ]
+                self.index = 0
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.items):
+                    raise KeyboardInterrupt()
+                item = self.items[self.index]
+                self.index += 1
+                return item
+
+        with patch.object(self.fetcher, "_iter_direct_citedby", return_value=InterruptAfterTwo()), \
+             patch("sys.stdout", new_callable=StringIO):
+            with self.assertRaises(KeyboardInterrupt):
+                self.fetcher._fetch_citations_with_progress(
+                    citedby_url="/scholar?cites=123",
+                    cache_path=cache_path,
+                    title="Paper",
+                    num_citations=25,
+                    pub_url="https://example.com/paper",
+                    pub_year="2024",
+                    resume_from=[{"title": "Cached", "authors": "A", "venue": "V",
+                                  "year": "2023", "url": "u0"}],
+                )
+
+        saved = self.fetcher._mid_paper_state.get("Paper", {})
+        self.assertEqual(saved["fetch_strategy"], "direct")
+        diagnostics = saved["direct_fetch_diagnostics"]
+        self.assertIsInstance(diagnostics, dict)
+        self.assertEqual(diagnostics["scholar_total"], 25)
+        self.assertEqual(diagnostics["termination_reason"], "interrupted")
+        self.assertLess(diagnostics["seen_total"], 25)
+
+        state = PaperFetchState.from_dict(saved)
+        self.assertEqual(state._infer_strategy_and_summary()[0], "direct")
+        self.assertFalse(state.is_complete(25))
+        self.assertTrue(state.need_fetch(25))
+
     def test_fetch_citations_with_progress_complete_save_clears_direct_resume_state(self):
         self.fetcher.save_every = 100
         cache_path = os.path.join(tempfile.gettempdir(), "paper-direct-complete-save.json")

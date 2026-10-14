@@ -364,6 +364,22 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
                 # offset is written into direct_resume_state below).
                 direct_next_index = batch.start_index
         diagnostics_to_save = direct_fetch_diagnostics
+        if diagnostics_to_save is None and not is_year:
+            # K78 — a direct scan saves per page and on Ctrl+C, i.e. *before* the
+            # post-loop build, so the snapshot used to be written with
+            # direct_fetch_diagnostics=None and fetch_strategy=None.  Reloading it
+            # inferred 'year' from the year_fetch_diagnostics every paper carries
+            # (its direct-mode histogram_total is 0), so an interrupted 2/25 fetch
+            # read as COMPLETE and the remaining citations were never fetched.
+            # Record what is known now; once the scan finishes, the post-loop build
+            # replaces this with the real termination reason.
+            diagnostics_to_save = _build_direct_fetch_diagnostics(
+                scholar_total=current_scholar_total(),
+                cached_total=len(fresh_citations),
+                seen_total=len(fresh_citations) + year_ctx.dedup_count,
+                dedup_count=year_ctx.dedup_count,
+                termination_reason='interrupted',
+            )
         citations_to_save = materialized_citations(fetch_finished)
         if not citations_to_save and old_citations:
             citations_to_save = list(old_citations)

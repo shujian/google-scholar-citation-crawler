@@ -115,7 +115,7 @@ google-scholar-citation-crawler/
 其中 `lib_env.py` 管第三方库环境、`venue_detail.py` 管出版详情页的完整 venue、`cite_format.py` 管施引
 条目的五种引用格式与 BibTeX、`venue_quality.py` 判「venue 是否已经完整/是否只是预印本源」、
 `venue_key.py` 把 venue 归一成身份键（会议 = `名+年份`、期刊 = 缩写名））；
-`tests/` 有 474 个测试，
+`tests/` 有 475 个测试，
 20 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」）。
 
 ### 新增模块
@@ -347,6 +347,14 @@ dependencies are stubbed in `tests/conftest.py`).
 - `tests/test_proxy_config.py` covers config-file loading and the CLI > file > system-default
   proxy resolution (temporary files + patched environment, never the developer's real
   `crawler_config.json`).
+- `tests/test_direct_fetch.py` covers direct-mode fetching (progress saves, early stop,
+  resume offsets, prefix merging, dedup) and **K78**: a mid-scan snapshot must persist
+  `fetch_strategy: "direct"` **and** its `direct_fetch_diagnostics`, otherwise the
+  reloaded state infers `year` from the year diagnostics every paper carries (whose
+  direct-mode `histogram_total` is 0) and an interrupted 2/25 fetch reads as
+  **complete** — the remaining citations would never be fetched.  The test asserts the
+  snapshot's fields *and* that `PaperFetchState.from_dict(...).need_fetch()` still says
+  yes.
 - `tests/test_venue_detail.py` covers the `venue_full` step hermetically: token parsing
   (stored field / legacy URL / no link at all), detail-page field pairing (the `<style>`
   trap, reordered rows, missing venue label, whitespace collapsing), the new fields
