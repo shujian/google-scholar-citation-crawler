@@ -1991,3 +1991,20 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 - **测试 484 → 487**：`PapersRootTests`（路径形状 / 幂等且不碰目录内既有内容 / `main()` 真的接线）。
 - **文档**：`AGENTS.md` 的目录治理节写明"物理位置在本仓库 output 下、消费方一律经各自的
   `papers` 链接、本阶段负责创建"；`README.md` 输出表加一行说明该目录里有什么。
+
+## 2026-10-15（续 9）: 论文目录布局逻辑的宿主搬到阶段 1（Y-6 步骤 1）
+
+- **新增 `code/shared/papers_layout.py`（本仓库成为宿主）**：阶段 2 `code/renumber_papers.py`
+  的**库部分逐字搬移**（`plan` / `apply_plan` / `merge_into` / `remap_progress` / `reconcile` /
+  `target_dir_name` / `norm_title` / `dir_titles` / `sanitize_filename` 等，643 行）。
+  **只用标准库**：`MAX_FILENAME_LEN` / `OUTPUT_DIR` / `BASE_DIR` 改成**调用时按需解析**
+  （原来是 `from code import config as _cfg` 直接引用，共享件不能这么做）。
+- **`sanitize_filename` 的唯一实现**搬到此处（验收：对 11 个刁钻输入与原实现逐字一致）。
+- **阶段 2 侧**：`code/renumber_papers.py` → 薄再导出 + CLI（135 行）；`code/utils.py` 的
+  `sanitize_filename` → 一层委托（默认值仍取本项目 `MAX_FILENAME_LEN`）。
+- **测试**：阶段 1 **487 → 491**（新增 `tests/test_shared_papers_layout.py` 4 例：只 import 标准库、
+  路径注入可用、消毒行为、`target_dir_name` 含序号与 slug）；阶段 2 **534 → 539**
+  （新增 `tests/test_shared_papers_layout.py` 5 例守卫：同一对象 / 无实现副本 / 两个入口都接在共享件上）。
+  **阶段 2 原 534 例一字未改地通过** —— 这是"对外 API 与行为不变"的验收标准。
+- **前置修复**（上一轮）：`code/_shared.py` 的宿主解析加"挂载点内可达"的第二条候选
+  `<容器根>/stage1_code`（远程 SSHFS 下 `parents[3]` 在挂载点之外，看不见阶段 1 的代码）。

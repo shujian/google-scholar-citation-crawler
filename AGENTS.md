@@ -123,7 +123,7 @@ google-scholar-citation-crawler/
 `venue_key.py`（**薄再导出**）把 venue 归一成身份键（会议 = `名+年份`、期刊 = 缩写名、
 预印本 = 服务器名）—— 规则的**唯一实体**在 `code/shared/venue_key.py`（本仓库是宿主），
 阶段 2 / 3.a.1 / 3.a.2 / 阶段 4 经各自的 `code/_shared.py` 消费同一份）；
-`tests/` 有 487 个测试，
+`tests/` 有 491 个测试，
 21 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」；
 `test_shared_venue_key.py` 守住「venue_key 判据只有一份，在 `code/shared/venue_key.py`」）。
 
@@ -211,6 +211,17 @@ google-scholar-citation-crawler/
   **`venue_key_name(key)`**（本次新增）：从 key 取「发表地名称」——只去掉尾部 4 位年份
   （`ACL2026` → `ACL`、`Findings of ACL2026` → `Findings of ACL`；期刊 / 预印本 / 裸会议名原样），
   是「剥年份」的**唯一实现**：3.a.2 的 tier 查表与阶段 4 的展示名都调它。
+
+- **`code/shared/papers_layout.py`**（2026-10-15，**跨仓库共享宿主**）：论文目录的**布局与编号** ——
+  `plan()`（纯函数，算 `<NNN>-<slug>` 重排计划）/ `apply_plan()`（两阶段改名 + `manifest.json`，
+  置换失败回滚）/ `merge_into()`（同作品两目录合并）/ `remap_progress()`（改 `progress.json` 的
+  派生编号）/ `reconcile()` / `target_dir_name()` / `sanitize_filename()`（**文件名消毒的唯一实现**）。
+  **内容 = 阶段 2 `code/renumber_papers.py` 的库部分逐字搬移**，本仓库是宿主（`papers/` 的物理位置
+  在阶段 1，见根 AGENTS「仓库地图」）；阶段 2 的 `code/renumber_papers.py` 现在只是"再导出 + CLI"的
+  薄模块。**只用标准库**：`MAX_FILENAME_LEN` / `OUTPUT_DIR` / `BASE_DIR` 这些消费方配置一律
+  **调用时按需解析**（`_default_max_filename_len()` / `_default_output_dir()` / `_default_papers_base_dir()`），
+  否则它无法被两个阶段同时消费。**远程可见性**：阶段 2 在 SSHFS 下靠 `<容器根>/stage1_code` 这条
+  符号链接看到本目录（`code/_shared.py` 两处都试）。
 
 ## Architecture overview
 

@@ -1600,3 +1600,22 @@ BibTeX 是结构化字段，零歧义，所以只用它；字段优先级 `journ
 `author_<ID>_papers` 这个物理路径**（那会把作者写死进代码）；换作者只改
 `paper_downloader/papers` 一条链接。共享件搬迁时（`renumber_papers` 等）同理：路径走
 调用时解析，不写死。
+
+## Y-6 步骤 1 实施记录：papers_layout 搬进阶段 1（2026-10-15）
+
+**机械搬移的两条硬约束**（下次搬别的东西会再遇到）：
+1. **共享件不能 import 消费方的模块**。原文的库部分有三处 `_cfg`：`apply_plan()` 的
+   `getattr(_cfg, "OUTPUT_DIR", …)`、`reconcile()` 的 `_cfg.BASE_DIR`，还有 `sanitize_filename`
+   的默认上限 `MAX_FILENAME_LEN`。全部改成"调用时按需 import 消费方 `code.config`，取不到就退化"。
+   **注意**：我第一次 grep 漏了 `getattr(_cfg, …)`（因为模式写的是 `_cfg\.`，而这里没有点）——
+   搬完必须**真正跑消费方的测试**，不要只靠 grep 判断依赖清干净了。
+2. **私有名要显式再导出**。阶段 2 的 CLI 段用到 `_read_json` / `_metadata_score` /
+   `_candidate_match` / `_dir_stats` / `_MERGE_JSON_DIRS` / `_listing_sha1`，
+   `from shared.x import *` 不带下划线开头，必须再写一行显式导入，否则 CLI 在运行时报 NameError
+   （`--help` 看不出来）。
+
+**验收标准写死**：搬移类改动的唯一验收是"消费方原有测试**一字不改**地通过"
+（本次阶段 2 的 534 例 ✓）。另外 `sanitize_filename` 的行为用 11 个刁钻输入做了逐字对拍。
+
+**测试样例**（用户指定）：`R-prm: Reasoning-driven process reward modeling` = pub.no **31**、
+56 引用、`venue_key=EMNLP2025`（normalized）→ 端到端验证用 `--skip 30 --limit 1`。
