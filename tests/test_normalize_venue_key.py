@@ -47,7 +47,7 @@ class ToolTests(unittest.TestCase):
                              '2024',
                              venue_full='Proceedings of the 2024 Conference on Empirical '
                                         'Methods in Natural Language Processing'),
-                _profile_pub('Unknown', 'China Conference on Machine Translation', '2019'),
+                _profile_pub('Unknown', 'Journal of Obscure Studies 1 (2), 3-4, 2019', '2019'),
                 _profile_pub('NoVenue', 'NA', '2018'),
             ]}, handle, ensure_ascii=False, indent=2)
         with open(self.citations_path, 'w', encoding='utf-8') as handle:
@@ -96,7 +96,7 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(pubs[0]['venue_key'], 'ACL2024')
         self.assertEqual(pubs[0]['venue_key_source'], 'canonical')
         self.assertEqual(pubs[1]['venue_key'], 'EMNLP2024')  # venue_full wins
-        self.assertEqual(pubs[2]['venue_key'], 'China Conference on Machine Translation')
+        self.assertEqual(pubs[2]['venue_key'], 'Journal of Obscure Studies 1 (2), 3-4, 2019')
         self.assertEqual(pubs[2]['venue_key_source'], 'raw')
         self.assertIsNone(pubs[3]['venue_key'])
         self.assertIsNone(pubs[3]['venue_key_source'])
@@ -134,13 +134,21 @@ class ToolTests(unittest.TestCase):
         self.assertIn('0/4 records updated', output)
         self.assertEqual(open(self.profile_path, 'rb').read(), profile_after)
 
+    def test_reapply_leaves_no_backup_directory_when_nothing_changes(self):
+        self._run('--apply')
+        before = sorted(os.listdir(self.output_dir))
+        code, output = self._run('--apply')
+        self.assertEqual(code, 0)
+        self.assertIn('nothing to write', output)
+        self.assertEqual(sorted(os.listdir(self.output_dir)), before)
+
     def test_review_file_lists_every_unrecognised_venue(self):
         review = os.path.join(self.tmpdir, 'review.json')
         code, _ = self._run('--review-file', review)
         self.assertEqual(code, 0)
         report = self._read(review)
         pubs = {row['venue']: row['count'] for row in report['unknown_pubs']}
-        self.assertIn('China Conference on Machine Translation', pubs)
+        self.assertIn('Journal of Obscure Studies 1 (2), 3-4, 2019', pubs)
         self.assertNotIn('ACL 2024', pubs)
         citations = {row['venue']: row['count'] for row in report['unknown_citations']}
         self.assertIn('Proceedings of the …', citations)

@@ -3135,3 +3135,17 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
   逐条对比那 30 篇：列表页 `venue` **全部比详情页 `venue_full` 更完整**（带卷/期/页码/年份，
   详情页那一行只有 venue 名称），所以它们确实完整，跳过是对的；我上一轮"先查缓存再跳过可提到 173"
   的建议因此**撤回**（会把 `Ijcai 17 (2017), 3203-3209, 2017` 覆盖成 `Ijcai`）。
+
+## 2026-10-15（续）: 扩表 —— 会议"同理类推"，期刊 key 用缩写名
+
+> 其他会议包括EACL、ICASSP等，同理类推。期刊的venue_key为期刊的缩写名称包括TACL、TASLP、
+> Nature Machine Intelligence等。
+
+据此（含我按字面理解的两条）：
+1. **会议**继续"缩写 + 年份"（`ICASSP2025`、`LREC2018`、`NLPCC2025`…），并把真实数据里没识别出来的
+   会议"同理类推"补进词表（EACL 本就在表内）。
+2. **期刊 key = 期刊缩写名，不带年份**（`TACL`、`TASLP`、`Nature Machine Intelligence`）——
+   你给的例子都没有年份，且期刊是连续出版物、不是年度届次，所以我按"不带年份"实现；若你要
+   `TASLP2020` 这种形态，改一行即可（`code/venue_key.py: resolve_venue_key`）。
+3. 没有通用缩写的期刊就用它的短名当 key（`Neurocomputing`、`IEEE Access`、`中文信息学报`…），
+   与 `Nature Machine Intelligence` 这个例子同口径。

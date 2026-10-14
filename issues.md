@@ -144,7 +144,9 @@ cite 页路径 —— 上述 venue 判据成立**并且**该条目 `authors` 已
    是**两组键**，而 `venue_key` 把它们**各合并成一个**（去重键不能有两个同义键）。
 
 2. **引文侧 venue 被 Scholar 截到约 25 字符 → raw 键不可直接当去重键**
-   实测 9,269 条施引条目：`canonical` 354、`raw` 7,690、无 venue 1,225；raw 里有 2,912 个不同取值，
+   （2026-10-15 二轮扩表后的现状：词表 81 → **168 条**，pub 侧 canonical 120 → **190**、
+   引文文件整体 canonical 354 → **1255**、raw 7690 → **6789**；下面的 2,912 是扩表**前**的数字，
+   扩表后引文侧仍有 2,756 个不同 raw 取值，成因不变。）
    且最高频的是**彼此不可区分的截断前缀** —— `Proceedings of the …` x556、`Findings of the …` x207、
    `IEEE Transactions on …` x138、`International Conference on …` x49 …
    按当前口径它们各自成为 `venue_key`，若下游直接拿 `venue_key` 判"同一篇"，
@@ -168,3 +170,21 @@ cite 页路径 —— 上述 venue 判据成立**并且**该条目 `authors` 已
    → 待办：更正 `venue_quality.py` docstring / `AGENTS.md` 相应段落（本轮只记在这里，未动代码与文档，
    因为这是你上一轮提问的调查结论，不属于本次 venue_key 需求）。
    **同时撤回**我在上一轮提的"先查缓存再跳过可把 resolved 提到 173"：那 30 篇的缓存值写回去是**降级**。
+
+4. **arXiv 预印本要不要给 key（2026-10-15 二轮扩表后剩下的最大一类）**
+   扩表后 pub 侧仍未识别的 45 个不同值里 **40 个是 `arXiv preprint arXiv:<id>`**，引文侧
+   `arXiv preprint arXiv …`（779 条，被截断、**没有 id**）+ `bioRxiv`（35 条）同理。
+   现在它们都按"认不出 → key = 原串"处理。三个候选：
+   ① 保持原样（每条一个 key，同 id 的多次引用能合并，但**截断那批**的全都是
+      `arXiv preprint arXiv …`，会把 779 条无关论文并成一个 key ✗）；
+   ② 有 id 的给 `arXiv:<id>`（真实身份，与下游已有的 arXiv 凭据口径一致），
+      **没 id 的给 `null`**（不参与去重）—— **我倾向这个**；
+   ③ 一律给 `arXiv`（等于放弃区分，只标"这是预印本"）。
+   → 你挑一个我就改（`code/venue_key.py` 的 raw 分支，改完重跑脚本，幂等且带备份）。
+
+5. **两条有误并风险的别名（已实现，请复核）**
+   - `软件学报` ← `Journal of Software`：真实数据里 7 条都正好是 `Journal of Software`，
+     但 `Journal of Software: Evolution and Process` 之类会被并进来；
+   - 我一度把 `Acta Electronica Sinica` 挂给了 `Chinese Journal of Electronics` —— **写错了**：
+     它其实只是《电子学报》的英文名，`Chinese Journal of Electronics` 是另一本刊。**已在本轮当场改正**
+     （别名归 `电子学报`，`Chinese Journal of Electronics` 不带别名）。

@@ -113,8 +113,8 @@ google-scholar-citation-crawler/
 简况：`code/` 有 23 个支撑模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志，
 其中 `lib_env.py` 管第三方库环境、`venue_detail.py` 管出版详情页的完整 venue、`cite_format.py` 管施引
 条目的五种引用格式与 BibTeX、`venue_quality.py` 判「venue 是否已经完整/是否只是预印本源」、
-`venue_key.py` 把 venue 归一成 `会议名+年份` 的身份键）；
-`tests/` 有 449 个测试，
+`venue_key.py` 把 venue 归一成身份键（会议 = `名+年份`、期刊 = 缩写名））；
+`tests/` 有 454 个测试，
 20 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」）。
 
 ### 新增模块
@@ -164,13 +164,17 @@ google-scholar-citation-crawler/
   薄包装。取舍见 `issues.md`：跳过的条目放弃了 Cite 对话框本可补上的卷期/页码。
 - **`run.sh`**：便捷入口，自动检测 conda 环境后执行 `python -m code.scholar_citation`。
 
-- **`code/venue_key.py`**（2026-10-15）：**`venue_key` = 规范发表地名 + 年份**（`ACL2026`、
-  `Findings of ACL2026`），供下游做论文去重/唯一性判断。规范名沿用 3.a.2 已有的词表
-  （`citation_analysis_info/code/config.py` 的 `VENUE_PRESTIGE` + `VENUE_ALIASES`：51 个会议 + 30 个期刊），
-  匹配算法也照抄它的 `_venue_match`（多词子串 / 短全大写缩写要词边界 / 其它单名要整名），
-  按文本长度降序尝试，所以 TACL 期刊不会被 ACL 会议吞掉、Findings 是**独立于主会**的 venue。
-  两处刻意的合并：`NIPS` → `NeurIPS`、`ACMMM` → `ACM MM`（同一会议不能有两个 key）。
-  年份取 venue 串里第一个 4 位年份（会议届次），没有才退回记录自身的 year。
+- **`code/venue_key.py`**（2026-10-15）：**会议 = 规范名 + 年份**（`ACL2026`、`Findings of ACL2026`、
+  `ICASSP2025`），**期刊 = 缩写名、不带年份**（`TACL`、`TASLP`、`Nature Machine Intelligence` ——
+  期刊是连续出版物、不是年度届次；2026-10-15 用户定），供下游做论文去重/唯一性判断。
+  词表起点是 3.a.2 已有的 `VENUE_PRESTIGE` + `VENUE_ALIASES`（51 会议 + 30 期刊），
+  2026-10-15 按"EACL、ICASSP 等，同理类推"扩到 **168 条（84 会议 + 84 期刊）** ——
+  新增的正是真实数据里未识别的那批（语音/机器翻译/NLP/ML 会议与常见期刊，含中文期刊与
+  `中文信息学报` ← `Journal of Chinese Information Processing` 这类**同一刊两种写法**）。
+  匹配算法照抄 3.a.2 的 `_venue_match`（多词子串 / 短全大写缩写要词边界 / 其它单名要整名），
+  按文本长度降序尝试，所以 TACL 期刊不会被 ACL 会议吞掉、`CCMT`/`CWMT`/`WMT` 各归其位、
+  Findings 是**独立于主会**的 venue。两处刻意的合并：`NIPS` → `NeurIPS`、`ACMMM` → `ACM MM`
+  （同一会议不能有两个 key）。年份取 venue 串里第一个 4 位年份（会议届次），没有才退回记录自身的 year。
   **认不出的 venue 先用它自己的串当 key**（`venue_key_source='raw'`）—— 这是可审阅的临时状态，
   数据修复工具会把所有不同取值连计数导出来，再由人决定往词表里补什么；占位值（空/`NA`/`N/A`）
   **不给 key**（"没有 venue" 不是 venue，`NA` 当 key 会把无关记录并成一条）。
@@ -353,16 +357,20 @@ dependencies are stubbed in `tests/conftest.py`).
   spelled-out proceedings forms, Findings as its **own** venue (different from its
   host conference), TACL-not-ACL, longest-match-wins (Nature sub-journals, CL vs
   ACL), the two deliberate spelling merges (`NIPS` → `NeurIPS`, `ACMMM` → `ACM MM`),
-  the year rule (venue string first, record year as fallback), unknown venues
-  keeping their raw text, missing venues getting **no** key, plus the two writers
-  (`PubInfo` and `extract_citation_info`) and that `PubInfo` prefers
-  `venue_full` and never reads a stale stored key back.
+  **journals carrying no year while conferences do** (`TACL`/`TASLP` vs
+  `ICASSP2025`), the extended table (ICASSP / IJCNN / PAKDD / LREC / NLPCC),
+  `CCMT`/`CWMT`/`WMT` staying apart, the two spellings of one Chinese journal
+  collapsing onto one key, the year rule (venue string first, record year as
+  fallback), unknown venues keeping their raw text, missing venues getting **no**
+  key, plus the two writers (`PubInfo` and `extract_citation_info`) and that
+  `PubInfo` prefers `venue_full` and never reads a stale stored key back.
 - `tests/test_normalize_venue_key.py` covers the data-upgrade tool: dry-run writes
   nothing (no backup directory either), `--apply` fills both fields while every
   other key stays byte-identical, the previous version is copied into the backup
   directory with a manifest, a second run is a no-op, the review report lists each
   distinct unrecognised venue with its count, `--author` scans only that author,
-  and a missing/empty output directory is an error rather than a silent pass.
+  a missing/empty output directory is an error rather than a silent pass, and a
+  re-run that finds nothing to do leaves no empty backup directory behind.
 - When changing year-based fetching, resume behavior, or CLI flags, update the
   corresponding test file first rather than adding integration coverage.
 

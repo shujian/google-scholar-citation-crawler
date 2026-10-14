@@ -14,16 +14,22 @@ in identity/dedup checks.
 
 Rules (as decided 2026-10-15):
 
-* a *known* venue becomes ``<canonical name><year>`` — ``ACL2026``, ``EMNLP2025``,
-  ``NeurIPS2024``.  The canonical names mirror the table already used by stage
-  3.a.2 (``citation_analysis_info/code/config.py``: ``VENUE_PRESTIGE`` +
-  ``VENUE_ALIASES``) so the pipeline has one vocabulary.  See "Relationship to
-  3.a.2" below.
+* a *known* **conference** becomes ``<canonical name><year>`` — ``ACL2026``,
+  ``EMNLP2025``, ``NeurIPS2024``, ``ICASSP2025``.
+* a *known* **journal** is a continuous venue, not a yearly edition, so its key is
+  the short name **without** a year — ``TACL``, ``TASLP``,
+  ``Nature Machine Intelligence`` (decided 2026-10-15).
+* the table started out as the vocabulary stage 3.a.2 already uses
+  (``citation_analysis_info/code/config.py``: ``VENUE_PRESTIGE`` +
+  ``VENUE_ALIASES``) and was extended on 2026-10-15 with the venues that the real
+  data left unrecognised (speech / MT / NLP / ML conferences and journals).  See
+  "Relationship to 3.a.2" below.
 * **Findings is its own venue**: ``Findings of the Association for Computational
   Linguistics: ACL 2026`` → ``Findings of ACL2026``, which is deliberately
   different from ``ACL2026``.
 * a venue we cannot identify keeps its own text: ``venue_key`` = the venue string
-  (``venue_key_source`` = ``'raw'``).  That is a temporary, reviewable state — the
+  (``venue_key_source`` = ``'raw'``).  A journal without a widely used
+  abbreviation keeps its own short name (``Neurocomputing``, ``IEEE Access``).  That is a temporary, reviewable state — the
   data-upgrade tool lists every distinct raw value with counts so the table can be
   extended deliberately instead of guessed at.
 * a *missing* venue (empty / ``NA`` / ``N/A`` / ``…``) gets **no** key: "no venue"
@@ -79,7 +85,8 @@ VENUE_CANONICAL = {
     'SIGIR': ('ACM SIGIR Conference on Research and Development in Information Retrieval',
               'conference', []),
     'KDD': ('ACM SIGKDD Conference on Knowledge Discovery and Data Mining',
-            'conference', []),
+            'conference',
+            ['ACM SIGKDD international conference on knowledge discovery']),
     'WWW': ('ACM Web Conference', 'conference',
             ['The Web Conference', 'International World Wide Web Conference',
              'Proceedings of the ACM Web Conference']),
@@ -108,7 +115,8 @@ VENUE_CANONICAL = {
               'Computational Linguistics']),
     'CoNLL': ('Conference on Computational Natural Language Learning', 'conference', []),
     'ICDM': ('IEEE International Conference on Data Mining', 'conference', []),
-    'CIKM': ('ACM Conference on Information and Knowledge Management', 'conference', []),
+    'CIKM': ('ACM Conference on Information and Knowledge Management', 'conference',
+             ['ACM international conference on information & knowledge management']),
     'WSDM': ('ACM Conference on Web Search and Data Mining', 'conference', []),
     'ECIR': ('European Conference on Information Retrieval', 'conference', []),
     'RecSys': ('ACM Conference on Recommender Systems', 'conference', []),
@@ -176,6 +184,127 @@ VENUE_CANONICAL = {
     'Nature Energy': ('Nature Energy', 'journal', []),
     'Nature Human Behaviour': ('Nature Human Behaviour', 'journal', []),
     'Nature Reviews Psychology': ('Nature Reviews Psychology', 'journal', []),
+
+    # -- speech / machine translation / NLP / ML venues (2026-10-15) ---------
+    # The user asked to extend this beyond the first seven names ("EACL、ICASSP 等，
+    # 同理类推"): conferences keep "acronym + year", journals use their short name.
+    'ICASSP': ('IEEE International Conference on Acoustics, Speech and Signal Processing',
+               'conference',
+               ['International Conference on Acoustics, Speech and Signal Processing']),
+    'INTERSPEECH': ('Conference of the International Speech Communication Association',
+                    'conference',
+                    ['Interspeech', 'International Speech Communication Association']),
+    'SLT': ('IEEE Spoken Language Technology Workshop', 'conference', []),
+    'ASRU': ('IEEE Automatic Speech Recognition and Understanding Workshop', 'conference', []),
+    'Odyssey': ('The Speaker and Language Recognition Workshop', 'conference', []),
+    'IJCNN': ('International Joint Conference on Neural Networks', 'conference', []),
+    'ICANN': ('International Conference on Artificial Neural Networks', 'conference', []),
+    'PAKDD': ('Pacific-Asia Conference on Knowledge Discovery and Data Mining', 'conference', []),
+    'ACML': ('Asian Conference on Machine Learning', 'conference', []),
+    'LREC': ('International Conference on Language Resources and Evaluation', 'conference',
+             ['Language Resources and Evaluation Conference']),
+    'CCMT': ('China Conference on Machine Translation', 'conference',
+             ['China Conference, CCMT', 'CCMT']),
+    'CWMT': ('China Workshop on Machine Translation', 'conference',
+             ['China Workshop, CWMT', 'CWMT']),
+    'WMT': ('Conference on Machine Translation', 'conference',
+            ['Workshop on Statistical Machine Translation']),
+    'AMTA': ('Conference of the Association for Machine Translation in the Americas',
+             'conference', ['Association for Machine Translation in the Americas']),
+    'EAMT': ('Conference of the European Association for Machine Translation', 'conference',
+             ['European Association for Machine Translation']),
+    'IWSLT': ('International Conference on Spoken Language Translation', 'conference', []),
+    'NLPCC': ('CCF International Conference on Natural Language Processing and Chinese Computing',
+              'conference', ['Natural Language Processing and Chinese Computing']),
+    'CCL': ('Chinese National Conference on Computational Linguistics', 'conference',
+            ['China National Conference on Computational Linguistics']),
+    'IJCNLP': ('International Joint Conference on Natural Language Processing', 'conference', []),
+    'PACLIC': ('Pacific Asia Conference on Language, Information and Computation', 'conference', []),
+    'IALP': ('International Conference on Asian Language Processing', 'conference', []),
+    'CIPS-SIGHAN': ('CIPS-SIGHAN Joint Conference on Chinese Language Processing', 'conference', []),
+    'NLP-NABD': ('International Symposium on Natural Language Processing Based on Naturally '
+                 'Annotated Big Data', 'conference', []),
+    'LT4HALA': ('Workshop on Language Technologies for Historical and Ancient Languages',
+                'conference', []),
+    'ALP': ('Workshop on Ancient Language Processing', 'conference', []),
+    'ALT': ('Ancient Language Translation Workshop', 'conference', []),
+    'PMLR': ('Proceedings of Machine Learning Research', 'conference', []),
+    'RANLP': ('Recent Advances in Natural Language Processing', 'conference', []),
+    'SIGDIAL': ('Annual Meeting of the Special Interest Group on Discourse and Dialogue',
+                'conference', []),
+    'INLG': ('International Natural Language Generation Conference', 'conference', []),
+    'ICMI': ('ACM International Conference on Multimodal Interaction', 'conference', []),
+    'ICME': ('IEEE International Conference on Multimedia and Expo', 'conference', []),
+    'ICPR': ('International Conference on Pattern Recognition', 'conference', []),
+    'BMVC': ('British Machine Vision Conference', 'conference', []),
+    'WACV': ('IEEE/CVF Winter Conference on Applications of Computer Vision', 'conference', []),
+
+    # -- journals: the key is the journal's short name, with no year ----------
+    'TASLP': ('IEEE/ACM Transactions on Audio, Speech, and Language Processing', 'journal',
+              ['Transactions on Audio, Speech, and Language Processing']),
+    'TALLIP': ('ACM Transactions on Asian and Low-Resource Language Information Processing',
+               'journal',
+               ['Transactions on Asian and Low-Resource Language Information Processing']),
+    'TKDD': ('ACM Transactions on Knowledge Discovery from Data', 'journal', []),
+    'TNNLS': ('IEEE Transactions on Neural Networks and Learning Systems', 'journal', []),
+    'TCYB': ('IEEE Transactions on Cybernetics', 'journal', []),
+    'TIST': ('ACM Transactions on Intelligent Systems and Technology', 'journal', []),
+    'TMM': ('IEEE Transactions on Multimedia', 'journal', []),
+    'CSUR': ('ACM Computing Surveys', 'journal', []),
+    'JAIR': ('Journal of Artificial Intelligence Research', 'journal', []),
+    'JCST': ('Journal of Computer Science and Technology', 'journal', []),
+    'FCS': ('Frontiers of Computer Science', 'journal', []),
+    'SCIS': ('SCIENCE CHINA Information Sciences', 'journal',
+             ['SCIENTIA SINICA Informationis']),
+    'LRE': ('Language Resources and Evaluation', 'journal', []),
+    'Neurocomputing': ('Neurocomputing', 'journal', []),
+    'Neural Networks': ('Neural Networks', 'journal', []),
+    'Neural Computing and Applications': ('Neural Computing and Applications', 'journal', []),
+    'Machine Learning': ('Machine Learning', 'journal', []),
+    'Pattern Recognition': ('Pattern Recognition', 'journal', []),
+    'Patterns': ('Patterns', 'journal', []),
+    'Knowledge-Based Systems': ('Knowledge-Based Systems', 'journal', []),
+    'Knowledge and Information Systems': ('Knowledge and Information Systems', 'journal', []),
+    'Expert Systems with Applications': ('Expert Systems with Applications', 'journal', []),
+    'Applied Intelligence': ('Applied Intelligence', 'journal', []),
+    'Applied Soft Computing': ('Applied Soft Computing', 'journal', []),
+    'Computer Speech & Language': ('Computer Speech & Language', 'journal',
+                                   ['Computer Speech and Language']),
+    'Information Sciences': ('Information Sciences', 'journal', []),
+    'Information Fusion': ('Information Fusion', 'journal', []),
+    'Information Processing & Management': ('Information Processing & Management', 'journal', []),
+    'IEEE Access': ('IEEE Access', 'journal', []),
+    'Applied Sciences': ('Applied Sciences', 'journal', []),
+    'Electronics': ('Electronics', 'journal', []),
+    'Mathematics': ('Mathematics', 'journal', []),
+    'Symmetry': ('Symmetry', 'journal', []),
+    'Sensors': ('Sensors', 'journal', []),
+    'Information': ('Information', 'journal', []),
+    'Scientific Reports': ('Scientific Reports', 'journal', []),
+    'PeerJ Computer Science': ('PeerJ Computer Science', 'journal', []),
+    'Procedia Computer Science': ('Procedia Computer Science', 'journal', []),
+    'The Journal of Supercomputing': ('The Journal of Supercomputing', 'journal',
+                                      ['Journal of Supercomputing']),
+    'Cognitive Computation': ('Cognitive Computation', 'journal', []),
+    'Complex & Intelligent Systems': ('Complex & Intelligent Systems', 'journal', []),
+    'Bioinformatics': ('Bioinformatics', 'journal', []),
+    'AI Open': ('AI Open', 'journal', []),
+    'Nature Computational Science': ('Nature Computational Science', 'journal', []),
+    'eLife': ('eLife', 'journal', []),
+    'Chinese Journal of Electronics': ('Chinese Journal of Electronics', 'journal', []),
+    '中文信息学报': ('中文信息学报', 'journal',
+                    ['Journal of Chinese Information Processing']),
+    '小型微型计算机系统': ('小型微型计算机系统', 'journal',
+                          ['Journal of Chinese Computer Systems']),
+    '软件学报': ('软件学报', 'journal', ['Journal of Software']),
+    '电子学报': ('电子学报', 'journal', ['Acta Electronica Sinica']),
+    '计算机研究与发展': ('计算机研究与发展', 'journal',
+                        ['Journal of Computer Research and Development']),
+    '计算机科学': ('计算机科学', 'journal', []),
+    '模式识别与人工智能': ('模式识别与人工智能', 'journal',
+                          ['Pattern Recognition and Artificial Intelligence']),
+    '自然言語処理': ('自然言語処理', 'journal',
+                    ['Journal of Natural Language Processing']),
 }
 
 #: ``venue_key_source`` values.
@@ -290,6 +419,10 @@ def resolve_venue_key(venue, year=None):
         return None, None
     name = canonical_venue(venue)
     if name:
+        if VENUE_CANONICAL[name][1] == 'journal':
+            # A journal is a continuous venue, not a yearly edition: its key is
+            # the short name alone (TACL, TASLP, Nature Machine Intelligence).
+            return name, SOURCE_CANONICAL
         return f"{name}{pick_venue_year(venue, year) or ''}", SOURCE_CANONICAL
     return normalize_venue_text(venue), SOURCE_RAW
 

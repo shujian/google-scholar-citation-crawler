@@ -65,7 +65,56 @@ class CanonicalNameTests(unittest.TestCase):
         self.assertEqual(
             venue_key('Transactions of the Association for Computational Linguistics 12, '
                       '576-592, 2024'),
-            'TACL2024')
+            'TACL')
+
+    def test_journals_have_no_year_in_their_key(self):
+        """A journal is a continuous venue, not a yearly edition (2026-10-15)."""
+        self.assertEqual(
+            venue_key('IEEE/ACM Transactions on Audio, Speech, and Language Processing 28, '
+                      '1707-1716, 2020'),
+            'TASLP')
+        self.assertEqual(
+            venue_key('IEEE/ACM Transactions on Audio, Speech, and Language Processing 31, '
+                      '1-10, 2023'),
+            'TASLP')
+        self.assertEqual(venue_key('Nature Machine Intelligence 5, 1-10, 2023'),
+                         'Nature Machine Intelligence')
+        self.assertEqual(venue_key('Neurocomputing 500, 1-10, 2022'), 'Neurocomputing')
+
+    def test_extended_conference_table(self):
+        self.assertEqual(
+            venue_key('ICASSP 2025-2025 IEEE International Conference on Acoustics, '
+                      'Speech and Signal Processing (ICASSP)'),
+            'ICASSP2025')
+        self.assertEqual(canonical_venue('Proceedings of the 2016 International Joint '
+                                        'Conference on Neural Networks (IJCNN)'),
+                         'IJCNN')
+        self.assertEqual(canonical_venue('Pacific-Asia Conference on Knowledge Discovery '
+                                         'and Data Mining, 245-255, 2013'),
+                         'PAKDD')
+        self.assertEqual(canonical_venue('Proceedings of the Eleventh International '
+                                         'Conference on Language Resources and Evaluation '
+                                         '(LREC 2018)'),
+                         'LREC')
+        self.assertEqual(canonical_venue('CCF International Conference on Natural Language '
+                                         'Processing and Chinese Computing'),
+                         'NLPCC')
+
+    def test_machine_translation_venues_stay_apart(self):
+        """CCMT / CWMT / WMT share words; each string must land on its own key."""
+        self.assertEqual(venue_key('Machine Translation: 19th China Conference, CCMT 2023, '
+                                   'Jinan, China, Proceedings', '2023'), 'CCMT2023')
+        self.assertEqual(venue_key('Machine Translation: 14th China Workshop, CWMT 2018, '
+                                   'Wuyishan, China, Proceedings', '2018'), 'CWMT2018')
+        self.assertEqual(venue_key('Proceedings of the Seventh Conference on Machine '
+                                   'Translation (WMT), 615-620, 2022'), 'WMT2022')
+
+    def test_two_spellings_of_the_same_chinese_journal_share_a_key(self):
+        self.assertEqual(venue_key('中文信息学报 31 (2), 179-186, 2017'), '中文信息学报')
+        self.assertEqual(venue_key('Journal of Chinese Information Processing 26 (3), '
+                                   '54-58, 2012'), '中文信息学报')
+        self.assertEqual(venue_key('Journal of Chinese Computer Systems 36 (6), 1-5, 2015'),
+                         '小型微型计算机系统')
 
     def test_longest_match_wins(self):
         # "Nature Machine Intelligence" must not be reported as the journal Nature,
@@ -74,7 +123,8 @@ class CanonicalNameTests(unittest.TestCase):
                          'Nature Machine Intelligence')
         self.assertEqual(canonical_venue('Computational Linguistics 44 (1), 1-10, 2018'),
                          'CL')
-        self.assertEqual(canonical_venue('Science China Information Sciences'), None)
+        self.assertEqual(canonical_venue('SCIENCE CHINA Information Sciences, 2025'),
+                         'SCIS')
 
     def test_spelling_variants_share_one_key(self):
         self.assertEqual(canonical_venue('NIPS 2019'), 'NeurIPS')
@@ -91,8 +141,8 @@ class CanonicalNameTests(unittest.TestCase):
 
 class KeyShapeTests(unittest.TestCase):
     def test_unknown_venue_keeps_its_text(self):
-        key, source = resolve_venue_key('China Conference on Machine Translation, 1-10, 2019')
-        self.assertEqual(key, 'China Conference on Machine Translation, 1-10, 2019')
+        key, source = resolve_venue_key('Journal of Obscure Studies 1 (2), 3-4, 2019')
+        self.assertEqual(key, 'Journal of Obscure Studies 1 (2), 3-4, 2019')
         self.assertEqual(source, SOURCE_RAW)
         self.assertEqual(resolve_venue_key('ACL 2024'), ('ACL2024', SOURCE_CANONICAL))
 
@@ -104,8 +154,8 @@ class KeyShapeTests(unittest.TestCase):
 
     def test_whitespace_is_collapsed(self):
         self.assertEqual(venue_key('ACL   2024\n'), 'ACL2024')
-        self.assertEqual(venue_key('China   Conference on\nMachine Translation'),
-                         'China Conference on Machine Translation')
+        self.assertEqual(venue_key('Journal of Obscure\nStudies 1 (2)'),
+                         'Journal of Obscure Studies 1 (2)')
 
     def test_year_prefers_the_venue_string_then_the_record(self):
         self.assertEqual(pick_venue_year('ACL 2026', '2025'), '2026')

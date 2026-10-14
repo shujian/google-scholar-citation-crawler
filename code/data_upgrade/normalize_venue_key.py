@@ -197,6 +197,9 @@ def apply_plan(plan, backup_dir, output_dir):
     working directory), so a tool run against another data directory never
     drops backups into this repository's ``output/``.
     """
+    if not any(entry.get('updated') for entry in plan['files']):
+        # Nothing to do: do not leave an empty backup directory behind.
+        return None, 0
     stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     backup_dir = backup_dir or os.path.join(output_dir, f'venue_key_backup_{stamp}')
     os.makedirs(backup_dir, exist_ok=True)
@@ -307,7 +310,10 @@ def main(argv=None):
         print_summary(report, dry_run=not args.apply)
     if args.apply:
         backup_dir, written = apply_plan(plan, args.backup_dir, args.output_dir)
-        print(f'  wrote {written} file(s); previous versions in {backup_dir}')
+        if backup_dir is None:
+            print('  nothing to write (already up to date)')
+        else:
+            print(f'  wrote {written} file(s); previous versions in {backup_dir}')
     elif not args.json:
         print('  (dry-run: re-run with --apply to write)')
     return 0

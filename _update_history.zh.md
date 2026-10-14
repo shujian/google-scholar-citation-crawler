@@ -1838,3 +1838,34 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   引文侧 raw 居多是因为 Scholar 的引用列表页把 venue 截到约 25 字符（`Proceedings of the …` x556），
   这些串彼此不可区分，**不宜直接当去重键** —— 已在 `issues.md` 记下待决。
 - `AGENTS.md` / `README.md` 同步（新模块、两个字段、CLI、测试表、例数 418 → 449）。
+
+## 2026-10-15（续）: venue 词表扩到 168 条；期刊 key 不带年份
+
+用户口径："其他会议包括 EACL、ICASSP 等，同理类推；期刊的 venue_key 为期刊的缩写名称
+（TACL、TASLP、Nature Machine Intelligence 等）"。
+
+- **规则细分**：会议 key = 规范名 + 年份（`ACL2026`/`ICASSP2025`）；**期刊 key = 缩写名、无年份**
+  （`TACL`/`TASLP`/`Nature Machine Intelligence`）。实现是 `resolve_venue_key()` 里按
+  `VENUE_CANONICAL[...][1]` 的类型分支（一行）。
+- **扩表 81 → 168 条（84 会议 + 84 期刊）**，新增的正是真实数据里未识别的那批：
+  语音/机器翻译/NLP/ML/视觉会议（ICASSP、INTERSPEECH、SLT、ASRU、Odyssey、IJCNN、ICANN、PAKDD、
+  ACML、LREC、CCMT、CWMT、WMT、AMTA、EAMT、IWSLT、NLPCC、CCL、IJCNLP、PACLIC、IALP、CIPS-SIGHAN、
+  NLP-NABD、LT4HALA、ALP、ALT、PMLR、RANLP、SIGDIAL、INLG、ICMI、ICME、ICPR、BMVC、WACV）
+  与期刊（TASLP、TALLIP、TKDD、TNNLS、TCYB、TIST、TMM、CSUR、JAIR、JCST、FCS、SCIS、LRE、
+  Neurocomputing、Neural Networks、Machine Learning、Pattern Recognition、KBS、KAIS、ESWA、
+  Applied Intelligence/Soft Computing、Computer Speech & Language、Information Sciences/Fusion/
+  Processing & Management、IEEE Access、Applied Sciences、Electronics、Mathematics、Symmetry、
+  Sensors、Information、Scientific Reports、PeerJ CS、Procedia CS、The Journal of Supercomputing、
+  Cognitive Computation、Complex & Intelligent Systems、Bioinformatics、AI Open、
+  Nature Computational Science、eLife，以及中文期刊：中文信息学报、小型微型计算机系统、软件学报、
+  电子学报、计算机研究与发展、计算机科学、模式识别与人工智能、自然言語処理）。
+- 顺带修好的口径问题：`CCMT`/`CWMT`/`WMT` 共用词组、`TACL` 与 `ACL`、`Science` 与 SCIENCE CHINA、
+  `Nature` 与 Nature 子刊 —— 全靠"按文本长度降序 + 匹配语义"分开，并补了 KDD/CIKM 的
+  `… international conference on …` 写法别名与 `中文信息学报` ←→ `Journal of Chinese Information
+  Processing` 这类同刊两名的别名。
+- **存量重跑**（`normalize_venue_key --apply`，备份 `output/venue_key_backup_20261014_194909/`）：
+  pub 120 → **190** canonical（raw 117 → 47，无 venue 4 不变）；
+  引文文件整体 354 → **1255** canonical（其中纯引文 234 → 1065，raw 7690 → 6789）。
+  幂等复跑 0 改动。剩余 raw 主要是 Scholar 在引文列表页截断的串（`Proceedings of the …` 556 条等）
+  与 arXiv 预印本（pub 侧 40/45 个不同值都是 arXiv id）。
+- 测试 449 → **453 例**全绿（新增期刊无年份、扩表会议、CCMT/CWMT/WMT 分离、中文期刊同刊两名合并）。

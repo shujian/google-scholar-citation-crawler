@@ -1417,3 +1417,42 @@ Meeting of the Association for Computational Linguistics`、期刊形态、以�
 其中 2,912 个不同取值。**这些串彼此不可区分**（`Proceedings of the …` 可能来自任何会议），
 所以直接把 raw 当去重键会误并 —— 已记进 `issues.md` 待你决定（截断的给 null / 补前缀规则 /
 只信 canonical）。可辨识的那 354 条 canonical（如 `Neurocomputing`、`ACL 2024` 这类短名）不受影响。
+
+## venue_key 二轮：会议"同理类推"，期刊 key 不带年份（2026-10-15）
+
+**用户口径**：会议继续"名 + 年份"并"同理类推"（EACL、ICASSP 等）；**期刊 = 期刊缩写名**
+（TACL、TASLP、Nature Machine Intelligence）。据此把 `resolve_venue_key()` 分成两支：
+会议走 `f"{name}{year}"`，期刊直接返回 `name`（`VENUE_CANONICAL[name][1] == 'journal'`）。
+理由：期刊是**连续出版物**，没有"2024 届"这种届次语义；年份信息仍在记录自身的 `year` 字段里，
+不会丢。**若你其实想要 `TASLP2020` 形态，改这一支即可**（一行）。
+
+**词表从 81 → 168 条（84 会议 + 84 期刊）**，全部来自"真实数据里仍未识别 + 同领域直接相邻"的取舍：
+- 会议：ICASSP、INTERSPEECH、SLT、ASRU、Odyssey、IJCNN、ICANN、PAKDD、ACML、LREC、CCMT、CWMT、
+  WMT、AMTA、EAMT、IWSLT、NLPCC、CCL、IJCNLP、PACLIC、IALP、CIPS-SIGHAN、NLP-NABD、LT4HALA、ALP、
+  ALT、PMLR、RANLP、SIGDIAL、INLG、ICMI、ICME、ICPR、BMVC、WACV。
+- 期刊：TASLP、TALLIP、TKDD、TNNLS、TCYB、TIST、TMM、CSUR、JAIR、JCST、FCS、SCIS、LRE +
+  一批"没有通用缩写、直接用刊名"的（Neurocomputing、IEEE Access、KBS、ESWA、Information Sciences…）
+  + 中文期刊（中文信息学报、小型微型计算机系统、软件学报、电子学报、计算机研究与发展、
+  计算机科学、模式识别与人工智能）+ 日文期刊（自然言語処理）。
+
+**踩坑与取舍**（都在测试里钉住）：
+1. `CCMT`/`CWMT`/`WMT` 共用 "Machine Translation" 词组 —— Springer 的会议卷写法是
+   `Machine Translation: 19th China Conference, CCMT 2023, …`，光靠 "China Conference on Machine
+   Translation" 匹配不到（卷名里没有 "on Machine Translation"），所以补了别名
+   `China Conference, CCMT` / `China Workshop, CWMT`（比另一个候选别名 `Machine Translation`
+   更长 → 先命中），否则会被误判成《Machine Translation》期刊。
+2. 与之相反，**没有**给 'Machine Translation' 建期刊 key：引文侧那 8 条 `Machine Translation`
+   无法区分是期刊还是被截断的会议卷名 → 留 raw 让人看。
+3. `Science China Information Sciences` 以前判不出（`Science` 的"整名"规则不命中），现在归到 `SCIS`
+   （`SCIENTIA SINICA Informationis` 作别名 —— 同一刊中英两版）。
+4. 单名期刊的锚定规则（`^name` + 结束/逗号）自动挡住了误配：`Information` 不会命中
+   `Information Sciences`、`Patterns` 不会命中 `Pattern Recognition`。
+5. `软件学报` ← `Journal of Software` 这条别名有**误并风险**（"Journal of Software: Evolution and
+   Process" 之类会命中），但真实数据里就是 7 条 `Journal of Software`；已在 `issues.md` 记明，
+   要收紧就删这一条别名。
+6. 中文刊名之间的前缀关系没问题（`计算机科学` 用锚定规则，不会命中 `计算机研究与发展`）。
+
+**存量结果**（`--apply`，备份 `output/venue_key_backup_20261014_194909/`，幂等复跑 0 改动）：
+pub canonical 120 → **190**、raw 117 → **47**、无 venue 4；引文文件整体 canonical 354 → **1255**
+（纯引文 234 → 1065）；引文侧 raw 仍以**截断串**为主（`Proceedings of the …` 556、`Findings of the …`
+207、`IEEE Transactions on …` 138 …）—— 这些串里已经不含会议名，词表再扩也救不回来。

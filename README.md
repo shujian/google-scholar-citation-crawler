@@ -186,12 +186,22 @@ every citing entry therefore carry a canonical key: **venue name + year**.
 }
 ```
 
+- **Conferences carry the year, journals do not**: a conference key is the
+  acronym plus the edition year (`ACL2026`, `ICASSP2025`, `EMNLP2024`) because the
+  year identifies the edition; a journal is a continuous venue, so its key is the
+  short name alone (`TACL`, `TASLP`, `Nature Machine Intelligence`,
+  `Neurocomputing`).
 - **Findings is its own venue**: `Findings of the Association for Computational
   Linguistics: ACL 2026` → `Findings of ACL2026`, never `ACL2026`.
-- The name vocabulary mirrors stage 3.a.2 (`VENUE_PRESTIGE` + `VENUE_ALIASES`), so
-  spelled-out proceedings resolve to their acronym, `TACL` (journal) is not
-  swallowed by `ACL` (conference), and the two spellings `NIPS` / `ACMMM` collapse
-  onto `NeurIPS` / `ACM MM`.
+- The vocabulary started from stage 3.a.2's table (`VENUE_PRESTIGE` +
+  `VENUE_ALIASES`: 51 conferences + 30 journals) and was extended to **168 venues
+  (84 conferences + 84 journals)** with the names the real data left unrecognised —
+  speech / machine translation / NLP / ML conferences (`ICASSP`, `INTERSPEECH`,
+  `IJCNN`, `PAKDD`, `LREC`, `CCMT`, `CWMT`, `WMT`, `NLPCC`, `PACLIC`, `IALP` …) and
+  journals (`TASLP`, `TALLIP`, `TKDD`, `JAIR`, `IEEE Access`, `Neurocomputing`,
+  `中文信息学报` …). Spelled-out proceedings resolve to their acronym, `TACL`
+  (journal) is not swallowed by `ACL` (conference), `CCMT` / `CWMT` / `WMT` stay
+  apart, and the two spellings `NIPS` / `ACMMM` collapse onto `NeurIPS` / `ACM MM`.
 - The year is the first 4-digit year inside the venue string (the conference
   edition), falling back to the record's own `year`.
 - **Unknown venues keep their own text** (`venue_key_source: "raw"`) so the values
@@ -202,6 +212,10 @@ every citing entry therefore carry a canonical key: **venue name + year**.
   must be trustworthy.
 - Publications derive the key from `venue_full or venue` (the detail page resolves
   what the list page cut off); citing entries use their own `venue`.
+- Real data (author `HF3-E9kAAAAJ`): publications 190 canonical / 47 raw / 4 without
+  a venue; citing entries 1,065 canonical / 6,742 raw / 1,221 without one — the raw
+  remainder is dominated by venues Scholar truncated to ~25 characters
+  (`Proceedings of the …`), which no table can restore.
 - Existing output files can be filled in (and re-derived after a table change)
   without re-crawling:
 
