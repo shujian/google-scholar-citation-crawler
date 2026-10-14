@@ -47,6 +47,25 @@ DEFAULT_CONFIG_PATH = os.path.join(ROOT_DIR, CONFIG_FILENAME)
 DELAY_MIN = 45
 DELAY_MAX = 90
 
+# Pre-request delay for the **detail-style paths**, as a fraction of the normal
+# delay: the publication detail page (`view_op=view_citation`), a citing entry's
+# Cite dialog (`output=cite`) and its signed BibTeX download (`scholar.bib` /
+# `output=citation`).  Those are one-shot, non-paginated pages, so 45-90 s each is
+# mostly dead time; 1/10 puts them at ~4.5-9 s per request.
+#
+# This is the *single* definition of that pacing: `code/scholarly_session.py`
+# applies it inside the one place that sleeps, and no other module may define a
+# delay of its own (guarded by tests/test_scholar_patch.py).  `--accelerate`
+# still stacks on top (the two factors multiply); citation-list pagination keeps
+# the full delay and its mandatory 3-6 min breaks.
+#
+# Honest trade-off: Scholar rate-limits these paths by volume, so a shorter delay
+# reaches the block sooner in wall-clock terms (the 2026-10-14 venue pass was
+# blocked after ~75-88 pages, see issues.md).  The cache + resume path is what
+# makes that acceptable: stop on the first blocked page, come back later, and the
+# total wall-clock spent waiting is lower.
+DETAIL_PAGE_DELAY_FACTOR = 0.1
+
 # Soft session refresh every N pages to avoid session-based blocking.
 SESSION_REFRESH_MIN = 10
 SESSION_REFRESH_MAX = 20

@@ -1267,3 +1267,63 @@ scholarly 自己的 `_fill_publication` 也是 `_get_bibtex()` + `_get_page()` �
 KeyboardInterrupt 保留已抓内容）、缓存/续跑/原子写，以及 `--cite-formats` 接线
 （关闭时零请求、开启时 `_save_output` 写出 `cite`、没有 navigator 也能写出输出）。
 全套 310 → **383** 例。
+
+## 2026-10-14: 新抓取路径的 1/10 延迟 + 「已经完整就不抓」（成本控制第二轮）
+
+### A. detail 路径的请求前延迟缩到 1/10
+
+- **唯一常量**：`code/config.py` 的 `DETAIL_PAGE_DELAY_FACTOR = 0.1`（连同"这是唯一一处定义"的
+  说明与诚实代价一起写在常量注释里）。
+- **唯一判据**：`code/scholarly_session.py` 的 `detail_path_delay_factor(url)` ——
+  `view_op=view_citation`（出版详情页）/ `output=cite`（Cite 对话框）/ `scholar.bib` 或
+  `output=citation`（带签名 BibTeX 下载）→ `0.1`，其余（引用列表页、年过滤页、profile 页）→ `1.0`。
+- **唯一计算点**：`patched_get_page()` 里 `rand_delay(ctx.delay_scale * detail_path_delay_factor(request_url))`。
+  **有效延迟 45–90 s → 4.5–9 s**；`--accelerate` 仍是**乘积**（`0.5 × 0.1 = 0.05`），语义没混。
+- **为什么按 URL 分类而不是让调用方传参**：venue 详情页的调用方是 `AuthorProfileFetcher`（它**没有**
+  SessionContext），cite 页在 `PaperCitationFetcher._save_output()` 里 —— 把"属于哪条路径"绑在
+  「即将请求的那个 URL」上，就不必把 ctx / getter 一路往上传，而且天然覆盖了 BibTeX 这第二次请求。
+  两条新路径因此**共用同一处定义**；`tests/test_scholar_patch.py` 有源码级守卫断言
+  `venue_detail.py` / `cite_format.py` 里不存在 `time.sleep` / `rand_delay` / `DELAY_MIN`。
+- **既有行为没动**：引用列表页分页与 profile 页仍是 45–90 s；`patched_load_url()` 的
+  「每 8–12 页强制长休息 3–6 分钟」一字未改；首请求/注入 cookies 后首个请求仍不等待。
+- **测试**（`tests/test_scholar_patch.py` 新增 8 例）：用**打桩的** `rand_delay`（记录 scale、返回定值
+  7.0）+ 打桩的 `time.sleep`（记录"实际睡了多少"）断言四类 URL 的 scale 与 sleep 值，不真的睡；
+  `--accelerate` 叠加（0.5 × 0.1）；纯判据边界（`''`/`None`/列表页/年过滤页/profile → 1.0）；
+  两个新模块不得自带延迟。
+
+### B. 「已经完整就不抓」
+
+- **唯一判据**：`code/venue_quality.py`（纯函数、无环境变量、可单测）：
+  `is_missing_venue()`（空/`NA`/`n/a`/`None`/`-`/`unknown`…）、`is_truncated_venue()`（`…` **和**
+  `...`）、`is_preprint_venue()`（`arxiv`、`preprint`、`biorxiv`、`medrxiv`、`ssrn`、`techrxiv`、
+  `research square`、`researchsquare`、`preprints.org`，大小写不敏感子串；空值也算"不是真 venue"）、
+  `is_complete_venue()` = 非缺失 **且** 未截断 **且** 非预印本源。
+  `has_full_author_names()`：列表页形态是 `<首字母> <姓>`，所以每位作者"最后一个 token 之前"都是
+  given name，**任一位**出现长度 ≥ 3 的 token 即视为全名；`van/von/de/der/den/del/di/da/dos/la/le/
+  ter/ten/bin/ibn/al/el/du/st` 这些介词要排除（否则 `J van der Berg` 会因 `van` 三字母被误判成全名）。
+  两个调用点的薄包装：`venue_needs_detail(venue)` / `citation_needs_cite_dialog(citation)`。
+- **pub 级（`venue_detail.py`）**：`is_complete_venue(pub['venue'])` → `stats['skipped_complete'] += 1`
+  并 `continue`：**不发请求、不写缓存条目**；`venue` 逐字节不变，`venue_full` 保持空。
+- **条目级（`cite_format.py`）**：**先查缓存，再判跳过** —— 缓存命中照样写进 `citation['cite']`
+  （否则重跑会把上一轮付过钱的 `cite` 从输出里抹掉，等于数据倒退）；没有缓存且
+  `citation_needs_cite_dialog()` 为假（venue 已完整**并且** authors 已是全名）→ 跳过，零请求、
+  不写缓存。
+- **两个 stats 都加 `skipped_complete`**，并打进各自的汇总行：
+  `venue_full resolved: … already complete N` / `citation formats resolved: … already complete N`。
+- **取舍（诚实写进 README/AGENTS/issues）**：跳过的条目**放弃** Cite 对话框本可补上的卷期/页码/年份；
+  `venue_full` 实测**不是** `venue` 的超集（上一轮已证），所以"用详情页给完整 venue 补卷期"这条路
+  本来也不成立。用户已知悉。
+- **测试**（新增 `tests/test_venue_quality.py` 27 例）：判据矩阵（arXiv 三种写法 / preprint / bioRxiv /
+  medRxiv / SSRN / TechRxiv / Research Square / 空值与 `N/A` / 含 `…` 与 `...` / 真 venue）；
+  全名判据（首字母串、姓名介词、单 token 作者、空值）；四种组合；**跳过时零请求**（打桩的
+  `get_soup`/`get_page` 一旦被调用就抛 `AssertionError`）；**跳过时不生成缓存文件**；混合列表只请求
+  需要的那条、只给那条写缓存；缓存复用的例外；既有字段逐字节不变。
+
+### 本轮限流实测与冷却结论（写进 issues.md 第七节）
+
+venue 跑批在 15:05（第 88 页）触发整站限流；crawler 自带的 **3 分钟冷却 ×2 ✗**；本实验 15:20 第一条
+请求即失败；15:22 search 端点返回 **captcha 表单**；15:35 profile **429** / cite 对话框 **403**。
+**3 分钟 ✗、约 15 分钟 ✗**，更长的冷却（30/45/75 分钟）由后台 watcher 在测。所以 1/10 延迟的可用性
+完全依赖「缓存 + 续跑 + 被拦即停」；若将来证明拦截是**按时间窗**而非按量，这个结论要重估。
+
+全套测试 383 → **418** 例（`test_scholar_patch.py` +8、新增 `test_venue_quality.py` 27 例）。

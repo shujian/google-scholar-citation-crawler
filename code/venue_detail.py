@@ -32,6 +32,12 @@ Resume/caching: every parsed page is stored in ``output/venue_detail_cache.json`
 keyed by the ``citation_for_view`` token, so an interrupted run continues where
 it stopped and a later run does not re-request a page it already has.  A page
 whose request failed is **not** cached, so it is retried next run.
+
+Skipping: a publication whose ``venue`` is already a real, untruncated venue
+(``code/venue_quality.is_complete_venue`` — preprints and placeholders count as
+*incomplete*) is **not** fetched at all and writes **no** cache entry: the detail
+page could only add volume/pages, and the caller accepted that trade-off rather
+than one request per already-good publication.  See ``code/venue_quality.py``.
 """
 
 import json
@@ -42,6 +48,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 from code.common import write_json_atomic
+from code.venue_quality import is_complete_venue
 
 
 # scholarly's own detail-page URL template (publication_parser._CITATIONPUB);
@@ -190,13 +197,15 @@ def enrich_publications_with_venue_full(publications, cache_path=None,
     successfully parsed pages are cached (failed requests are retried next run).
 
     Returns a stats dict: ``total``, ``with_token``, ``missing_token``,
-    ``cache_hits``, ``fetched``, ``resolved``, ``no_venue_field``, ``failed``.
+    ``skipped_complete``, ``cache_hits``, ``fetched``, ``resolved``,
+    ``no_venue_field``, ``failed``.
     """
     publications = list(publications or [])
     stats = {
         'total': len(publications),
         'with_token': 0,
         'missing_token': 0,
+        'skipped_complete': 0,
         'cache_hits': 0,
         'fetched': 0,
         'resolved': 0,
@@ -208,6 +217,12 @@ def enrich_publications_with_venue_full(publications, cache_path=None,
 
     for index, pub in enumerate(publications, 1):
         if not isinstance(pub, dict):
+            continue
+        if is_complete_venue(pub.get('venue')):
+            # Already a real venue: one more request could only add volume/pages,
+            # and no cache entry is written so a later (cheaper) run does not see
+            # a page it never needed.
+            stats['skipped_complete'] += 1
             continue
         token = citation_for_view_of(pub)
         if not token:

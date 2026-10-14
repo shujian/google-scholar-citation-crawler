@@ -1743,3 +1743,39 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 - `AGENTS.md`（模块说明 / 依赖图 / Phase 2 / 测试表 / 例数）、`README.md`（Features、CLI、
   Output Files、新章节 Citation Formats & BibTeX、Project Structure）、`issues.md` 第六节同步。
 - 小样本真实实测另行记录在本文件与 `_work_notes.zh.md`（2026-10-14 第二次追加）。
+
+## 2026-10-14: 新增抓取路径的成本控制 —— 1/10 延迟 + 「已经完整就不抓」
+
+### 问题
+
+`venue_full`（出版详情页）与 `cite`（Cite 对话框）两条新路径都按「每请求 45–90 s」的通用延迟跑：
+241 篇 publication 光等待就是数小时；而其中相当一部分记录的 venue 本来就已经完整，抓来的详情页
+只能补卷期/页码。两条路径都是**一次性、非分页**的页面，与引用列表页的节奏需求并不相同。
+
+### 改动
+
+1. **1/10 延迟，只有一处定义**：`code/config.py` 的 `DETAIL_PAGE_DELAY_FACTOR = 0.1`；
+   `code/scholarly_session.py` 的 `detail_path_delay_factor(url)` 是唯一判据（详情页 / Cite 对话框 /
+   签名 BibTeX 下载 → 0.1，其余 → 1.0）；`patched_get_page()` 里
+   `rand_delay(ctx.delay_scale * detail_path_delay_factor(request_url))` 是唯一计算点 ——
+   **有效延迟 4.5–9 s/请求**，`--accelerate` 仍在其上相乘。引用列表页分页与 profile 页保持 45–90 s
+   与强制长休息；两条新路径不得自带延迟（源码级守卫）。
+2. **`code/venue_quality.py`（新模块）**：「这条记录还值得再抓吗」的唯一判据 ——
+   `is_complete_venue()`（非空 + 无 `…`/`...` + 非预印本源）、`is_preprint_venue()`
+   （arXiv/Preprint/bioRxiv/medRxiv/SSRN/TechRxiv/Research Square/preprints.org + 缺失值）、
+   `has_full_author_names()`（given name ≥ 3 字母，排除 `van`/`von`/`de` 这类介词）。
+3. **pub 级跳过**：`venue` 已完整 → 不请求、不写缓存、`venue` 逐字节不变。
+4. **条目级跳过**：venue 已完整**并且** authors 已是全名 → 不请求、不写缓存；**已缓存的对话框仍复用**
+   （避免重跑把上一轮付过钱的 `cite` 抹掉）。两个 stats 都新增 `skipped_complete` 并打进汇总行。
+5. **风险与限流实测**：这套 1/10 延迟按量限流下会**更早**被拦（实测 3 分钟冷却 ✗、约 15 分钟 ✗），
+   可用性依赖缓存 + 续跑 + 被拦即停。诚实代价已写进 `README.md` / `AGENTS.md` / `issues.md`
+   （第七节，含冷却实测时间线）。
+
+### 测试与文档
+
+- `tests/test_scholar_patch.py` +8 例（打桩 `rand_delay` 与 `sleep` 断言实际缩放值，含 `--accelerate`
+  叠加与纯判据边界），新增 `tests/test_venue_quality.py` 27 例（判据矩阵、四种组合、跳过零请求、
+  跳过不写缓存、混合列表只请求需要的、缓存复用、字段逐字节不变）。全套 383 → **418** 例，全绿。
+- `AGENTS.md`（patch 层延迟说明 / 新模块 / 依赖图 / 测试表 / 例数）、`README.md`（Features、限流一节、
+  venue_full 与 Citation Formats 两节、Project Structure）、`issues.md`（第六节取舍 + 第七节冷却实测）
+  同步。

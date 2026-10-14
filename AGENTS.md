@@ -105,10 +105,11 @@ google-scholar-citation-crawler/
 
 详细项目结构见 `_work_notes.zh.md` 的「项目结构」节（含各模块中文说明），对外简介见 `README.md` 的「Development Notes → Project Structure」节。
 
-简况：`code/` 有 21 个支撑模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志，
+简况：`code/` 有 22 个支撑模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志，
 其中 `lib_env.py` 管第三方库环境、`venue_detail.py` 管出版详情页的完整 venue、`cite_format.py` 管施引
-条目的五种引用格式与 BibTeX）；`tests/` 有 383 个测试，
-17 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」）。
+条目的五种引用格式与 BibTeX、`venue_quality.py` 判「venue 是否已经完整/是否只是预印本源」）；
+`tests/` 有 418 个测试，
+18 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」）。
 
 ### 新增模块
 
@@ -130,6 +131,8 @@ google-scholar-citation-crawler/
   与下游身份校验（K123/K125 同类教训），改写会让历史身份键漂移。抓取走**既有的 patched session**
   （`scholarly._Scholarly__nav._get_soup()`，与 year probe 同一入口），所以延迟/`--accelerate`/
   captcha/代理等待照旧；缓存 `output/venue_detail_cache.json` 按 token 记录已解析页面，可续跑。
+  **`venue` 已经完整就不抓**（`code/venue_quality.is_complete_venue`：非空 + 不含 `…`/`...` + 不是
+  预印本源）：跳过时**零请求、不写缓存**，记在 `venue_full resolved: … already complete N`。
 - **`code/cite_format.py`**（2026-10-14）：从 Scholar 的 **Cite 对话框**
   （`/scholar?q=info:<cid>:scholar.google.com/&output=cite&scirp=0&hl=en`）读**五种引用格式**
   （MLA / APA / Chicago / Harvard / Vancouver）与 BibTeX，写进施引条目的
@@ -142,6 +145,17 @@ google-scholar-citation-crawler/
   **只增不改**：`title`/`authors`/`venue`/`year`/`url`/`cites_id` 一字不动（venue 与 cites_id 参与身份键，
   同 `venue_detail.py` 的教训）。**默认关闭**（`--cite-formats`）：每个施引条目一次请求、BibTeX 再一次，
   全库是数千次；缓存 `output/cite_format_cache.json` 按 `cid` 记录已解析页面，可续跑，失败不写缓存。
+  **该条目已经不用再问这个页面时就不抓**（`code/venue_quality.citation_needs_cite_dialog`：
+  venue 已完整**并且** `authors` 已是全名形态，两者都齐才跳过）—— 跳过零请求、不写缓存；
+  但**已缓存的对话框仍会复用**，以免重跑把上一轮付过钱的 `cite` 从输出里抹掉。
+- **`code/venue_quality.py`**（2026-10-14）：**「这条记录还值得再抓一次吗」的唯一判据**，被
+  `venue_detail.py`（pub 级）与 `cite_format.py`（施引条目级）共用：`is_complete_venue()`
+  （非空 + 无 `…`/`...` + 不是预印本源；缺失 ≠ 完整）、`is_preprint_venue()`（`arXiv` / `arXiv preprint
+  arXiv:…` / `arxiv.org` / `Preprint` / `bioRxiv` / `medRxiv` / `SSRN` / `TechRxiv` / `Research Square` /
+  `preprints.org`，以及空值/`NA`/`N/A`）、`has_full_author_names()`（作者串里至少一位的 given name
+  长度 ≥ 3 且不是 `van`/`von`/`de` 之类介词 —— 列表页的形态是 `<首字母> <姓>`）。判据是**纯函数**，
+  同一处定义、无环境变量；`venue_needs_detail()` 与 `citation_needs_cite_dialog()` 是两个调用点的
+  薄包装。取舍见 `issues.md`：跳过的条目放弃了 Cite 对话框本可补上的卷期/页码。
 - **`run.sh`**：便捷入口，自动检测 conda 环境后执行 `python -m code.scholar_citation`。
 
 ## Architecture overview
@@ -212,6 +226,16 @@ Patches `scholarly` internals rather than treating it as a black box:
   first page after fresh cookies are injected** (`total_page_count == 1` / `curl_page_count <= 1`):
   no earlier request with those credentials exists to space apart from, so waiting there only wastes time
 - Takes mandatory long breaks every 8–12 pages to reset Scholar's rate-limit window
+- Charges **1/10 of the normal delay on the detail-style paths**:
+  `patched_get_page()` sleeps `rand_delay(ctx.delay_scale * detail_path_delay_factor(url))`,
+  where the factor is `code.config.DETAIL_PAGE_DELAY_FACTOR` and
+  `detail_path_delay_factor()` (`code/scholarly_session.py`) is the **single**
+  classifier deciding which URLs are "detail-style" — the publication detail page
+  (`view_op=view_citation`), a citing entry's Cite dialog (`output=cite`) and its
+  signed BibTeX download (`scholar.bib` / `output=citation`) — versus everything
+  else, notably citation-list pagination, which keeps the full 45–90 s.  `--accelerate`
+  multiplies on top; neither `venue_detail.py` nor `cite_format.py` may define a
+  delay of its own (guarded by `tests/test_scholar_patch.py`)
 - Performs soft session refresh every 10–20 pages
 - Verifies every patch hook point at the end of `patch_scholarly()` and raises
   when a scholarly upgrade made one of them ineffective (see
@@ -237,8 +261,9 @@ code/scholar_citation.py  (orchestrator + PaperCitationFetcher — python -m cod
   ├── code.log_utils              (structured logging — setup_logging, get_logger)
   ├── code.author_fetcher         ← code.profile_io, code.venue_detail
   ├── code.profile_io             ← code.pub_info
-  ├── code.venue_detail           ← code.common (detail-page parsing + venue cache; bs4)
-  ├── code.cite_format            ← code.common (Cite-dialog parsing + format cache; bs4)
+  ├── code.venue_quality          (pure: is_complete_venue / is_preprint_venue / full-name check)
+  ├── code.venue_detail           ← code.common, code.venue_quality (detail page + venue cache; bs4)
+  ├── code.cite_format            ← code.common, code.venue_quality (Cite dialog + format cache; bs4)
   ├── code.pub_info               ← code.citation_cache, code.venue_detail
   ├── code.citation_cache         (pure year/diagnostics functions)
   ├── code.citation_strategy      ← code.citation_cache
@@ -287,6 +312,18 @@ dependencies are stubbed in `tests/conftest.py`).
   graceful degradation (request error, captcha page, BibTeX failure retried from the cached
   signed URL, interrupt) and cache/resume behaviour, plus the `--cite-formats` wiring
   (`_save_output` writes the field only when the flag is on).
+- `tests/test_venue_quality.py` covers the "do not fetch it again" rule hermetically:
+  the preprint/truncation/missing predicates, the full-name check (including name
+  particles and initial-only lists), the four citation-level combinations, and both
+  paths' skip behaviour — a skipped item issues **zero** requests, writes **no** cache
+  entry and leaves `venue`/`authors`/`cites_id` byte-identical, while a mixed list still
+  requests exactly the item that needs it (a cached dialog is reused so a re-run cannot
+  drop `citation['cite']`).
+- `tests/test_scholar_patch.py` pins the pre-request pacing with a stubbed sleep:
+  the scale handed to `rand_delay` is `delay_scale * DETAIL_PAGE_DELAY_FACTOR` for the
+  detail/Cite/BibTeX URLs and plain `delay_scale` for citation-list and profile pages
+  (`--accelerate` stacking included), and a source-level guard asserts the two new
+  modules define no delay of their own.
 - When changing year-based fetching, resume behavior, or CLI flags, update the
   corresponding test file first rather than adding integration coverage.
 

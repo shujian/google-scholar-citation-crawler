@@ -1549,7 +1549,8 @@ class PaperCitationFetcher:
         )
         print(f"  citation formats resolved: {stats['resolved']}/{stats['with_cid']} "
               f"(fetched {stats['fetched']}, cached {stats['cache_hits']}, "
-              f"failed {stats['failed']}, no cid {stats['missing_cid']})")
+              f"failed {stats['failed']}, no cid {stats['missing_cid']}, "
+              f"already complete {stats['skipped_complete']})")
         print(f"  bibtex: {stats['bib_fetched']} fetched, "
               f"{stats['bib_from_cache']} cached, {stats['bib_failed']} failed, "
               f"{stats['bib_missing']} unavailable")

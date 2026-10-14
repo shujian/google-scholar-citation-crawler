@@ -5,6 +5,7 @@ from tests.conftest import (
     FetcherTestCase, scholarly_mod, _DummyNav, _DummyIterator,
     patch, StringIO, json, tempfile,
 )
+import time
 import types
 import unittest
 from code import scholar_citation
@@ -692,3 +693,122 @@ class StartupRobustnessTests(FetcherTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+from code.config import DETAIL_PAGE_DELAY_FACTOR  # noqa: E402
+
+
+class DetailPathDelayTests(FetcherTestCase):
+    """The 1/10 pre-request delay, defined once and shared by both new paths."""
+
+    CITE_DIALOG_URL = ('/scholar?q=info:nYGTsUfPxnMJ:scholar.google.com/'
+                       '&output=cite&scirp=0&hl=en')
+    DETAIL_PAGE_URL = ('/citations?hl=en&view_op=view_citation'
+                       '&citation_for_view=HF3-E9kAAAAJ:xtoqd-5pKcoC')
+    BIBTEX_URL = ('https://scholar.googleusercontent.com/scholar.bib?q=info:nYGTsUfPxnMJ'
+                  ':scholar.google.com/&output=citation&scisig=abc&scisf=4')
+
+    def setUp(self):
+        super().setUp()
+        nav = scholarly_mod.scholarly._Scholarly__nav
+
+        def fake_get_page(pagerequest, premium=False):
+            # scholarly's real _get_page sleeps before every request; the patch
+            # layer replaces that sleep, which is exactly what this test reads.
+            time.sleep(1.5)
+            return '<html></html>'
+
+        nav._get_page = fake_get_page
+        with patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._patch_scholarly()
+        self.ctx = self.fetcher._session_ctx
+        self.ctx.first_page_prompt_fn = None
+        self.ctx.delay_scale = 0.5
+
+    def _recorded_scale(self, url):
+        """Call the patched navigator once and return the rand_delay scale used."""
+        self.ctx.total_page_count = 10
+        self.ctx.curl_page_count = 10
+        scales = []
+        sleeps = []
+
+        def fake_rand_delay(scale=1.0):
+            scales.append(scale)
+            return 7.0
+
+        with patch("code.scholarly_session.rand_delay", side_effect=fake_rand_delay), \
+             patch("code.scholarly_session.time.sleep",
+                   side_effect=lambda seconds: sleeps.append(seconds)), \
+             patch("sys.stdout", new_callable=StringIO):
+            scholarly_mod.scholarly._Scholarly__nav._get_page(url)
+        # Exactly one pre-request sleep, with the value rand_delay returned: the
+        # assertion is on the *scale* handed to rand_delay, not on the randomness.
+        self.assertEqual(len(sleeps), 1)
+        self.assertEqual(sleeps[0], 7.0)
+        return scales[-1]
+
+    def test_citation_list_pages_keep_the_full_delay(self):
+        self.assertEqual(self._recorded_scale('/scholar?oi=bibs&hl=en&cites=123'),
+                         0.5)
+
+    def test_profile_page_keeps_the_full_delay(self):
+        self.assertEqual(
+            self._recorded_scale('/citations?user=HF3-E9kAAAAJ&hl=en'), 0.5)
+
+    def test_cite_dialog_uses_the_documented_factor(self):
+        self.assertAlmostEqual(
+            self._recorded_scale(self.CITE_DIALOG_URL),
+            0.5 * DETAIL_PAGE_DELAY_FACTOR)
+
+    def test_detail_page_uses_the_documented_factor(self):
+        self.assertAlmostEqual(
+            self._recorded_scale(self.DETAIL_PAGE_URL),
+            0.5 * DETAIL_PAGE_DELAY_FACTOR)
+
+    def test_signed_bibtex_download_uses_the_documented_factor(self):
+        self.assertAlmostEqual(
+            self._recorded_scale(self.BIBTEX_URL),
+            0.5 * DETAIL_PAGE_DELAY_FACTOR)
+
+    def test_effective_seconds_are_a_tenth_of_the_normal_range(self):
+        """4.5-9 s/request for the detail paths, 45-90 s for the rest."""
+        from code.config import DELAY_MAX, DELAY_MIN
+
+        self.assertAlmostEqual(DELAY_MIN * DETAIL_PAGE_DELAY_FACTOR, 4.5)
+        self.assertAlmostEqual(DELAY_MAX * DETAIL_PAGE_DELAY_FACTOR, 9.0)
+        self.assertAlmostEqual(
+            self._recorded_scale(self.CITE_DIALOG_URL),
+            self._recorded_scale('/scholar?cites=123') * DETAIL_PAGE_DELAY_FACTOR)
+
+    def test_classification_is_one_shared_function(self):
+        from code.scholarly_session import detail_path_delay_factor
+
+        for url in (self.CITE_DIALOG_URL, self.DETAIL_PAGE_URL, self.BIBTEX_URL):
+            with self.subTest(url=url):
+                self.assertEqual(detail_path_delay_factor(url),
+                                 DETAIL_PAGE_DELAY_FACTOR)
+        for url in ('/scholar?oi=bibs&hl=en&cites=123',
+                    '/citations?user=HF3-E9kAAAAJ&hl=en',
+                    '/scholar?as_ylo=2024&as_yhi=2024&hl=en&cites=123',
+                    '', None):
+            with self.subTest(url=url):
+                self.assertEqual(detail_path_delay_factor(url), 1.0)
+
+    def test_the_consumers_define_no_delay_of_their_own(self):
+        """Both new paths must take their pacing from the patched session."""
+        import re
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for name in ('venue_detail.py', 'cite_format.py'):
+            with open(os.path.join(root, 'code', name), 'r', encoding='utf-8') as f:
+                source = f.read()
+            with self.subTest(module=name):
+                self.assertNotIn('time.sleep', source)
+                self.assertNotIn('rand_delay', source)
+                self.assertNotIn('DELAY_MIN', source)
+
+        with open(os.path.join(root, 'code', 'scholarly_session.py'),
+                  'r', encoding='utf-8') as f:
+            session_source = f.read()
+        # Imported, never re-declared: one definition in code.config.
+        self.assertIsNone(
+            re.search(r'^DETAIL_PAGE_DELAY_FACTOR\s*=', session_source, re.M))

@@ -293,7 +293,8 @@ class AuthorProfileFetcher:
                   f"(fetched {venue_stats['fetched']}, cached {venue_stats['cache_hits']}, "
                   f"no venue field {venue_stats['no_venue_field']}, "
                   f"failed {venue_stats['failed']}, "
-                  f"no token {venue_stats['missing_token']})")
+                  f"no token {venue_stats['missing_token']}, "
+                  f"already complete {venue_stats['skipped_complete']})")
 
         # Build the new profile
         profile = AuthorProfile(

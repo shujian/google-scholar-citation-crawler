@@ -60,6 +60,13 @@ failed (request error, captcha/consent page, no format table) is **not** cached
 and is retried next run.  A page that parsed but whose BibTeX download failed is
 cached *with* its signed ``bib_url``, so the next run retries only that one
 request instead of re-fetching the page.
+
+Skipping: a citing entry whose venue is already complete **and** whose authors are
+already spelled out in full (``code/venue_quality.citation_needs_cite_dialog``) is
+not fetched and writes no cache entry — those two things are all this page
+returns.  An entry that already has a cached dialog is still served from that
+cache, so re-running with the skip rule cannot drop ``citation['cite']`` from the
+output for rows an earlier run paid for.
 """
 
 import html
@@ -71,6 +78,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 from code.common import write_json_atomic
+from code.venue_quality import citation_needs_cite_dialog
 
 
 # scholarly's own Cite-dialog template (publication_parser._BIBCITE), minus the
@@ -279,14 +287,15 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
     costs one request instead of two.
 
     Returns a stats dict: ``total``, ``with_cid``, ``missing_cid``,
-    ``cache_hits``, ``fetched``, ``failed``, ``resolved``, ``bib_fetched``,
-    ``bib_from_cache``, ``bib_failed``, ``bib_missing``.
+    ``skipped_complete``, ``cache_hits``, ``fetched``, ``failed``, ``resolved``,
+    ``bib_fetched``, ``bib_from_cache``, ``bib_failed``, ``bib_missing``.
     """
     citations = list(citations or [])
     stats = {
         'total': len(citations),
         'with_cid': 0,
         'missing_cid': 0,
+        'skipped_complete': 0,
         'cache_hits': 0,
         'fetched': 0,
         'failed': 0,
@@ -311,6 +320,11 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
         entry = cache.get(cid)
         changed = False
         if entry is None:
+            if not citation_needs_cite_dialog(citation):
+                # Complete venue *and* full author names already in hand: this
+                # page has nothing left to add, so no request and no cache entry.
+                stats['skipped_complete'] += 1
+                continue
             if not callable(get_soup):
                 stats['failed'] += 1
                 continue

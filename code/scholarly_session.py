@@ -39,7 +39,37 @@ from code.common import (
     now_str,
     rand_delay,
 )
+from code.config import DETAIL_PAGE_DELAY_FACTOR
 from code.page_visit import PageVisit
+
+
+# ---------------------------------------------------------------------------
+# Pre-request pacing
+# ---------------------------------------------------------------------------
+
+def detail_path_delay_factor(url):
+    """Pre-request-delay factor for *url* — the single definition of the pacing.
+
+    The **detail-style** paths are one-shot, non-paginated pages:
+
+    * a publication detail page (``view_op=view_citation``),
+    * a citing entry's Cite dialog (``output=cite``),
+    * its signed BibTeX download (``scholar.bib`` / ``output=citation``).
+
+    They run at ``code.config.DETAIL_PAGE_DELAY_FACTOR`` (1/10) of the normal
+    delay.  Every other URL — notably citation-list pagination and the profile
+    page — keeps the full 45-90 s.  ``code/venue_detail.py`` and
+    ``code/cite_format.py`` deliberately contain no delay of their own: both go
+    through this function via the patched navigator.
+    """
+    if not url:
+        return 1.0
+    text = str(url)
+    if 'view_op=view_citation' in text or 'output=cite' in text:
+        return DETAIL_PAGE_DELAY_FACTOR
+    if 'scholar.bib' in text or 'output=citation' in text:
+        return DETAIL_PAGE_DELAY_FACTOR
+    return 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -470,7 +500,8 @@ def patch_scholarly(ctx: SessionContext) -> None:
             print(f"        Request URL: {request_url}{referer_str}", flush=True)
 
         # Wrap original_get_page so that scholarly's internal 60-120 s
-        # sleeps are replaced by our 45-90 s rand_delay, and excessive
+        # sleeps are replaced by our rand_delay (45-90 s, or 1/10 of that on the
+        # detail-style URLs — see detail_path_delay_factor), and excessive
         # retries are aborted so PageVisit handles higher-level recovery.
         #
         # Skip the pre-request delay on the very first page of the run
@@ -483,6 +514,15 @@ def patch_scholarly(ctx: SessionContext) -> None:
         # is scholarly's internal retry — kill it so PageVisit takes over
         # and triggers captcha recovery immediately instead of waiting.
         MAX_SLEEPS_PER_PAGE = 1
+
+        # Pace of the *detail-style* paths (publication detail page, Cite dialog
+        # and its signed BibTeX download): one-shot, non-paginated pages, so they
+        # run at DETAIL_PAGE_DELAY_FACTOR of the normal delay instead of the full
+        # 45-90 s.  `--accelerate` stacks on top (the factors multiply) and
+        # citation-list pagination keeps the full delay.  The factor is defined
+        # once, in code.config; detail_path_delay_factor() is the single place
+        # that decides which URLs qualify.
+        delay_scale = ctx.delay_scale * detail_path_delay_factor(request_url)
 
         def _fetch_with_sleep_limit():
             original_sleep = time.sleep
@@ -508,7 +548,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
                                             or ctx.curl_page_count <= 1):
                     original_sleep(seconds)
                     return
-                d = rand_delay(ctx.delay_scale)
+                d = rand_delay(delay_scale)
                 retry_note = (f" (retry {sleep_count[0]})"
                               if sleep_count[0] > 1 else "")
                 wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""

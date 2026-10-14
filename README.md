@@ -17,8 +17,8 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 - **Two different completeness signals**: `fetch_complete` in the output is the *data* verdict (does every probed year have its rows?), while `_fetch_state.complete_fetch_attempt` records whether the last attempt finished cleanly (a blocked/empty page makes it false). `--fetch-mode rough` reads the latter
 - **Resume Support**: Interrupted fetches resume from the last checkpoint; on exit the in-flight paper's state (citations fetched so far + the live year probe) is written to the output, so a year left short is re-fetched next run instead of being reported complete
 - **Anti-Ban Strategies**: HTTP/2 via scholarly's native `httpx` client with full browser headers (fingerprint adopted from the injected browser cURL), randomized 45–90 s delays, mandatory 3–6 min breaks every 8–12 pages, browser header simulation
-- **Full venue strings (`venue_full`)**: the citation-list pages truncate venues (`Proceedings of the 2024 Conference of the North American Chapter of the …`). Each publication's Scholar *detail* page (`citations?view_op=view_citation&citation_for_view=…`) is therefore fetched once per run to read the untruncated value — one request per publication (hundreds), not per citing entry (thousands). It is stored in a **new** field `pub['venue_full']` (plus `pub['venue_full_source'] = "scholar_detail"` and the detail-page token `pub['citation_for_view']`); `venue` itself is never rewritten, because it takes part in identity keys downstream. The requests go through the same patched session (same waits, `--accelerate` scaling, captcha recovery, proxy prompt), and parsed pages are cached in `output/venue_detail_cache.json` — so an interrupted run resumes and a later run asks for nothing twice
-- **Citation formats + BibTeX (`--cite-formats`)**: every citing entry keeps its Scholar cluster id as `cid`, and with `--cite-formats` the entry's Cite dialog (`scholar?q=info:<cid>:scholar.google.com/&output=cite`) gives all five formats — MLA / APA / **Chicago** (full author names) / Harvard / **Vancouver** (full venue + volume/issue/pages) — plus a parsed BibTeX record, stored in the additive `citation['cite']` field. Opt-in because it costs one request per citing entry (plus one for BibTeX); parsed pages are cached in `output/cite_format_cache.json`
+- **Full venue strings (`venue_full`)**: the citation-list pages truncate venues (`Proceedings of the 2024 Conference of the North American Chapter of the …`). Each publication's Scholar *detail* page (`citations?view_op=view_citation&citation_for_view=…`) is therefore fetched once per run to read the untruncated value — one request per publication (hundreds), not per citing entry (thousands). It is stored in a **new** field `pub['venue_full']` (plus `pub['venue_full_source'] = "scholar_detail"` and the detail-page token `pub['citation_for_view']`); `venue` itself is never rewritten, because it takes part in identity keys downstream. Publications whose `venue` is **already complete** (non-empty, untruncated, not a preprint source) are skipped without a request and without a cache entry The requests go through the same patched session (same waits, `--accelerate` scaling, captcha recovery, proxy prompt), and parsed pages are cached in `output/venue_detail_cache.json` — so an interrupted run resumes and a later run asks for nothing twice
+- **Citation formats + BibTeX (`--cite-formats`)**: every citing entry keeps its Scholar cluster id as `cid`, and with `--cite-formats` the entry's Cite dialog (`scholar?q=info:<cid>:scholar.google.com/&output=cite`) gives all five formats — MLA / APA / **Chicago** (full author names) / Harvard / **Vancouver** (full venue + volume/issue/pages) — plus a parsed BibTeX record, stored in the additive `citation['cite']` field. Opt-in because it costs one request per citing entry (plus one for BibTeX); parsed pages are cached in `output/cite_format_cache.json`, and an entry whose venue is already complete **and** whose authors are already spelled out in full is skipped without a request (those two things are all the dialog returns)
 - **Interactive Captcha Bypass**: `--interactive-captcha` lets you paste a browser cURL to inject real cookies and resume without restarting; if playwright is installed you can type `browser` at the prompt instead and let it harvest the cookies from a real browser window
 - **Proxy Switch Wait**: On non-interactive failure, prompts hourly to switch proxy/IP until you type `ok` (the 24 h window scales with `--accelerate`)
 - **Change Tracking**: Records per-run citation-count history in the profile JSON
@@ -156,7 +156,7 @@ where the field is spelled out in full:
 
 Notes:
 
-- One request per **publication** (hundreds), not per citing entry (thousands).
+- One request per **publication** (hundreds), not per citing entry (thousands) — and **none** for a publication whose `venue` is already complete (present, untruncated, not a preprint source), so the pass only pays for the rows that can still improve. The trade-off is deliberate: the detail page could also supply volume/pages for an already-complete venue, and those rows no longer get it.
 - Requests go through the same patched session as everything else, so the
   standard delays, `--accelerate` scaling, captcha recovery and proxy wait all
   apply. `output/venue_detail_cache.json` records every parsed page, so an
@@ -208,6 +208,10 @@ Notes:
   BibTeX) — thousands for a real profile — so a normal run never pays for it.
   `output/cite_format_cache.json` records every parsed dialog, so a repeat run
   issues no request for a page it already has.
+- **Skipped when there is nothing to gain**: a row whose `venue` is already
+  complete **and** whose `authors` are already spelled out in full is not
+  requested at all (no cache entry either). Rows that already have a cached
+  dialog are still served from the cache, so re-running cannot drop `cite`.
 - **Additive only.** `title` / `authors` / `venue` / `year` / `url` / `cites_id`
   are never rewritten (`venue` and `cites_id` take part in downstream identity
   keys); whatever a dialog does not provide is simply absent from `cite`.
@@ -224,7 +228,7 @@ Notes:
 
 Google Scholar aggressively rate-limits automated requests. This tool uses multiple mitigation layers:
 
-- **Randomized delays**: 45–90 s between requests
+- **Randomized delays**: 45–90 s between requests; the **detail-style paths** — publication detail pages, citing entries' Cite dialogs and their signed BibTeX download — run at **1/10 of that (~4.5–9 s)** via the single `code.config.DETAIL_PAGE_DELAY_FACTOR` setting. `--accelerate` still scales everything on top; citation-list pagination keeps the full delay and is the only path with the mandatory breaks. Honest cost: Scholar rate-limits by volume, so the shorter delay reaches the block sooner in wall-clock terms (the first venue pass was blocked after ~75–88 pages); the disk cache plus resume is what makes it worthwhile — stop at the first blocked page, come back later, and far less wall-clock goes into waiting
 - **Mandatory long breaks**: Every 8–12 pages, a 3–6 minute break resets Scholar's sliding-window rate limit
 - **Browser header simulation**: Full `sec-fetch-*`, `sec-ch-ua-*`, `user-agent`, `accept`, `accept-language`, and dynamic `Referer` headers sent over HTTP/2 via scholarly's native `httpx` client. When a browser cURL is injected, the whole browser fingerprint (user-agent + `sec-ch-ua` + `sec-ch-ua-full-version-list`, enforced as one coherent unit) is adopted from that cURL so it always matches the browser that issued the cookies; a built-in Chrome 145 default is only the cold-start fallback
 - **Session refresh**: Soft-resets the session every 10–20 pages (preserves cookies, clears `got_403` flag)
@@ -386,6 +390,7 @@ code/
   output_state.py            # PaperFetchState / PaperState + output file _fetch_state read/write
   pub_info.py                # PubInfo dataclass for publication field normalization
   venue_detail.py            # venue_full from the publication detail page (+ its cache)
+  venue_quality.py           # is this venue complete / is it only a preprint source / full names?
   cite_format.py             # five citation formats + BibTeX from the row's Cite dialog (+ its cache)
   log_utils.py               # setup_logging() / get_logger()
   cli.py                     # parse_args() only — the entry point is code.scholar_citation.main()
@@ -393,7 +398,7 @@ code/
   fix_output_fetch_state.py     # repair tool: re-sync _fetch_state with cache files
   examples/run_example.sh    # minimal example invocation
 output/                      # crawl products (author_*.json/.xlsx) + logs/
-tests/                       # 383 unit tests, no network required
+tests/                       # 418 unit tests, no network required
 run.sh                       # thin launcher: conda-aware python -m code.scholar_citation
 crawler_config.json          # machine-local runtime config (gitignored)
 ```
