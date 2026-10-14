@@ -175,9 +175,14 @@ cite 页路径 —— 上述 venue 判据成立**并且**该条目 `authors` 已
    所有 arXiv 写法（含被截断的 `arXiv preprint arXiv …`）→ `venue_key = 'arXiv'`（不带年份；
    与已知会议同时出现时会议优先）。存量：pub 190 → **229** canonical、raw 47 → **8**；
    引文侧 canonical 1,065 → **2,491**。
-   **仍未做的同类（请你一句话）**：bioRxiv / medRxiv / SSRN / TechRxiv / Research Square /
-   preprints.org 同样是预印本服务器，目前仍是 raw（引文侧约 1,488 条带这些标记，与被 arXiv
-   命中的 1,426 条有重叠）。按同一逻辑它们各给服务器名即可，但你没点名，我没动。
+   **同类已全部落地（2026-10-15 用户："其他预印版服务器也按照一样逻辑命名"）** ✓：`bioRxiv`、
+   `medRxiv`、`SSRN`、`TechRxiv`、`Research Square`、`preprints.org` 各按服务器名给 key
+   （不带年份）；实测新增命中引文侧 59 条（bioRxiv 37 / SSRN 21 / medRxiv 1），
+   只写 `Preprint` 而不点服务器名的 4 条仍是 raw。
+   **顺带修掉一个潜伏 bug**：短全大写缩写的匹配原本只看词边界，于是宿主名里的 `www.` 会命中
+   `WWW` 会议（`https://www.researchsquare.com/…` → `WWW2023`）、`kdd.org` → `KDD`、
+   `iclr.cc` → `ICLR`。现在缩写两侧额外拒绝相邻的点。**当前真实数据零影响**（venue 里含 `www.`
+   的条目 0 条、12 个 `WWW*` 全是真 Web Conference），属未被触发的错误。
    （下面是决定前的原文，留档。）
    原问题：arXiv 预印本要不要给 key（2026-10-15 二轮扩表后剩下的最大一类）
    扩表后 pub 侧仍未识别的 45 个不同值里 **40 个是 `arXiv preprint arXiv:<id>`**，引文侧

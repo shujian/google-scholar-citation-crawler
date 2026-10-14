@@ -1885,3 +1885,18 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   raw 6,742 → **5,324**（截断串仍是主体：`Proceedings of the …` 556 / `Findings of the …` 207 /
   `IEEE Transactions on …` 138）。
 - 测试 454 → **456 例**（arXiv 的各种写法 + 裸 Findings 归 ACL + 表里不再有 `Findings` 键）。
+
+## 2026-10-15（续 3）: 其余预印本服务器按服务器名建 key；修掉宿主名误命中会议
+
+用户口径："其他预印版服务器也按照一样逻辑命名"。
+
+- `PREPRINT_SERVER_KEYS` 扩为 8 条：`arxiv`→`arXiv`、`biorxiv`→`bioRxiv`、`medrxiv`→`medRxiv`、
+  `ssrn`→`SSRN`、`techrxiv`→`TechRxiv`、`research square`/`researchsquare`→`Research Square`、
+  `preprints.org`→`preprints.org`。只写 `Preprint` 的仍 raw（没点出服务器名）。
+- **修 bug（自测发现）**：`venue_match()` 的短全大写缩写分支只看词边界，于是 `www.researchsquare.com`
+  会被判成 `WWW` 会议（`WWW2023`）、`kdd.org` 判成 `KDD`、`iclr.cc` 判成 `ICLR`。改为缩写两侧
+  额外拒绝相邻的点（`(?<![\w.])KW(?![\w.])`）；`WWW 2024` / `KDD 2020` / `ACL 2024` / `Ijcai 17` 等
+  真实写法不受影响。当前数据零影响（venue 含 `www.` 的 0 条，12 个 `WWW*` 全是真的 Web Conference）。
+- 存量重跑（`--apply`，备份 `output/venue_key_backup_20261014_200331/`）：引文侧新增 59 条 canonical
+  （bioRxiv 37 / SSRN 21 / medRxiv 1）→ canonical 2,491 → **2,550**、raw 5,316 → **5,257**；
+  pub 侧不变（229 / 8 / 4）。幂等复跑 0 改动。测试 456 → **459 例**全绿。

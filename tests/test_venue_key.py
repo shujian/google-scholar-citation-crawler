@@ -84,6 +84,36 @@ class CanonicalNameTests(unittest.TestCase):
         # a known venue mentioned alongside an arXiv id still wins
         self.assertEqual(venue_key('ACL 2024 (arXiv:2402.18567)'), 'ACL2024')
 
+    def test_every_preprint_server_keys_on_its_own_name(self):
+        cases = {
+            'arXiv preprint arXiv:2402.18567, 2024': 'arXiv',
+            'bioRxiv': 'bioRxiv',
+            'bioRxiv preprint, 2023': 'bioRxiv',
+            'medRxiv, 2020': 'medRxiv',
+            'SSRN Electronic Journal, 2019': 'SSRN',
+            'TechRxiv, 2022': 'TechRxiv',
+            'Research Square, 2024': 'Research Square',
+            'https://www.researchsquare.com/article/rs-123/v1': 'Research Square',
+            'preprints.org, 2021': 'preprints.org',
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text[:40]):
+                self.assertEqual(resolve_venue_key(text, '2024'), (expected, SOURCE_CANONICAL))
+
+    def test_a_bare_preprint_names_no_server(self):
+        self.assertEqual(resolve_venue_key('Preprint', '2022'), ('Preprint', SOURCE_RAW))
+
+    def test_a_domain_label_is_not_a_venue_acronym(self):
+        """A host is not a venue: www./kdd.org/iclr.cc must not resolve."""
+        for text in ('https://kdd.org/kdd2020/', 'https://iclr.cc/virtual/2024',
+                     'http://www.aclweb.org/anthology/'):
+            with self.subTest(text=text):
+                self.assertEqual(resolve_venue_key(text, '2020'), (text, SOURCE_RAW))
+        # the real acronyms still work
+        self.assertEqual(venue_key('WWW 2024'), 'WWW2024')
+        self.assertEqual(venue_key('KDD 2020'), 'KDD2020')
+        self.assertEqual(venue_key('ICLR 2024'), 'ICLR2024')
+
     def test_journal_is_not_swallowed_by_the_conference(self):
         self.assertEqual(
             venue_key('Transactions of the Association for Computational Linguistics 12, '

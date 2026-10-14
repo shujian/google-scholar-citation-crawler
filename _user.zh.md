@@ -3165,3 +3165,12 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
    词表从 168 降到 167 条（84 会议 + 83 期刊）。
 3. 其它预印本服务器（bioRxiv / medRxiv / SSRN / TechRxiv / Research Square / preprints.org）
    **我按"只做你明确要求的事"没有动** —— 它们仍是 raw，已列进 issues.md 等你一句话。
+
+## 2026-10-15（续 3）: 其他预印本服务器按同逻辑命名
+
+> 其他预印版服务器也按照一样逻辑命名。
+
+`bioRxiv` / `medRxiv` / `SSRN` / `TechRxiv` / `Research Square` / `preprints.org` 各以**服务器名**为
+`venue_key`（不带年份，子串匹配，含 `researchsquare.com` 域名形态）。只写 `Preprint`、没点出服务器名的
+仍保持 raw。顺带修掉一个潜伏 bug：宿主名里的 `www.`/`kdd.org`/`iclr.cc` 原本会命中 `WWW`/`KDD`/`ICLR`
+会议（短缩写只看了词边界）—— 现在缩写两侧额外拒绝相邻的点；当前数据零影响（含 `www.` 的 venue 0 条）。

@@ -188,7 +188,10 @@ every citing entry therefore carry a canonical key: **venue name + year**.
 
 - **Preprints are keyed by their server**: every arXiv spelling — `arXiv preprint
   arXiv:2402.18567`, a truncated `arXiv preprint arXiv …`, `arxiv.org/abs/…` —
-  becomes `arXiv` (no year), which is what "the venue" means for a preprint.
+  becomes `arXiv`; the same holds for `bioRxiv`, `medRxiv`, `SSRN`, `TechRxiv`,
+  `Research Square` (including the `researchsquare.com` domain form) and
+  `preprints.org`.  No year is added: the server *is* the venue.  A row that only
+  says "Preprint" names no server and keeps that text.
 - **There is no bare `Findings` venue**: a Findings volume that names its host
   keeps it (`Findings of EMNLP2024`), and one that does not is treated as
   **`Findings of ACL`**.
@@ -219,10 +222,12 @@ every citing entry therefore carry a canonical key: **venue name + year**.
 - Publications derive the key from `venue_full or venue` (the detail page resolves
   what the list page cut off); citing entries use their own `venue`.
 - Real data (author `HF3-E9kAAAAJ`): publications **229 canonical / 8 raw** / 4 without
-  a venue; citing entries **2,491 canonical / 5,324 raw** out of 9,028 (1,221 have no
+  a venue; citing entries **2,550 canonical / 5,257 raw** out of 9,028 (1,221 have no
   venue at all).  The raw remainder is dominated by venues Scholar truncated to ~25
   characters (`Proceedings of the …` 556, `Findings of the …` 207,
-  `IEEE Transactions on …` 138), which no table can restore.
+  `IEEE Transactions on …` 138), which no table can restore.  A host name is not a
+  venue either: `kdd.org` / `iclr.cc` no longer resolve to the KDD / ICLR
+  conferences.
 - Existing output files can be filled in (and re-derived after a table change)
   without re-crawling:
 

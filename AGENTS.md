@@ -114,7 +114,7 @@ google-scholar-citation-crawler/
 其中 `lib_env.py` 管第三方库环境、`venue_detail.py` 管出版详情页的完整 venue、`cite_format.py` 管施引
 条目的五种引用格式与 BibTeX、`venue_quality.py` 判「venue 是否已经完整/是否只是预印本源」、
 `venue_key.py` 把 venue 归一成身份键（会议 = `名+年份`、期刊 = 缩写名））；
-`tests/` 有 454 个测试，
+`tests/` 有 459 个测试，
 20 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」）。
 
 ### 新增模块
@@ -166,12 +166,20 @@ google-scholar-citation-crawler/
 
 - **`code/venue_key.py`**（2026-10-15）：**会议 = 规范名 + 年份**（`ACL2026`、`Findings of ACL2026`、
   `ICASSP2025`），**期刊 = 缩写名、不带年份**（`TACL`、`TASLP`、`Nature Machine Intelligence` ——
-  期刊是连续出版物、不是年度届次；2026-10-15 用户定），供下游做论文去重/唯一性判断。
+  期刊是连续出版物、不是年度届次；2026-10-15 用户定），**预印本 = 服务器名**（`arXiv`、`bioRxiv`、
+  `medRxiv`、`SSRN`、`TechRxiv`、`Research Square`、`preprints.org`，不带年份；大小写不敏感子串匹配，
+  所以 `arXiv preprint arXiv:…`、被截断的 `arXiv preprint arXiv …`、`arxiv.org/abs/…`、
+  `researchsquare.com/…` 各落到自己服务器的 key；只写 `Preprint` 而没点出服务器的仍是 raw），
+  **没有裸的 `Findings` venue**（2026-10-15 用户：Findings 一定挂在某个主会下；未注明主会的
+  `Findings of the Association for Computational Linguistics` 归 **`Findings of ACL`**，
+  注明的各归其主），供下游做论文去重/唯一性判断。
   词表起点是 3.a.2 已有的 `VENUE_PRESTIGE` + `VENUE_ALIASES`（51 会议 + 30 期刊），
-  2026-10-15 按"EACL、ICASSP 等，同理类推"扩到 **168 条（84 会议 + 84 期刊）** ——
+  2026-10-15 按"EACL、ICASSP 等，同理类推"扩到 **167 条（84 会议 + 83 期刊）** ——
   新增的正是真实数据里未识别的那批（语音/机器翻译/NLP/ML 会议与常见期刊，含中文期刊与
   `中文信息学报` ← `Journal of Chinese Information Processing` 这类**同一刊两种写法**）。
   匹配算法照抄 3.a.2 的 `_venue_match`（多词子串 / 短全大写缩写要词边界 / 其它单名要整名），
+  **但短缩写额外拒绝相邻的点**（否则 `https://www.researchsquare.com/…` 会被当成 `WWW` 会议、
+  `kdd.org` 当成 `KDD`）—— 域名标签不是 venue；
   按文本长度降序尝试，所以 TACL 期刊不会被 ACL 会议吞掉、`CCMT`/`CWMT`/`WMT` 各归其位、
   Findings 是**独立于主会**的 venue。两处刻意的合并：`NIPS` → `NeurIPS`、`ACMMM` → `ACM MM`
   （同一会议不能有两个 key）。年份取 venue 串里第一个 4 位年份（会议届次），没有才退回记录自身的 year。
@@ -358,7 +366,12 @@ dependencies are stubbed in `tests/conftest.py`).
   host conference), TACL-not-ACL, longest-match-wins (Nature sub-journals, CL vs
   ACL), the two deliberate spelling merges (`NIPS` → `NeurIPS`, `ACMMM` → `ACM MM`),
   **journals carrying no year while conferences do** (`TACL`/`TASLP` vs
-  `ICASSP2025`), the extended table (ICASSP / IJCNN / PAKDD / LREC / NLPCC),
+  `ICASSP2025`), **every preprint server keying on its own name** (arXiv forms
+  including the truncated one, plus bioRxiv / medRxiv / SSRN / TechRxiv /
+  Research Square / preprints.org, while a bare "Preprint" stays raw),
+  **a host name not matching an acronym** (`kdd.org` / `iclr.cc` stay raw),
+  **no bare "Findings" venue** (an unnamed host resolves to Findings of ACL while
+  a named one keeps its host), the extended table (ICASSP / IJCNN / PAKDD / LREC / NLPCC),
   `CCMT`/`CWMT`/`WMT` staying apart, the two spellings of one Chinese journal
   collapsing onto one key, the year rule (venue string first, record year as
   fallback), unknown venues keeping their raw text, missing venues getting **no**

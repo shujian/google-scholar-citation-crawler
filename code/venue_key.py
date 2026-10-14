@@ -29,9 +29,10 @@ Rules (as decided 2026-10-15):
   different from ``ACL2026``.  A Findings volume that does not name its host is
   treated as **Findings of ACL** (there is no bare "Findings" venue), while a
   volume that names EMNLP/EACL/NAACL/AACL keeps that host.
-* a **preprint** is keyed by its server: ``arXiv`` (no year), matched as a
-  substring so every arXiv spelling — including a truncated one — lands on the
-  same key.
+* a **preprint** is keyed by its server — ``arXiv``, ``bioRxiv``, ``medRxiv``,
+  ``SSRN``, ``TechRxiv``, ``Research Square``, ``preprints.org`` (no year) —
+  matched as a substring so every spelling, including a truncated one, lands on
+  the same key.  A venue that only says "Preprint" names no server and stays raw.
 * a venue we cannot identify keeps its own text: ``venue_key`` = the venue string
   (``venue_key_source`` = ``'raw'``).  A journal without a widely used
   abbreviation keeps its own short name (``Neurocomputing``, ``IEEE Access``).  That is a temporary, reviewable state — the
@@ -321,14 +322,22 @@ SOURCE_RAW = 'raw'
 
 #: Preprint servers: a preprint's venue *is* the server, so the key is the
 #: server's own name and carries no year (2026-10-15 user: "arxiv 的 venue 就写做
-#: arXiv，作为 venue key 没问题").  Matched as a case-insensitive substring, so
+#: arXiv，作为 venue key 没问题", extended the same day to "其他预印版服务器也按照
+#: 一样逻辑命名").  Matched as a case-insensitive substring, so
 #: "arXiv preprint arXiv:2402.18567", "arxiv.org/abs/2402.18567", the truncated
 #: "arXiv preprint arXiv …" and a bare URL that points at arXiv all become
-#: ``arXiv``.  Only arXiv is listed: whether the other named servers (bioRxiv,
-#: medRxiv, SSRN, TechRxiv, Research Square, preprints.org) should be treated the
-#: same way is an open question in ``issues.md``.
+#: ``arXiv``; likewise every bioRxiv / medRxiv / SSRN / TechRxiv / Research Square /
+#: preprints.org spelling (including the ``researchsquare.com`` domain form).
+#: A venue that merely says "Preprint" names **no** server and stays raw.
 PREPRINT_SERVER_KEYS = (
     ('arxiv', 'arXiv'),
+    ('biorxiv', 'bioRxiv'),
+    ('medrxiv', 'medRxiv'),
+    ('ssrn', 'SSRN'),
+    ('techrxiv', 'TechRxiv'),
+    ('research square', 'Research Square'),
+    ('researchsquare', 'Research Square'),
+    ('preprints.org', 'preprints.org'),
 )
 
 #: Placeholder venue values: "no venue" gets no key (mirrors
@@ -367,6 +376,10 @@ def venue_match(keyword, text):
     Multi-word texts are substring-matched; a short ALL-CAPS acronym needs word
     boundaries (so ``CL`` does not match ``ACL``); other single words must be the
     whole name (so ``Science`` does not match ``Science China``).
+
+    The acronym boundary additionally refuses a neighbouring dot, because a
+    domain label is not a venue: without that, ``https://www.researchsquare.com/…``
+    would be read as the ``WWW`` conference and ``kdd.org`` as ``KDD``.
     """
     if not keyword or not text:
         return False
@@ -374,7 +387,7 @@ def venue_match(keyword, text):
     if ' ' in keyword:
         return keyword.lower() in text.lower()
     if keyword == keyword.upper() and len(keyword) <= 5:
-        return bool(re.search(r'(?:^|\b)' + re.escape(keyword) + r'(?:\b|$)', text, flags))
+        return bool(re.search(r'(?<![\w.])' + re.escape(keyword) + r'(?![\w.])', text, flags))
     return bool(re.search(r'^' + re.escape(keyword) + r'(?:[\s,\.;:\d\(\)\-\[\]]*(?:$|,))',
                           text, flags))
 

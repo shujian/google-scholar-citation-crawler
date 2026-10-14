@@ -1474,3 +1474,23 @@ pub canonical 120 → **190**、raw 117 → **47**、无 venue 4；引文文件�
 宿主明确的写法（`… Linguistics: EMNLP`）文本更长 → 最长优先仍命中自己的主会；
 裸写法（无冒号 + 主会）→ `Findings of ACL<年份>`。实测当前数据里没有任何一条曾落到裸 `Findings`
 （`Findings2*` 命中 0），所以这次删除对存量 key 零改动，只是纠正未来行为。
+
+## venue_key 四轮：其余预印本服务器 + 宿主名误命中（2026-10-15）
+
+**服务器名单**：`PREPRINT_SERVER_KEYS` 从 1 条扩到 8 条（arXiv / bioRxiv / medRxiv / SSRN /
+TechRxiv / Research Square（含 `researchsquare.com`）/ preprints.org）。语义与 arXiv 一致：预印本的
+"发表地"就是服务器，所以 key = 服务器名、不带年份；`resolve_venue_key()` 里仍在**规范词表之后**判断，
+所以"已知会议 + 预印本链接"这类串依旧判会议。**故意不为裸 `Preprint` 建 key** —— 它没点出任何服务器，
+给了 key 反而会把一堆无关预印本并成一条。
+
+**宿主名误命中（我自己测试时撞出来的）**：`venue_match()` 的短全大写缩写分支是
+`(?:^|\b)KW(?:\b|$)`，而 `.` 是词边界 —— 于是
+`https://www.researchsquare.com/article/rs-123/v1` 里的 `www` 命中了 `WWW` 会议（得到 `WWW2023`），
+`kdd.org` → `KDD`、`iclr.cc` → `ICLR` 同理。修法是把两侧的边界换成
+`(?<![\w.])KW(?![\w.])`：**域名标签不是 venue**。回归确认 `WWW 2024`、`KDD 2020`、`ACL 2024`、
+`Ijcai 17 (2017)`、`NIPS 2019` 都照旧命中，456 例旧测试全绿。真实数据零影响（含 `www.` 的 venue 0 条，
+12 个 `WWW*` 键都对应真的 Web Conference 串），属**未被触发的错误** —— 值得记一笔：把它放到
+`researchsquare.com` 那种 URL 上就立刻错。
+
+**存量**：引文侧 canonical 2,491 → 2,550（新增 59：bioRxiv 37 / SSRN 21 / medRxiv 1），raw 5,316 → 5,257；
+pub 侧 229 / 8 / 4 不变。
