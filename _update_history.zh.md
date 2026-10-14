@@ -1869,3 +1869,19 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   幂等复跑 0 改动。剩余 raw 主要是 Scholar 在引文列表页截断的串（`Proceedings of the …` 556 条等）
   与 arXiv 预印本（pub 侧 40/45 个不同值都是 arXiv id）。
 - 测试 449 → **453 例**全绿（新增期刊无年份、扩表会议、CCMT/CWMT/WMT 分离、中文期刊同刊两名合并）。
+
+## 2026-10-15（续 2）: arXiv 作为 venue key、删除裸 Findings 兜底
+
+用户口径：`arxiv` 的 venue 就写 `arXiv`；不存在裸的 `Findings` venue，未注明主会的 Findings 视为
+`Findings of ACL`。
+
+- `code/venue_key.py`：新增 `PREPRINT_SERVER_KEYS`（当前只有 `('arxiv', 'arXiv')`，大小写不敏感子串
+  匹配）与 `preprint_venue_key()`；`resolve_venue_key()` 的顺序是 **词表 → 预印本服务器 → raw**，
+  所以"已知会议 + arXiv id"仍判会议。删除 `'Findings'` 键（168 → 167 条），把裸词组
+  `Findings of the Association for Computational Linguistics` 加为 `Findings of ACL` 的别名
+  （宿主明确的写法更长 → 仍优先命中自己的主会）。
+- 存量重跑（`--apply`，备份 `output/venue_key_backup_20261014_195858/`）：
+  pub canonical 190 → **229**、raw 47 → **8**（7 个不同值）；引文侧 canonical 1,065 → **2,491**、
+  raw 6,742 → **5,324**（截断串仍是主体：`Proceedings of the …` 556 / `Findings of the …` 207 /
+  `IEEE Transactions on …` 138）。
+- 测试 454 → **456 例**（arXiv 的各种写法 + 裸 Findings 归 ACL + 表里不再有 `Findings` 键）。

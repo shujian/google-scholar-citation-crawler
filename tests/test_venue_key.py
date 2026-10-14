@@ -61,6 +61,29 @@ class CanonicalNameTests(unittest.TestCase):
             venue_key('Findings of the Association for Computational Linguistics: EMNLP 2024'),
             'Findings of EMNLP2024')
 
+    def test_a_findings_volume_without_a_host_is_findings_of_acl(self):
+        """There is no bare "Findings" venue (2026-10-15 user)."""
+        self.assertNotIn('Findings', VENUE_CANONICAL)
+        self.assertEqual(
+            venue_key('Findings of the Association for Computational Linguistics 2023'),
+            'Findings of ACL2023')
+        # ... while an explicit host still wins over the bare phrase
+        self.assertEqual(
+            venue_key('Findings of the Association for Computational Linguistics: NAACL 2024'),
+            'Findings of NAACL2024')
+
+    def test_arxiv_is_a_venue_of_its_own(self):
+        """A preprint's venue is the server, so the key is arXiv with no year."""
+        for text in ('arXiv preprint arXiv:2402.18567, 2024',
+                     'arXiv preprint arXiv:2402.18567',
+                     'arXiv preprint arXiv …',
+                     'arxiv.org/abs/2402.18567',
+                     'URL https://arxiv. org/abs/2403.14541'):
+            with self.subTest(text=text):
+                self.assertEqual(resolve_venue_key(text, '2024'), ('arXiv', SOURCE_CANONICAL))
+        # a known venue mentioned alongside an arXiv id still wins
+        self.assertEqual(venue_key('ACL 2024 (arXiv:2402.18567)'), 'ACL2024')
+
     def test_journal_is_not_swallowed_by_the_conference(self):
         self.assertEqual(
             venue_key('Transactions of the Association for Computational Linguistics 12, '

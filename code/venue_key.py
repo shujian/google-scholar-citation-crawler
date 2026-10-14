@@ -26,7 +26,12 @@ Rules (as decided 2026-10-15):
   "Relationship to 3.a.2" below.
 * **Findings is its own venue**: ``Findings of the Association for Computational
   Linguistics: ACL 2026`` → ``Findings of ACL2026``, which is deliberately
-  different from ``ACL2026``.
+  different from ``ACL2026``.  A Findings volume that does not name its host is
+  treated as **Findings of ACL** (there is no bare "Findings" venue), while a
+  volume that names EMNLP/EACL/NAACL/AACL keeps that host.
+* a **preprint** is keyed by its server: ``arXiv`` (no year), matched as a
+  substring so every arXiv spelling — including a truncated one — lands on the
+  same key.
 * a venue we cannot identify keeps its own text: ``venue_key`` = the venue string
   (``venue_key_source`` = ``'raw'``).  A journal without a widely used
   abbreviation keeps its own short name (``Neurocomputing``, ``IEEE Access``).  That is a temporary, reviewable state — the
@@ -135,7 +140,12 @@ VENUE_CANONICAL = {
     'UAI': ('Conference on Uncertainty in Artificial Intelligence', 'conference', []),
     'COLT': ('Conference on Learning Theory', 'conference', []),
     'Findings of ACL': ('Findings of the Association for Computational Linguistics: ACL',
-                        'conference', []),
+                        'conference',
+                        # A Findings volume that does not name its host conference is
+                        # treated as Findings of ACL (2026-10-15 user: the bare
+                        # "Findings of the Association for Computational Linguistics"
+                        # is not a venue of its own).
+                        ['Findings of the Association for Computational Linguistics']),
     'Findings of EMNLP': ('Findings of the Association for Computational Linguistics: EMNLP',
                           'conference',
                           ['Findings of the Conference on Empirical Methods in '
@@ -150,8 +160,6 @@ VENUE_CANONICAL = {
                           'Computational Linguistics']),
     'Findings of AACL': ('Findings of the Association for Computational Linguistics: AACL',
                          'conference', []),
-    'Findings': ('Findings of the Association for Computational Linguistics',
-                 'conference', []),
     'TACL': ('Transactions of the Association for Computational Linguistics',
              'journal', []),
     'TPAMI': ('IEEE Transactions on Pattern Analysis and Machine Intelligence',
@@ -311,6 +319,18 @@ VENUE_CANONICAL = {
 SOURCE_CANONICAL = 'canonical'
 SOURCE_RAW = 'raw'
 
+#: Preprint servers: a preprint's venue *is* the server, so the key is the
+#: server's own name and carries no year (2026-10-15 user: "arxiv 的 venue 就写做
+#: arXiv，作为 venue key 没问题").  Matched as a case-insensitive substring, so
+#: "arXiv preprint arXiv:2402.18567", "arxiv.org/abs/2402.18567", the truncated
+#: "arXiv preprint arXiv …" and a bare URL that points at arXiv all become
+#: ``arXiv``.  Only arXiv is listed: whether the other named servers (bioRxiv,
+#: medRxiv, SSRN, TechRxiv, Research Square, preprints.org) should be treated the
+#: same way is an open question in ``issues.md``.
+PREPRINT_SERVER_KEYS = (
+    ('arxiv', 'arXiv'),
+)
+
 #: Placeholder venue values: "no venue" gets no key (mirrors
 #: ``code.venue_quality.MISSING_VENUE_VALUES``; duplicated here so this module
 #: stays dependency-free and usable from a bare data-repair script).
@@ -382,6 +402,17 @@ def canonical_venue(venue):
     return None
 
 
+def preprint_venue_key(venue):
+    """Return the preprint server's key (``arXiv``) or None."""
+    text = normalize_venue_text(venue).lower()
+    if not text:
+        return None
+    for marker, key in PREPRINT_SERVER_KEYS:
+        if marker in text:
+            return key
+    return None
+
+
 def venue_type(venue):
     """``'conference'`` / ``'journal'`` for a known venue, else None."""
     name = canonical_venue(venue)
@@ -424,6 +455,9 @@ def resolve_venue_key(venue, year=None):
             # the short name alone (TACL, TASLP, Nature Machine Intelligence).
             return name, SOURCE_CANONICAL
         return f"{name}{pick_venue_year(venue, year) or ''}", SOURCE_CANONICAL
+    server = preprint_venue_key(venue)
+    if server:
+        return server, SOURCE_CANONICAL
     return normalize_venue_text(venue), SOURCE_RAW
 
 

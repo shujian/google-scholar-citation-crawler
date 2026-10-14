@@ -1456,3 +1456,21 @@ Meeting of the Association for Computational Linguistics`、期刊形态、以�
 pub canonical 120 → **190**、raw 117 → **47**、无 venue 4；引文文件整体 canonical 354 → **1255**
 （纯引文 234 → 1065）；引文侧 raw 仍以**截断串**为主（`Proceedings of the …` 556、`Findings of the …`
 207、`IEEE Transactions on …` 138 …）—— 这些串里已经不含会议名，词表再扩也救不回来。
+
+## venue_key 三轮：arXiv 与 Findings（2026-10-15）
+
+**arXiv**：用户明确"arxiv 的 venue 就写做 arXiv"。实现是 `PREPRINT_SERVER_KEYS = (('arxiv','arXiv'),)`
++ `preprint_venue_key()`（大小写不敏感子串），`resolve_venue_key()` 里的顺序是
+**规范词表 → 预印本服务器 → raw**。放在词表之后是刻意的：`ACL 2024 (arXiv:2402.18567)` 这类串
+仍应判会议。好处是引文侧那 779 条被截断的 `arXiv preprint arXiv …`（id 已丢失、彼此不可区分）
+终于有了一个真实语义的 key —— 预印本的"发表地"本来就是服务器，而不是某个年度届次，所以不带年份。
+**只做了 arXiv**：bioRxiv / medRxiv / SSRN / TechRxiv / Research Square / preprints.org 同为预印本
+服务器，但用户只点名了 arXiv，按"只做明确要求的事"留给 issues.md 待确认（实测引文侧还有
+~1,488 条带这些标记，其中与被 arXiv 命中的 1,426 条有重叠）。
+
+**Findings**：用户指出"不存在这个会议"，`Findings of the Association for Computational Linguistics`
+这一条（3.a.2 的兜底键，原本映射到裸词组）在阶段 1 是**多余的甚至有害的** —— 它会把"没注明主会"
+的卷按一个不存在的 venue 记账。删掉该键，把裸词组降级为 `Findings of ACL` 的**别名**：
+宿主明确的写法（`… Linguistics: EMNLP`）文本更长 → 最长优先仍命中自己的主会；
+裸写法（无冒号 + 主会）→ `Findings of ACL<年份>`。实测当前数据里没有任何一条曾落到裸 `Findings`
+（`Findings2*` 命中 0），所以这次删除对存量 key 零改动，只是纠正未来行为。

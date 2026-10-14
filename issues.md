@@ -171,7 +171,15 @@ cite 页路径 —— 上述 venue 判据成立**并且**该条目 `authors` 已
    因为这是你上一轮提问的调查结论，不属于本次 venue_key 需求）。
    **同时撤回**我在上一轮提的"先查缓存再跳过可把 resolved 提到 173"：那 30 篇的缓存值写回去是**降级**。
 
-4. **arXiv 预印本要不要给 key（2026-10-15 二轮扩表后剩下的最大一类）**
+4. ~~**arXiv 预印本要不要给 key**~~ —— **已定并已实现（2026-10-15 用户：arxiv 的 venue 就写 `arXiv`）** ✓：
+   所有 arXiv 写法（含被截断的 `arXiv preprint arXiv …`）→ `venue_key = 'arXiv'`（不带年份；
+   与已知会议同时出现时会议优先）。存量：pub 190 → **229** canonical、raw 47 → **8**；
+   引文侧 canonical 1,065 → **2,491**。
+   **仍未做的同类（请你一句话）**：bioRxiv / medRxiv / SSRN / TechRxiv / Research Square /
+   preprints.org 同样是预印本服务器，目前仍是 raw（引文侧约 1,488 条带这些标记，与被 arXiv
+   命中的 1,426 条有重叠）。按同一逻辑它们各给服务器名即可，但你没点名，我没动。
+   （下面是决定前的原文，留档。）
+   原问题：arXiv 预印本要不要给 key（2026-10-15 二轮扩表后剩下的最大一类）
    扩表后 pub 侧仍未识别的 45 个不同值里 **40 个是 `arXiv preprint arXiv:<id>`**，引文侧
    `arXiv preprint arXiv …`（779 条，被截断、**没有 id**）+ `bioRxiv`（35 条）同理。
    现在它们都按"认不出 → key = 原串"处理。三个候选：
@@ -182,7 +190,14 @@ cite 页路径 —— 上述 venue 判据成立**并且**该条目 `authors` 已
    ③ 一律给 `arXiv`（等于放弃区分，只标"这是预印本"）。
    → 你挑一个我就改（`code/venue_key.py` 的 raw 分支，改完重跑脚本，幂等且带备份）。
 
-5. **两条有误并风险的别名（已实现，请复核）**
+5. **`Findings` 兜底键已删除（2026-10-15 用户：不存在这个会议）**
+   未注明主会的 `Findings of the Association for Computational Linguistics` 现归 **`Findings of ACL`**；
+   宿主明确的写法（`Findings of EMNLP` 等）不受影响。实测存量里没有任何一条曾落到裸 `Findings`，
+   所以对已有 key 零改动。**注意跨仓影响**：3.a.2 的 `VENUE_PRESTIGE` 里**仍有**裸 `Findings` 键
+   （作为未指明主会时的兜底，tier 2）—— 两边现在口径不同（阶段 1 认为不存在、3.a.2 仍会兜底）。
+   若要让下游也按"归 ACL"处理，需要改 3.a.2（跨仓，记在这里）。
+
+6. **两条有误并风险的别名（已实现，请复核）**
    - `软件学报` ← `Journal of Software`：真实数据里 7 条都正好是 `Journal of Software`，
      但 `Journal of Software: Evolution and Process` 之类会被并进来；
    - 我一度把 `Acta Electronica Sinica` 挂给了 `Chinese Journal of Electronics` —— **写错了**：

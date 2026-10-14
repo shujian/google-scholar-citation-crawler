@@ -186,6 +186,12 @@ every citing entry therefore carry a canonical key: **venue name + year**.
 }
 ```
 
+- **Preprints are keyed by their server**: every arXiv spelling — `arXiv preprint
+  arXiv:2402.18567`, a truncated `arXiv preprint arXiv …`, `arxiv.org/abs/…` —
+  becomes `arXiv` (no year), which is what "the venue" means for a preprint.
+- **There is no bare `Findings` venue**: a Findings volume that names its host
+  keeps it (`Findings of EMNLP2024`), and one that does not is treated as
+  **`Findings of ACL`**.
 - **Conferences carry the year, journals do not**: a conference key is the
   acronym plus the edition year (`ACL2026`, `ICASSP2025`, `EMNLP2024`) because the
   year identifies the edition; a journal is a continuous venue, so its key is the
@@ -194,8 +200,8 @@ every citing entry therefore carry a canonical key: **venue name + year**.
 - **Findings is its own venue**: `Findings of the Association for Computational
   Linguistics: ACL 2026` → `Findings of ACL2026`, never `ACL2026`.
 - The vocabulary started from stage 3.a.2's table (`VENUE_PRESTIGE` +
-  `VENUE_ALIASES`: 51 conferences + 30 journals) and was extended to **168 venues
-  (84 conferences + 84 journals)** with the names the real data left unrecognised —
+  `VENUE_ALIASES`: 51 conferences + 30 journals) and was extended to **167 venues
+  (84 conferences + 83 journals)** with the names the real data left unrecognised —
   speech / machine translation / NLP / ML conferences (`ICASSP`, `INTERSPEECH`,
   `IJCNN`, `PAKDD`, `LREC`, `CCMT`, `CWMT`, `WMT`, `NLPCC`, `PACLIC`, `IALP` …) and
   journals (`TASLP`, `TALLIP`, `TKDD`, `JAIR`, `IEEE Access`, `Neurocomputing`,
@@ -212,10 +218,11 @@ every citing entry therefore carry a canonical key: **venue name + year**.
   must be trustworthy.
 - Publications derive the key from `venue_full or venue` (the detail page resolves
   what the list page cut off); citing entries use their own `venue`.
-- Real data (author `HF3-E9kAAAAJ`): publications 190 canonical / 47 raw / 4 without
-  a venue; citing entries 1,065 canonical / 6,742 raw / 1,221 without one — the raw
-  remainder is dominated by venues Scholar truncated to ~25 characters
-  (`Proceedings of the …`), which no table can restore.
+- Real data (author `HF3-E9kAAAAJ`): publications **229 canonical / 8 raw** / 4 without
+  a venue; citing entries **2,491 canonical / 5,324 raw** out of 9,028 (1,221 have no
+  venue at all).  The raw remainder is dominated by venues Scholar truncated to ~25
+  characters (`Proceedings of the …` 556, `Findings of the …` 207,
+  `IEEE Transactions on …` 138), which no table can restore.
 - Existing output files can be filled in (and re-derived after a table change)
   without re-crawling:
 

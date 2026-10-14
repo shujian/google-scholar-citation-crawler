@@ -3149,3 +3149,19 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
    `TASLP2020` 这种形态，改一行即可（`code/venue_key.py: resolve_venue_key`）。
 3. 没有通用缩写的期刊就用它的短名当 key（`Neurocomputing`、`IEEE Access`、`中文信息学报`…），
    与 `Nature Machine Intelligence` 这个例子同口径。
+
+## 2026-10-15（续 2）: arXiv 作为 venue key；删掉裸的 Findings
+
+> arxiv的venue就写做arXiv，作为venue key没问题。不存在这个会议：Findings / Findings of the Association
+> for Computational Linguistics。Findings一定是关联到ACL、EMNLP等某个会议的。如果没有注明，那应该
+> 视为是Findings of ACL。
+
+1. **arXiv → `venue_key = arXiv`**（不带年份），大小写不敏感的子串匹配，所以
+   `arXiv preprint arXiv:2402.18567`、被截断的 `arXiv preprint arXiv …`、`arxiv.org/abs/…`、
+   甚至 `URL https://arxiv. org/abs/…` 都落到同一个 key；已知会议与 arXiv 同时出现时会议优先
+   （`ACL 2024 (arXiv:2402.18567)` → `ACL2024`）。
+2. **删掉裸的 `Findings` 键**：未注明主会的 `Findings of the Association for Computational Linguistics`
+   现按 **`Findings of ACL`** 处理（+年份）；注明了主会的仍各归其主（`Findings of EMNLP2024` 等）。
+   词表从 168 降到 167 条（84 会议 + 83 期刊）。
+3. 其它预印本服务器（bioRxiv / medRxiv / SSRN / TechRxiv / Research Square / preprints.org）
+   **我按"只做你明确要求的事"没有动** —— 它们仍是 raw，已列进 issues.md 等你一句话。
