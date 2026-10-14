@@ -13,6 +13,7 @@ Every other module under ``code/`` must stay free of ``os.getenv``,
 """
 
 import os
+import pathlib
 import re
 import sys
 import unittest
@@ -36,9 +37,16 @@ ALLOWED_ENV_READ_KEYS = {"https_proxy", "http_proxy", "no_proxy", "NO_PROXY"}
 
 
 def _iter_code_modules():
-    for name in sorted(os.listdir(CODE_DIR)):
-        if name.endswith(".py"):
-            yield name, os.path.join(CODE_DIR, name)
+    """递归遍历 ``code/`` 下的全部 ``.py``（**含子目录**）。
+
+    2026-10-14 起 `code/` 下有了 `data_upgrade/`（数据修复/升级工具）。守卫原先只
+    `os.listdir(CODE_DIR)` 顶层，模块一搬进子目录就**不再被扫描** —— 覆盖面静默缩小，
+    正是"禁止读环境变量"这条边界最不该出现的情况。这里改为递归。
+    """
+    for path in sorted(pathlib.Path(CODE_DIR).rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        yield str(path.relative_to(CODE_DIR)), str(path)
 
 
 def _read(path):
@@ -105,3 +113,14 @@ class NoEnvConfigTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HostGuardCoverageTest(unittest.TestCase):
+    """守卫必须覆盖 `code/` 的**子目录**（2026-10-14 回归：搬进 data_upgrade/ 后一度漏扫）。"""
+
+    def test_subdirectory_modules_are_scanned(self):
+        names = [name for name, _ in _iter_code_modules()]
+        assert names, "守卫没扫到任何模块"
+        assert any(name.startswith("data_upgrade" + os.sep) for name in names), \
+            f"子目录模块没被扫到（只扫到顶层？）: {names[:5]}"
+        assert any(name.endswith(".py") for name in names)
