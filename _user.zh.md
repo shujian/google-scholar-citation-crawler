@@ -3377,3 +3377,10 @@ Chicago 已含作者全名 + 未截断 venue；少一处解析就少一处"把�
 
 已实现 `apply_chicago_correction()`：Chicago 与当前条目的 `title`/`authors`/`venue`/`year` 不一致时，
 用 Chicago 的值**更新当前条目**（改动记进 `cite.corrected` 供审计）；`url`/`cites_id`/`cid` 一律不动。
+
+## 2026-10-15（续 17）: 弃用 BibTeX（代码/数据字段/文档一并删除）
+
+> 是的请处理，注意在文档中也应该写明放弃了bibtex，相关代码和数据字段删除。
+
+已删除：BibTeX 下载整条路径、`parse_bibtex` 与两个私有助手、`bib_*` 统计、条目里的 `bib_url`；
+缓存写出时剔除 `bibtex`/`bib_url`（存量随之清掉）。文档（AGENTS.md/README.md，含根 AGENTS）已写明弃用。

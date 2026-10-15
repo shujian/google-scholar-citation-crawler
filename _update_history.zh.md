@@ -2300,3 +2300,17 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   `venue`/`year` 允许被修正，改写后新值等于 `cite.corrected[field]['to']` ✓）。全套通过 ✓。
 - **已知取舍**（用户明确接受）：这四个字段参与下游身份判定，改写会让**已产出的下游文件被判为身份不符
   而重算**（既有设计：宁可重算，不张冠李戴）。
+
+## 2026-10-15（续 17）: BibTeX 整个删除（用户定）
+
+- **代码**：删掉 `parse_bibtex()` 与 `_iter_bib_fields()` / `_read_bib_value()`；`parse_cite_dialog()`
+  不再抽 `bib_url`；条目不再存 `bib_url`；删除 BibTeX 下载分支与 `bib_fetched`/`bib_from_cache`/
+  `bib_failed`/`bib_missing` 四个统计（`scholar_citation` 的打印同步删除）。
+- **数据字段**：`save_cite_cache()` 写出前**剔除** `bibtex` / `bib_url`（本模块是唯一写者，所以存量缓存
+  下次保存即清干净）。
+- **为什么**（用户 2026-10-15）：签名按渲染/会话现铸，缓存里的必然作废；且它失败会触发与验证码无关的
+  人工流程（已随请求一起消失）。
+- **测试 569 → 544**：删掉 `BibtexParsingTests`（12 例）与 13 个 bib 时代的用例（含"缓存命中还要发
+  bib 请求"这类断言），其余全绿 ✓。
+- **文档**：阶段 1 `AGENTS.md`/`README.md` 与**根 `AGENTS.md`** 都写明"BibTeX 已弃用"，并改述
+  venue/作者全名的来源（**Chicago**）与 `cite.corrected`。

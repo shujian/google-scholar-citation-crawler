@@ -338,104 +338,15 @@ class CitePageParsingTests(unittest.TestCase):
                 '<p>Our systems have detected unusual traffic.</p></body></html>')
         parsed = cf.parse_cite_page(page)
         self.assertEqual(parsed['formats'], {})
-        self.assertEqual(parsed['bib_url'], '')
 
     def test_a_soup_input_is_accepted(self):
         from bs4 import BeautifulSoup
         parsed = cf.parse_cite_page(BeautifulSoup(default_page(), 'html.parser'))
         self.assertEqual(parsed['formats']['chicago'], CHICAGO)
 
-    def test_bibtex_link_is_read_and_unescaped(self):
-        page = cite_page(bib_url=BIB_URL.replace('&', '&amp;'))
-        self.assertEqual(cf.parse_cite_page(page)['bib_url'], BIB_URL)
-
-    def test_other_export_links_do_not_masquerade_as_bibtex(self):
-        page = cite_page(bib_url='', extra_links=(
-            ('EndNote', 'https://scholar.googleusercontent.com/scholar.enw?x=1'),
-            ('RefMan', 'https://scholar.googleusercontent.com/scholar.ris?x=1'),
-            ('RefWorks', 'https://scholar.googleusercontent.com/scholar.rfw?x=1'),
-        ))
-        self.assertEqual(cf.parse_cite_page(page)['bib_url'], '')
-
-    def test_bibtex_link_after_the_other_links_is_still_found(self):
-        page = cite_page(bib_url='', extra_links=(
-            ('EndNote', 'https://scholar.googleusercontent.com/scholar.enw?x=1'),
-        )) .replace('</div></body>',
-                    f'<a class="gs_citi" href="{BIB_URL}">BibTeX</a></div></body>')
-        self.assertEqual(cf.parse_cite_page(page)['bib_url'], BIB_URL)
-
-
 # ---------------------------------------------------------------------------
 # 3. BibTeX parsing
 # ---------------------------------------------------------------------------
-
-class BibtexParsingTests(unittest.TestCase):
-
-    def setUp(self):
-        self.bib = cf.parse_bibtex(BIBTEX_TEXT)
-
-    def test_entry_type_and_key(self):
-        self.assertEqual(self.bib['entry_type'], 'article')
-        self.assertEqual(self.bib['key'], 'zhang2025llms')
-
-    def test_structured_fields(self):
-        self.assertEqual(self.bib['title'], TITLE)
-        self.assertEqual(self.bib['journal'], VENUE_FULL)
-        self.assertEqual(self.bib['volume'], '8')
-        self.assertEqual(self.bib['number'], '1')
-        self.assertEqual(self.bib['pages'], '55')
-        self.assertEqual(self.bib['year'], '2025')
-        self.assertEqual(self.bib['publisher'], 'Springer')
-
-    def test_author_keeps_the_full_names_and_the_and_separator(self):
-        self.assertTrue(self.bib['author'].startswith('Zhang, Jie and Bu, Haoyu'))
-        self.assertTrue(self.bib['author'].endswith('and Meng, Dan'))
-        self.assertEqual(self.bib['author'].count(' and '), 9)
-
-    def test_multiline_values_are_collapsed(self):
-        self.assertNotIn('\n', self.bib['author'])
-        self.assertNotIn('  ', self.bib['author'])
-
-    def test_nested_braces_are_kept(self):
-        bib = cf.parse_bibtex('@article{k,\n title={The {DNA} of {RNA}},\n year={2024}\n}')
-        self.assertEqual(bib['title'], 'The {DNA} of {RNA}')
-        self.assertEqual(bib['year'], '2024')
-
-    def test_quoted_values_are_supported(self):
-        bib = cf.parse_bibtex('@inproceedings{k, title="Quoted title", year="1999"}')
-        self.assertEqual(bib['title'], 'Quoted title')
-        self.assertEqual(bib['year'], '1999')
-
-    def test_bare_values_are_supported(self):
-        bib = cf.parse_bibtex('@article{k, year=2024, volume=8}')
-        self.assertEqual(bib['year'], '2024')
-        self.assertEqual(bib['volume'], '8')
-
-    def test_escaped_braces_inside_a_value_do_not_end_it(self):
-        bib = cf.parse_bibtex('@article{k, title={A \\{brace\\} story}, year={2024}}')
-        self.assertEqual(bib['title'], 'A \\{brace\\} story')
-        self.assertEqual(bib['year'], '2024')
-
-    def test_html_entities_are_unescaped(self):
-        bib = cf.parse_bibtex('@article{k, title={Foo &amp; Bar}, year={2024}}')
-        self.assertEqual(bib['title'], 'Foo & Bar')
-
-    def test_empty_fields_are_dropped(self):
-        bib = cf.parse_bibtex('@article{k, title={}, year={2024}}')
-        self.assertNotIn('title', bib)
-        self.assertEqual(bib['year'], '2024')
-
-    def test_non_bibtex_text_yields_nothing(self):
-        for text in ('', None, '<html><body>unusual traffic</body></html>',
-                     'TY  - JOUR\nTI  - A title\nER  - '):
-            with self.subTest(text=text):
-                self.assertEqual(cf.parse_bibtex(text), {})
-
-    def test_a_truncated_record_stops_instead_of_raising(self):
-        bib = cf.parse_bibtex('@article{k, title={Never closed')
-        self.assertEqual(bib['entry_type'], 'article')
-        self.assertNotIn('title', bib)
-
 
 # ---------------------------------------------------------------------------
 # 4. Orchestration
@@ -465,16 +376,6 @@ class EnrichmentTests(unittest.TestCase):
         self.assertEqual(stats['resolved'], 2)
         self.assertEqual(rows[0]['cite']['chicago'], 'one')
         self.assertEqual(rows[1]['cite']['chicago'], 'two')
-
-    def test_the_five_formats_and_bibtex_land_in_the_cite_field(self):
-        row = citation()
-        nav = _FakeNav(pages={CID_PATH: default_page()}, bibs={BIB_URL: BIBTEX_TEXT})
-        stats = self._run([row], nav)
-        self.assertEqual(stats['bib_fetched'], 1)
-        self.assertEqual(row['cite']['chicago'], CHICAGO)
-        self.assertEqual(row['cite']['vancouver'], VANCOUVER)
-        self.assertEqual(row['cite']['bibtex']['journal'], VENUE_FULL)
-        self.assertEqual(row['cite']['bibtex']['volume'], '8')
 
     def test_citations_without_a_cid_issue_no_request(self):
         legacy = {'title': 'x', 'authors': 'a', 'venue': 'v', 'year': '2024',
@@ -507,23 +408,6 @@ class EnrichmentTests(unittest.TestCase):
             else:                                        # 没被修正：保持原值
                 self.assertEqual(row[field], before)
 
-    def test_bibtex_is_skipped_without_a_get_page(self):
-        row = citation()
-        nav = _FakeNav(pages={CID_PATH: default_page()}, bibs={BIB_URL: BIBTEX_TEXT})
-        stats = self._run([row], nav, get_page=None)
-        self.assertEqual(nav.bib_calls, [])
-        self.assertNotIn('bibtex', row['cite'])
-        self.assertEqual(row['cite']['chicago'], CHICAGO)
-        self.assertEqual(stats['bib_missing'], 1)
-
-    def test_a_page_without_a_bibtex_link_is_not_a_failure(self):
-        row = citation()
-        nav = _FakeNav(pages={CID_PATH: cite_page(bib_url='')})
-        stats = self._run([row], nav)
-        self.assertEqual(stats['failed'], 0)
-        self.assertEqual(stats['bib_missing'], 1)
-        self.assertEqual(stats['resolved'], 1)
-
     def test_stats_describe_the_run(self):
         rows = [citation('cid-one'), citation('cid-two'), {'title': 'old'}]
         nav = _FakeNav(pages={cf.cite_path('cid-one'): default_page(),
@@ -535,7 +419,6 @@ class EnrichmentTests(unittest.TestCase):
         self.assertEqual(stats['missing_cid'], 1)
         self.assertEqual(stats['fetched'], 2)
         self.assertEqual(stats['resolved'], 2)
-        self.assertEqual(stats['bib_fetched'], 2)
         self.assertEqual(stats['failed'], 0)
 
     def test_no_navigator_counts_the_citations_as_failed(self):
@@ -597,33 +480,6 @@ class GracefulDegradationTests(unittest.TestCase):
         self.assertNotIn(CID, cf.load_cite_cache(self.cache_path))
         self.assertNotIn('cite', rows[0])
 
-    def test_bibtex_failure_keeps_the_formats_and_retries_only_bibtex(self):
-        rows = [citation()]
-        nav = _FakeNav(pages={CID_PATH: default_page()}, bib_error=True)
-        stats = self._run(rows, nav)
-        self.assertEqual(stats['bib_failed'], 1)
-        self.assertEqual(rows[0]['cite']['chicago'], CHICAGO)
-        self.assertNotIn('bibtex', rows[0]['cite'])
-
-        # The cached page is reused (no Cite-dialog request) and only the
-        # signed BibTeX URL is tried again.
-        retry_nav = _FakeNav(pages={CID_PATH: default_page()},
-                             bibs={BIB_URL: BIBTEX_TEXT})
-        rows2 = [citation()]
-        stats2 = self._run(rows2, retry_nav)
-        self.assertEqual(retry_nav.calls, [])
-        self.assertEqual(retry_nav.bib_calls, [BIB_URL])
-        self.assertEqual(stats2['bib_fetched'], 1)
-        self.assertEqual(rows2[0]['cite']['bibtex']['volume'], '8')
-
-    def test_unparseable_bibtex_is_counted_as_failed(self):
-        rows = [citation()]
-        nav = _FakeNav(pages={CID_PATH: default_page()},
-                       bibs={BIB_URL: '<html>unusual traffic</html>'})
-        stats = self._run(rows, nav)
-        self.assertEqual(stats['bib_failed'], 1)
-        self.assertNotIn('bibtex', rows[0]['cite'])
-
     def test_interrupt_propagates_and_keeps_what_was_fetched(self):
         calls = []
 
@@ -657,31 +513,6 @@ class CiteCacheTests(unittest.TestCase):
         kwargs.setdefault('get_page', nav._get_page)
         kwargs.setdefault('print_fn', quiet)
         return cf.enrich_citations_with_cite_formats(citations, **kwargs)
-
-    def test_cache_file_is_written_per_fetched_citation(self):
-        nav = _FakeNav(pages={CID_PATH: default_page()}, bibs={BIB_URL: BIBTEX_TEXT})
-        self._run([citation()], nav, fetched_at='2026-10-14T00:00:00')
-        cache = read_json(self.cache_path)
-        self.assertEqual(cache[CID]['formats']['chicago'], CHICAGO)
-        self.assertEqual(cache[CID]['bib_url'], BIB_URL)
-        self.assertEqual(cache[CID]['bibtex']['pages'], '55')
-        self.assertEqual(cache[CID]['fetched_at'], '2026-10-14T00:00:00')
-
-    def test_a_cached_page_is_not_requested_again(self):
-        nav = _FakeNav(pages={CID_PATH: default_page()}, bibs={BIB_URL: BIBTEX_TEXT})
-        self._run([citation()], nav)
-        self.assertEqual(len(nav.calls), 1)
-        self.assertEqual(len(nav.bib_calls), 1)
-
-        rows = [citation()]
-        second = _FakeNav()
-        stats = self._run(rows, second)
-        self.assertEqual(second.calls, [])
-        self.assertEqual(second.bib_calls, [])
-        self.assertEqual(stats['cache_hits'], 1)
-        self.assertEqual(stats['bib_from_cache'], 1)
-        self.assertEqual(rows[0]['cite']['chicago'], CHICAGO)
-        self.assertEqual(rows[0]['cite']['bibtex']['journal'], VENUE_FULL)
 
     def test_cache_is_keyed_by_cid(self):
         nav = _FakeNav(pages={CID_PATH: default_page()},
@@ -794,41 +625,8 @@ class SaveOutputWiringTests(unittest.TestCase):
         saved, output = self._save(self._fetcher(True), [citation()], nav)
         cite = saved['papers'][0]['citations'][0]['cite']
         self.assertEqual(cite['chicago'], CHICAGO)
-        self.assertEqual(cite['bibtex']['volume'], '8')
         self.assertIn('citation formats resolved: 1/1', output)
         self.assertTrue(os.path.exists(self.cache_path))
-
-    def test_the_default_fetcher_writes_the_cite_field(self):
-        """No flag at all: new rows must still carry the Cite-dialog data."""
-        nav = _FakeNav(pages={CID_PATH: default_page()}, bibs={BIB_URL: BIBTEX_TEXT})
-        saved, output = self._save(self._fetcher(), [citation()], nav)
-        cite = saved['papers'][0]['citations'][0]['cite']
-        self.assertEqual(cite['chicago'], CHICAGO)
-        # the BibTeX record carries the full author list of the citing paper
-        self.assertIn('Zhang, Jie and Bu, Haoyu', cite['bibtex']['author'])
-        self.assertIn('and Meng, Dan', cite['bibtex']['author'])
-        self.assertIn('citation formats resolved: 1/1', output)
-
-    def test_the_derived_venue_key_follows_the_dialog_venue(self):
-        """The BibTeX journal is untruncated, so it replaces the list-page key."""
-        row = citation()
-        self.assertEqual(row['venue_key'], VENUE_FULL)  # from the list page, pre-dialog
-        nav = _FakeNav(pages={CID_PATH: default_page()}, bibs={BIB_URL: BIBTEX_TEXT})
-        saved, _ = self._save(self._fetcher(), [row], nav)
-        saved_row = saved['papers'][0]['citations'][0]
-        self.assertEqual(saved_row['venue_key'], 'Cybersecurity')  # bibtex journal
-        self.assertEqual(saved_row['venue_key_source'], 'raw')
-
-    def test_a_known_conference_booktitle_yields_a_normalized_key(self):
-        bibtex = BIBTEX_TEXT.replace('journal={Cybersecurity}',
-                                     'booktitle={Proceedings of the 2024 Conference on '
-                                     'Empirical Methods in Natural Language Processing}')
-        nav = _FakeNav(pages={CID_PATH: default_page()}, bibs={BIB_URL: bibtex})
-        saved, _ = self._save(self._fetcher(), [citation()], nav)
-        saved_row = saved['papers'][0]['citations'][0]
-        # the venue-string year (the conference edition) wins over the record year
-        self.assertEqual(saved_row['venue_key'], 'EMNLP2024')
-        self.assertEqual(saved_row['venue_key_source'], 'normalized')
 
     def test_cid_is_persisted_in_the_output(self):
         nav = _FakeNav(pages={CID_PATH: default_page()}, bibs={BIB_URL: BIBTEX_TEXT})

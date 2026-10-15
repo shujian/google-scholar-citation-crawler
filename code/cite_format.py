@@ -32,7 +32,7 @@ What is written where
   identifies one *citing* row.
 * ``citation['cite']`` — the formats themselves, **strictly additive**:
   ``{'mla': …, 'apa': …, 'chicago': …, 'harvard': …, 'vancouver': …,
-  'bibtex': {…}}``.  ``title``/``authors``/``venue``/``year``/``url``/``cites_id``
+  ``}``（BibTeX 已弃用）。  ``title``/``authors``/``venue``/``year``/``url``/``cites_id``
   are never touched (``venue`` and ``cites_id`` take part in the identity keys —
   the same K123/K125 lesson as ``code/venue_detail.py``).
 
@@ -128,7 +128,7 @@ def cite_path(cid):
 
 
 def parse_cite_page(source):
-    """Parse one Cite dialog into ``{'formats': {...}, 'bib_url': '...'}``.
+    """Parse one Cite dialog into ``{'formats': {...}}``.
 
     The page is a plain ``<table>`` of ``<th class="gs_cith">MLA</th>`` +
     ``<td><div class="gs_citr">…</div></td>`` rows, followed by an
@@ -163,15 +163,7 @@ def parse_cite_page(source):
         if value:
             formats[label] = value
 
-    bib_url = ''
-    for link in soup.find_all('a', class_='gs_citi'):
-        if normalize_whitespace(link.get_text(' ')).lower() != 'bibtex':
-            continue
-        href = link.get('href')
-        if href:
-            bib_url = html.unescape(str(href).strip())
-            break
-    return {'formats': formats, 'bib_url': bib_url}
+    return {'formats': formats}
 
 
 # ---------------------------------------------------------------------------
@@ -272,74 +264,6 @@ def apply_chicago_correction(citation, formats):
     return changed
 
 
-def parse_bibtex(source):
-    """Parse one BibTeX record into ``{'entry_type', 'key', <field>: …}``.
-
-    Handles the shapes Scholar actually emits: a single ``@article{key,`` entry
-    whose fields are brace-quoted (nested braces included), with values that may
-    span lines.  Returns ``{}`` when no entry header is present.  Values keep
-    their content — only the surrounding braces and the layout whitespace are
-    removed, so ``author`` stays a ``and``-separated string.
-    """
-    text = html.unescape(source or '')
-    match = _BIB_ENTRY_RE.search(text)
-    if not match:
-        return {}
-    entry = {'entry_type': match.group(1).lower(), 'key': match.group(2)}
-    for name, value in _iter_bib_fields(text, match.end()):
-        if value:
-            entry[name] = value
-    return entry
-
-
-def _iter_bib_fields(text, position):
-    """Yield ``(lowercased field name, value)`` pairs after *position*."""
-    while True:
-        match = _BIB_FIELD_RE.search(text, position)
-        if not match:
-            return
-        value, position = _read_bib_value(text, match.end())
-        if value is None:
-            return
-        yield match.group(1).lower(), normalize_whitespace(value)
-
-
-def _read_bib_value(text, position):
-    """Read one BibTeX value at *position*; return ``(value, next position)``."""
-    if position >= len(text):
-        return None, position
-    if text[position] == '{':
-        depth = 0
-        index = position
-        while index < len(text):
-            char = text[index]
-            if char == '\\':
-                index += 2
-                continue
-            if char == '{':
-                depth += 1
-            elif char == '}':
-                depth -= 1
-                if depth == 0:
-                    return text[position + 1:index], index + 1
-            index += 1
-        return None, position
-    if text[position] == '"':
-        index = position + 1
-        while index < len(text):
-            if text[index] == '\\':
-                index += 2
-                continue
-            if text[index] == '"':
-                return text[position + 1:index], index + 1
-            index += 1
-        return None, position
-    end = position
-    while end < len(text) and text[end] not in ',}\n':
-        end += 1
-    return text[position:end], end
-
-
 # ---------------------------------------------------------------------------
 # Cache
 # ---------------------------------------------------------------------------
@@ -363,6 +287,14 @@ def load_cite_cache(path):
 
 def save_cite_cache(path, cache):
     """Write the Cite-dialog cache atomically (a crash cannot truncate it)."""
+    if isinstance(cache, dict):
+        # 2026-10-15 用户定：**弃用 BibTeX** —— 存量缓存里的 `bibtex` / `bib_url` 一并清除
+        # （本模块是这两个字段唯一的写者，所以在这里拦一次就等于把旧数据清理干净；
+        #  下次保存时缓存文件里就不会再出现它们）。
+        for _entry in cache.values():
+            if isinstance(_entry, dict):
+                _entry.pop('bibtex', None)
+                _entry.pop('bib_url', None)
     write_json_atomic(path, cache, ensure_ascii=False, indent=2, sort_keys=True)
 
 
@@ -384,8 +316,6 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
     Every per-citation failure is caught and counted: a citation that cannot be
     resolved keeps whatever it had and the run continues.  Only successfully
     parsed pages are cached (failed requests are retried next run); a page whose
-    BibTeX download failed keeps its signed ``bib_url`` in the cache so the retry
-    costs one request instead of two.
 
     Writing ``citation['cite']`` also refreshes the derived ``venue_key`` /
     ``venue_key_source`` from the BibTeX venue (``journal`` / ``booktitle`` /
@@ -394,7 +324,7 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
 
     Returns a stats dict: ``total``, ``with_cid``, ``missing_cid``,
     ``skipped_complete``, ``cache_hits``, ``fetched``, ``failed``, ``resolved``,
-    ``bib_fetched``, ``bib_from_cache``, ``bib_failed``, ``bib_missing``.
+    （BibTeX 已于 2026-10-15 弃用：不再有 ``bib_*`` 统计。）
     """
     citations = list(citations or [])
     stats = {
@@ -406,10 +336,6 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
         'fetched': 0,
         'failed': 0,
         'resolved': 0,
-        'bib_fetched': 0,
-        'bib_from_cache': 0,
-        'bib_failed': 0,
-        'bib_missing': 0,
     }
     cache = load_cite_cache(cache_path)
     stamp = fetched_at or datetime.now().isoformat()
@@ -451,7 +377,6 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
                 continue
             entry = {
                 'formats': parsed['formats'],
-                'bib_url': parsed['bib_url'],
                 'fetched_at': stamp,
             }
             cache[cid] = entry
@@ -459,28 +384,6 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
             stats['fetched'] += 1
         else:
             stats['cache_hits'] += 1
-
-        if entry.get('bibtex'):
-            if not changed:
-                stats['bib_from_cache'] += 1
-        elif not entry.get('bib_url'):
-            stats['bib_missing'] += 1
-        elif not callable(get_page):
-            stats['bib_missing'] += 1
-        else:
-            try:
-                bibtex = parse_bibtex(get_page(entry['bib_url']))
-            except Exception as e:
-                bibtex = {}
-                print_fn(f"    [{index}/{len(citations)}] {cid} -> BibTeX "
-                         f"download failed ({type(e).__name__}: {e}); "
-                         f"retried next run")
-            if bibtex:
-                entry['bibtex'] = bibtex
-                stats['bib_fetched'] += 1
-                changed = True
-            else:
-                stats['bib_failed'] += 1
 
         # venue 与作者全名：优先用条目里已存的，没有就从格式化串现拆（拆出来就写进缓存，
         # 所以**已有的老缓存条目无需重新联网**即可补齐这两个字段）。
@@ -504,8 +407,6 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
         payload.update(extras)
         if corrections:
             payload['corrected'] = corrections
-        if entry.get('bibtex'):
-            payload['bibtex'] = entry['bibtex']
         citation[CITE_FIELD] = payload
         # The dialog's BibTeX venue is untruncated, so refresh the derived key now
         # that it is available; without a venue field in the dialog this falls
