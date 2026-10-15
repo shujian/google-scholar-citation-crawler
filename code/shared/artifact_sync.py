@@ -44,6 +44,10 @@ def plan_reconciliation(authoritative_indices, existing_names, identity_ok=None)
     * `keep`：两侧都有且身份相符 ✓ → 不动 ✓。
     """
     authoritative = sorted({int(i) for i in (authoritative_indices or [])})
+    if not authoritative:
+        # **权威集合为空（缺 `citations_meta.json` / 读不出）→ 计划为空** ✓✗ ——
+        # 绝不能把"没有权威"当成"全部退役" ✗✗（那会把整篇产物一起归档走 ✓）。
+        return [], [], []
     present = {}
     for name in existing_names or []:
         index = index_of_artifact(name)
