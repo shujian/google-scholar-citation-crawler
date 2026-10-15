@@ -3284,3 +3284,11 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 已按此落地：阶段 1 建目录时写 `paper_meta.json`（含 `venue_full` / `venue_key` /
 `venue_key_source`），阶段 2 只补 `total_collected_citations`；两者共用共享件的唯一构造器。
 阶段的 dry-run 默认不落盘。
+
+## 2026-10-15（续 14）: 按 Y-7 撤回越界（用户：按此迁移 → 开始执行）
+
+> 我在Y-7里分析了这个情况，请结合分析一起来解决这个问题。注意严格按照数据流动的方向建立依赖，不要偷懒。
+> （随后）好的，开始执行。
+
+已撤回两个 `repair_*` 的前移（回阶段 2），`papers_maintenance` 不再改阶段 2 的进度文件，
+新增"依赖方向"源码级守卫；阶段 1 514 例、阶段 2 539 例全绿。

@@ -2068,3 +2068,20 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 - **测试**：阶段 1 **499 → 511**（`tests/test_papers_maintenance.py` 12 例：三种模式、meta 内容、
   已存在目录的 meta 不被改写、幂等、失败隔离、解析器优先级、共享构造器唯一）；阶段 2 **543 例
   原样通过**（meta 形状对它有向后兼容）。
+
+## 2026-10-15（续 14）: 按 Y-7 撤回越界（第一步）
+
+- 用户裁定 Y-7：所有权跟着**数据产生者**走、依赖**只能向前**、**禁止来回映射**。据此，
+  两个 `repair_*`（改的是阶段 2 的 `progress.json` 与 `citations/*.pdf`）**不该前移**。
+- **已撤回**：删 `code/shared/papers_repairs.py`；阶段 2 的两个模块**逐字回迁**（`_CONSUMER` /
+  `_STAGE2_MODULES` / `_consumer` 参数 / `repair = <新名>` 别名一并消失）；`test_dir_snapshot.py`
+  的源码级守卫改回指向实现所在文件；阶段 2 的 4 例共享件守卫测试删除。
+- **`papers_maintenance.py` 不再调用 `remap_progress`**：`progress.json`（将来叫 `download_summary.json`）
+  是阶段 2 的数据，阶段 1 只写自己的 manifest，阶段 2 向前读 manifest 后自行改自己的进度文件。
+- **新增依赖方向守卫** `tests/test_dependency_direction.py`：源码级扫描 `code/shared/*.py`，
+  出现 `code.citation_downloader` / `code.progress` / `code.utils` / `code.tool_log`、
+  或 `_STAGE2_MODULES` / `_CONSUMER` / `def _resolve(` 即失败；并钉住 `papers_repairs.py` 不再回来。
+- **测试**：阶段 1 **511 → 514**（+3 守卫）；阶段 2 **543 → 539**（-4 回迁的守卫）。
+- **仍待办**（下一小步）：`remap_progress` 的**宿主**仍在阶段 1 的 `shared/papers_layout.py`
+  （只有阶段 2 调它，但函数体在阶段 1）—— 按 Y-7 它也应回阶段 2；以及与 `download_progress` /
+  `download_summary` 的拆分一起做（见用户 2026-10-15 的方案）。

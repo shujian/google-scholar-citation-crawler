@@ -1728,3 +1728,20 @@ BibTeX 是结构化字段，零歧义，所以只用它；字段优先级 `journ
 **默认模式是 `dry-run`**：每次抓取都会打印"目录与最新排名是否一致"的摘要（零写入）。
 要落盘得显式 `--renumber-papers apply` 或配置 `renumber_papers: "apply"` —— 这是**改数据**的操作，
 建议在阶段 2 空闲时做一次。
+
+## Y-7 撤回越界：教训与守卫（2026-10-15）
+
+**判据（用户裁定）**：先问"**这段逻辑改的数据由谁产生**"，再决定它放哪 —— 不是"哪个阶段最早需要它"。
+`repair_progress_locations` / `repair_citation_filenames` 改的是阶段 2 的 `progress.json` 与
+`citations/*.pdf`，所以它们**不该**被前移；为了让阶段 2 的 `patch.object(薄模块, …)` 继续生效而设计的
+`_CONSUMER` / `_STAGE2_MODULES` / `_consumer` ambient 回指，**正是"搬多了"的补偿机制**（Y-7 明确禁止
+"运行时按名字去消费方模块取"）。**判据一句话：补偿机制的存在本身就是越界的信号。**
+
+**新增守卫**（`tests/test_dependency_direction.py`，源码级，照 `test_no_env_config.py` 的写法）：
+阶段 1 的 `code/shared/*.py` 里出现阶段 2 的模块名（`code.citation_downloader` / `code.progress` /
+`code.utils` / `code.tool_log`）即失败；另外钉住 `_STAGE2_MODULES` / `_CONSUMER` / `def _resolve(`
+这三个"回指标志"不出现，以及 `papers_repairs.py` 不再回来。今天 `papers_layout.py` 满足 ✓。
+
+**同类残留（下次一起清）**：`shared/papers_layout.py` 里的 `remap_progress()` 改的是阶段 2 的
+`progress.json` —— 阶段 1 已不再调用它 ✓，但函数体仍在阶段 1 ✗。等做 `download_progress` /
+`download_summary` 拆分时把它移回阶段 2（或按"去掉编号镜像"的方案整体废弃）。

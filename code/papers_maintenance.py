@@ -97,7 +97,7 @@ def run(papers_root, papers, mode=DEFAULT_MODE, output_dir=None, log=print):
     if mode == "off" or not papers:
         return result
     try:
-        from code.shared.papers_layout import reconcile, remap_progress
+        from code.shared.papers_layout import reconcile
 
         # 顺序很重要：**先**改名对齐，**再**建缺的目录。
         # 反过来的话，新建的目标目录会与"待改名"的旧目录同时存在，共享件会把它们看成
@@ -108,13 +108,8 @@ def run(papers_root, papers, mode=DEFAULT_MODE, output_dir=None, log=print):
             log("[papers] dry-run：%s（用 --renumber-papers apply 落盘）" % result["plan"])
             return result
         result["created"] = ensure_paper_dirs(papers_root, papers, log=log)
-        if os.path.isfile(os.path.join(papers_root, "progress.json")):
-            result["progress"] = remap_progress(
-                plan,
-                os.path.join(papers_root, "progress.json"),
-                os.path.join(output_dir or papers_root, "renumber_progress_backup"),
-                log=log,
-            )
+        # Y-7：`progress.json` / `download_summary.json` 是阶段 2 的数据，本阶段不碰；
+        # 阶段 2 读本阶段写的 manifest（向前读 ✓）后自行改它自己的进度文件。
         return result
     except Exception as exc:  # noqa: BLE001 —— 维护失败绝不能影响抓取
         log("[papers] 目录维护失败，已跳过（不影响抓取）：%s: %s" % (type(exc).__name__, exc))
