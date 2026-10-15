@@ -275,8 +275,79 @@ class CiteDialogVenueTests(unittest.TestCase):
                              'chicago': 'Zhang, Jie. "T." Cybersecurity 8 (2025): 55.',
                              'vancouver': 'Zhang J. T. Cybersecurity. 2025;8(1):55.'}}
         self.assertEqual(cite_dialog_venue(citation), (None, None))
-        self.assertEqual(citation_venue_key(citation),
-                         ('Proceedings of the 2025 …', SOURCE_RAW))
+        # 列表页那个串被 Scholar 截断 → **不给 key** ✓（用户 2026-10-15：截断串不能当去重键）
+        self.assertEqual(citation_venue_key(citation), (None, None))
+
+    def test_a_truncated_venue_only_resolves_through_the_explicit_table(self):
+        """① 截断一律不给 key，③ 只有显式登记的"唯一可判定前缀"才还原（用户 2026-10-15）。"""
+        # 同一个截断前缀在现实里指向多个发表地 → 没有 key（这是 564 条 `Proceedings of the …` 的处境）
+        for ambiguous in ('Proceedings of the …', 'Findings of the …',
+                          'IEEE Transactions on …', 'International Conference on …'):
+            with self.subTest(venue=ambiguous):
+                self.assertEqual(resolve_venue_key(ambiguous, '2024'), (None, None))
+                self.assertEqual(citation_venue_key({'venue': ambiguous, 'year': '2024'}),
+                                 (None, None))
+        # 显式登记的前缀 → 规范化 key（会议带年份、期刊不带）
+        self.assertEqual(resolve_venue_key('Advances in Neural …', '2024'),
+                         ('NeurIPS2024', SOURCE_NORMALIZED))
+        self.assertEqual(resolve_venue_key('Proceedings of the AAAI …', '2023'),
+                         ('AAAI2023', SOURCE_NORMALIZED))
+        self.assertEqual(resolve_venue_key('Expert Systems with …', '2024'),
+                         ('Expert Systems with Applications', SOURCE_NORMALIZED))
+        # 截断的**预印本**仍按服务器名给 key（`arXiv preprint arXiv …` 787 条，规则未变 ✓）
+        self.assertEqual(resolve_venue_key('arXiv preprint arXiv …', '2024'),
+                         ('arXiv', SOURCE_NORMALIZED))
+        # 未截断的未知串仍按原串给 raw ✓（行为一字未变）
+        self.assertEqual(resolve_venue_key('Journal of Obscure Studies 1 (2), 2019', '2019'),
+                         ('Journal of Obscure Studies 1 (2), 2019', SOURCE_RAW))
+
+    def test_refresh_venue_keys_recomputes_cached_rows(self):
+        """序列化前统一重算派生键（`refresh_venue_keys`，2026-10-15）。
+
+        缓存恢复的行不带这两个字段，照抄会让上一轮从 Cite 对话框拿到的键在一次重抓后
+        静默消失（实测 meta 侧被抹掉 7,901 条）。
+        """
+        from code.citation_identity import refresh_venue_keys
+        rows = [
+            {'venue': 'Proceedings of the 2024 Conference on Empirical Methods in '
+                      'Natural Language Processing', 'year': '2024'},     # 缓存行：没有 key
+            {'venue': 'Journal of Obscure Studies 1, 2019', 'year': '2019'},  # 未知 → raw
+            {'venue': 'Proceedings of the …', 'year': '2024',                 # 截断 → 清掉旧键
+             'venue_key': 'Proceedings of the …', 'venue_key_source': 'raw'},
+            {'venue': 'Advances in Neural …', 'year': '2024'},                # ③ 显式前缀
+            {'venue': 'NA', 'year': '2024', 'venue_key': 'STALE',             # 占位 → 清掉
+             'venue_key_source': 'normalized'},
+        ]
+        refresh_venue_keys(rows)
+        self.assertEqual(rows[0]['venue_key'], 'EMNLP2024')
+        self.assertEqual(rows[0]['venue_key_source'], 'normalized')
+        self.assertEqual(rows[1]['venue_key'], 'Journal of Obscure Studies 1, 2019')
+        self.assertEqual(rows[1]['venue_key_source'], 'raw')
+        self.assertNotIn('venue_key', rows[2])
+        self.assertNotIn('venue_key_source', rows[2])
+        self.assertEqual(rows[3]['venue_key'], 'NeurIPS2024')
+        self.assertNotIn('venue_key', rows[4])
+        # 幂等：再跑一遍结果不变
+        snapshot = [dict(row) for row in rows]
+        refresh_venue_keys(rows)
+        self.assertEqual(rows, snapshot)
+        # `None` / 非 dict 的输入不炸
+        self.assertEqual(refresh_venue_keys(None), None)
+        refresh_venue_keys(['not a dict'])
+
+    def test_the_explicit_truncation_table_only_names_real_venues(self):
+        from code.shared.venue_key import (TRUNCATED_VENUE_PREFIXES, VENUE_CANONICAL,
+                                           is_truncated_venue)
+        self.assertTrue(TRUNCATED_VENUE_PREFIXES, '③ 的显式表不能是空的')
+        for prefix, key in TRUNCATED_VENUE_PREFIXES:
+            with self.subTest(prefix=prefix):
+                self.assertIn(key, VENUE_CANONICAL, '登记的键必须真实存在')
+                # 前缀本身**不含**省略号（它是要去匹配截断串的开头的）
+                self.assertFalse(is_truncated_venue(prefix))
+                # 且必须真的能落在某条表项的开头（否则它永远匹配不到）
+                self.assertTrue(any(text.lower().startswith(prefix.lower())
+                                    for text in [key] + list(VENUE_CANONICAL[key][2])
+                                    + [VENUE_CANONICAL[key][0]]))
 
     def test_without_a_cite_field_nothing_changes(self):
         citation = {'venue': 'ACL 2024', 'year': '2024'}

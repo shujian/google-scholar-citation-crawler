@@ -9,7 +9,7 @@ identity key and a clean dict suitable for caching.
 import re
 
 from code.citation_cache import normalize_citation_year
-from code.shared.venue_key import resolve_venue_key
+from code.shared.venue_key import citation_venue_key, resolve_venue_key
 
 _SCHOLARPUBRE = re.compile(r'cites=([\d,]*)')
 
@@ -188,3 +188,29 @@ def extract_citation_info(pub, fallback_year=None):
         'venue_key': key,
         'venue_key_source': key_source,
     }
+
+
+def refresh_venue_keys(citations):
+    """Recompute the **derived** ``venue_key`` / ``venue_key_source`` of every row.
+
+    The two fields are derived from the row's own venue, so they must be
+    recomputed at serialisation time — a row restored from the previous output
+    (``citation_fetch`` reuses the cached dicts verbatim) carries no key at all,
+    and copying "whatever the row has" would silently drop the keys a previous
+    run had already resolved from a Cite dialog (measured 2026-10-15: 7,901
+    rows vanished from ``citations_meta.json`` on one re-crawl).
+
+    Pure and idempotent; ``citation_venue_key()`` is the single entry point, the
+    same one ``citation_index.meta_entry()`` and the data-upgrade tools use.
+    """
+    for citation in citations or []:
+        if not isinstance(citation, dict):
+            continue
+        key, source = citation_venue_key(citation)
+        if key:
+            citation['venue_key'] = key
+            citation['venue_key_source'] = source
+        else:
+            citation.pop('venue_key', None)
+            citation.pop('venue_key_source', None)
+    return citations

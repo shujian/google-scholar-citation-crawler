@@ -3440,6 +3440,17 @@ stall 计数永远攒不到 2，于是每轮白走约 58 个列表页。
 并加"派生键永不降级"（盘上同一条引用的 `normalized` 不被 raw 顶掉，按身份判"同一条"）。
 附带记 `TO_RUN.md`：被清掉的那批等抓取跑完用同一个回填工具补回并复核。
 
+## 2026-10-16 凌晨（续 23）: 截断的 venue 不给 key；产品文件的派生键也重算
+
+> 待你拍板的产品项：① 引文侧被 Scholar 截断的 venue 怎么给 key（我倾向 ①截断不给 key + ③唯一可判定的前缀补规则）；② 3.a.2 仍保留裸 `Findings` 兜底键、与阶段 1"没有裸 Findings"口径不一致；③ crawler `suggestion.md`（已标"暂不实现"）是否按约定删除；④ `enrich_info` 与 `merge_analysis` 缺 `README.md` 是否补。
+> → **全部四项都做**。
+
+已落地：① `TRUNCATED_VENUE_PREFIXES`（三个显式前缀）+ 截断一律不给 key；产品文件在序列化前
+用新增的 `refresh_venue_keys()` 重算派生字段（缓存行不再丢 key）；② 3.a.2 删掉裸 `Findings`
+键、generic 全称由 `Findings of ACL` 的别名承担；③ `suggestion.md` 的结论并入 `issues.md` 后
+用 `git rm` 删除；④ 补 `enrich_info/README.md` 与 `merge_analysis/README.md`。
+存量按新规则收敛：清掉 4,611 条截断 raw 键、升级 68 条（阶段 2 的 `backfill_venue_key --refresh`）。
+
 ## 2026-10-15（续 23）: 参与 stall 比较的必须是"走完全部页面"的行数
 
 > 注意上面说拿到的行数完全相同得是访问完全部页面拿到的行数，而不是中断情况下拿到的行数哈。

@@ -2402,6 +2402,28 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   （`python -m code.data_upgrade.backfill_venue_key --apply`，阶段 2 `local`）。本修复落地后，
   下一次抓取的保存步骤会自己把能重算的 key 写回来，所以那一步只是"补齐 + 复核"。
 
+## 2026-10-16 凌晨（续 23）: 派生的 `venue_key` 在**产品文件**里也重算；截断的 venue 不再给 key
+
+用户同日裁定两件事，本轮落地：
+
+- **截断的 venue 不给 key（①）+ 唯一可判定的前缀显式还原（③）**：`resolve_venue_key()` 在
+  "已知 venue / 预印本服务器"都未命中、且串含 `…` 时，只认显式登记的
+  `TRUNCATED_VENUE_PREFIXES`（`Advances in Neural` → NeurIPS、`Proceedings of the AAAI` → AAAI、
+  `Expert Systems with` → Expert Systems with Applications），其余返回 `(None, None)`。
+  依据是实测：9,244 条引文里 **5,690 条被截断、1,781 个不同截断串**，其中
+  `Proceedings of the …`（564 条）、`Findings of the …`（215 条）这类**彼此不可区分**。
+  顺带给 AAAI 登记了会议录全称别名。
+- **产品侧也重算派生字段**：新增 `citation_identity.refresh_venue_keys()`，`_save_output()` 在写
+  JSON 前对全部引文行调用 —— 缓存恢复的行不再"没有 key"。与 `citation_index.meta_entry()`、
+  数据修复工具**同一入口**。
+- **测试**：`tests/test_venue_key.py` 新增"截断只走显式表"、"显式表的键必须真实存在"、
+  "`refresh_venue_keys` 重算 + 清旧键 + 幂等"；`test_normalize_venue_key.py` 的两条旧断言
+  （截断 → raw）按新口径改成"截断不给 key"。全套 **556 → 567** 通过 ✓。
+- **数据**：存量按新规则收敛（阶段 2 的 `backfill_venue_key --refresh --apply`：清掉 4,611 条截断
+  raw、升级 68 条），最终 3,352 条 normalized + 5,892 条按口径无 key ✓。
+- **文档**：`AGENTS.md` 的 Phase 2 段、三份 `.zh.md`、`issues.md`（`suggestion.md` 的结论并入后
+  删除该文件）。
+
 ## 2026-10-15（续 23）: 参与 stall 比较的行数必须来自"走完全部页面"的那次（用户定）
 
 - **用户要求**：stall 的"行数相同"必须是**访问完全部页面**拿到的行数，中断情况拿到的不算。

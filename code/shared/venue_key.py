@@ -102,7 +102,10 @@ VENUE_CANONICAL = {
               'conference',
               ['Conference of the North American Chapter of the Association for '
                'Computational Linguistics']),
-    'AAAI': ('AAAI Conference on Artificial Intelligence', 'conference', []),
+    'AAAI': ('AAAI Conference on Artificial Intelligence', 'conference',
+             # 会议录的完整写法（列表页常被截成 `Proceedings of the AAAI …`，见
+             # `TRUNCATED_VENUE_PREFIXES`；这里登记全称，让未截断的那种也有确定匹配）
+             ['Proceedings of the AAAI Conference on Artificial Intelligence']),
     'IJCAI': ('International Joint Conference on Artificial Intelligence', 'conference', []),
     'ACM MM': ('ACM International Conference on Multimedia', 'conference',
                ['ACM Multimedia', 'ACMMM',
@@ -416,6 +419,42 @@ def venue_match(keyword, text):
                           text, flags))
 
 
+def is_truncated_venue(venue):
+    """True when Scholar cut the venue short (``…`` / ``...``).
+
+    The citing-side list page truncates at ~25 characters, so most citing rows
+    arrive as ``Proceedings of the …`` — unusable as an identity because 564
+    different conferences share that exact string (measured 2026-10-15: 5,690 of
+    9,244 citing rows are truncated, spread over 1,781 distinct strings).
+    """
+    text = normalize_venue_text(venue)
+    return '…' in text or '...' in text
+
+
+#: **显式**的截断还原规则：前缀 → `VENUE_CANONICAL` 的键（用户 2026-10-15 定：截断的 venue
+#: 一律不给 key，只有"这个前缀在现实中只可能指向一个发表地"的才登记）。键必须真实存在于
+#: `VENUE_CANONICAL`（有测试守卫）。没登记的截断串 → **不给 key** ✓，绝不用截断串本身当去重键 ✗。
+TRUNCATED_VENUE_PREFIXES = (
+    # 只有 NeurIPS 的全称以它开头（`Advances in Neural Information Processing Systems`）
+    ('Advances in Neural', 'NeurIPS'),
+    # 只有 AAAI 的会议录以它开头（`Proceedings of the AAAI Conference on Artificial Intelligence`）
+    ('Proceedings of the AAAI', 'AAAI'),
+    # 只有这一本刊以它开头（`Expert Systems with Applications`；另一个刊叫 `Expert Systems`）
+    ('Expert Systems with', 'Expert Systems with Applications'),
+)
+
+
+def truncated_venue_key(venue):
+    """Resolve a truncated venue to a key **only** through the explicit table."""
+    text = normalize_venue_text(venue)
+    if not is_truncated_venue(text):
+        return None
+    for prefix, key in TRUNCATED_VENUE_PREFIXES:
+        if text.startswith(prefix):
+            return key
+    return None
+
+
 def normalize_venue_text(venue):
     """Collapse whitespace; ``''`` for None."""
     if venue is None:
@@ -480,6 +519,10 @@ def resolve_venue_key(venue, year=None):
     """Return ``(venue_key, source)``.
 
     * known venue → ``('<normalized name><year>', 'normalized')``
+    * preprint server (even when truncated, ``arXiv preprint arXiv …``) → its name
+    * **truncated by Scholar** (``…``) → a key **only** through
+      `TRUNCATED_VENUE_PREFIXES`; otherwise ``(None, None)`` — the truncated text
+      itself is not an identity (`is_truncated_venue`)
     * unknown venue → ``('<venue text>', 'raw')`` so it can be reviewed
     * no venue at all → ``(None, None)``
     """
@@ -495,6 +538,13 @@ def resolve_venue_key(venue, year=None):
     server = preprint_venue_key(venue)
     if server:
         return server, SOURCE_NORMALIZED
+    if is_truncated_venue(venue):
+        name = truncated_venue_key(venue)
+        if not name:
+            return None, None          # 截断且无显式规则 → 不给 key ✗（用户 2026-10-15）
+        if VENUE_CANONICAL[name][1] == 'journal':
+            return name, SOURCE_NORMALIZED
+        return f"{name}{pick_venue_year(venue, year) or ''}", SOURCE_NORMALIZED
     return normalize_venue_text(venue), SOURCE_RAW
 
 

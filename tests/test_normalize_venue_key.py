@@ -107,7 +107,9 @@ class ToolTests(unittest.TestCase):
 
         citations = self._read(self.citations_path)['papers'][0]['citations']
         self.assertEqual(citations[0]['venue_key'], 'Findings of EMNLP2024')
-        self.assertEqual(citations[1]['venue_key'], 'Proceedings of the …')
+        # 截断的列表页串**不给 key** ✓（用户 2026-10-15：截断串不能当去重键；见 test_venue_key）
+        self.assertIsNone(citations[1]['venue_key'])
+        self.assertIsNone(citations[1]['venue_key_source'])
 
         source_pub = self._read(self.citations_path)['papers'][0]['pub']
         self.assertEqual(source_pub['venue_key'], 'ACL2024')
@@ -151,7 +153,9 @@ class ToolTests(unittest.TestCase):
         self.assertIn('Journal of Obscure Studies 1 (2), 3-4, 2019', pubs)
         self.assertNotIn('ACL 2024', pubs)
         citations = {row['venue']: row['count'] for row in report['unknown_citations']}
-        self.assertIn('Proceedings of the …', citations)
+        # 截断的 venue 既不是 normalized 也不是 raw（它**不给 key**），所以不进"待审阅"清单 ✓
+        self.assertNotIn('Proceedings of the …', citations)
+        self.assertEqual(citations, {})
         self.assertEqual(report['citations']['total'], 3)  # pub + 2 citations
         self.assertEqual(report['citations']['normalized'], 2)  # pub + C1
 

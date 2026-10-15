@@ -1987,6 +1987,66 @@ Scholar 的，**本身就在抖**（同一篇论文的 2026 桶实测 190/200 �
 同编号不同 `cites_id` 不继承（落到 raw）、盘上 raw 被重算升级成 normalized、
 整库五篇重写零丢失。全套 **556 → 563** 全绿 ✓。真实库的复核要等抓取结束（见 `TO_RUN.md`）。
 
+---
+
+## 2026-10-16 凌晨（续 23）: 截断的 venue 不给 key + 产品文件的派生键也要重算
+
+**一、`venue_key` 的两处写者，都要"每次序列化重算"**
+
+上一节修的是 **meta 侧**（`citation_index.meta_entry()`）。**产品侧**（
+`output/author_<ID>_paper_citations.json`）同样有这个问题：`_save_output()` 把
+`final_results` 直接序列化，而**缓存恢复的行**（`citation_fetch.py` 的
+`old_citations = list(resume_from)` → `:404-405` 直接进 `citations_to_save`）不带这两个字段，
+于是"上一轮抓到过 Cite 对话框"的 key 在一次重抓后消失 ✗。
+
+修法：新增 `citation_identity.refresh_venue_keys(citations)`，在 `_save_output()` 写 JSON 之前
+对**全部**引文行调用（`try/except` 包住，失败只告警、绝不阻断落盘 ✓）。它和
+`citation_index.meta_entry()`、`backfill_venue_key`、`normalize_venue_key` 用的是**同一个入口**
+`shared.venue_key.citation_venue_key()`，所以"派生字段"只有一条判据 ✓。
+
+**二、截断的 venue 不给 key（用户 2026-10-15 定；本轮实现）**
+
+实测依据（真实库 2026-10-16）：**9,244 条引文里 5,690 条含 `…`**，共 **1,781 个不同截断串** ——
+最高频的恰恰是**彼此不可区分**的那些：`arXiv preprint arXiv …` 787（已归 `arXiv` ✓）、
+`Proceedings of the …` 564、`Findings of the …` 215、`IEEE Transactions on …` 140、
+`ACM Transactions on …` 79、`International Conference on …` 54 …
+按旧口径它们各自成为 `raw` key，下游一旦拿它判"同一篇"就会**误并**（两条
+`Proceedings of the …` 其实来自不同会议）✗。
+
+新规则（`resolve_venue_key()` 的顺序不变，只在"都没命中"之后多一层）：
+
+```
+已知 venue（词表/别名，含长写法优先）      → normalized（会议带年份、期刊不带）
+预印本服务器（含被截断的 `arXiv preprint arXiv …`）→ normalized（`arXiv` 等）
+**被截断**（含 `…`）：
+    命中 TRUNCATED_VENUE_PREFIXES → normalized
+    否则                          → (None, None)   ← 不给 key ✗
+未截断的未知串                      → raw（原行为一字未变 ✓）
+```
+
+`TRUNCATED_VENUE_PREFIXES` 是**显式表**（用户 ③ 的原话是"补显式规则，只对唯一可判定的前缀生效"），
+每一条都能说出"为什么唯一"：
+`Advances in Neural` → NeurIPS（只有它的全称这样开头）、
+`Proceedings of the AAAI` → AAAI（只有 AAAI 的会议录这样开头）、
+`Expert Systems with` → Expert Systems with Applications（另一个刊叫 `Expert Systems`）。
+**没登记的**包括 `Proceedings of the …` / `Findings of the …` / `IEEE Transactions on …` /
+`Transactions of the …` / `Computational …` —— 它们的前缀在现实中都指向多个发表地 ✗
+（曾考虑"前缀在词表里唯一匹配就认"的自动规则：实测 `Transactions of the` → TACL、
+`Computational` → CL、`IEEE/ACM Transactions` → TASLP 都是**表内唯一但现实不唯一**，
+会制造新的假阳性，所以放弃自动规则、改用显式表 ✓）。顺带给 AAAI 登记了会议录全称别名
+（`Proceedings of the AAAI Conference on Artificial Intelligence`），让未截断的那种也有确定匹配。
+
+**三、存量收敛**：规则变了，盘上那些"以截断串为 raw key"的行要清掉。阶段 2 的
+`backfill_venue_key` 新增 `--refresh`（逐条重算并**与盘上对照**；不再有效的键写 `clear` 记录、
+连同源键一起进 manifest）。真实库：**183 篇 / 4,679 条** —— **清掉 4,611 条**截断 raw、
+**升级 68 条**为 normalized；`--apply` 后幂等复跑 0 改动 ✓。默认模式（只补缺失）**一字未变** ✓
+（`plan_paper(..., refresh=False)` 才是默认）。
+
+**四、测试**（全套 **556 → 567** ✓）：`test_venue_key.py` —— 截断只走显式表（四个歧义前缀
+一律 `(None, None)`、三个显式前缀各得 key、截断的 arXiv 仍归 `arXiv`、未截断的未知串仍 raw）、
+显式表的守卫（键必须真实存在于 `VENUE_CANONICAL`、前缀必须真的是某条表项的开头）、
+`refresh_venue_keys` 的重算/清旧键/幂等/容错；`test_normalize_venue_key.py` 两条旧断言按新口径更新。
+
 ## 2026-10-15（续 23）: stall 的"行数"必须来自一次走完全部页面的遍历
 
 **用户口径**：两次运行的"行数相同"必须是**访问完全部页面**得到的那份行数，中断情况下的不算。

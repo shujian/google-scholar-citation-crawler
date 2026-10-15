@@ -115,13 +115,13 @@ class VenueKeyIsDerivedAndNeverDowngradedTests(unittest.TestCase):
         """编号会被复用（K123/K128）：**别的**作品不许继承盘上那条的 key ✗。"""
         with tempfile.TemporaryDirectory() as tmp:
             self._seed(tmp, [{"index": 1, "cites_id": "old", "title": "Old work", "year": "2024",
-                              "venue": "Proceedings of the …",
+                              "venue": "Journal of Obscure Studies 1, 2019",
                               "venue_key": "EMNLP2024", "venue_key_source": "normalized"}])
             write_citations_meta(tmp, [{"index": 1, "cites_id": "new", "title": "New work",
-                                        "year": "2024", "venue": "Proceedings of the …"}])
+                                        "year": "2024", "venue": "Journal of Obscure Studies 1, 2019"}])
             entry = self._read(tmp)[0]
             self.assertEqual(entry["title"], "New work")
-            self.assertEqual(entry["venue_key"], "Proceedings of the …")
+            self.assertEqual(entry["venue_key"], "Journal of Obscure Studies 1, 2019")
             self.assertEqual(entry["venue_key_source"], "raw")
 
     def test_a_raw_key_on_disk_is_upgraded_by_the_recompute(self):

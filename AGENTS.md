@@ -72,7 +72,7 @@ This file provides guidance to AI coding agents working with code in this reposi
   再加一条 CLI 约定。历史文档里出现过 `--papers` 的用法示例，**那是错的，不要照做、也不要再实现它**。
 - 引用级过滤（`-p 12(50,141,300)`）同样不适用：Scholar 的引用列表页无法跳过中间的条目，
   crawler 只能整篇抓取；若将来确实需要缩小输出，只能做"输出裁剪"而非抓取优化
-  （评估见 `suggestion.md`）。
+  （评估已并入 `issues.md` 第二节 3b —— 定案**不实现**，原 `suggestion.md` 已按约定删除）。
 
 ## 目录治理与配置（2026-10-10）
 
@@ -280,6 +280,15 @@ The program always runs in two sequential phases from `main()`:
   a 7,901-row backfill on 2026-10-15) and **never downgrades** — a stored `normalized`
   key survives when the recompute only reaches `raw`, as long as
   `same_citation_identity()` says it is the same citation
+- Recomputes those derived keys for **every** row right before serialising
+  (`citation_identity.refresh_venue_keys`, called from `_save_output`), so a row
+  restored from the previous output still gets its key back.  A venue Scholar
+  **truncated** (``…``) gets a key **only** through the explicit
+  `TRUNCATED_VENUE_PREFIXES` table (`Advances in Neural …` → NeurIPS,
+  `Proceedings of the AAAI …` → AAAI, `Expert Systems with …` → its journal);
+  everything else truncated gets **no key** — `Proceedings of the …` alone covers
+  564 different conferences (measured 2026-10-15: 5,690 of 9,244 citing rows are
+  truncated across 1,781 distinct strings)
 
 ### Citation fetch strategy
 

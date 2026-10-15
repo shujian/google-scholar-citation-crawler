@@ -94,6 +94,7 @@ from code.citation_identity import (
     citation_identity_key as _ci_citation_identity_key,
     citation_output_identity_keys as _ci_citation_output_identity_keys,
     extract_citation_info as _ci_extract_citation_info,
+    refresh_venue_keys as _ci_refresh_venue_keys,
 )
 from code.citation_io import (
     load_citation_cache as _cio_load_citation_cache,
@@ -1800,6 +1801,16 @@ class PaperCitationFetcher:
             except Exception as e:
                 print(f"Warning: citation-format step failed "
                       f"({type(e).__name__}: {e}); writing the output without it", flush=True)
+
+        # `venue_key` / `venue_key_source` 是**派生字段**：序列化前统一重算 ✓（2026-10-15）。
+        # 缓存恢复的行（`citation_fetch` 直接复用上一轮的 dict）不带这两个字段，照抄会让
+        # "上一轮抓到过 Cite 对话框"的键在一次重抓后静默消失 ✗（实测 meta 侧被抹掉 7,901 条）。
+        # 重算是纯函数、幂等，与 `citation_index.meta_entry()` / 各数据修复工具**同一入口** ✓。
+        try:
+            _ci_refresh_venue_keys([c for entry in final_results
+                                    for c in (entry.get('citations') or [])])
+        except Exception as exc:   # noqa: BLE001 —— 派生字段刷新失败绝不影响抓取落盘
+            print(f"Warning: could not refresh venue keys: {exc}", flush=True)
 
         output_payload = {
             'author_id': self.author_id,
