@@ -263,6 +263,13 @@ def write_citations_meta(paper_dir, citations, log=None, dry_run=False):
         for field, value in (existing_by_index.get(int(entry["index"])) or {}).items():
             if field not in META_FIELDS and field not in entry:
                 entry[field] = value
+    # **旧条目里本次输入没有的编号原样保留** ✓（上游引文消失 = 退役 ✓，但盘上的记录
+    # 不能因一次重写就凭空消失 ✗ —— 与"归档不删除"同一口径 ✓；真要清理由对账工具做 ✓）。
+    fresh = {int(e["index"]) for e in entries}
+    for index, old_entry in existing_by_index.items():
+        if index not in fresh:
+            entries.append(old_entry)
+    entries.sort(key=lambda e: int(e["index"]))
     try:
         with open(path, "r", encoding="utf-8") as handle:
             if _json.load(handle) == entries:
@@ -279,3 +286,21 @@ def write_citations_meta(paper_dir, citations, log=None, dry_run=False):
     if log is not None:
         log("  citations_meta: 写入 %d 条主体（阶段 1 ✓）" % len(entries))
     return len(entries)
+
+
+def write_citations_meta_for_pub(papers_root, pub, citations, log=None, dry_run=False):
+    """`write_citations_meta()` 的 pub 入口：**复用 `write_cite_files()` 的目录解析** ✓。
+
+    目录不存在时返回 0 ✓（**只报告、不创建** ✗ —— 目录的创建归阶段 1 的目录维护步骤 ✓，
+    本函数不越权 ✓）。
+    """
+    import os as _os
+
+    from code.shared.papers_layout import target_dir_name
+
+    if pub.get("no") is None:
+        return 0
+    paper_dir = _os.path.join(papers_root, target_dir_name(pub))
+    if not _os.path.isdir(paper_dir):
+        return 0
+    return write_citations_meta(paper_dir, citations, log=log, dry_run=dry_run)

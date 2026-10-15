@@ -118,7 +118,8 @@ from code.venue_quality import (
 
 from code.papers_maintenance import run_for_output as run_papers_maintenance
 
-from code.citation_index import assign_entry_indices, write_cite_files
+from code.citation_index import (assign_entry_indices, write_cite_files,
+                                 write_citations_meta_for_pub)
 
 logger = get_logger(__name__)
 
@@ -1765,6 +1766,10 @@ class PaperCitationFetcher:
             _root = papers_root(self.output_dir, self.author_id)
             for entry in final_results:
                 write_cite_files(_root, entry.get('pub') or {}, entry.get('citations') or [])
+                # `citations_meta.json` 的**主体**也归阶段 1（Y-9 ✓）：只写自己的字段 ✓，
+                # 阶段 2 的下载字段与退役编号的旧条目**原样保留** ✓（Y-7：只动自己的数据 ✓）。
+                write_citations_meta_for_pub(_root, entry.get('pub') or {},
+                                             entry.get('citations') or [])
         except Exception as exc:   # noqa: BLE001 —— 落盘失败绝不影响抓取主流程
             print(f"Warning: could not write cite files: {exc}")
         total_cites = sum(len(r['citations']) for r in final_results)

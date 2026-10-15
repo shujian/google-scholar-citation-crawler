@@ -86,3 +86,27 @@ class PreserveStageTwoFieldsTests(unittest.TestCase):
             with open(os.path.join(tmp, META_NAME), encoding="utf-8") as handle:
                 self.assertEqual(json.load(handle), [{"index": 1, "title": "T"}],
                                  "新文件里不该有下载字段 ✗")
+
+
+class RetiredEntriesAndPubEntryPointTests(unittest.TestCase):
+
+    def test_entries_missing_from_the_new_input_are_kept(self):
+        """上游消失 = 退役 ✓，但一次重写**不得**让盘上的记录凭空消失 ✗。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, META_NAME)
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump([{"index": 1, "title": "Old"}, {"index": 5, "title": "Retired"}], handle)
+            write_citations_meta(tmp, [{"index": 1, "title": "New"}])
+            saved = json.load(open(path, encoding="utf-8"))
+            self.assertEqual([e["index"] for e in saved], [1, 5], "退役条目应保留 ✓")
+            self.assertEqual(saved[0]["title"], "New", "在册条目按抓取侧更新 ✓")
+            self.assertEqual(saved[1]["title"], "Retired", "退役条目原样保留 ✓")
+
+    def test_pub_entry_point_reuses_the_layout_and_never_creates_a_dir(self):
+        from code.citation_index import write_citations_meta_for_pub
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(write_citations_meta_for_pub(tmp, {"no": None}, [{"index": 1}]), 0)
+            self.assertEqual(write_citations_meta_for_pub(tmp, {"no": 3, "title": "X"},
+                                                          [{"index": 1, "title": "T"}]), 0,
+                             "目录不存在 → 只报告不创建 ✗")
+            self.assertEqual(len(os.listdir(tmp)), 0, "不该创建任何目录/文件 ✗")
