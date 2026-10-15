@@ -19,7 +19,7 @@ A Python tool to crawl Google Scholar author profiles and per-paper citation lis
 - **Anti-Ban Strategies**: HTTP/2 via scholarly's native `httpx` client with full browser headers (fingerprint adopted from the injected browser cURL), randomized 45–90 s delays, mandatory 3–6 min breaks every 8–12 pages, browser header simulation
 - **Full venue strings (`venue_full`)**: the citation-list pages truncate venues (`Proceedings of the 2024 Conference of the North American Chapter of the …`). Each publication's Scholar *detail* page (`citations?view_op=view_citation&citation_for_view=…`) is therefore fetched once per run to read the untruncated value — one request per publication (hundreds), not per citing entry (thousands). It is stored in a **new** field `pub['venue_full']` (plus `pub['venue_full_source'] = "scholar_detail"` and the detail-page token `pub['citation_for_view']`); `venue` itself is never rewritten, because it takes part in identity keys downstream. Publications whose `venue` is **already complete** (non-empty, untruncated, not a preprint source) are skipped without a request and without a cache entry The requests go through the same patched session (same waits, `--accelerate` scaling, captcha recovery, proxy prompt), and parsed pages are cached in `output/venue_detail_cache.json` — so an interrupted run resumes and a later run asks for nothing twice
 - **Venue identity keys (`venue_key`)**: every publication and every citing entry carries a normalized `venue_key` — the venue name plus the year (`ACL2026`, `EMNLP2025`, `Findings of ACL2026`, `NeurIPS2024`) — so downstream stages can tell "same title, different venue" apart. Names come from the same vocabulary stage 3.a.2 uses (spelled-out proceedings titles resolve to their acronym, TACL stays the journal, and **Findings is a venue of its own**, not its host conference). Venues outside the table keep their own text as the key with `venue_key_source: "raw"`, which marks them as reviewable rather than normalized; a row without a venue gets no key at all
-- **Citation formats + BibTeX（已弃用，见 AGENTS.md） (on by default; `--no-cite-formats` skips it)**: every citing entry keeps its Scholar cluster id as `cid`, and the entry's Cite dialog (`scholar?q=info:<cid>:scholar.google.com/&output=cite`) gives all five formats — MLA / APA / **Chicago** (the **full author list with given names**) / Harvard / **Vancouver** (the **untruncated venue** + volume/issue/pages) — plus a parsed BibTeX record, stored in the additive `citation['cite']` field. It runs by default because for a *citing* paper this dialog is the only source of both: the citation-list page truncates the venue and abbreviates every author. It costs one request per citing entry (plus one for BibTeX), cached in `output/cite_format_cache.json`; an entry that already carries a saved BibTeX record whose venue matches the venue seen online is skipped **without either request** (that is the common case on re-runs: the record already holds the full author list and the untruncated venue, so a mismatch -- a changed venue, say -- is the only reason to fetch again), and an entry whose venue is already complete **and** whose authors are already spelled out in full is skipped too (those two things are all the dialog returns), and entries without a `cid` (rows written before the field existed) cannot be addressed until the paper is re-fetched
+- **Citation formats  (on by default; `--no-cite-formats` skips it)**: every citing entry keeps its Scholar cluster id as `cid`, and the entry's Cite dialog (`scholar?q=info:<cid>:scholar.google.com/&output=cite`) gives all five formats — MLA / APA / **Chicago** (the **full author list with given names**) / Harvard / **Vancouver** (the **untruncated venue** + volume/issue/pages) — stored in the additive `citation['cite']` field. It runs by default because for a *citing* paper this dialog is the only source of both: the citation-list page truncates the venue and abbreviates every author. It costs one request per citing entry, cached in `output/cite_format_cache.json`; an entry that already carries a parsed Chicago venue matching the venue seen online is skipped **without a request** (that is the common case on re-runs: the record already holds the full author list and the untruncated venue, so a mismatch -- a changed venue, say -- is the only reason to fetch again), and an entry whose venue is already complete **and** whose authors are already spelled out in full is skipped too (those two things are all the dialog returns), and entries without a `cid` (rows written before the field existed) cannot be addressed until the paper is re-fetched
 - **Interactive Captcha Bypass**: `--interactive-captcha` lets you paste a browser cURL to inject real cookies and resume without restarting; if playwright is installed you can type `browser` at the prompt instead and let it harvest the cookies from a real browser window
 - **Proxy Switch Wait**: On non-interactive failure, prompts hourly to switch proxy/IP until you type `ok` (the 24 h window scales with `--accelerate`)
 - **Change Tracking**: Records per-run citation-count history in the profile JSON
@@ -85,7 +85,7 @@ optional:
   --interactive-captcha         Enable interactive captcha bypass (see below)
   --cite-formats | --no-cite-formats
                                 Resolve each citing entry's five citation formats
-                                (MLA/APA/Chicago/Harvard/Vancouver) + BibTeX in
+                                (MLA/APA/Chicago/Harvard/Vancouver) in
                                 citation["cite"]; one request per entry, cached.
                                 ON by default (the dialog is the only source of a
                                 citing paper's full authors + untruncated venue)
@@ -138,7 +138,7 @@ prints a warning, and the JSON is left untouched.
 | `author_<ID>_paper_citations.json` | Per-paper citation lists |
 | `author_<ID>_paper_citations.xlsx` | Excel: Summary, All Citations, Run Metadata |
 | `venue_detail_cache.json` | Publication detail pages already parsed (`citation_for_view` token → full venue). Makes the `venue_full` step resumable; safe to delete to re-read every page |
-| `cite_format_cache.json` | Cite dialogs already parsed (row `cid` → the five formats + signed BibTeX URL + parsed BibTeX). Makes `--cite-formats` resumable; safe to delete to re-read every dialog |
+| `cite_format_cache.json` | Cite dialogs already parsed (row `cid` → the five formats + `venue_text` / `authors_full`). Makes `--cite-formats` resumable; safe to delete to re-read every dialog |
 | `author_<ID>_papers/` | **The pipeline's shared papers tree** (physical home since 2026-10-15): `<NNN>-<slug>/` per publication with the PDFs, `citations_meta.json`, `enrich_info/`, `analysis_info/`, `analysis_content/`, `.shared/work/`, `progress.json`, `old/`. Created here (idempotently); every later stage reaches it through its own `papers` symlink, never by this path |
 | `output/logs/author_<ID>_run_<ts>.log` | Full log of each run (mirrors stdout) |
 
@@ -217,7 +217,7 @@ every citing entry therefore carry a normalized key: **venue name + year**.
   apart, and the two spellings `NIPS` / `ACMMM` collapse onto `NeurIPS` / `ACM MM`.
 - The year is the first 4-digit year inside the venue string (the conference
   edition), falling back to the record's own `year`.
-- **A citing entry prefers the Cite dialog's venue**: `citation['cite'].bibtex`
+- **A citing entry prefers the Cite dialog's venue**: the parsed `citation['cite'].venue_text` (or a legacy `bibtex` field)
   carries `journal` / `booktitle` / `series` untruncated, so `venue_key` is derived
   from it whenever the dialog data is present, and only falls back to the
   citation-list `venue` (cut off at ~25 characters) otherwise.  The five formatted
@@ -253,7 +253,7 @@ every citing entry therefore carry a normalized key: **venue name + year**.
   distinct *unrecognised* venue with its count so the table can be extended
   deliberately.
 
-## Citation Formats & BibTeX (on by default; `--no-cite-formats` skips it)
+## Citation Formats (on by default; `--no-cite-formats` skips it) — BibTeX abandoned 2026-10-15
 
 Every citing entry keeps the Scholar cluster id of its result row as
 `citation['cid']` (the row's `data-cid`; scholarly exposes it as
@@ -265,7 +265,7 @@ Cite dialog:
 scholar?q=info:<cid>:scholar.google.com/&output=cite&scirp=0&hl=en
 ```
 
-One request returns all five formats, plus a signed BibTeX link in the same HTML.
+One request returns all five formats. (BibTeX was abandoned on 2026-10-15: its signed link is minted per dialog render, so a cached one is always stale.)
 They are stored in a new, purely additive field (this runs by default — pass
 `--no-cite-formats` to skip the requests, at the cost of keeping the list page's
 abbreviated authors and truncated venue).  Storing them also refreshes

@@ -47,7 +47,7 @@ This file provides guidance to AI coding agents working with code in this reposi
 - Force re-fetch specific papers: `python -m code.scholar_citation --author YOUR_AUTHOR_ID --fetch-mode force --skip 2 --limit 3`
 - Enable debug logging: `python -m code.scholar_citation --author YOUR_AUTHOR_ID -v`
 - Use interactive captcha recovery: `python -m code.scholar_citation --author YOUR_AUTHOR_ID --interactive-captcha`
-- Every citing entry's five citation formats + BibTeX are resolved by default (one request per entry); `--no-cite-formats` skips that step: `python -m code.scholar_citation --author YOUR_AUTHOR_ID --skip 0 --limit 1`
+- Every citing entry's five citation formats are resolved by default (one request per entry). **BibTeX is no longer fetched (abandoned 2026-10-15)**: its signed link is minted per dialog render and is unusable from a cache. `--no-cite-formats` skips the whole step: `python -m code.scholar_citation --author YOUR_AUTHOR_ID --skip 0 --limit 1`
 - Speed up waits for debugging: `python -m code.scholar_citation --author YOUR_AUTHOR_ID --interactive-captcha --accelerate 0.1`
 - Override the proxy: `python -m code.scholar_citation --author YOUR_AUTHOR_ID --proxy-url http://127.0.0.1:7890`
 - Run all tests: `PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests`
@@ -119,7 +119,7 @@ google-scholar-citation-crawler/
 
 简况：`code/` 有 23 个支撑模块（author profile 层、citation data 层、fetch engine 层、CLI、配置与日志，
 其中 `lib_env.py` 管第三方库环境、`venue_detail.py` 管出版详情页的完整 venue、`cite_format.py` 管施引
-条目的五种引用格式与 BibTeX、`venue_quality.py` 判「venue 是否已经完整/是否只是预印本源」、
+条目的五种引用格式（**BibTeX 已弃用 2026-10-15**）、`venue_quality.py` 判「venue 是否已经完整/是否只是预印本源」、
 `venue_key.py`（**薄再导出**）把 venue 归一成身份键（会议 = `名+年份`、期刊 = 缩写名、
 预印本 = 服务器名）—— 规则的**唯一实体**在 `code/shared/venue_key.py`（本仓库是宿主），
 阶段 2 / 3.a.1 / 3.a.2 / 阶段 4 经各自的 `code/_shared.py` 消费同一份）；
@@ -151,17 +151,17 @@ google-scholar-citation-crawler/
   预印本源）：跳过时**零请求、不写缓存**，记在 `venue_full resolved: … already complete N`。
 - **`code/cite_format.py`**（2026-10-14）：从 Scholar 的 **Cite 对话框**
   （`/scholar?q=info:<cid>:scholar.google.com/&output=cite&scirp=0&hl=en`）读**五种引用格式**
-  （MLA / APA / Chicago / Harvard / Vancouver）与 BibTeX，写进施引条目的
-  `citation['cite']`（`{'mla': …, 'chicago': …, 'vancouver': …, 'bibtex': {…}}`）。**Chicago 给全作者
+  （MLA / APA / Chicago / Harvard / Vancouver），写进施引条目的
+  `citation['cite']`（`{'mla': …, 'chicago': …, 'vancouver': …, 'venue_text': …, 'authors_full': …}`；**BibTeX 已弃用**）。**Chicago 给全作者
   全名、Vancouver 给 venue 全称 + 卷期页码**，正是引文列表页给不了的。`cid`（= 结果行的
   `data-cid`，scholarly 放在 `url_scholarbib`）由 `citation_identity.extract_citation_info()` **纯解析**
   （不发请求）随条目落盘，**与 `cites_id` 是两个概念**（后者是被引作品的 cluster，参与身份键）。
   解析按 DOM 配对（`th.gs_cith` + `td > div.gs_citr`），页面开头的 `<style>` 提到 `.gs_citr{…}`，
-  朴素正则会把 CSS 当引用；BibTeX 走同一响应里**带签名**的 `scholar.bib` 链接（第二次请求）。
+  朴素正则会把 CSS 当引用；**BibTeX 已弃用**：`scholar.bib` 的签名按渲染现铸、缓存里必然作废，不再下载。
   **只增不改**：`title`/`authors`/`venue`/`year`/`url`/`cites_id` 一字不动（venue 与 cites_id 参与身份键，
-  同 `venue_detail.py` 的教训）。**默认开启**（`--no-cite-formats` 可关）：每个施引条目一次请求、BibTeX 再一次，
+  同 `venue_detail.py` 的教训）。**默认开启**（`--no-cite-formats` 可关）：每个施引条目一次请求
   全库是数千次；缓存 `output/cite_format_cache.json` 按 `cid` 记录已解析页面，可续跑，失败不写缓存。
-  写进 `citation['cite']` 的同时**顺手刷新** `venue_key` / `venue_key_source`（用 BibTeX 里未截断的
+  写进 `citation['cite']` 的同时**顺手刷新** `venue_key` / `venue_key_source`（用 **Chicago** 解析出的未截断
   `journal`/`booktitle`/`series`；对话框没给 venue 字段时保持原值），所以"新数据的 venue_key 也是完整的"。
   **三种"不用抓"**（`code/venue_quality.citation_needs_cite_dialog`）：①**已保存的 bib 与本次线上
   venue 一致** → **cite 与 bib 两个请求都省**（用户 2026-10-15：这条路径访问量大，所以只要已下载过
@@ -200,7 +200,7 @@ google-scholar-citation-crawler/
   按文本长度降序尝试，所以 TACL 期刊不会被 ACL 会议吞掉、`CCMT`/`CWMT`/`WMT` 各归其位、
   Findings 是**独立于主会**的 venue。两处刻意的合并：`NIPS` → `NeurIPS`、`ACMMM` → `ACM MM`
   （同一会议不能有两个 key）。年份取 venue 串里第一个 4 位年份（会议届次），没有才退回记录自身的 year。
-  **引文侧优先用 Cite 对话框里的 venue**：`citation['cite'].bibtex` 的 `journal` / `booktitle` / `series`
+  **引文侧优先用 Cite 对话框里的 venue**：优先级 **存量 `cite.bibtex`（只服务老数据）→ `cite.venue_text`
   是**未截断**的发表地名，所以 `code.shared.venue_key.citation_venue_key()` 优先用它算 key，拿不到才退回
   列表页那个被截到 ~25 字符的 `venue`（五种格式化串**故意不解析** —— venue 夹在作者/标题/卷期之间，
   解析有把标题当 venue 的风险）。抓取时在写完 `citation['cite']` 之后立即刷新这两个派生字段，
