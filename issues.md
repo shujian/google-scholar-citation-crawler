@@ -135,17 +135,13 @@ cite 页路径 —— 上述 venue 判据成立**并且**该条目 `authors` 已
 
 ## 八、venue_key（2026-10-15）：跨仓共享与引文侧截断，需你决定
 
-1. **规范词表暂时有两份（跨仓共享待办）**
-   本仓库新加的 `code/venue_key.py` 与 3.a.2 的 `citation_analysis_info/code/config.py`
-   （`VENUE_PRESTIGE` + `VENUE_ALIASES`）+ `code/core/classifier.py`（`_venue_match` /
-   `canonical_venue` / `normalize_venue`）**是同一套语义的两份实体**。按工作区「跨仓库共享代码」
-   的长期约定（2026-10-14 用户定：唯一实体放**最早需要它的阶段**，消费方经 `code/_shared.py`
-   注入后导入），唯一实体应落在**阶段 1**（`code/shared/venue_key.py`），3.a.2 改成薄再导出。
-   本轮按你的选择先各持一份（改动面小、可后补）；**两份必须逐条对齐**，`tests/test_venue_key.py`
-   把规范名钉住以便发现漂移。
-   → 待办：做这次共享迁移（跨仓改动，需跑容器根 `./run_all_tests.sh` 六套），或明确"两份长期并存"。
-   另有两处刻意的差异（做迁移时要决定谁让谁）：`NIPS`/`NeurIPS` 与 `ACMMM`/`ACM MM` 在 3.a.2 里
-   是**两组键**，而 `venue_key` 把它们**各合并成一个**（去重键不能有两个同义键）。
+1. ~~**规范词表暂时有两份（跨仓共享待办）**~~ → **已落地共享（2026-10-15 当天）** ✅：
+   唯一实体是**本仓库的 `code/shared/venue_key.py`**（宿主 = 阶段 1），`code/venue_key.py` 只是
+   `from code.shared.venue_key import *` 的薄再导出 ✓；3.a.2 经 `code/core/classifier.py` 的
+   `from shared.venue_key import venue_key_name` 消费同一份 ✓（各消费方有
+   `tests/test_shared_venue_key.py` 守卫）。两处刻意的差异也已定案：`NIPS`→`NeurIPS`、
+   `ACMMM`→`ACM MM` **各合并成一个 key** ✓（去重键不能有两个同义键）。
+   **本条已无待办** ✓（原描述留档：本轮按你的选择先各持一份，改动面小、可后补）。
 
 2. **引文侧 venue 被 Scholar 截到约 25 字符 → raw 键不可直接当去重键**
    （2026-10-15 二轮扩表后的现状：词表 81 → **168 条**，pub 侧 canonical 120 → **190**、
