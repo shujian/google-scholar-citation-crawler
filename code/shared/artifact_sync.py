@@ -215,8 +215,10 @@ OUTPUT_NAME_TEMPLATE = "output_%04d.json"
 def output_name(index):
     """`index` → `output_NNNN.json`（编号必须是正整数 ✓；不合法时抛 `ValueError` ✓）。"""
     number = int(index)
-    if number <= 0:
-        raise ValueError("citation index 必须是正整数，收到 %r" % (index,))
+    if number < 0:
+        # `0` 允许 ✓：阶段 2/3 里"没有真实编号"的结果历史上写作 `..._0000.json` ✓，
+        # 改新名后等价于 `output_0000.json` ✓（否则那条写路径会直接抛错 ✗）。
+        raise ValueError("citation index 必须是非负整数，收到 %r" % (index,))
     return OUTPUT_NAME_TEMPLATE % number
 
 def output_path(paper_dir, index):
