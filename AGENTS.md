@@ -158,16 +158,17 @@ google-scholar-citation-crawler/
   （不发请求）随条目落盘，**与 `cites_id` 是两个概念**（后者是被引作品的 cluster，参与身份键）。
   解析按 DOM 配对（`th.gs_cith` + `td > div.gs_citr`），页面开头的 `<style>` 提到 `.gs_citr{…}`，
   朴素正则会把 CSS 当引用；**BibTeX 已弃用**：`scholar.bib` 的签名按渲染现铸、缓存里必然作废，不再下载。
-  **只增不改**：`title`/`authors`/`venue`/`year`/`url`/`cites_id` 一字不动（venue 与 cites_id 参与身份键，
-  同 `venue_detail.py` 的教训）。**默认开启**（`--no-cite-formats` 可关）：每个施引条目一次请求
+  **字段改动只有一处**：写 `cite` 本身是增量；`title`/`authors`/`venue`/`year` 只会被
+  `apply_chicago_correction()` 按 Chicago **修正**（审计在 `cite.corrected`），而 `url`/`cites_id`/`cid`
+  **永远一字不动**（身份键，同 `venue_detail.py` 的教训）。**默认开启**（`--no-cite-formats` 可关）：每个施引条目一次请求
   全库是数千次；缓存 `output/cite_format_cache.json` 按 `cid` 记录已解析页面，可续跑，失败不写缓存。
   写进 `citation['cite']` 的同时**顺手刷新** `venue_key` / `venue_key_source`（用 **Chicago** 解析出的未截断
   `journal`/`booktitle`/`series`；对话框没给 venue 字段时保持原值），所以"新数据的 venue_key 也是完整的"。
-  **三种"不用抓"**（`code/venue_quality.citation_needs_cite_dialog`）：①**已保存的 bib 与本次线上
-  venue 一致** → **cite 与 bib 两个请求都省**（用户 2026-10-15：这条路径访问量大，所以只要已下载过
-  bib 就先比 venue，**不一致才更新 bib**；比对见 `venue_consistent_with_saved_bib()`：折叠后相等、
-  或短的一侧（≥12 字符）是另一侧的前缀 —— 线上串常被 Scholar 截断，保守起见宁可多抓一次）；
-  ②venue 已完整**并且** `authors` 已是全名形态；③其余才抓。跳过零请求、不写缓存；
+  **三种"不用抓"**（`code/venue_quality.citation_needs_cite_dialog`）：①**已保存的 venue 与本次线上
+  venue 一致** → **零请求**（用户 2026-10-15：这条路径访问量大；比对见
+  `venue_consistent_with_saved_bib()`：折叠后相等、或短的一侧（≥12 字符）是另一侧的前缀 ——
+  线上串常被 Scholar 截断，保守起见宁可多抓一次）；②venue 已完整**并且** `authors` 已是全名形态；
+  ③其余才抓。跳过零请求、不写缓存；
   但**已缓存的对话框仍会复用**，以免重跑把上一轮付过钱的 `cite` 从输出里抹掉。
 - **`code/venue_quality.py`**（2026-10-14）：**「这条记录还值得再抓一次吗」的唯一判据**，被
   `venue_detail.py`（pub 级）与 `cite_format.py`（施引条目级）共用：`is_complete_venue()`
@@ -201,9 +202,10 @@ google-scholar-citation-crawler/
   Findings 是**独立于主会**的 venue。两处刻意的合并：`NIPS` → `NeurIPS`、`ACMMM` → `ACM MM`
   （同一会议不能有两个 key）。年份取 venue 串里第一个 4 位年份（会议届次），没有才退回记录自身的 year。
   **引文侧优先用 Cite 对话框里的 venue**：优先级 **存量 `cite.bibtex`（只服务老数据）→ `cite.venue_text`
-  是**未截断**的发表地名，所以 `code.shared.venue_key.citation_venue_key()` 优先用它算 key，拿不到才退回
-  列表页那个被截到 ~25 字符的 `venue`（五种格式化串**故意不解析** —— venue 夹在作者/标题/卷期之间，
-  解析有把标题当 venue 的风险）。抓取时在写完 `citation['cite']` 之后立即刷新这两个派生字段，
+  （**Chicago** 解析出的未截断 venue）→ 列表页 `venue`（被截到 ~25 字符）**；
+  `code.shared.venue_key.citation_venue_key()` 是唯一入口。**只解析 Chicago 的带引号格式**：
+  APA / Vancouver 没有确定边界，故意不解析（venue 夹在作者/标题/卷期之间，解析有把标题当 venue 的风险，
+  而 key 要参与去重）。抓取时在写完 `citation['cite']` 之后立即刷新这两个派生字段，
   数据修复工具用的是同一个函数，所以"先抓的没有对话框、后补上对话框"的行在下次跑脚本时会自动升级。
   **认不出的 venue 先用它自己的串当 key**（`venue_key_source='raw'`；认出来的写 `'normalized'`）—— 这是可审阅的临时状态，
   数据修复工具会把所有不同取值连计数导出来，再由人决定往词表里补什么；占位值（空/`NA`/`N/A`）
@@ -262,11 +264,11 @@ The program always runs in two sequential phases from `main()`:
 - Writes `venue_key` / `venue_key_source` on every citing entry the same way
   (list-page venues are often truncated by Scholar, so those rows keep raw keys
   until the table is extended — `venue_key_source` tells the two apart)
-- Resolves each citing entry's five citation formats and BibTeX from Scholar's
-  Cite dialog before writing the output (`code/cite_format.py`, cached in
-  `output/cite_format_cache.json`).  **On by default** — it is the only source of
-  a citing paper's full author list (Chicago / BibTeX `author`) and untruncated
-  venue (Vancouver) — and `--no-cite-formats` skips it; an entry without a `cid`
+- Resolves each citing entry's five citation formats from Scholar's Cite dialog
+  before writing the output (`code/cite_format.py`, cached in
+  `output/cite_format_cache.json`).  **On by default** — the Chicago string is the
+  source of the citing paper's full author list and untruncated venue (BibTeX was
+  abandoned on 2026-10-15) — and `--no-cite-formats` skips it; an entry without a `cid`
   cannot be addressed, so rows written before that field existed stay untouched
   until their paper is re-fetched
 - Writes consolidated citation outputs to `author_<ID>_paper_citations.json` and `.xlsx`
@@ -403,10 +405,10 @@ dependencies are stubbed in `tests/conftest.py`).
   from `url_scholarbib` (including the `info:None:` placeholder and rows written before
   the field existed) with `title`/`authors`/`venue`/`year`/`url`/`cites_id` byte-identical,
   label↔cell pairing for the five formats (the `<style>` trap, reordered/duplicate/unknown
-  labels, missing cells, `&quot;`/`&amp;` decoding, inline `<i>` spacing), BibTeX parsing
-  (nested/escaped braces, quoted and bare values, multiline collapsing, truncated records),
-  graceful degradation (request error, captcha page, BibTeX failure retried from the cached
-  signed URL, interrupt) and cache/resume behaviour, plus the wiring: the CLI flag
+  labels, missing cells, `&quot;`/`&amp;` decoding, inline `<i>` spacing),
+  the Chicago parser that yields `venue_text` / `authors_full` and corrects the entry
+  (`tests/test_cite_format_parts.py`), graceful degradation (request error, captcha page,
+  interrupt) and cache/resume behaviour, plus the wiring: the CLI flag
   is unspecified by default (`None`) and resolves through
   `code.config.resolve_cite_formats()` (CLI > `crawler_config.json` > default on),
   the fetcher defaults to on, `_save_output` writes the field unless the step was
