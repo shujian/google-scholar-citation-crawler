@@ -227,8 +227,10 @@ def resolve_cite_formats(cli_value=None, config_path=None):
     return CITE_FORMATS, "default"
 
 
-#: 论文目录维护（阶段 1 负责"创建 / 编号 / 改名 / 归档"）的默认模式，见 code/papers_maintenance.py
-RENUMBER_PAPERS = "dry-run"
+#: 论文目录维护（阶段 1 负责"创建 / 编号 / 改名 / 归档"）的默认模式，见 code/papers_maintenance.py。
+#: **默认 apply**（用户 2026-10-15：阶段 2 已交回这一步 → 若这里还只是 dry-run，就没有人真正对齐目录 ✗）；
+#: 可用 `--renumber-papers dry-run` 或配置 `renumber_papers: "off"` 关掉。
+RENUMBER_PAPERS = "apply"
 
 
 def resolve_renumber_papers(cli_value=None, config_path=None):

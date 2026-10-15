@@ -119,7 +119,7 @@ class ResolverTests(unittest.TestCase):
 
     def test_cli_config_default_precedence(self):
         self.assertEqual(resolve_renumber_papers("apply"), ("apply", "cli"))
-        self.assertEqual(resolve_renumber_papers(), ("dry-run", "default"))
+        self.assertEqual(resolve_renumber_papers(), ("apply", "default"))   # 阶段 2 交回后默认落盘 ✓
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "crawler_config.json")
             with open(path, "w", encoding="utf-8") as f:
