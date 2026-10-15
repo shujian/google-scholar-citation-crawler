@@ -2100,3 +2100,24 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   它是 `-p` 语法，属于阶段 2 的数据/入口语义）。
 - **测试**：四个消费方的 `tests/test_shared_identity.py` **原样通过**（11/11/7/5 ✓ —— 它们断言的是
   "宿主提供该模块"，不写死阶段 2）；阶段 2 **539 例 OK**（含 `repair_identity_fields` 14 例）。
+
+## 2026-10-15（续 16）: 引用编号的持久分配器（阶段 1）
+
+用户定案：**引用编号在阶段 1 产生，且不可变**（首次分配后永不改变、只消失不复用）—— 这样阶段 2/3/4
+的产物（`citations/<NNNN>-*.pdf`、`*_NNNN.json`、`download_progress` 条目）**永远不需要因为编号而迁移**，
+"广播变更"的机制（manifest / 账本 / remap）整体不需要。
+
+- **新增 `code/citation_index.py`**：`assign_indices(citations, state) -> (new_state, indices)`
+  —— 身份命中（委托共享件 `code/shared/identity.py::same_citation_identity`）逐字沿用；新引文取
+  水位 `max(已用 ∪ 已退役)+1`；本次未出现的编号进 `retired`（tombstone，**永不复用**）。
+  状态形状 `{"assigned": [ {index, cites_id, title, year, authors*, url} … ], "next": N, "retired": [...]}`
+  —— 记录带全身份字段，所以能按身份回溯匹配（不依赖编号本身 ✓）。
+  `normalize_state()` 对畸形/回退的 `next` 一律**抬高到水位之上**（水位只增不减）。
+- **测试 514 → 525**（`tests/test_citation_index.py` 11 例：首次分配、乱序沿用、水位、退役号不复用、
+  消失后回归拿新号、`cites_id` 换代、无真实 id 时的标题兜底、畸形状态容错、水位不回退、空列表只退役）。
+- **一个被测试钉住的真实语义**：两侧都有**真实** `cites_id` 且不等 → 共享判据判**不同**（根 AGENTS 既定口径），
+  所以"换代"表现为**新引文拿新号 + 旧号进 tombstone**；分配器**不自作主张**放宽规则
+  （否则会与下游四处判据漂移 ✗）。没有真实 id 时才走标题+年份+首作者兜底 ✓。
+- **下一步**：一次性种子（从 `citations_meta.json` 读出既有分配写进阶段 1 产物，只读对账已验证
+  241/241、9,170 命中、0 新增/0 退役 → **零重命名**）→ 阶段 1 写 `citations/<NNNN>-<slug>.json`（cite）
+  → 阶段 2 拆 `download_progress` / `download_summary` 并删 `remap_progress`。
