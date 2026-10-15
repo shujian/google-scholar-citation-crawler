@@ -232,3 +232,25 @@ def output_path_for_legacy(legacy_path):
     if not matched:
         return None
     return output_path(os.path.dirname(legacy_path), int(matched.group(1)))
+
+
+def is_artifact_name(name, legacy_prefix=None):
+    """`name` 是不是本阶段的 per-citation 产物 ✓ → 是则返回编号 ✓，否则 `None` ✓。
+
+    与 `index_of_artifact()` 的差别：**旧名也算** ✓（`<legacy_prefix>_NNNN.json` ✓，
+    不给前缀时认 `LEGACY_PREFIXES` 里的三个 ✓）—— 供"只拿到文件名"的读点在双写/过渡期
+    做判断用 ✓（拿得到目录时优先用 `iter_artifact_files()` ✓，它会顺带解决新名优先 ✓）。
+    """
+    import re
+
+    index = index_of_artifact(name)
+    if index is not None:
+        return index
+    prefixes = (legacy_prefix,) if legacy_prefix else LEGACY_PREFIXES
+    if not isinstance(name, str):
+        return None
+    for prefix in prefixes:
+        matched = re.fullmatch(re.escape(prefix) + r"_(\d{4,})\.json", name)
+        if matched:
+            return int(matched.group(1))
+    return None
