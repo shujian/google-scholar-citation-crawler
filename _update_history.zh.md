@@ -2182,3 +2182,7 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   `{index, cites_id, title, cite}` ✓；接在 `_save_output` 的编号分配之后 ✓（此时每条引文已有 index ✓），
   失败只告警、绝不影响抓取 ✓；**不再内联进 JSON** ✓（用户定，省重复存储）。
 - **测试**：533 → **540**（命名规则、写入/跳过/改写、无 cite 不产文件、目录缺失只报告）。
+
+**更正（同上一条）**：cite 文件落盘的测试数是 **533 → 537**（新增 4 例），上一条误写成 540 ✗。
+另记一条操作教训：`... | grep ... | head` 会把失败退出码吃掉 → 曾导致"测试红了却仍提交"✗；
+改成先取变量、检查 `OK` 再提交 ✓（已 `--amend` 修正，最终提交 `d905e4c` 全绿）。
