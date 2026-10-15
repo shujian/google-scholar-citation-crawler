@@ -2040,3 +2040,14 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   → 助手作用域 NameError（统一改走 ambient）；④ 薄模块漏了 CLI 段要用的模块别名
   （`_cfg` / `CFG` / `CD` / `tool_log` / `_utils` / `_dt`）与 `tool_log` 的**惰性导入**语义
   （`repair_progress_locations` 原来在 `main()` 里才 import，模块级导入会改变日志行为）。
+
+## 2026-10-15（续 12）: Y-6 步骤 3 的接线写完但**因一个真问题回滚**（待决策）
+
+- 写了 `code/papers_maintenance.py`（创建/编号/改名/归档，模式 off / dry-run / apply，
+  默认 dry-run）+ `code/config.py` 的 `resolve_renumber_papers()`（CLI > 文件 > 默认）+
+  `--renumber-papers` 开关 + `main()` 在 Phase 1 之后、Phase 2 之前接线 + 10 例测试。
+- **第一次 apply 跑通了，但幂等测试红了**：新建的空目录在下一轮 `plan()` 里被当孤儿归档、
+  随即又被建回来 → 每轮归档+重建一次。根因：认领靠 `paper_meta.json`（阶段 2 的契约文件），
+  阶段 1 建的空目录匹配不上。
+- **已全部回滚**（模块、测试、config/cli/common/scholar_citation 的改动），阶段 1 恢复
+  **499 例全绿**、工作区干净；问题与四个候选做法记在 `_work_notes.zh.md` 与 `KNOWN_ISSUES.md`。
