@@ -2008,3 +2008,17 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   **阶段 2 原 534 例一字未改地通过** —— 这是"对外 API 与行为不变"的验收标准。
 - **前置修复**（上一轮）：`code/_shared.py` 的宿主解析加"挂载点内可达"的第二条候选
   `<容器根>/stage1_code`（远程 SSHFS 下 `parents[3]` 在挂载点之外，看不见阶段 1 的代码）。
+
+## 2026-10-15（续 10）: 省请求 —— 已保存 bib 与线上 venue 一致时跳过 cite/bib（用户要求）
+
+- **`code/venue_quality.py`**：新增 `venue_consistent_with_saved_bib(citation)` 与常量
+  `SAVED_BIB_VENUE_MIN_PREFIX = 12`；`citation_needs_cite_dialog()` 改为三情形：
+  ①已保存 bib 与线上 venue 一致 → 两个请求都省；②venue 已完整且 authors 已全名 → 跳过；
+  ③其余才抓。**判据仍是纯函数**（不看缓存、不发请求），所以抓取侧与 `has_cite_format_work()`
+  共用同一份判断，跳过是全局一致的。
+- **比对规则（刻意保守）**：折叠（去 `…`/`...`、压空白、casefold、去首尾标点）后相等，
+  或短的一侧是另一侧的前缀**且至少 12 字符** —— 线上 venue 常被截到 ~25 字符、是完整串的前缀；
+  `IEEE` 这类短串跟谁都是前缀，所以宁可多抓一次也不误跳过；线上 venue 缺失/占位 → 不一致。
+- **测试 491 → 499**：`tests/test_venue_quality.py::SavedBibSkipsTheDialogTests` 8 例
+  （截断前缀一致 / 完全相同 / 年份变了要更新 / 期刊 `journal` 字段同样算 / 没有保存的 bib
+  行为不变 / 线上 venue 缺失仍抓 / 过短共享前缀不认 / 大小写与空白无关）。

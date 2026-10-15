@@ -355,3 +355,65 @@ class CiteFormatSkipTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class SavedBibSkipsTheDialogTests(unittest.TestCase):
+    """已保存的 bib 与本次线上 venue 一致时，**cite 与 bib 两个请求都省掉**（用户 2026-10-15）。
+
+    crawler 下载 cite/bib 的访问量很大：只要这条引文已经下载过 bib，就先拿线上 venue 与
+    已保存 bib 里的 venue 比一比 —— 一致 → 不访问；**不一致才更新 bib**。
+    """
+
+    FULL = ('Proceedings of the 2025 Conference on Empirical Methods in Natural '
+            'Language Processing')
+
+    def _citation(self, venue, bibtex=None):
+        citation = {'venue': venue, 'authors': 'H Wang, F Zhang'}
+        if bibtex is not None:
+            citation['cite'] = {'bibtex': bibtex}
+        return citation
+
+    def test_truncated_online_venue_matching_the_saved_bib_skips(self):
+        from code.venue_quality import citation_needs_cite_dialog, venue_consistent_with_saved_bib
+        citation = self._citation('Proceedings of the 2025 Conference on Empirical …',
+                                  {'booktitle': self.FULL})
+        self.assertTrue(venue_consistent_with_saved_bib(citation))
+        self.assertFalse(citation_needs_cite_dialog(citation))
+
+    def test_identical_venue_skips(self):
+        from code.venue_quality import citation_needs_cite_dialog
+        self.assertFalse(citation_needs_cite_dialog(self._citation(self.FULL, {'booktitle': self.FULL})))
+
+    def test_a_changed_venue_updates_the_bib(self):
+        from code.venue_quality import citation_needs_cite_dialog, venue_consistent_with_saved_bib
+        citation = self._citation('Proceedings of the 2024 Conference on Empirical …',
+                                  {'booktitle': self.FULL})
+        self.assertFalse(venue_consistent_with_saved_bib(citation))
+        self.assertTrue(citation_needs_cite_dialog(citation))
+
+    def test_journal_field_is_used_too(self):
+        from code.venue_quality import citation_needs_cite_dialog
+        citation = self._citation('Cybersecurity …', {'journal': 'Cybersecurity'})
+        self.assertFalse(citation_needs_cite_dialog(citation))
+
+    def test_without_a_saved_bib_nothing_changes(self):
+        from code.venue_quality import citation_needs_cite_dialog
+        self.assertTrue(citation_needs_cite_dialog(self._citation('Proceedings of the 2025 Conference on Empirical …')))
+
+    def test_a_missing_online_venue_still_fetches(self):
+        from code.venue_quality import citation_needs_cite_dialog
+        self.assertTrue(citation_needs_cite_dialog(self._citation('', {'booktitle': self.FULL})))
+        self.assertTrue(citation_needs_cite_dialog(self._citation('NA', {'booktitle': self.FULL})))
+
+    def test_a_too_short_shared_prefix_is_not_treated_as_the_same_venue(self):
+        """`IEEE` 之类短串跟谁都是前缀 —— 宁可多抓一次，也不误跳过。"""
+        from code.venue_quality import citation_needs_cite_dialog, venue_consistent_with_saved_bib
+        citation = self._citation('IEEE', {'booktitle': 'IEEE Transactions on Pattern Analysis'})
+        self.assertFalse(venue_consistent_with_saved_bib(citation))
+        self.assertTrue(citation_needs_cite_dialog(citation))
+
+    def test_case_and_whitespace_do_not_matter(self):
+        from code.venue_quality import citation_needs_cite_dialog
+        citation = self._citation('proceedings of the 2025 conference on empirical   methods …',
+                                  {'booktitle': self.FULL})
+        self.assertFalse(citation_needs_cite_dialog(citation))

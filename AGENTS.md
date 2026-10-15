@@ -123,7 +123,7 @@ google-scholar-citation-crawler/
 `venue_key.py`（**薄再导出**）把 venue 归一成身份键（会议 = `名+年份`、期刊 = 缩写名、
 预印本 = 服务器名）—— 规则的**唯一实体**在 `code/shared/venue_key.py`（本仓库是宿主），
 阶段 2 / 3.a.1 / 3.a.2 / 阶段 4 经各自的 `code/_shared.py` 消费同一份）；
-`tests/` 有 491 个测试，
+`tests/` 有 499 个测试，
 21 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」；
 `test_shared_venue_key.py` 守住「venue_key 判据只有一份，在 `code/shared/venue_key.py`」）。
 
@@ -163,8 +163,11 @@ google-scholar-citation-crawler/
   全库是数千次；缓存 `output/cite_format_cache.json` 按 `cid` 记录已解析页面，可续跑，失败不写缓存。
   写进 `citation['cite']` 的同时**顺手刷新** `venue_key` / `venue_key_source`（用 BibTeX 里未截断的
   `journal`/`booktitle`/`series`；对话框没给 venue 字段时保持原值），所以"新数据的 venue_key 也是完整的"。
-  **该条目已经不用再问这个页面时就不抓**（`code/venue_quality.citation_needs_cite_dialog`：
-  venue 已完整**并且** `authors` 已是全名形态，两者都齐才跳过）—— 跳过零请求、不写缓存；
+  **三种"不用抓"**（`code/venue_quality.citation_needs_cite_dialog`）：①**已保存的 bib 与本次线上
+  venue 一致** → **cite 与 bib 两个请求都省**（用户 2026-10-15：这条路径访问量大，所以只要已下载过
+  bib 就先比 venue，**不一致才更新 bib**；比对见 `venue_consistent_with_saved_bib()`：折叠后相等、
+  或短的一侧（≥12 字符）是另一侧的前缀 —— 线上串常被 Scholar 截断，保守起见宁可多抓一次）；
+  ②venue 已完整**并且** `authors` 已是全名形态；③其余才抓。跳过零请求、不写缓存；
   但**已缓存的对话框仍会复用**，以免重跑把上一轮付过钱的 `cite` 从输出里抹掉。
 - **`code/venue_quality.py`**（2026-10-14）：**「这条记录还值得再抓一次吗」的唯一判据**，被
   `venue_detail.py`（pub 级）与 `cite_format.py`（施引条目级）共用：`is_complete_venue()`

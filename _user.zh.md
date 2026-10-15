@@ -3247,3 +3247,13 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 阶段 2 变薄模块；**行为一字未改**（阶段 2 的 530 例原样通过，见提交信息）。
 前置条件（远程代码可见性）已先解决：`<容器根>/stage1_code` 符号链接 + 注入器两处都试。
 测试样例如你所说：pub.no=31（56 引用、`EMNLP2025`）。
+
+## 2026-10-15（续 10）: 已下载过 bib 的条目，venue 一致就不再访问 cite/bib
+
+> 注意 crawler 下载 cite 和 bib 也是比较大的访问量。如果当前论文已经下载过 bib，做一个简单的测试，
+> 当前线上的 venue 和已保存的 bib 中的 venue 不一致时，再更新 bib，否则不用再访问 cite 和 bib 了。
+
+已实现：`code/venue_quality.py` 新增 `venue_consistent_with_saved_bib()`，并接进**唯一判据**
+`citation_needs_cite_dialog()` 的第一条 —— 已保存 bib 的 venue 与本次线上 venue 一致（折叠后相等，
+或短的一侧 ≥12 字符且是另一侧前缀，因为线上串常被 Scholar 截断）→ **不访问 cite、也不访问 bib**；
+不一致才去更新。测试 491 → 499。
