@@ -537,7 +537,17 @@ def citation_venue_key(citation):
     """
     if not isinstance(citation, dict):
         return None, None
+    # 优先级（用户 2026-10-15 定）：① 历史缓存里的 BibTeX venue 字段（未截断）
+    # ② 对话框**带引号格式**里解析出的 venue（`cite.venue_text`，同样是未截断的）
+    # ③ 引文列表页的 venue（被 Scholar 截到 ~25 字符）。
+    # 弃用 BibTeX 后 ② 是主力；① 只服务存量数据，读不到就往下走。
     text, _field = cite_dialog_venue(citation)
+    if not text:
+        cite = citation.get('cite')
+        if isinstance(cite, dict):
+            candidate = cite.get('venue_text')
+            if isinstance(candidate, str) and candidate.strip():
+                text = candidate.strip()
     if text:
         return resolve_venue_key(text, citation.get('year'))
     return resolve_venue_key(citation.get('venue'), citation.get('year'))

@@ -172,6 +172,63 @@ def parse_cite_page(source):
     return {'formats': formats, 'bib_url': bib_url}
 
 
+# ---------------------------------------------------------------------------
+# 从格式化串里取 venue 与作者全名（用户 2026-10-15 定）
+#
+# 弃用 BibTeX 之后，未截断的 venue 与作者全名改从对话框的**带引号格式**里取：
+#   `Yi, Sibo, …, and Qi Li. "Jailbreak …: A survey." arXiv preprint arXiv:2407.04295 (2024).`
+#   ① 引号里 = 标题；② 引号之前（去掉尾部句点）= 作者；③ 收尾引号之后 = venue（剥掉尾部 `(2024).`）。
+# 没有引号的格式（APA 用斜体、Vancouver 不用引号）**不猜**：返回空，调用方保持旧行为 ——
+# 这正是当初"五种格式故意不解析"的理由（避免把标题当 venue），现在只在**能确定边界**时才解析。
+# ---------------------------------------------------------------------------
+
+#: 引号里的标题（兼容直引号与中文/弯引号）
+_QUOTED_TITLE_RE = re.compile(r'[“"](?P<title>[^”"]+)[”"]')
+#: 尾部的括号年份 `(2024)` / `[2024]`，允许尾随标点
+_TRAILING_PAREN_YEAR_RE = re.compile(r'[\\(\[]\s*((?:19|20)\d{2})\s*[\\)\]]\s*[.,;]?\s*$')
+#: 尾部的裸年份 `… 2024.`
+_TRAILING_BARE_YEAR_RE = re.compile(r'(?<![\d])((?:19|20)\d{2})\s*[.,;]?\s*$')
+
+
+def parse_format_parts(text):
+    """拆一条带引号的格式化串 → `{'authors','title','venue','year'}`（拆不出返回 `{}`）。"""
+    value = normalize_whitespace(text or '')
+    match = _QUOTED_TITLE_RE.search(value)
+    if not match:
+        return {}
+    title = match.group('title').strip().strip('.').strip()
+    authors = value[:match.start()].strip().rstrip('.').strip()
+    tail = value[match.end():].strip().lstrip('.').strip()
+    year = ''
+    year_match = _TRAILING_PAREN_YEAR_RE.search(tail)
+    if year_match:
+        year, tail = year_match.group(1), tail[:year_match.start()].strip()
+    else:
+        year_match = _TRAILING_BARE_YEAR_RE.search(tail)
+        if year_match:
+            year, tail = year_match.group(1), tail[:year_match.start()].strip()
+    return {'authors': authors, 'title': title,
+            'venue': tail.strip().rstrip('.').strip(), 'year': year}
+
+
+def format_extras(formats):
+    """从 Chicago（缺则 MLA）里取 `venue_text` / `authors_full`（+ `*_source`）。"""
+    for key in ('chicago', 'mla'):
+        parts = parse_format_parts((formats or {}).get(key))
+        if not parts:
+            continue
+        extras = {}
+        if parts.get('venue'):
+            extras['venue_text'] = parts['venue']
+            extras['venue_source'] = key
+        if parts.get('authors'):
+            extras['authors_full'] = parts['authors']
+            extras['authors_source'] = key
+        if extras:
+            return extras
+    return {}
+
+
 def parse_bibtex(source):
     """Parse one BibTeX record into ``{'entry_type', 'key', <field>: …}``.
 
@@ -382,10 +439,21 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
             else:
                 stats['bib_failed'] += 1
 
+        # venue 与作者全名：优先用条目里已存的，没有就从格式化串现拆（拆出来就写进缓存，
+        # 所以**已有的老缓存条目无需重新联网**即可补齐这两个字段）。
+        extras = {k: entry[k] for k in ('venue_text', 'venue_source',
+                                       'authors_full', 'authors_source') if entry.get(k)}
+        if not extras:
+            extras = format_extras(entry.get('formats'))
+            if extras:
+                entry.update(extras)
+                changed = True
+
         if changed and cache_path:
             save_cite_cache(cache_path, cache)
 
         payload = dict(entry['formats'])
+        payload.update(extras)
         if entry.get('bibtex'):
             payload['bibtex'] = entry['bibtex']
         citation[CITE_FIELD] = payload

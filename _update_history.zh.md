@@ -2254,3 +2254,24 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 - **验证**：阶段 1 全套 **OK** ✓、阶段 2 全套 **OK (skipped=1)** ✓。
 - **仍待办**：`save()` 的顺序反转（先新形态、扁平只作兜底 ✓ —— 我第 5 轮的报告有误 ✗，扁平目前仍被无条件写 ✓）；
   以及 `remap_progress` **定义**的宿主回迁（函数仍在阶段 1 ✓、只被阶段 2 调用 ✗）。
+
+## 2026-10-15（续 14）: 从 Cite 对话框的格式串里取 venue 与作者全名（用户定）
+
+- **背景**：用户确认**弃用 BibTeX**（`scholar.googleusercontent.com/scholar.bib` 的签名按渲染/会话现铸，
+  缓存里的必然作废；浏览器里手点也一样被拒）。但未截断的 venue 与作者全名仍要 —— 它们**在 cite 的
+  格式串里就有**（用户口径："cite 的这个信息组织的很好，要好好利用"）。
+- **解析规则**（`code/cite_format.py::parse_format_parts()`，用户给的口径）：
+  ① **引号里 = 标题**；② **引号之前**（去掉尾部句点）= 作者全名；③ **收尾引号之后** = venue，
+  剥掉尾部 `(2024).` / `[2024]` / 裸 `2024.`；venue 里的卷期页**保留**（`Proceedings of ACL 2024, pp. 1–10`）。
+  **没有引号的格式（APA / Vancouver）不解析**（返回空、调用方保持旧行为）—— 这正是"五格式故意不解析"
+  那条教训的边界：只在**能确定边界**时才解析，绝不把标题当 venue。
+- **落地**：`format_extras(formats)` 从 **Chicago（缺则 MLA）** 取 `venue_text` / `venue_source` /
+  `authors_full` / `authors_source`，写进 `citation['cite']`（**严格增量**；`citation['venue']` 一字不动
+  —— 它参与身份键）。**老缓存条目无需联网**即可补齐：解析在写 payload 前顺手做，拆出来就 `changed=True`
+  落回 `cite_format_cache.json`。
+- **`shared/venue_key.py::citation_venue_key()` 优先级**（用户定）：**① 存量 BibTeX 字段 →② `cite.venue_text`
+  →③ 引文列表页 venue（截到 ~25 字符）**。弃用 BibTeX 后 ② 是主力，① 只服务存量。
+- **测试 547 → 564**（新增 `tests/test_cite_format_parts.py` 8 例：用户给的原例逐字对拍、会议型保留卷页、
+  裸年份、无引号不解析、Chicago 优先与 MLA 回退、三级优先级）。全套通过 ✓。
+- **仍待做**：默认不再请求 BibTeX（去掉第二次请求）+ 修掉"bib 失败被当成封锁 → 触发人工验证码流程"
+  （`page_visit` 的人工提示还应改指对话框页而不是签名链接）。

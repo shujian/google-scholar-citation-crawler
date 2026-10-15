@@ -3349,3 +3349,17 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 
 已实现：`citation_fetch` 的两个"本页抓完"回调 → `fetcher._on_citations_page` → 只取**本页中还没取过、
 且判据说值得取**的行的 Cite 对话框；批量段落保留作兜底。
+
+## 2026-10-15（续 14）: 弃用 BibTeX；venue 与作者全名改从 cite 的格式串解析
+
+> https://scholar.googleusercontent.com/scholar.bib?... 这是刷新后的bibtex路径
+> 我打开这个链接是正常的，但是点bibtex出问题了，看来我们还是不要访问bibtex为好？
+> 还是不取吧。在cite里其实也有venue。请解析一下这个格式：
+> `Yi, Sibo, …, and Qi Li. "Jailbreak attacks and defenses against large language models: A survey." arXiv preprint arXiv:2407.04295 (2024).`
+> 大致是第一个句号前面是作者，引号里面是论文标题。最后一段是作者、年份等信息。
+> 是的，作者全名也要存下来。cite的这个信息组织的很好，要好好利用。
+
+已实现解析（venue = 收尾引号之后、剥掉尾部 `(2024).`；作者 = 引号之前、去尾句点），
+并把结果存进 `citation['cite']` 的 `venue_text` / `authors_full`（+ `*_source`）；
+`citation_venue_key()` 优先级改为 **BibTeX 存量字段 → `venue_text` → 列表页 venue**。
+**下一步**：默认不再请求 BibTeX（你已定），并修掉"bib 失败被当成封锁、触发人工验证码"。
