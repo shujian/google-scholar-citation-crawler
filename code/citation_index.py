@@ -209,3 +209,58 @@ def write_cite_files(papers_root, pub, citations, log=print):
                                  "title": citation.get("title", ""), "cite": payload})
         written += 1
     return written, skipped, 0
+
+#: 写进 `citations_meta.json` **主体**的字段（阶段 1 产生的 ✓）。
+#: **下载字段不在此列** ✗ —— `download_status` / `local_filename` / `fail_reason` 归阶段 2 ✓
+#: （它们存在每篇的 `download_progress.json` 里 ✓，见根 `AGENTS.md` 的数据契约 ✓）。
+META_FIELDS = ("index", "cites_id", "title", "authors", "authors_raw", "year", "url", "venue",
+               "venue_key", "venue_key_source")
+
+#: `citations_meta.json` 的文件名（阶段 1 与阶段 2 共用同一份约定 ✓）
+META_NAME = "citations_meta.json"
+
+
+def meta_entry(citation):
+    """一条抓取条目 → `citations_meta.json` 主体的一条（只取阶段 1 字段 ✓、空值省略 ✓）。
+
+    `index` 必须已经在条目里 ✓（由 `assign_entry_indices()` 写入 ✓）—— 本函数**不分配**编号 ✗，
+    只做字段筛选，避免出现"第二个编号来源" ✗。
+    """
+    return {field: citation[field] for field in META_FIELDS
+            if citation.get(field) not in (None, "")}
+
+
+def write_citations_meta(paper_dir, citations, log=None, dry_run=False):
+    """按 `index` 升序写出 `<paper_dir>/citations_meta.json` 的**主体**（Y-9，2026-10-15 用户定）。
+
+    * 只写阶段 1 字段 ✓（见 `META_FIELDS` ✓），**下载字段一律不写** ✗；
+    * 全部条目都算不出 `index` 时**不创建/不改动文件** ✗（避免造出空 meta ✓）；
+    * **幂等**：磁盘内容与将要写的一致 → 不重写 ✓（与 `write_cite_files()` 同一策略 ✓）。
+
+    返回写入的条数（0 表示内容没变 ✓）；`dry_run=True` 时只计算不落盘 ✓。
+    """
+    import json as _json
+    import os as _os
+
+    entries = [meta_entry(c) for c in (citations or []) if isinstance(c, dict)]
+    entries = [e for e in entries if e.get("index")]
+    if not entries:
+        return 0
+    entries.sort(key=lambda e: int(e["index"]))
+    path = _os.path.join(paper_dir, META_NAME)
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            if _json.load(handle) == entries:
+                return 0                          # 内容没变 → 不重写 ✓
+    except (OSError, ValueError):
+        pass
+    if dry_run:
+        return len(entries)
+    _os.makedirs(paper_dir, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        _json.dump(entries, handle, ensure_ascii=False, indent=1)
+    _os.replace(tmp, path)
+    if log is not None:
+        log("  citations_meta: 写入 %d 条主体（阶段 1 ✓）" % len(entries))
+    return len(entries)
