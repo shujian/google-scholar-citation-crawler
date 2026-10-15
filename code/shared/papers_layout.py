@@ -645,11 +645,11 @@ def apply_plan(plan_dict: dict, manifest_dir: str = None, log=print) -> dict:
                                         "reason": o["reason"]})
             log(f"  📦 {o['dir'][:56]} → {ARCHIVE_DIRNAME}/（当前输入里已不存在，归档保存）")
 
-        # 阶段 5：progress.json 的论文编号跟着改（否则运行期补齐/巡检会指到别的论文）
-        prog = os.path.join(plan_dict["base_dir"], "progress.json")
-        if os.path.isfile(prog):
-            manifest["progress"] = remap_progress(plan_dict, prog, manifest_dir,
-                                                  stamp=stamp, log=log)
+        # **不再改 `progress.json`**（2026-10-15，Y-7）：那份是**阶段 2 产生的数据**，
+        # 前阶段不得回写后阶段的文件 ✗。新结构下也不需要：逐引用状态在每篇
+        # `download_progress.json`（按 `cites_id` ✓），目录改名时整棵子树跟着搬 ✓；
+        # 引用编号不可变 → 没有漂移要追 ✓。阶段 2 若要按 manifest 校正自己的记录，
+        # 由它自己读 manifest 处理 ✓（向前读 ✓）。
     except Exception:
         # 尽力回滚：临时区里的搬回原名，已落位的搬回临时区再搬回原名
         for rec in staged:

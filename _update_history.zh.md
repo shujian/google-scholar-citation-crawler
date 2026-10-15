@@ -2238,3 +2238,19 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 - **踩坑记录**：插入方法时把 `_year_count_map` 的 `@staticmethod` 挤到了我的新方法上（于是 `self` 不再
   隐式传入 → `TypeError: missing 1 required positional argument: 'self'`）。**往装饰器密集的类里插方法，
   锚点要选在装饰器之前**。
+
+## 2026-10-15（续 21）: `reconcile()` 不再回写阶段 2 的 `progress.json`（Y-7 收口）
+
+- 上一轮只删掉了 `papers_maintenance` 里的**直接**调用 ✗，`shared/papers_layout.py` 的 `reconcile()`
+  内部还留着一块"阶段 5：progress.json 的论文编号跟着改" ✓（实测仍在写阶段 2 的文件 ✗）。
+- **现在删掉** ✓，并写清为什么新结构不再需要它：逐引用状态在每篇 `download_progress.json`
+  （按 `cites_id` ✓）→ 目录改名时**整棵子树跟着搬** ✓；引用编号**不可变** → 没有漂移要追 ✓。
+  阶段 2 若要按 manifest 校正自己的记录，由**它自己**读 manifest 处理 ✓（向前读 ✓）。
+- **测试同步**：阶段 2 `tests/test_renumber_papers.py::TestProgressRemap` 里只有**一个**方法断言了旧行为
+  （`test_rename_remaps...` ✓）→ 改名为 `test_rename_leaves_progress_untouched` 并改为断言
+  **键与值都不变** ✓（关键细节：旧行为会把 `papers` 的键从 `"0"` **重排成** `"1"` ✗，新行为下键不变 ✓，
+  我第一次断言用错了键导致 KeyError ✓）。其余三个方法**保留** ✓（它们直接测 `remap_progress()` 本身，
+  而该函数仍供阶段 2 的 CLI 使用 ✓）。
+- **验证**：阶段 1 全套 **OK** ✓、阶段 2 全套 **OK (skipped=1)** ✓。
+- **仍待办**：`save()` 的顺序反转（先新形态、扁平只作兜底 ✓ —— 我第 5 轮的报告有误 ✗，扁平目前仍被无条件写 ✓）；
+  以及 `remap_progress` **定义**的宿主回迁（函数仍在阶段 1 ✓、只被阶段 2 调用 ✗）。
