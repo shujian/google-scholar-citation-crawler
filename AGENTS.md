@@ -123,7 +123,7 @@ google-scholar-citation-crawler/
 `venue_key.py`（**薄再导出**）把 venue 归一成身份键（会议 = `名+年份`、期刊 = 缩写名、
 预印本 = 服务器名）—— 规则的**唯一实体**在 `code/shared/venue_key.py`（本仓库是宿主），
 阶段 2 / 3.a.1 / 3.a.2 / 阶段 4 经各自的 `code/_shared.py` 消费同一份）；
-`tests/` 有 514 个测试，
+`tests/` 有 544 个测试，
 21 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」；
 `test_shared_venue_key.py` 守住「venue_key 判据只有一份，在 `code/shared/venue_key.py`」）。
 
@@ -160,7 +160,7 @@ google-scholar-citation-crawler/
   朴素正则会把 CSS 当引用；**BibTeX 已弃用**：`scholar.bib` 的签名按渲染现铸、缓存里必然作废，不再下载。
   **字段改动只有一处**：写 `cite` 本身是增量；`title`/`authors`/`venue`/`year` 只会被
   `apply_chicago_correction()` 按 Chicago **修正**（审计在 `cite.corrected`），而 `url`/`cites_id`/`cid`
-  **永远一字不动**（身份键，同 `venue_detail.py` 的教训）。**默认开启**（`--no-cite-formats` 可关）：每个施引条目一次请求
+  **永远一字不动**（身份键，同 `venue_detail.py` 的教训）。**默认开启**（`--no-cite-formats` 可关）：每个施引条目一次请求，
   全库是数千次；缓存 `output/cite_format_cache.json` 按 `cid` 记录已解析页面，可续跑，失败不写缓存。
   写进 `citation['cite']` 的同时**顺手刷新** `venue_key` / `venue_key_source`（用 **Chicago** 解析出的
   未截断 `cite.venue_text`；对话框没给 venue 段时退回列表页 venue），所以"新数据的 venue_key 也是完整的"。
@@ -436,8 +436,8 @@ dependencies are stubbed in `tests/conftest.py`).
   Research Square / preprints.org, while a bare "Preprint" stays raw),
   **a host name not matching an acronym** (`kdd.org` / `iclr.cc` stay raw),
   **no bare "Findings" venue** (an unnamed host resolves to Findings of ACL while
-  a named one keeps its host), **the Cite dialog's BibTeX venue winning over the
-  truncated list page** (`citation_venue_key`: journal/booktitle/series, field
+  a named one keeps its host), **the Cite dialog's Chicago venue winning over the
+  truncated list page** (`citation_venue_key`: legacy bibtex fields, then `cite.venue_text`, then the list page; field
   precedence, placeholder and unrelated fields ignored, the five formatted
   strings deliberately not parsed, no regression without a `cite`),
   the extended table (ICASSP / IJCNN / PAKDD / LREC / NLPCC),
