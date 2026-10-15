@@ -3418,3 +3418,13 @@ Chicago 已含作者全名 + 未截断 venue；少一处解析就少一处"把�
 
 确认范围后（"只清汇总计数"；`citation_analysis_info/README.md` 里那一处一起去掉）已落地：
 7 个 `AGENTS.md` 的汇总计数删除，根 `AGENTS.md` 写明这条约定；逐文件的"（N 例）"保留。
+
+## 2026-10-15（续 21）: stall 判据改成"两次完成的遍历、结果条数相同"
+
+> 把stall改强一些，如果连续两次抓取完成了遍历，得到结果数量也相同，那即使没有达到预期也认为抓取完毕了。
+
+已落地：`fetch_outcome_signature()` 只记"这次遍历拿到多少行"（`direct:N` / `year:N`），
+不再把 Scholar 自己的目标（`histogram_total` / `scholar_total` / 短年清单）写进签名；
+`record_fetch_outcome()` 只在 `complete_fetch_attempt is True`（遍历确实跑到尾）时才计数。
+依据是当天的日志诊断：同一篇论文的直方图在 190/200 ↔ 194/201 之间抖动，旧签名每轮都"变新"，
+stall 计数永远攒不到 2，于是每轮白走约 58 个列表页。

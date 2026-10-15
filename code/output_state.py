@@ -67,9 +67,10 @@ class PaperFetchState:
     # {year: item offset} of the year segment that was in progress when the run
     # ended.  Without it an interrupted year restarts at item 0 on the next run.
     _partial_year_start: Optional[dict] = None
-    # Stall detection: signature of the last fetch outcome plus how many
-    # consecutive runs produced it.  Used to stop re-fetching a paper whose
-    # result cannot change (e.g. Scholar lists fewer rows than it reports).
+    # Stall detection: signature of the last *completed* traversal (the number
+    # of rows it obtained) plus how many consecutive completed traversals
+    # produced it.  Used to stop re-fetching a paper whose result cannot change
+    # (e.g. Scholar lists fewer rows than it reports).
     _stall_signature: Optional[str] = None
     _stall_count: int = 0
     _fetched_at: Optional[str] = None
@@ -272,10 +273,20 @@ class PaperFetchState:
     def record_fetch_outcome(self):
         """Fold the current (post-fetch) outcome into the stall tracking.
 
+        Only a traversal that ran to the end (`complete_fetch_attempt is True`)
+        may be folded in: a blocked or truncated attempt must neither count as
+        an identical result nor wipe a genuine repeat, so the counters are left
+        untouched (the persisted numbers still come from that attempt, which
+        makes the stored signature stop matching and clears the stall for one
+        run — the safe direction).  A state that predates the flag (None) is
+        treated the same way: never stall on an unknown outcome.
+
         Called after a fetch returns; not called when a fetch is interrupted, so
         an aborted attempt never counts as an identical result.
         Returns self for chaining.
         """
+        if self._complete_fetch_attempt is not True:
+            return self
         signature = self.current_outcome_signature()
         if not signature:
             self._stall_signature = None
@@ -302,10 +313,17 @@ class PaperFetchState:
         return self
 
     def is_stalled(self, stall_after_attempts=None):
-        """True when the same outcome has repeated enough times to stop retrying.
+        """True when the same result has repeated enough times to stop retrying.
 
-        Clears itself: a changed outcome (a new Scholar count changes the
-        signature) or a pending scholar_changed flag means this is False.
+        "Same result" means `stall_after_attempts` **completed** traversals in a
+        row obtained the same number of rows.  Scholar's own counts are not part
+        of that comparison, so a paper whose listing simply does not contain the
+        citations Scholar claims is parked even though it still looks
+        incomplete: two full walks of the same list gave the same rows.
+
+        Clears itself when the paper's Scholar total grows (`scholar_changed`) —
+        the one event that can add rows — and when the number of rows obtained
+        changes.
         """
         if stall_after_attempts is None:
             from code.config import STALL_AFTER_ATTEMPTS

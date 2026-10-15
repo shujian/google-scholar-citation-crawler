@@ -91,12 +91,13 @@ SCHOLAR_PAGE_SIZE = 10
 # Maximum retries when Scholar blocks a citation fetch.
 MAX_RETRIES = 3
 
-# A paper whose fetch keeps producing the same outcome (same seen/target, e.g.
-# Scholar lists fewer rows than its own "Cited by" count) stops being retried
-# once this many consecutive identical outcomes have been recorded.  The stall
-# clears itself as soon as the outcome changes — a larger Scholar count changes
-# the signature — so a stalled paper is picked up again when Scholar's numbers
-# move.
+# A paper stops being retried once this many **completed** traversals in a row
+# obtained the same number of rows, even when Scholar still claims more (e.g.
+# its list holds fewer citations than its own "Cited by" count).  The comparison
+# deliberately ignores Scholar's targets, which drift between runs, so the rule
+# is "two full walks, same rows".  It clears itself when the paper's Scholar
+# count grows (scholar_changed) — the one event that can add rows — and
+# `--fetch-mode force` clears the whole state for a manual retry.
 STALL_AFTER_ATTEMPTS = 2
 
 # ============================================================

@@ -293,35 +293,33 @@ def year_records_data_complete(year_records, summary=None):
 #
 # A paper can end every run with the same short result — Scholar's own page
 # lists fewer citations than its "Cited by" count claims, so re-fetching
-# cannot help.  The signature makes such outcomes comparable across runs:
-# two consecutive runs that produce the same string made no progress against
-# the same expectation.
+# cannot help.  The signature makes such outcomes comparable across runs: two
+# consecutive **completed** traversals that produce the same string obtained
+# the same rows.
 # ---------------------------------------------------------------------------
 
 def fetch_outcome_signature(strategy, summary, year_records=None):
-    """Return a short signature of a fetch outcome, or '' when undeterminable.
+    """Return a short signature of *what a traversal obtained*, or ''.
 
-    Year mode includes the short years, so filling one year while leaving
-    another short does not look "unchanged".
+    The signature counts the rows the fetch actually saw, and deliberately
+    leaves out Scholar's own expectation (``histogram_total`` /
+    ``scholar_total``) as well as the short-year list.  Those move between runs
+    even when the listing does not (2026-10-15: one paper's 2026 bucket
+    alternated 190/200, 193/200, 194/201, 192/201), so every run looked like a
+    new outcome and a paper that cannot converge never accumulated a stall
+    count — it was re-walked in full on every run.  Completeness is still
+    judged against those targets (`year_records_data_complete` /
+    `is_data_complete`); only the stall comparison ignores them.
     """
     if strategy == 'year':
         gap = year_records_gap(year_records)
         if gap is not None:
-            needed, seen_total, histogram_total = gap
-            short = ','.join(
-                f'{year}:{year_seen}/{year_histogram}'
-                for year, year_seen, year_histogram
-                in year_records_shortfall_years(year_records)
-            )
-            suffix = f'[{short}]' if short else ''
-            return f'year:{seen_total}/{histogram_total}={needed}{suffix}'
+            return f'year:{gap[1]}'
         summary = summary or {}
-        target = summary.get('histogram_total')
         seen = summary.get('seen_total')
     else:
         summary = summary or {}
-        target = summary.get('scholar_total')
         seen = summary.get('seen_total')
-    if target is None or seen is None:
+    if seen is None:
         return ''
-    return f'{strategy}:{seen}/{target}'
+    return f'{strategy}:{seen}'

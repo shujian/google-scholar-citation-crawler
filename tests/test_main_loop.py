@@ -758,7 +758,7 @@ class MainLoopTests(FetcherTestCase):
             "title": "Stalled Paper",
             "fetch_strategy": "direct",
             "direct_fetch_diagnostics": {"scholar_total": 49, "seen_total": 0},
-            "stall_signature": "direct:0/49",
+            "stall_signature": "direct:0",
             "stall_count": 2,
         })
         results = []
@@ -805,10 +805,11 @@ class MainLoopTests(FetcherTestCase):
         }
         cached = {"citations": [], "num_citations_on_scholar": 49}
         # Each run's fetch returns no rows and refreshes the state with the same
-        # outcome (scholar_total=49, seen_total=0).
+        # completed outcome (scholar_total=49, seen_total=0).
         snapshot = {
             "title": pub["title"],
             "fetch_strategy": "direct",
+            "complete_fetch_attempt": True,
             "direct_fetch_diagnostics": {"scholar_total": 49, "seen_total": 0},
             "citations": [],
         }
@@ -862,7 +863,7 @@ class MainLoopTests(FetcherTestCase):
             reloaded = load_paper_states(self.fetcher.out_json)[pub["title"]]
 
         self.assertEqual(reloaded.fetch.stall_count, 2)
-        self.assertEqual(reloaded.fetch.stall_signature, "direct:0/49")
+        self.assertEqual(reloaded.fetch.stall_signature, "direct:0")
         self.assertTrue(reloaded.fetch.is_stalled())
 
 

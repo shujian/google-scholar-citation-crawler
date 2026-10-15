@@ -1911,3 +1911,37 @@ Referer 却是 `as_ylo=2023` 那张列表页 —— 而且它是**当时 session
 **测试**：`tests/test_scholar_patch.py::CiteDialogRefererTests` 6 例（相对/绝对 URL 都刷新、
 列表页与 profile 页不动、`last_scholar_url` 为空时不设、刷新后日志不再标 referer、
 `is_cite_dialog_url()` 单一定义的正反例）。全套 543 → **549**，全绿 ✓。
+
+## stall 的签名里为什么不能放 Scholar 的目标（2026-10-15）
+
+**问题**：786 引用那篇（3 号）每轮都被完整重走 —— 逐年桶一直差几条，而 stall 从不触发。
+
+**根因**：旧签名 = `year:{seen}/{histogram}={needed}[{短年}]`。`histogram_total` 是每次探针**现问**
+Scholar 的，**本身就在抖**（同一篇论文的 2026 桶实测 190/200 → 193/200 → 194/201 → 192/201）。
+签名因此每轮都不一样 → `record_fetch_outcome()` 总走 else 分支把计数重置为 1 → 永远到不了
+`STALL_AFTER_ATTEMPTS`。对照：2 号（数字稳定）当天就被正确判成 `stalled` 跳过了。
+**能抖的量不能当"同一结果"的判据。**
+
+**新口径**（用户 2026-10-15）：签名只记**这次遍历拿到多少行**（`year:N` = 逐年 `seen_total` 之和、
+`direct:N` = `seen_total`）；"完成了一次遍历"由现成的 `complete_fetch_attempt`
+（`_compute_fetch_attempt_complete`：`fetch_finished` 且没有 `empty_page` / `empty_first_page`）
+单独把关。目标与短年清单仍在计划/诊断里照常显示，只是不参与 stall 比较。
+
+**为什么"未完成就不计数、也不清零"**：清零会让"干净—被封—干净"的交替永远回到 1 ——
+在频繁被封的环境里等于永不停机；不折进去，则两次**完成的**遍历直接相邻比较，正好是用户要的口径。
+被打断的那一轮仍会改写持久化数字（快照来自那次尝试），于是 `current_outcome_signature()` 与
+存下来的签名暂时不一致、stall 自解一轮 —— 方向是保守的（证据不足时不停机）。
+`complete_fetch_attempt` 是**三态**（True/False/None，None = 老状态）：None 一律不折。
+
+**没做的事**：没有在 `from_dict()` 里重算签名来兼容旧格式。重算会把"最后一次尝试是被封的、
+数字已经变了"的状态也拉去匹配，反而更不安全；格式换代的一次性代价（2 篇已 stall 的论文
+各多抓一轮）可以接受。
+
+**保留的既有权衡**：`short_page_stop`（返回 1–9 行）算"完成"，所以"Scholar 静默截断一页"
+仍可能被连续两次判成同一结果而停机 —— 这是 2026-10-04 那节第 227 条写明、用户明确接受的固有
+取舍（2 次采样）；`--fetch-mode force` 是解锁口。
+
+**验证**：`tests/test_citation_status.py::FetchOutcomeSignatureTests` / `StallRuleTests`、
+`tests/test_output_state.py::FetchStallTests`、`tests/test_main_loop.py` 的跨运行用例；
+全套 549 → **556** 全绿 ✓。另用生产状态做过一次只读预演：32 篇旧签名全部换代
+（例如 3 号 `year:771/777=12[…]` → 重算 `year:769`）。

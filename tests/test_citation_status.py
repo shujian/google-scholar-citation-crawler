@@ -778,28 +778,53 @@ class YearRecordsCompletenessTests(unittest.TestCase):
 
 
 class FetchOutcomeSignatureTests(unittest.TestCase):
-    """Signatures make "the same result twice" comparable across runs."""
+    """Signatures make "the same rows twice" comparable across runs.
 
-    def test_direct_signature_uses_seen_over_scholar_total(self):
+    The signature counts what a traversal obtained and ignores Scholar's own
+    targets, which drift between runs even when the listing does not.
+    """
+
+    def test_direct_signature_counts_the_rows_seen(self):
         self.assertEqual(
             fetch_outcome_signature('direct', {"scholar_total": 49, "seen_total": 0}),
-            'direct:0/49')
+            'direct:0')
         self.assertEqual(
             fetch_outcome_signature('direct', {"scholar_total": 32, "seen_total": 31}),
-            'direct:31/32')
+            'direct:31')
 
     def test_signature_is_empty_when_the_outcome_is_unknown(self):
         self.assertEqual(fetch_outcome_signature('direct', {}), '')
         self.assertEqual(fetch_outcome_signature('direct', None), '')
         self.assertEqual(fetch_outcome_signature('year', {}), '')
+        self.assertEqual(fetch_outcome_signature('year', None, None), '')
 
-    def test_year_signature_includes_the_short_years(self):
+    def test_year_signature_counts_the_rows_seen_across_years(self):
         records = [
             {"year": 2024, "histogram_count": 169, "seen_total": 177},
             {"year": 2026, "histogram_count": 66, "seen_total": 64},
         ]
-        signature = fetch_outcome_signature('year', None, records)
-        self.assertEqual(signature, 'year:241/235=2[2026:64/66]')
+        self.assertEqual(fetch_outcome_signature('year', None, records), 'year:241')
+
+    def test_a_moving_scholar_target_does_not_change_the_signature(self):
+        """Scholar's own numbers drift; the rows it lists do not.
+
+        2026-10-15: one paper's 2026 bucket alternated 190/200 ↔ 194/201
+        between runs.  Signing the expectation made every run look new, so a
+        paper that can never converge never accumulated a stall count.
+        """
+        before = [{"year": 2026, "histogram_count": 95, "seen_total": 83}]
+        after = [{"year": 2026, "histogram_count": 96, "seen_total": 83}]
+        self.assertEqual(fetch_outcome_signature('year', None, before),
+                         fetch_outcome_signature('year', None, after))
+        self.assertEqual(
+            fetch_outcome_signature('direct', {"scholar_total": 40, "seen_total": 34}),
+            fetch_outcome_signature('direct', {"scholar_total": 41, "seen_total": 34}))
+
+    def test_a_changed_row_count_changes_the_signature(self):
+        fewer = [{"year": 2026, "histogram_count": 95, "seen_total": 82}]
+        more = [{"year": 2026, "histogram_count": 95, "seen_total": 83}]
+        self.assertNotEqual(fetch_outcome_signature('year', None, fewer),
+                            fetch_outcome_signature('year', None, more))
 
     def test_filling_a_short_year_changes_the_signature(self):
         short = [
@@ -816,7 +841,80 @@ class FetchOutcomeSignatureTests(unittest.TestCase):
     def test_year_signature_falls_back_to_the_aggregate_without_records(self):
         self.assertEqual(
             fetch_outcome_signature('year', {"histogram_total": 10, "seen_total": 7}),
-            'year:7/10')
+            'year:7')
+
+
+class StallRuleTests(unittest.TestCase):
+    """Only a *completed* traversal may advance the stall counter."""
+
+    @staticmethod
+    def _state(seen_total, complete, histogram_count=None):
+        from code.output_state import PaperFetchState
+        histogram_count = seen_total if histogram_count is None else histogram_count
+        return PaperFetchState.from_dict({
+            "title": "Paper",
+            "fetch_strategy": "year",
+            "complete_fetch_attempt": complete,
+            "year_fetch_diagnostics": {
+                "scholar_total": histogram_count,
+                "histogram_total": histogram_count,
+                "seen_total": seen_total,
+                "cached_total": seen_total,
+            },
+            "year_records": [{"year": 2026,
+                              "histogram_count": histogram_count,
+                              "seen_total": seen_total}],
+        })
+
+    def test_two_completed_traversals_with_the_same_rows_stall_the_paper(self):
+        first = self._state(83, complete=True, histogram_count=95)
+        first.record_fetch_outcome()
+        self.assertEqual(first.stall_count, 1)
+
+        # Next run: Scholar claims one more citation, the traversal returns the
+        # same rows.  The paper is parked even though it still looks incomplete.
+        second = self._state(83, complete=True, histogram_count=96)
+        second.inherit_stall_tracking(first)
+        second.record_fetch_outcome()
+
+        self.assertEqual(second.stall_signature, 'year:83')
+        self.assertEqual(second.stall_count, 2)
+        self.assertTrue(second.is_stalled())
+        self.assertFalse(second.is_complete())
+
+    def test_an_unfinished_traversal_neither_counts_nor_wipes_the_repeat(self):
+        first = self._state(83, complete=True, histogram_count=95)
+        first.record_fetch_outcome()
+        self.assertEqual(first.stall_count, 1)
+
+        # A blocked run returns fewer rows: it must not be folded in — neither
+        # as a repeat (the traversal did not finish) nor as a reset.
+        blocked = self._state(40, complete=False, histogram_count=95)
+        blocked.inherit_stall_tracking(first)
+        blocked.record_fetch_outcome()
+        self.assertEqual(blocked.stall_count, 1)
+        self.assertEqual(blocked.stall_signature, 'year:83')
+        self.assertFalse(blocked.is_stalled())
+
+        # The next completed traversal with the same rows is then the second
+        # identical outcome, not the first.
+        third = self._state(83, complete=True, histogram_count=95)
+        third.inherit_stall_tracking(blocked)
+        third.record_fetch_outcome()
+        self.assertEqual(third.stall_count, 2)
+        self.assertTrue(third.is_stalled())
+
+    def test_a_legacy_state_without_the_completion_flag_never_stalls(self):
+        from code.output_state import PaperFetchState
+        state = PaperFetchState.from_dict({
+            "title": "Paper",
+            "fetch_strategy": "direct",
+            "direct_fetch_diagnostics": {"scholar_total": 49, "seen_total": 0},
+        })
+        for _ in range(3):
+            state.record_fetch_outcome()
+        self.assertEqual(state.stall_count, 0)
+        self.assertFalse(state.is_stalled())
 
 
 class CitationIdentityTests(unittest.TestCase):

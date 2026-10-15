@@ -387,18 +387,23 @@ Some papers can never be completed by retrying: Scholar's own citation list
 returns fewer rows than its "Cited by" count, so every attempt ends with the
 same numbers. The crawler now notices this:
 
-- After each fetch the outcome is signed (e.g. `direct:0/49`, or
-  `year:241/235=2[2026:64/66]` for year mode, which names the short years) and
-  the signature is stored together with how many runs in a row produced it.
-- Once **two consecutive runs produce the same signature**, the paper is marked
-  `stalled` and skipped: it stays in the output with whatever was collected, the
-  run summary prints `Stalled (skip): N`, and the plan lists
-  `Skipping N stalled paper(s)`.
-- The stall clears itself as soon as the outcome changes — a larger Scholar
-  count changes the signature — so such papers are picked up again when
-  Scholar's numbers move.
-- An *interrupted* fetch (block, captcha, Ctrl+C) never reaches the recording
-  step, so a transient failure cannot stall a paper by itself.
+- After each **completed** fetch the result is signed by the number of rows it
+  obtained (e.g. `direct:0`, or `year:241`) and stored together with how many
+  completed traversals in a row produced it. Scholar's own counts are
+  deliberately *not* part of the signature: they drift between runs even when
+  the listing does not (one paper's 2026 bucket alternated 190/200 ↔ 194/201
+  within a day), which used to make every run look like a new outcome and kept
+  such a paper in the plan forever.
+- Once **two completed traversals in a row obtain the same number of rows**, the
+  paper is marked `stalled` and skipped: it stays in the output with whatever was
+  collected, the run summary prints `Stalled (skip): N`, and the plan lists
+  `Skipping N stalled paper(s)`. It is parked even though it still looks
+  incomplete — two full walks of the same list returned the same rows.
+- The stall clears itself when the paper's Scholar count grows (the one event
+  that can add rows), and whenever the number of rows obtained changes.
+- A blocked or truncated attempt (and Ctrl+C) is never folded into the counter,
+  so it neither counts as a repeat nor wipes one: a transient failure cannot
+  stall a paper by itself, and cannot postpone a genuine repeat either.
 
 To force a retry for a specific paper, clear its state with
 `--fetch-mode force --skip <N-1> --limit 1`.

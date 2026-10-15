@@ -2353,3 +2353,34 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   汇总计数（"当前 N 个测试 / N 例"）一律删掉或改写；根 `AGENTS.md` 写明了"各 `AGENTS.md`
   一律不写测试用例的具体数量"这条约定。`citation_analysis_info/README.md` 里同类的一处也去掉。
 - **不动的**：三份 `.zh.md` 笔记里的历史计数（它们是历史记录 —— 例如本文件上一节的"543 → 549"）。
+
+## 2026-10-15（续 21）: stall 判据改成"两次完成的遍历、结果条数相同"（用户定）
+
+- **用户要求**：连续两次抓取都完成了遍历、拿到的结果条数也相同 → 即使没达到预期也算抓取完毕（停抓）。
+- **根因**（2026-10-15 日志诊断）：旧签名 `year:{seen}/{histogram}={needed}[{短年}]` 把 Scholar
+  自己的目标写进了签名，而那个目标**每轮都在抖** —— 同一篇 786 引用的论文，2026 桶实测依次
+  190/200 → 193/200 → 194/201 → 192/201。于是每轮都算"新结果"、计数被重置为 1，
+  永远到不了 `STALL_AFTER_ATTEMPTS`：数字稳定的 2 号被正确 stall 跳过，3 号却每轮被完整重走
+  （约 58 个列表页 ≈ 1.5–2.5 小时，且 0 条新引用）。
+- **改动**：
+  - `code/citation_cache.py::fetch_outcome_signature()`：签名只保留"这次遍历拿到多少行"
+    （`direct:N` / `year:N`；year 模式取逐年 `seen_total` 之和），**不再**包含 `histogram_total` /
+    `scholar_total` / `needed` / 短年清单。完整性判据（`is_data_complete` /
+    `year_records_data_complete`）一字未改 —— 只有 stall 这一处比较忽略目标。
+  - `code/output_state.py::record_fetch_outcome()`：只有 `complete_fetch_attempt is True`
+    （遍历跑到尾、没有 `empty_page`/`empty_first_page` 这类阻断终止）的尝试才折进计数；
+    被封锁/被截断的尝试**既不计数、也不清零**（它仍会改写持久化数字，签名于是暂时对不上、
+    stall 自解一轮 —— 方向保守）。历史状态缺这个标志（None）时同样不折：绝不在"结果未知"上停机。
+  - `is_stalled()` 的判据没变（计数 ≥ `STALL_AFTER_ATTEMPTS`、当前签名一致、无 `scholar_changed`），
+    语义变成"连续两次**完成的**遍历拿到同样的行数"；论文总引用变多（`scholar_changed`）与
+    `--fetch-mode force` 仍是解锁口。计划末尾的提示改为
+    `N completed traversals in a row obtained the same number of rows`。
+- **测试**：`tests/test_citation_status.py` 重写签名用例（新增"目标变了签名不变""行数变了签名变"）
+  + 新增 `StallRuleTests`（两次完成同条数 → stop；未完成的遍历不计不清；老状态永不停）；
+  `tests/test_output_state.py::FetchStallTests` 夹具补 `complete_fetch_attempt` 并加两例；
+  `tests/test_main_loop.py` 的快照补该标志、签名串更新。全套 **549 → 556** 通过 ✓。
+- **存量影响**：库里 32 篇已有签名，格式换代后与重算值一律对不上 → 计数从 1 重新开始
+  （2 篇已 stall 的论文会各被多抓一轮再重新 stall）。这是一次性代价，未做 `from_dict()` 里的
+  签名重算兼容（重算会让"最后一次尝试是被封的"状态也去匹配，更不安全）。
+- **文档**：`AGENTS.md` 的 `stalled` 条目、`README.md` 的「Stalled Papers」一节 + 本文件 +
+  `_work_notes.zh.md`。

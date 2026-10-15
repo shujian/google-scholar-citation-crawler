@@ -276,11 +276,16 @@ The program always runs in two sequential phases from `main()`:
 
 Status is derived from **current counts and diagnostics**, not from persisted `complete` flags:
 - Direct mode: skip when `num_citations_seen >= scholar_total`
-- `stalled`: still incomplete, but the outcome signature (`fetch_outcome_signature`)
-  repeated `STALL_AFTER_ATTEMPTS` runs in a row, so retrying cannot help while
-  Scholar's counts stay the same (e.g. Scholar lists fewer citations than it
-  reports).  Cleared automatically by any change to the signature; force a retry
-  with `--fetch-mode force`.
+- `stalled`: still incomplete, but `STALL_AFTER_ATTEMPTS` **completed**
+  traversals in a row obtained the same number of rows
+  (`fetch_outcome_signature` counts the rows seen and deliberately ignores
+  Scholar's targets, which drift between runs even when the listing does not),
+  so retrying cannot help — the list does not contain what Scholar claims
+  (e.g. Scholar lists fewer citations than it reports).  Only an attempt that
+  ran to the end (`complete_fetch_attempt`) is folded into the counter, so a
+  blocked run neither counts as a repeat nor wipes one.  Cleared when the
+  paper's Scholar count grows (`scholar_changed`); force a retry with
+  `--fetch-mode force`.
 - Year mode: skip only when **every** year covers its own probe
   (`seen_total >= histogram_count` in the per-year records) *and* the aggregate
   holds.  The aggregate alone is not enough: years whose bucket exceeds the

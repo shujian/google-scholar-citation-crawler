@@ -289,13 +289,19 @@ class PaperFetchStateTests(unittest.TestCase):
 
 
 class FetchStallTests(unittest.TestCase):
-    """Repeating the same fetch outcome must stop the paper from being retried."""
+    """Repeating the same fetch outcome must stop the paper from being retried.
+
+    Only an attempt that ran the traversal to the end is folded in, so the
+    states here carry `complete_fetch_attempt: True` like a real post-fetch
+    snapshot does.
+    """
 
     @staticmethod
     def _direct_state(seen_total=0, scholar_total=49, **extra):
         state = {
             "title": "T",
             "fetch_strategy": "direct",
+            "complete_fetch_attempt": True,
             "direct_fetch_diagnostics": {
                 "scholar_total": scholar_total,
                 "cached_total": seen_total,
@@ -307,11 +313,19 @@ class FetchStallTests(unittest.TestCase):
         state.update(extra)
         return PaperFetchState.from_dict(state)
 
+    @staticmethod
+    def _direct_state_without_completion_flag():
+        return PaperFetchState.from_dict({
+            "title": "T",
+            "fetch_strategy": "direct",
+            "direct_fetch_diagnostics": {"scholar_total": 49, "seen_total": 0},
+        })
+
     def test_record_fetch_outcome_tracks_identical_outcomes(self):
         fs = self._direct_state()
-        self.assertEqual(fs.current_outcome_signature(), "direct:0/49")
+        self.assertEqual(fs.current_outcome_signature(), "direct:0")
         fs.record_fetch_outcome()
-        self.assertEqual((fs.stall_signature, fs.stall_count), ("direct:0/49", 1))
+        self.assertEqual((fs.stall_signature, fs.stall_count), ("direct:0", 1))
         fs.record_fetch_outcome()
         self.assertEqual(fs.stall_count, 2)
 
@@ -322,15 +336,33 @@ class FetchStallTests(unittest.TestCase):
         # A page that finally returns rows produces a different outcome.
         fs._direct_fetch_diagnostics["seen_total"] = 20
         fs.record_fetch_outcome()
-        self.assertEqual((fs.stall_signature, fs.stall_count), ("direct:20/49", 1))
+        self.assertEqual((fs.stall_signature, fs.stall_count), ("direct:20", 1))
         self.assertFalse(fs.is_stalled())
 
+    def test_record_fetch_outcome_ignores_an_unfinished_traversal(self):
+        fs = self._direct_state()
+        fs.record_fetch_outcome()
+        self.assertEqual(fs.stall_count, 1)
+        # A blocked attempt (complete_fetch_attempt=False) is not an outcome.
+        blocked = self._direct_state(seen_total=0, complete_fetch_attempt=False)
+        blocked.inherit_stall_tracking(fs)
+        blocked.record_fetch_outcome()
+        self.assertEqual((blocked.stall_signature, blocked.stall_count), ("direct:0", 1))
+        self.assertFalse(blocked.is_stalled())
+
     def test_record_fetch_outcome_without_diagnostics_clears_tracking(self):
-        fs = PaperFetchState.from_dict({"title": "T"})
+        fs = PaperFetchState.from_dict({
+            "title": "T", "complete_fetch_attempt": True,
+        })
         fs.record_fetch_outcome()
         self.assertIsNone(fs.stall_signature)
         self.assertEqual(fs.stall_count, 0)
         self.assertFalse(fs.is_stalled())
+
+    def test_a_state_without_the_completion_flag_is_never_recorded(self):
+        fs = self._direct_state_without_completion_flag()
+        fs.record_fetch_outcome()
+        self.assertEqual((fs.stall_signature, fs.stall_count), (None, 0))
 
     def test_is_stalled_only_after_repeated_identical_outcomes(self):
         fs = self._direct_state()
@@ -340,19 +372,19 @@ class FetchStallTests(unittest.TestCase):
         self.assertTrue(fs.is_stalled())           # STALL_AFTER_ATTEMPTS == 2
 
     def test_is_stalled_false_when_scholar_count_changed(self):
-        fs = self._direct_state(stall_signature="direct:0/49", stall_count=2)
+        fs = self._direct_state(stall_signature="direct:0", stall_count=2)
         self.assertTrue(fs.is_stalled())
         fs.mark_scholar_changed()
         self.assertFalse(fs.is_stalled())          # retry when Scholar moved
 
     def test_is_stalled_false_when_the_outcome_no_longer_matches(self):
-        fs = self._direct_state(stall_signature="direct:0/49", stall_count=5)
+        fs = self._direct_state(stall_signature="direct:0", stall_count=5)
         self.assertTrue(fs.is_stalled())
-        grown = self._direct_state(seen_total=20, stall_signature="direct:0/49", stall_count=5)
+        grown = self._direct_state(seen_total=20, stall_signature="direct:0", stall_count=5)
         self.assertFalse(grown.is_stalled())
 
     def test_is_stalled_respects_a_custom_threshold(self):
-        fs = self._direct_state(stall_signature="direct:0/49", stall_count=3)
+        fs = self._direct_state(stall_signature="direct:0", stall_count=3)
         self.assertTrue(fs.is_stalled(stall_after_attempts=2))
         self.assertFalse(fs.is_stalled(stall_after_attempts=4))
 
@@ -361,10 +393,10 @@ class FetchStallTests(unittest.TestCase):
         fs.record_fetch_outcome()
         fs.record_fetch_outcome()
         out = fs.to_dict()
-        self.assertEqual(out["stall_signature"], "direct:0/49")
+        self.assertEqual(out["stall_signature"], "direct:0")
         self.assertEqual(out["stall_count"], 2)
         again = PaperFetchState.from_dict(out)
-        self.assertEqual((again.stall_signature, again.stall_count), ("direct:0/49", 2))
+        self.assertEqual((again.stall_signature, again.stall_count), ("direct:0", 2))
         self.assertTrue(again.is_stalled())
 
     def test_resolve_citation_status_from_output_returns_stalled(self):
@@ -372,7 +404,7 @@ class FetchStallTests(unittest.TestCase):
         state = {
             "title": "T", "fetch_strategy": "direct",
             "direct_fetch_diagnostics": {"scholar_total": 49, "seen_total": 0},
-            "stall_signature": "direct:0/49", "stall_count": 2,
+            "stall_signature": "direct:0", "stall_count": 2,
         }
         self.assertEqual(
             resolve_citation_status_from_output(pub, state, year_based_threshold=50),

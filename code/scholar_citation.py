@@ -1184,8 +1184,9 @@ class PaperCitationFetcher:
                     print(f"  Also rechecking {recheck_count} paper(s) with no "
                           f"cached-data gap (Scholar counts changed)")
                 if stalled_count:
-                    print(f"  Skipping {stalled_count} stalled paper(s): same result "
-                          f"{STALL_AFTER_ATTEMPTS}+ runs in a row (e.g. Scholar lists "
+                    print(f"  Skipping {stalled_count} stalled paper(s): "
+                          f"{STALL_AFTER_ATTEMPTS} completed traversals in a row "
+                          f"obtained the same number of rows (e.g. Scholar lists "
                           f"fewer citations than its own count)")
                 print()
 
