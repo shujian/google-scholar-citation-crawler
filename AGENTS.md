@@ -226,6 +226,17 @@ google-scholar-citation-crawler/
   否则它无法被两个阶段同时消费。**远程可见性**：阶段 2 在 SSHFS 下靠 `<容器根>/stage1_code` 这条
   符号链接看到本目录（`code/_shared.py` 两处都试）。
 
+- **`code/shared/papers_repairs.py`**（2026-10-15，**跨仓库共享宿主**）：论文目录的**存量修正** ——
+  `repair_progress_locations()`（`progress.json` 里的派生编号对齐）与 `repair_citation_filenames()`
+  （`citations/*.pdf` 文件名对齐，K122）。**内容 = 阶段 2 两个 `repair_*` 模块的库部分逐字搬移**，
+  两个原本都叫 `repair` 的函数去歧义改名；阶段 2 的薄模块用 `repair = <新名>` 保持对外 API 不变。
+  **符号解析 = 消费方模块优先**（同 3.a.1 `work_identity` 解 `papers/` 根那套）：入口收私有参数
+  `_consumer`（薄模块传 `sys.modules[__name__]`），并把它设为模块级 ambient 值供内部助手使用；
+  `_resolve(name)` 依次看 ①消费方模块属性 → ②本模块同名定义 → ③阶段 2 候选模块
+  （`citation_downloader` / `progress` / `utils` / `tool_log`）。**为什么必须消费方优先**：阶段 2 的
+  测试用 `patch.object(<薄模块>, "_is_valid_pdf_file" / "sha256")` 打桩 —— 先读消费方模块属性，
+  补丁才继续生效（第一次实现漏了这点，阶段 2 测试全红；见 `_work_notes.zh.md`）。
+
 ## Architecture overview
 
 The program always runs in two sequential phases from `main()`:

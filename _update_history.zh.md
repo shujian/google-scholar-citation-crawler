@@ -2022,3 +2022,21 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 - **测试 491 → 499**：`tests/test_venue_quality.py::SavedBibSkipsTheDialogTests` 8 例
   （截断前缀一致 / 完全相同 / 年份变了要更新 / 期刊 `journal` 字段同样算 / 没有保存的 bib
   行为不变 / 线上 venue 缺失仍抓 / 过短共享前缀不认 / 大小写与空白无关）。
+
+## 2026-10-15（续 11）: Y-6 步骤 2 —— 存量修正逻辑搬进阶段 1（第二次尝试，成功）
+
+- **`code/shared/papers_repairs.py`（新，宿主=阶段 1）**：阶段 2 `repair_progress_locations.py` /
+  `repair_citation_filenames.py` 的库部分逐字搬移；两个原本都叫 `repair` 的入口去歧义改名。
+- **符号解析 = 消费方模块优先**：入口收私有 `_consumer`（薄模块传自身模块），并设为模块级 ambient
+  值供内部助手用；`_resolve(name)` 依次 ①消费方模块属性 → ②本模块同名定义 → ③阶段 2 候选模块
+  （`citation_downloader` / `progress` / `utils` / `tool_log`）。这样阶段 2 的
+  `patch.object(<薄模块>, "_is_valid_pdf_file" / "sha256")` **继续生效**。
+- **阶段 2 侧**：两个模块 → 薄再导出 + CLI + 消费方注册；`tests/test_dir_snapshot.py` 的源码级守卫
+  **改指向实现所在文件**（`../../google-scholar-citation-crawler/code/shared/papers_repairs.py`）；
+  新增 `tests/test_shared_papers_repairs.py`（4 例守卫）。
+- **测试**：阶段 2 **539 → 543**（原 539 例一字未改地通过 ✓）。
+- **第二次尝试踩到的坑（已全部修掉，供下次搬移参考）**：① 函数签名**跨行**，正则要匹配到 `):`；
+  ② 内部助手拿不到 `_consumer` → 需要模块级 ambient 值；③ 生成时把 `, _consumer` 加到**所有**调用上
+  → 助手作用域 NameError（统一改走 ambient）；④ 薄模块漏了 CLI 段要用的模块别名
+  （`_cfg` / `CFG` / `CD` / `tool_log` / `_utils` / `_dt`）与 `tool_log` 的**惰性导入**语义
+  （`repair_progress_locations` 原来在 `main()` 里才 import，模块级导入会改变日志行为）。

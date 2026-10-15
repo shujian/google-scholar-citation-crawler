@@ -1665,3 +1665,15 @@ BibTeX 是结构化字段，零歧义，所以只用它；字段优先级 `journ
 **接线位置**：`citation_needs_cite_dialog()` 是抓取侧（`cite_format.enrich_...`）与
 "这一步还有没有待办"（`scholar_citation.has_cite_format_work()`）**共用**的判据 —— 所以只要
 改这一处，跳过在两条路径上同时成立，不需要各改一遍（这也是当初把它做成纯函数的原因）。
+
+## Y-6 步骤 2 第二次尝试：搬移清单（下次搬别的模块照做）
+
+**生成的四处"必须对齐原文件"，我用测试才逼出来的**：
+1. **入口签名可能跨行** → 用 `re.S` 非贪婪匹配 `^def name\(.*?\):`，别用 `[^\n]*`。
+2. **内部助手也要能解析符号** → 入口设模块级 `_CONSUMER`，`_resolve(name)` 用它兜底；
+   生成时**统一只传 name**（不要给每个调用都塞 `, _consumer`，助手作用域里没有这个变量）。
+3. **薄模块要补齐 CLI 段的全部依赖别名**：`_cfg` / `CFG` / `CD` / `tool_log` / `_utils` / `_dt`
+   —— 漏一个就 `NameError`（`--help` 甚至 `import` 都看不出来，只有真跑 `main()` 才炸）。
+4. **惰性导入是有语义的**：`repair_progress_locations` 原文件在 `main()` 里才
+   `from code.tool_log import redirect` —— 模块级导入会让"导入即重定向日志"，被
+   `test_tool_log.py` 当场抓住。**搬移时逐行对齐原文件的 import 位置，不要凭 grep 结果自行上提。**
