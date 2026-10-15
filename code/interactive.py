@@ -28,8 +28,18 @@ def save_curl_to_file(curl_str, path):
     Written 0600: the string carries live Scholar session cookies (and the
     browser-identity headers), so it must not be world-readable — same rule the
     downloader applies to its cookies.txt.
+
+    **内容没变就不写**（2026-10-15 用户定）：注入函数在"启动时自动加载"这条路径上也会被调用，
+    那时 *curl_str* 就是刚从**同一个文件**读出来的串 —— 无条件回写只会白改 mtime，并让日志出现
+    自相矛盾的 `Loading …` / `Saved …` 两行。返回**是否真的写了盘**，调用方据此决定要不要打印。
     """
     try:
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                if f.read() == curl_str:
+                    return False        # 逐字节相同：不写、也不动权限
+        except OSError:
+            pass                        # 不存在 / 读不了（含编解码错误）→ 照常写
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
@@ -38,8 +48,10 @@ def save_curl_to_file(curl_str, path):
             os.chmod(path, 0o600)      # 已有文件可能是宽松权限，纠正过来
         except OSError:
             pass
+        return True
     except Exception as e:
         print(f"  (Could not save curl to {path}: {e})", flush=True)
+        return False
 
 
 def load_curl_from_file(path):
@@ -162,8 +174,7 @@ def inject_cookies_from_curl(
         f"  Injected {len(cookies)} cookies{header_note} (no domain restriction).",
         flush=True,
     )
-    if curl_save_path:
-        save_curl_to_file(curl_str, curl_save_path)
+    if curl_save_path and save_curl_to_file(curl_str, curl_save_path):
         print(f"  Saved cookies to {curl_save_path}", flush=True)
     return len(cookies)
 

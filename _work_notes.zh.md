@@ -1745,3 +1745,29 @@ BibTeX 是结构化字段，零歧义，所以只用它；字段优先级 `journ
 **同类残留（下次一起清）**：`shared/papers_layout.py` 里的 `remap_progress()` 改的是阶段 2 的
 `progress.json` —— 阶段 1 已不再调用它 ✓，但函数体仍在阶段 1 ✗。等做 `download_progress` /
 `download_summary` 拆分时把它移回阶段 2（或按"去掉编号镜像"的方案整体废弃）。
+
+## 阶段 2 进度拆分：迁移已落地（2026-10-15）
+
+- `code/data_upgrade/split_progress.py`（阶段 2）：`progress.json` → 每篇 `download_progress.json`
+  （按 `cites_id`；字段 `status` / `local_filename` / `size_bytes` / `reason`；**不含编号镜像** ✓）
+  + 根 `download_summary.json`（键=目录名 ✓ 每次重新生成的投影）。
+- **映射链**：`citations[cites_id].paper_index` → `papers[str(index)].paper_no` → 目录 `<NNN>-…` ✓
+  （实测 241 篇 / 8,668 条 / 0 孤儿 / 0 无目录 / 四字段零丢失 ✓）。
+- **加法语义**：原 `progress.json` **保留**（运行期还在读它）✓，`--apply` 先备份 + sha256 manifest ✓。
+- **为什么不需要 remap**：状态按 `cites_id` 存、文件在论文目录内部 → 论文目录改名时**跟着搬** ✓；
+  唯一带编号的是 PDF 文件名 → 由阶段 2 自己的 `repair_citation_filenames` 处理 ✓。
+- 测试：`tests/test_split_progress.py`（映射/镜像剔除/summary 形状/缺目录计数/apply 加法性 ✓）。
+
+## 为什么"加载 cookie"会跟着"保存 cookie"（2026-10-15，已修）
+
+**结构原因**：保存被放在**注入函数**里，是为了让交互式路径（用户粘贴新 cURL）一次调用同时完成
+"注入 + 落盘 + 打印"。加载路径复用了同一个函数，于是"读 → 注入 → 又写"。
+
+**为什么值得修（不是洁癖）**：① 每轮启动都改 mtime，任何"这份 cookie 什么时候变的"这类观察都会失真；
+② 日志自相矛盾会持续制造同一个疑问（用户这次就是这么问上来的）。
+
+**实现要点**：`save_curl_to_file()` 变成**有返回值**的函数（`True`=真写了盘，`False`=内容相同或写入失败），
+打印移到调用点。异常路径也返回 `False` 并照旧打印告警 —— 于是"写失败"不会伪装成"保存成功"。
+
+**测试里如何断言"没写"**：直接比 `st_mtime_ns` 会受文件系统时间戳粒度影响，所以先 `os.utime(path, (1_000_000, 1_000_000))`
+把 mtime 固定到一个旧值，再断言它**完全没变** —— 既证明没写盘，也不依赖时钟精度。

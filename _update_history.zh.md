@@ -2186,3 +2186,20 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 **更正（同上一条）**：cite 文件落盘的测试数是 **533 → 537**（新增 4 例），上一条误写成 540 ✗。
 另记一条操作教训：`... | grep ... | head` 会把失败退出码吃掉 → 曾导致"测试红了却仍提交"✗；
 改成先取变量、检查 `OK` 再提交 ✓（已 `--amend` 修正，最终提交 `d905e4c` 全绿）。
+
+## 2026-10-15（续 11）: 内容没变就不回写 curl.txt（用户方案 B）
+
+- **现象**：启动自动加载 `./output/curl.txt` 后紧跟一行 `Saved cookies to ./output/curl.txt` —— 看起来像
+  "load 完又改了"。
+- **根因**：保存动作写在**注入函数末尾**（`code/interactive.py::_inject_cookies_from_curl`），而该函数被
+  **两条路径共用**：①交互式（用户粘贴新 cURL，**必须**存盘）；②启动自动加载（`scholar_citation.py:216-219`）
+  —— 后者传进来的 `curl_str` 就是刚从**同一个文件**读出来的串，`save_curl_to_file()` 又是 `O_TRUNC` +
+  **原样 write**，于是白写一次、mtime 变化、日志自相矛盾。`Adopted browser fingerprint from cURL` 那行
+  （`scholarly_session.py::_int_complete_browser_fingerprint`）只改**进程内请求头**，不碰 cURL 文本。
+- **改动**：`save_curl_to_file()` 先读旧内容，**逐字节相同 → 直接返回 `False`（不写、不动权限）**；
+  否则照写（0600 + chmod）并返回 `True`；异常仍打印告警并返回 `False`。调用点改成
+  `if curl_save_path and save_curl_to_file(...): print("  Saved cookies to …")`。
+- **测试 514 → 541**（`tests/test_cookie_acquisition.py` 新增 `TestNoRedundantSave` 5 例）：相同内容返回
+  `False` 且 **mtime 不变**（先用 `os.utime` 固定旧时间再断言）、内容变化/文件不存在仍写、启动加载路径
+  **不打印** `Saved cookies to`、新粘贴内容仍存盘并打印。全套 **541 例通过** ✓。
+- **README 无需改**：对外行为只是"少一行日志、少一次无谓写盘"。

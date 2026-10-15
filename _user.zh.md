@@ -3326,3 +3326,11 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 
 已确认并 apply 种子（241 篇 / assigned 9,172 / retired 1,081）；213 条差异定性为**上游引文变动**
 （两次抓取之间），因此按既定规则退役 + 下游归档，不做并集。
+
+## 2026-10-15（续 11）: 启动加载 cookie 后不该再回写
+
+> 请检查一下 crawler 开头的处理方式：… Loading saved cookies from ./output/curl.txt … Saved cookies to ./output/curl.txt
+> 为什么 load 了一个 cookie 还要做修改？
+
+排查结论：**不是修改，是"把刚读出来的那份原样写回去"**（白写）。已按用户选择的**方案 B** 修掉：
+`save_curl_to_file()` 现在**内容逐字节相同就不写盘**（并返回"是否真的写了"），调用方据此才打印那行日志。
