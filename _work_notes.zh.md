@@ -1945,3 +1945,44 @@ Scholar 的，**本身就在抖**（同一篇论文的 2026 桶实测 190/200 �
 `tests/test_output_state.py::FetchStallTests`、`tests/test_main_loop.py` 的跨运行用例；
 全套 549 → **556** 全绿 ✓。另用生产状态做过一次只读预演：32 篇旧签名全部换代
 （例如 3 号 `year:771/777=12[…]` → 重算 `year:769`）。
+
+---
+
+## 2026-10-15（续 22）: `venue_key*` 是派生字段 —— 重算，且永不降级
+
+**问题**（`citations_meta.json` 主体归阶段 1 之后暴露）：`meta_entry()` 原本是
+`{field: citation[field] for field in META_FIELDS if …}` —— 把条目里那份 `venue_key` /
+`venue_key_source` **照抄**下来。可是这两个字段是**派生字段**（`AGENTS.md` 一直这么写），
+而 **缓存恢复的引文行不带它们**（`citation_fetch.py:234` 的 `old_citations = list(resume_from)`
+原样带过，`:404-405` 直接进 `citations_to_save`；只有**本次真正抽出来**的行才经过
+`citation_identity.extract_citation_info()` 现算）。于是：
+
+```
+2026-10-15 04:24  阶段 2 backfill_venue_key --apply → 201 篇 meta 补 7,901 条
+                  （normalized 2,557 / raw 5,344 / 无 venue 1,271 不写）
+2026-10-15 18:5x  一次重抓保存 → write_citations_meta() 按"照抄"重写 201 篇
+实测：全库 meta 的 venue_key 从 7,901 掉到 168（130 raw + 38 normalized）
+```
+
+**修法一：重算**。`meta_entry()` 不再照抄这两个字段，改用**与抓取时同一个入口**
+`code.shared.venue_key.citation_venue_key(citation)`（优先级：`cite` 对话框的 venue →
+列表页 `venue`，+ `year`）现算；`META_FIELDS` 仍列出它们，但构造时跳过
+（`DERIVED_META_FIELDS`）。这样"重抓"对派生字段天然幂等：输入相同 → key 相同 →
+`write_citations_meta()` 的"内容没变不重写"照常生效；输入更好（新拿到 `cite`）→ key 升级。
+
+**修法二：派生键永不降级**（与 3.a.1 的 `shared/venue_carry.merge_venue_key()` 同口径）。
+重算有个固有弱点：若盘上的 `normalized` 来自**上一轮抓到过的 Cite 对话框**，而这次该行从缓存
+恢复、没带 `cite`，重算只能退回列表页那个被截断的串（`Proceedings of the …` → `raw`）。
+所以 `write_citations_meta()` 在合并阶段补一条：**盘上是 `normalized`、重算不是**时保留盘上那个。
+**必须按身份判"同一条"**（`same_citation_identity()`）：编号会被复用（K123/K128），
+同一编号换成别的作品时**不许**继承旧 key（有专门用例钉住）。
+
+**没做的事**：没有动 `citation_fetch.py` 的缓存恢复路径（那是"抓取产物本身"的字段完整性问题，
+改它要碰抓取热路径；`meta_entry()` 重算是更小、更靠下的修法）。抓取产物**自身**的引文行
+仍可能不带 key —— 但 meta 是下游唯一读的那份（`venue_key` 的数据契约在 meta 上），
+且阶段 2 的 `backfill_venue_key` 与阶段 1 的 `write_citations_meta()` 用的是同一个入口。
+
+**验证**：`tests/test_write_citations_meta.py` 新增 7 例 —— 重算不吃旧值、`cite.venue_text` 优先
+（`EMNLP2024`）、占位 venue 连旧值一起不写、截断行保住盘上 `normalized`（且复跑幂等）、
+同编号不同 `cites_id` 不继承（落到 raw）、盘上 raw 被重算升级成 normalized、
+整库五篇重写零丢失。全套 **556 → 563** 全绿 ✓。真实库的复核要等抓取结束（见 `TO_RUN.md`）。

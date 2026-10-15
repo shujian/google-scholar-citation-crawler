@@ -271,6 +271,15 @@ The program always runs in two sequential phases from `main()`:
   cannot be addressed, so rows written before that field existed stay untouched
   until their paper is re-fetched
 - Writes consolidated citation outputs to `author_<ID>_paper_citations.json` and `.xlsx`
+- Writes each paper's `papers/<NNN>-<slug>/citations_meta.json` **main body** (Y-9 —
+  `code/citation_index.py::write_citations_meta_for_pub`, called from `_save_output`):
+  stage-1 fields only, index-ascending, idempotent, stage-2 download fields and retired
+  indices carried over untouched.  `venue_key` / `venue_key_source` are **derived**: the
+  writer **recomputes** them with `shared.venue_key.citation_venue_key()` instead of
+  copying whatever the row carries (cached rows have no key, so copying silently wiped
+  a 7,901-row backfill on 2026-10-15) and **never downgrades** — a stored `normalized`
+  key survives when the recompute only reaches `raw`, as long as
+  `same_citation_identity()` says it is the same citation
 
 ### Citation fetch strategy
 
@@ -282,10 +291,11 @@ Status is derived from **current counts and diagnostics**, not from persisted `c
   Scholar's targets, which drift between runs even when the listing does not),
   so retrying cannot help — the list does not contain what Scholar claims
   (e.g. Scholar lists fewer citations than it reports).  Only an attempt that
-  ran to the end (`complete_fetch_attempt`) is folded into the counter, so a
-  blocked run neither counts as a repeat nor wipes one.  Cleared when the
-  paper's Scholar count grows (`scholar_changed`); force a retry with
-  `--fetch-mode force`.
+  **walked every page** is folded into the counter (`complete_fetch_attempt`,
+  plus no year record reporting `partial_resume_completed`), so a blocked or
+  intentionally shortened run neither counts as a repeat nor wipes one.
+  Cleared when the paper's Scholar count grows (`scholar_changed`); force a
+  retry with `--fetch-mode force`.
 - Year mode: skip only when **every** year covers its own probe
   (`seen_total >= histogram_count` in the per-year records) *and* the aggregate
   holds.  The aggregate alone is not enough: years whose bucket exceeds the

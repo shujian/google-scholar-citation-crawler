@@ -219,15 +219,33 @@ META_FIELDS = ("index", "cites_id", "title", "authors", "authors_raw", "year", "
 #: `citations_meta.json` 的文件名（阶段 1 与阶段 2 共用同一份约定 ✓）
 META_NAME = "citations_meta.json"
 
+#: **派生字段**：每次序列化都**重算** ✓（不照抄条目里那份 ✗）—— 见 `meta_entry()`。
+DERIVED_META_FIELDS = ("venue_key", "venue_key_source")
+
 
 def meta_entry(citation):
     """一条抓取条目 → `citations_meta.json` 主体的一条（只取阶段 1 字段 ✓、空值省略 ✓）。
 
     `index` 必须已经在条目里 ✓（由 `assign_entry_indices()` 写入 ✓）—— 本函数**不分配**编号 ✗，
     只做字段筛选，避免出现"第二个编号来源" ✗。
+
+    `venue_key` / `venue_key_source` 是**派生字段**，这里用**与抓取时同一个入口**
+    `citation_venue_key()` **重算** ✓（2026-10-15 修）：条目里那份不照抄 —— 缓存恢复的行
+    常常带着旧一代的这两个字段（或干脆没有），照抄会**静默抹掉**别处补好的 key
+    （实测：阶段 2 `backfill_venue_key --apply` 2026-10-15 04:24 补的 **7,901** 条，
+    被同日 18:5x 的重抓从 201 篇 meta 里清掉 ✗）。重算是纯函数、幂等，所以"重抓"从此
+    既不会丢 key、也不会产生第二条真相。
     """
-    return {field: citation[field] for field in META_FIELDS
-            if citation.get(field) not in (None, "")}
+    entry = {field: citation[field] for field in META_FIELDS
+             if field not in DERIVED_META_FIELDS
+             and citation.get(field) not in (None, "")}
+    from code.shared.venue_key import citation_venue_key
+
+    key, source = citation_venue_key(citation)
+    if key:
+        entry["venue_key"] = key
+        entry["venue_key_source"] = source
+    return entry
 
 
 def write_citations_meta(paper_dir, citations, log=None, dry_run=False):
@@ -263,6 +281,22 @@ def write_citations_meta(paper_dir, citations, log=None, dry_run=False):
         for field, value in (existing_by_index.get(int(entry["index"])) or {}).items():
             if field not in META_FIELDS and field not in entry:
                 entry[field] = value
+    # **派生键永不降级** ✓（与 3.a.1 的 `venue_carry.merge_venue_key()` 同口径）：重算给不出
+    # `normalized`、而盘上**同一条引用**已有 `normalized` 时，保留盘上那个 —— Cite 对话框可能
+    # 只在上一轮抓过，此行若从缓存恢复、没带 `cite`，重算只能退回列表页那个被截断的串。
+    # **必须按身份判"同一条"** ✗（编号会被复用，K123/K128：不同作品不许互相继承 key）。
+    from code.shared.identity import same_citation_identity
+
+    for entry in entries:
+        old_entry = existing_by_index.get(int(entry["index"]))
+        if not old_entry or (old_entry.get("venue_key_source") or "") != "normalized":
+            continue
+        if (entry.get("venue_key_source") or "") == "normalized":
+            continue
+        if not same_citation_identity(old_entry, entry):
+            continue
+        entry["venue_key"] = old_entry["venue_key"]
+        entry["venue_key_source"] = "normalized"
     # **旧条目里本次输入没有的编号原样保留** ✓（上游引文消失 = 退役 ✓，但盘上的记录
     # 不能因一次重写就凭空消失 ✗ —— 与"归档不删除"同一口径 ✓；真要清理由对账工具做 ✓）。
     fresh = {int(e["index"]) for e in entries}

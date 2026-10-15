@@ -2384,3 +2384,20 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   签名重算兼容（重算会让"最后一次尝试是被封的"状态也去匹配，更不安全）。
 - **文档**：`AGENTS.md` 的 `stalled` 条目、`README.md` 的「Stalled Papers」一节 + 本文件 +
   `_work_notes.zh.md`。
+
+## 2026-10-15（续 22）: `citations_meta.json` 主体重写时**重算派生字段**，且派生键**永不降级**
+
+- **事故**：阶段 1 开始写 `citations_meta.json` 主体（Y-9）后，一次重抓把 201 篇 meta 里
+  **7,901 条** `venue_key`（阶段 2 `backfill_venue_key --apply` 当天 04:24 补的）**静默清掉**了
+  —— `meta_entry()` 是"照抄条目里那份"，而缓存恢复的引文行不带这两个字段。
+- **修复**：`meta_entry()` 改用与抓取时**同一个入口** `citation_venue_key()` **重算**
+  `venue_key` / `venue_key_source`（纯函数、幂等；`META_FIELDS` 里这两个字段不再照抄）。
+- **加固**：`write_citations_meta()` 的合并阶段加"**派生键永不降级**"——重算给不出 `normalized`、
+  而盘上**同一条引用**（`same_citation_identity()` 判定）已有 `normalized` 时保留盘上那个
+  （Cite 对话框可能只在上一轮抓过）。编号被复用时判身份，**不许**继承别人的 key。
+- **测试**：`tests/test_write_citations_meta.py` 新增 7 例（重算不吃旧值、对话框 venue 优先、
+  占位 venue 连旧值一起不写、截断行保住盘上 normalized、同编号不同作品不继承、raw 被升级、
+  五篇整库重写零丢失）。全套 **556 → 563** 通过 ✓。
+- **遗留（数据修复）**：被清掉的 7,901 条要等抓取跑完再补 —— 已记 `TO_RUN.md`
+  （`python -m code.data_upgrade.backfill_venue_key --apply`，阶段 2 `local`）。本修复落地后，
+  下一次抓取的保存步骤会自己把能重算的 key 写回来，所以那一步只是"补齐 + 复核"。

@@ -26,6 +26,31 @@ class MetaEntryTests(unittest.TestCase):
                          {"index": 3, "title": "T"})
         self.assertNotIn("index", meta_entry({"title": "T"}))
 
+    def test_venue_key_is_recomputed_not_copied(self):
+        """**派生字段重算** ✓：条目里那份（可能来自旧一代缓存）不作数。
+
+        代价实证（2026-10-15）：照抄会让"补过 key 的存量"被重抓静默抹掉
+        （阶段 2 `backfill_venue_key --apply` 补的 7,901 条就这么没的）。
+        """
+        entry = meta_entry({"index": 1, "cites_id": "c1", "title": "T", "venue": "ACL 2024",
+                            "year": "2024", "venue_key": "STALE", "venue_key_source": "raw"})
+        self.assertEqual(entry["venue_key"], "ACL2024")
+        self.assertEqual(entry["venue_key_source"], "normalized")
+
+    def test_venue_key_prefers_the_cite_dialog_venue(self):
+        entry = meta_entry({"index": 1, "cites_id": "c1", "title": "T", "year": "2024",
+                            "venue": "Proceedings of the …",
+                            "cite": {"venue_text": "Proceedings of the 2024 Conference on "
+                                                   "Empirical Methods in Natural Language Processing"}})
+        self.assertEqual(entry["venue_key"], "EMNLP2024")
+        self.assertEqual(entry["venue_key_source"], "normalized")
+
+    def test_missing_venue_means_no_key_at_all(self):
+        entry = meta_entry({"index": 4, "cites_id": "c4", "title": "T", "venue": "N/A",
+                            "venue_key": "STALE", "venue_key_source": "normalized"})
+        self.assertNotIn("venue_key", entry, "占位 venue 不给 key ✗（更不该继承旧值 ✗）")
+        self.assertNotIn("venue_key_source", entry)
+
 
 class WriteCitationsMetaTests(unittest.TestCase):
 
@@ -57,6 +82,74 @@ class WriteCitationsMetaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VenueKeyIsDerivedAndNeverDowngradedTests(unittest.TestCase):
+    """`venue_key*` 是派生字段：**重算 + 永不降级**（2026-10-15）。"""
+
+    def _read(self, paper_dir):
+        with open(os.path.join(paper_dir, META_NAME), encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def _seed(self, paper_dir, rows):
+        with open(os.path.join(paper_dir, META_NAME), "w", encoding="utf-8") as handle:
+            json.dump(rows, handle)
+
+    def test_a_truncated_row_keeps_the_normalized_key_already_on_disk(self):
+        """列表页被截断（重算只能给 raw）时，盘上同一条引用的 normalized 必须保住 ✓。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            self._seed(tmp, [{"index": 1, "cites_id": "c1", "title": "T", "year": "2024",
+                              "venue": "Proceedings of the …",
+                              "venue_key": "EMNLP2024", "venue_key_source": "normalized"}])
+            write_citations_meta(tmp, [{"index": 1, "cites_id": "c1", "title": "T", "year": "2024",
+                                        "venue": "Proceedings of the …"}])
+            entry = self._read(tmp)[0]
+            self.assertEqual(entry["venue_key"], "EMNLP2024")
+            self.assertEqual(entry["venue_key_source"], "normalized")
+            self.assertEqual(write_citations_meta(tmp, [{"index": 1, "cites_id": "c1", "title": "T",
+                                                         "year": "2024",
+                                                         "venue": "Proceedings of the …"}]), 0,
+                             "重算 + 保底之后必须幂等 ✓")
+
+    def test_a_different_work_at_the_same_index_inherits_nothing(self):
+        """编号会被复用（K123/K128）：**别的**作品不许继承盘上那条的 key ✗。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            self._seed(tmp, [{"index": 1, "cites_id": "old", "title": "Old work", "year": "2024",
+                              "venue": "Proceedings of the …",
+                              "venue_key": "EMNLP2024", "venue_key_source": "normalized"}])
+            write_citations_meta(tmp, [{"index": 1, "cites_id": "new", "title": "New work",
+                                        "year": "2024", "venue": "Proceedings of the …"}])
+            entry = self._read(tmp)[0]
+            self.assertEqual(entry["title"], "New work")
+            self.assertEqual(entry["venue_key"], "Proceedings of the …")
+            self.assertEqual(entry["venue_key_source"], "raw")
+
+    def test_a_raw_key_on_disk_is_upgraded_by_the_recompute(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._seed(tmp, [{"index": 1, "cites_id": "c1", "title": "T", "year": "2024",
+                              "venue": "ACL 2024", "venue_key": "ACL 2024",
+                              "venue_key_source": "raw"}])
+            write_citations_meta(tmp, [{"index": 1, "cites_id": "c1", "title": "T", "year": "2024",
+                                        "venue": "ACL 2024"}])
+            entry = self._read(tmp)[0]
+            self.assertEqual(entry["venue_key"], "ACL2024")
+            self.assertEqual(entry["venue_key_source"], "normalized")
+
+    def test_the_whole_library_can_be_rewritten_without_losing_keys(self):
+        """回归（2026-10-15 的真实事故）：重抓（=用缓存行重写 meta）**不得**抹掉 key ✓。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            disk = [{"index": i, "cites_id": "c%d" % i, "title": "T%d" % i, "year": "2024",
+                     "venue": "Proceedings of the …",
+                     "venue_key": "EMNLP2024", "venue_key_source": "normalized"}
+                    for i in range(1, 6)]
+            self._seed(tmp, disk)
+            # 重抓：条目只带列表页 venue（缓存恢复的行没有 cite）
+            write_citations_meta(tmp, [{"index": i, "cites_id": "c%d" % i, "title": "T%d" % i,
+                                        "year": "2024", "venue": "Proceedings of the …"}
+                                       for i in range(1, 6)])
+            saved = self._read(tmp)
+            self.assertEqual([e["venue_key"] for e in saved], ["EMNLP2024"] * 5)
+            self.assertTrue(all(e["venue_key_source"] == "normalized" for e in saved))
 
 
 class PreserveStageTwoFieldsTests(unittest.TestCase):
