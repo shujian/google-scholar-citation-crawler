@@ -118,7 +118,7 @@ from code.venue_quality import (
 
 from code.papers_maintenance import run_for_output as run_papers_maintenance
 
-from code.citation_index import assign_entry_indices
+from code.citation_index import assign_entry_indices, write_cite_files
 
 logger = get_logger(__name__)
 
@@ -1706,6 +1706,15 @@ class PaperCitationFetcher:
                 final_results.append(_build_entry(pub, citations))
         # 编号分配：对**去重后**的最终列表算，并写回每条引文与 entry（见 code/citation_index.py）
         assign_entry_indices(final_results, previous_by_title)
+        # 带 Cite 对话框数据的条目落成 `citations/<NNNN>-<slug>.json`（与 PDF 同前缀 ✓，
+        # 不再内联进 JSON）；没有 cite 的条目不产生文件。
+        try:
+            from code.config import papers_root
+            _root = papers_root(self.output_dir, self.author_id)
+            for entry in final_results:
+                write_cite_files(_root, entry.get('pub') or {}, entry.get('citations') or [])
+        except Exception as exc:   # noqa: BLE001 —— 落盘失败绝不影响抓取主流程
+            print(f"Warning: could not write cite files: {exc}")
         total_cites = sum(len(r['citations']) for r in final_results)
         # Papers that exist in the previous output but not in the current profile
         # are not written any more.  Surface it instead of dropping citations

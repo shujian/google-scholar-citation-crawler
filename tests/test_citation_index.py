@@ -1,6 +1,8 @@
 """引用编号的持久分配（阶段 1）：只增不改、只消失不复用、身份判据与下游同源。"""
 
+import json
 import os
+import tempfile
 import sys
 import unittest
 
@@ -97,3 +99,47 @@ class AssignTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CiteFileTests(unittest.TestCase):
+    """`citations/<NNNN>-<slug>.json`：命名与 PDF **同规则**、只写有 cite 的、内容不变不重写。"""
+
+    def test_basename_matches_the_pdf_rule(self):
+        self.assertEqual(CI.citation_basename(37, "R-PRM: Reasoning-driven process reward modeling"),
+                         "0037-R-PRM_Reasoning-driven_process_reward_modeling")
+        self.assertEqual(CI.citation_basename(7, ""), "0007-untitled")
+        self.assertEqual(CI.citation_basename(7, None), "0007-untitled")
+
+    def _root(self, tmp, with_dir=True):
+        root = os.path.join(tmp, "papers")
+        if with_dir:
+            os.makedirs(os.path.join(root, "001-Slug"))
+        return root, {"no": 1, "title": "Slug"}
+
+    def test_writes_then_skips_unchanged_and_rewrites_changed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, pub = self._root(tmp)
+            citation = {"index": 37, "cites_id": "c1", "title": "Some Work",
+                        "cite": {"chicago": "X", "bibtex": {"title": "Some Work"}}}
+            self.assertEqual(CI.write_cite_files(root, pub, [citation], log=lambda *a: None), (1, 0, 0))
+            self.assertEqual(CI.write_cite_files(root, pub, [citation], log=lambda *a: None), (0, 1, 0))
+            citation["cite"] = {"chicago": "Y"}
+            self.assertEqual(CI.write_cite_files(root, pub, [citation], log=lambda *a: None), (1, 0, 0))
+            path = os.path.join(root, "001-Slug", "citations", "0037-Some_Work.json")
+            with open(path, encoding="utf-8") as handle:
+                self.assertEqual(json.load(handle)["cite"], {"chicago": "Y"})
+
+    def test_citations_without_cite_or_index_produce_no_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, pub = self._root(tmp)
+            citations = [{"index": 1, "title": "No cite"}, {"title": "No index", "cite": {"apa": "x"}}]
+            self.assertEqual(CI.write_cite_files(root, pub, citations, log=lambda *a: None), (0, 0, 0))
+            # 目录本身建不建无所谓（阶段 2 也会建），**关键是没有文件** ✓
+            cites_dir = os.path.join(root, "001-Slug", "citations")
+            self.assertEqual(os.listdir(cites_dir) if os.path.isdir(cites_dir) else [], [])
+
+    def test_missing_paper_dir_is_reported_not_written(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, pub = self._root(tmp, with_dir=False)
+            citation = {"index": 1, "title": "T", "cite": {"apa": "x"}}
+            self.assertEqual(CI.write_cite_files(root, pub, [citation], log=lambda *a: None), (0, 0, 1))

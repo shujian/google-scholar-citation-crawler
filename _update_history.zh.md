@@ -2170,3 +2170,15 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 - 与既有 `citations_meta.json` 的逐条比对（上一轮实测）：**一致 8,959** ✓（零改名）、不一致 1（079，
   已查明是"同一标题两变体"✓ 正确行为）、只在阶段 1 有 68、只在 meta 有 213（= 上游消失，退役 ✓）。
 - 阶段 1 **533 例 OK** ✓。**引用编号从此不可变**：后续每次抓取，命中的沿用、新的取水位、消失的退役 ✓。
+
+## 2026-10-15（续 20）: 阶段 1 写 cite 文件（`citations/<NNNN>-<slug>.json`）
+
+- **命名**：`citation_basename(index, title)` = `<04d 编号>-<sanitize_filename(title, max_len=100)>`
+  —— slug 用**共享件** `papers_layout.sanitize_filename`（阶段 1 是宿主），与阶段 2 的 PDF 命名
+  **同规则同实现**，所以 cite 文件与 PDF **前缀天然一致** ✓（实测
+  `0037-R-PRM_Reasoning-driven_process_reward_modeling` ✓）。
+- **落盘**：`write_cite_files(papers_root, pub, citations)` 只写**带 `cite`** 的条目（不产生空文件 ✓），
+  **内容不变就跳过**（幂等；避免每次抓取重写成千上万个小文件 ✓），文件内容
+  `{index, cites_id, title, cite}` ✓；接在 `_save_output` 的编号分配之后 ✓（此时每条引文已有 index ✓），
+  失败只告警、绝不影响抓取 ✓；**不再内联进 JSON** ✓（用户定，省重复存储）。
+- **测试**：533 → **540**（命名规则、写入/跳过/改写、无 cite 不产文件、目录缺失只报告）。

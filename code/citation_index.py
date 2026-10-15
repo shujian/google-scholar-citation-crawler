@@ -147,3 +147,65 @@ def assign_entry_indices(entries, previous_by_title=None):
         entry["citation_index"] = state
         assigned += 1
     return assigned
+
+
+def citation_basename(index, title):
+    """引文文件/PDF 的基名（**与阶段 2 的 PDF 命名同规则**）：`<04d 编号>-<slug>`。
+
+    slug 用共享件 `code/shared/papers_layout.py::sanitize_filename`（阶段 1 是它的宿主 ✓）
+    与阶段 2 相同的 `max_len=100`，所以 cite 文件与 PDF **前缀天然一致** ✓
+    （PDF 由阶段 2 按同样的规则命名 —— 两边同规则、同实现 ✓）。
+    """
+    from code.shared.papers_layout import sanitize_filename
+
+    slug = sanitize_filename(title or "untitled", max_len=100)
+    return "%04d-%s" % (int(index), slug)
+
+
+def write_cite_files(papers_root, pub, citations, log=print):
+    """把带 `cite` 的引文写成 `citations/<NNNN>-<slug>.json`（阶段 1 产生 ✓，用户 2026-10-15）。
+
+    **只写有 `cite` 的条目**（没有对话框数据的条目不产生空文件）；**内容不变就不重写**（幂等、
+    避免每次抓取都重写成千上万个小文件）。返回 `(written, skipped, missing_dir)`。
+
+    **为什么不内联进 JSON**（用户定）：五格式 + BibTeX 体积大，而且它与下游按编号定位的产物
+    是同一类"按编号的条目文件" —— 放文件里既省重复存储，也让阶段 2/3 能直接按编号取用 ✓。
+    """
+    import os
+
+    from code.common import write_json_atomic
+    from code.shared.papers_layout import target_dir_name
+
+    if pub.get("no") is None:
+        return 0, 0, 1
+    paper_dir = os.path.join(papers_root, target_dir_name(pub))
+    if not os.path.isdir(paper_dir):
+        return 0, 0, 1
+    cites_dir = os.path.join(paper_dir, "citations")
+    written = skipped = 0
+    try:
+        os.makedirs(cites_dir, exist_ok=True)
+    except OSError:
+        return 0, 0, 1
+    for citation in citations or []:
+        if not isinstance(citation, dict):
+            continue
+        payload = citation.get("cite")
+        index = citation.get("index")
+        if not payload or not isinstance(index, int):
+            continue
+        path = os.path.join(cites_dir, citation_basename(index, citation.get("title")) + ".json")
+        if os.path.isfile(path):
+            try:
+                import json as _json
+                with open(path, "r", encoding="utf-8") as handle:
+                    existing = _json.load(handle)
+                if existing.get("cite") == payload:
+                    skipped += 1
+                    continue
+            except (OSError, ValueError):
+                pass        # 读不动/坏了就当需要重写 ✓
+        write_json_atomic(path, {"index": index, "cites_id": citation.get("cites_id"),
+                                 "title": citation.get("title", ""), "cite": payload})
+        written += 1
+    return written, skipped, 0
