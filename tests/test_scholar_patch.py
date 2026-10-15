@@ -765,11 +765,6 @@ class DetailPathDelayTests(FetcherTestCase):
             self._recorded_scale(self.DETAIL_PAGE_URL),
             0.5 * DETAIL_PAGE_DELAY_FACTOR)
 
-    def test_signed_bibtex_download_uses_the_documented_factor(self):
-        self.assertAlmostEqual(
-            self._recorded_scale(self.BIBTEX_URL),
-            0.5 * DETAIL_PAGE_DELAY_FACTOR)
-
     def test_effective_seconds_are_a_tenth_of_the_normal_range(self):
         """4.5-9 s/request for the detail paths, 45-90 s for the rest."""
         from code.config import DELAY_MAX, DELAY_MIN
@@ -783,13 +778,15 @@ class DetailPathDelayTests(FetcherTestCase):
     def test_classification_is_one_shared_function(self):
         from code.scholarly_session import detail_path_delay_factor
 
-        for url in (self.CITE_DIALOG_URL, self.DETAIL_PAGE_URL, self.BIBTEX_URL):
+        for url in (self.CITE_DIALOG_URL, self.DETAIL_PAGE_URL):
             with self.subTest(url=url):
                 self.assertEqual(detail_path_delay_factor(url),
                                  DETAIL_PAGE_DELAY_FACTOR)
         for url in ('/scholar?oi=bibs&hl=en&cites=123',
                     '/citations?user=HF3-E9kAAAAJ&hl=en',
                     '/scholar?as_ylo=2024&as_yhi=2024&hl=en&cites=123',
+                    # BibTeX 已弃用（2026-10-15）：这条不再是"detail 风格"，也不该再被请求
+                    self.BIBTEX_URL,
                     '', None):
             with self.subTest(url=url):
                 self.assertEqual(detail_path_delay_factor(url), 1.0)

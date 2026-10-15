@@ -2314,3 +2314,12 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   bib 请求"这类断言），其余全绿 ✓。
 - **文档**：阶段 1 `AGENTS.md`/`README.md` 与**根 `AGENTS.md`** 都写明"BibTeX 已弃用"，并改述
   venue/作者全名的来源（**Chicago**）与 `cite.corrected`。
+
+## 2026-10-15（续 18）: 延迟分类器不再认识 BibTeX URL（用户定）
+
+- `code/scholarly_session.py::detail_path_delay_factor()` 删掉 `scholar.bib` / `output=citation`
+  分支：现在"detail 风格"只有两类 —— pub 详情页（`view_op=view_citation`）与 Cite 对话框（`output=cite`）。
+- `tests/test_scholar_patch.py`：删掉 `test_signed_bibtex_download_uses_the_documented_factor`，
+  并把 `BIBTEX_URL` 从"应打折"清单挪到**反例**清单 —— 现在断言它返回 `1.0`（**不再**享受 1/10 折扣）。
+  这样将来若有人重新引入 bib 请求，默认拿到的是**全量延迟**（保守），而不是悄悄沿用折扣。
+- `AGENTS.md` 的 scholarly patch 段与测试说明段同步；测试数 **544 → 543**，全套通过 ✓。

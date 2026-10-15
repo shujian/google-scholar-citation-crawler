@@ -321,8 +321,8 @@ Patches `scholarly` internals rather than treating it as a black box:
   where the factor is `code.config.DETAIL_PAGE_DELAY_FACTOR` and
   `detail_path_delay_factor()` (`code/scholarly_session.py`) is the **single**
   classifier deciding which URLs are "detail-style" — the publication detail page
-  (`view_op=view_citation`), a citing entry's Cite dialog (`output=cite`) and its
-  signed BibTeX download (`scholar.bib` / `output=citation`) — versus everything
+  (`view_op=view_citation`) and a citing entry's Cite dialog (`output=cite`)
+  — the signed BibTeX download was dropped from the list on 2026-10-15 — versus everything
   else, notably citation-list pagination, which keeps the full 45–90 s.  `--accelerate`
   multiplies on top; neither `venue_detail.py` nor `cite_format.py` may define a
   delay of its own (guarded by `tests/test_scholar_patch.py`)
@@ -423,7 +423,7 @@ dependencies are stubbed in `tests/conftest.py`).
   drop `citation['cite']`).
 - `tests/test_scholar_patch.py` pins the pre-request pacing with a stubbed sleep:
   the scale handed to `rand_delay` is `delay_scale * DETAIL_PAGE_DELAY_FACTOR` for the
-  detail/Cite/BibTeX URLs and plain `delay_scale` for citation-list and profile pages
+  detail/Cite URLs and plain `delay_scale` for citation-list and profile pages
   (`--accelerate` stacking included), and a source-level guard asserts the two new
   modules define no delay of their own.
 - `tests/test_venue_key.py` covers the normalized venue identity: acronyms and

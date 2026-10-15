@@ -53,8 +53,8 @@ def detail_path_delay_factor(url):
     The **detail-style** paths are one-shot, non-paginated pages:
 
     * a publication detail page (``view_op=view_citation``),
-    * a citing entry's Cite dialog (``output=cite``),
-    * its signed BibTeX download (``scholar.bib`` / ``output=citation``).
+    * a citing entry's Cite dialog (``output=cite``) — the signed BibTeX download
+      was dropped from this list on 2026-10-15, when BibTeX itself was abandoned.
 
     They run at ``code.config.DETAIL_PAGE_DELAY_FACTOR`` (1/10) of the normal
     delay.  Every other URL — notably citation-list pagination and the profile
@@ -66,8 +66,6 @@ def detail_path_delay_factor(url):
         return 1.0
     text = str(url)
     if 'view_op=view_citation' in text or 'output=cite' in text:
-        return DETAIL_PAGE_DELAY_FACTOR
-    if 'scholar.bib' in text or 'output=citation' in text:
         return DETAIL_PAGE_DELAY_FACTOR
     return 1.0
 

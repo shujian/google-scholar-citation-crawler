@@ -3384,3 +3384,10 @@ Chicago 已含作者全名 + 未截断 venue；少一处解析就少一处"把�
 
 已删除：BibTeX 下载整条路径、`parse_bibtex` 与两个私有助手、`bib_*` 统计、条目里的 `bib_url`；
 缓存写出时剔除 `bibtex`/`bib_url`（存量随之清掉）。文档（AGENTS.md/README.md，含根 AGENTS）已写明弃用。
+
+## 2026-10-15（续 18）: 清掉延迟分类器里的 BibTeX 遗留
+
+> 清掉
+
+已删除 `detail_path_delay_factor()` 里的 `scholar.bib` / `output=citation` 分支与文档串对应项，
+测试改成**钉住反例**（签名 bib 链接不再打折：命中它返回 1.0），`AGENTS.md` 两处同步。
