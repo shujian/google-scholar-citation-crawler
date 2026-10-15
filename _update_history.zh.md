@@ -2085,3 +2085,18 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 - **仍待办**（下一小步）：`remap_progress` 的**宿主**仍在阶段 1 的 `shared/papers_layout.py`
   （只有阶段 2 调它，但函数体在阶段 1）—— 按 Y-7 它也应回阶段 2；以及与 `download_progress` /
   `download_summary` 的拆分一起做（见用户 2026-10-15 的方案）。
+
+## 2026-10-15（续 15）: `identity.py` 搬到阶段 1（Y-7 动作 2）
+
+- 按 Y-7"所有权跟着**数据产生者**走"：身份判据作用的数据（`cites_id`、标题、年份、首作者）由**抓取侧**
+  产生，所以唯一实体从阶段 2 的 `code/shared/identity.py` 搬到本仓库 `code/shared/identity.py`
+  （**逐字搬移**，327 行）。
+- **阶段 2 不留副本、也不留薄壳**（同一 PEP 420 命名空间包里放同名文件会遮蔽宿主，
+  `from shared.identity import *` 会自我递归）；阶段 2 唯一的消费点是
+  `code/data_upgrade/repair_identity_fields.py`，已改成消费方形态（`from code import _shared` 注入后
+  `from shared.identity import …`）。
+- 四个消费方（3.a.1 / 3.a.2 / 3.b / 阶段 4）的 `_shared.py` 把 `identity` 从
+  `("paper_downloader/{wt}", ("identity", "spec"))` 挪到阶段 1 的元组（`spec` 仍留阶段 2 ——
+  它是 `-p` 语法，属于阶段 2 的数据/入口语义）。
+- **测试**：四个消费方的 `tests/test_shared_identity.py` **原样通过**（11/11/7/5 ✓ —— 它们断言的是
+  "宿主提供该模块"，不写死阶段 2）；阶段 2 **539 例 OK**（含 `repair_identity_fields` 14 例）。

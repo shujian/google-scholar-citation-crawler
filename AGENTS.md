@@ -226,6 +226,16 @@ google-scholar-citation-crawler/
   否则它无法被两个阶段同时消费。**远程可见性**：阶段 2 在 SSHFS 下靠 `<容器根>/stage1_code` 这条
   符号链接看到本目录（`code/_shared.py` 两处都试）。
 
+- **`code/shared/identity.py`**（2026-10-15，**跨仓库共享宿主**）：引用**身份判定**的唯一实体 ——
+  `same_citation_identity()`（真实 `cites_id` → **DOI / arXiv 强标识** → **弱 URL 键**（IEEE / OSF /
+  Research Square / DSpace 的形状折叠）→ 归一化标题 + 年份 + 首作者姓）及其助手。**为什么宿主在本
+  阶段**：按 `KNOWN_ISSUES.md` **Y-7** 的"所有权跟着**数据产生者**走"，判据作用的数据（`cites_id`、
+  标题、年份、作者）都是本阶段抓取产生的 ✓（此前宿主在阶段 2，是因为阶段 2 最早需要它 —— 那是旧判据）。
+  消费方：阶段 2（`code/data_upgrade/repair_identity_fields.py` 经 `code/_shared.py`）、
+  3.a.1 / 3.a.2 / 3.b / 阶段 4（各经自己的 `code/_shared.py`）。**本地是宿主，直接
+  `from code.shared.identity import …`**；阶段 2 侧**不留副本、也不留薄壳**（同一 PEP 420 命名空间
+  包里放同名文件会遮蔽宿主，`from shared.identity import *` 还会自我递归）。
+
 ## Architecture overview
 
 The program always runs in two sequential phases from `main()`:
