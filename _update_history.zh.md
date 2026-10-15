@@ -2121,3 +2121,18 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 - **下一步**：一次性种子（从 `citations_meta.json` 读出既有分配写进阶段 1 产物，只读对账已验证
   241/241、9,170 命中、0 新增/0 退役 → **零重命名**）→ 阶段 1 写 `citations/<NNNN>-<slug>.json`（cite）
   → 阶段 2 拆 `download_progress` / `download_summary` 并删 `remap_progress`。
+
+## 2026-10-15（续 17）: 一次性种子工具（引用编号的初始状态）
+
+- **新增 `code/data_upgrade/seed_citation_index.py`**：读阶段 2 的 `citations_meta.json`（**只读** ✓），
+  把每篇论文的既有分配抄成阶段 1 产物里的 `citation_index: {assigned, next, retired}`。
+  **论文按身份配对（url → 标题），绝不按 `pub.no`**（实测按编号会错 85 篇 —— 输入里的 `pub.no` 是
+  上次抓取的旧排名，而目录已被重编号 ✗）。默认 **dry-run**；`--apply` 写前备份原文件到
+  `output/citation_index_seed_<stamp>/` 并记 sha256；幂等（重跑应显示 0 改动）。
+- **真实数据 dry-run（只读）**：`papers 241 / matched_url 241 / matched_title 0 / unmatched 0 /
+  entries 9172 / already_seeded 0 / no_meta 0` ✓ —— 与之前的只读对账（9,170 身份命中、0 新增/0 退役）
+  一致；样例 `001-…: assigned 1376 / next 1429 / retired 52`（退役号就是历史空洞 ✓）。
+- **刻意尚未 `--apply`**：阶段 1 的抓取主流程还没接线（下次抓取写产物时**必须保留**这个块），
+  现在种下去会被下一次抓取丢掉 ✗。所以顺序是：**先接线（读上一版 state → `assign_indices` → 写回），
+  再 apply 种子**。
+- **待补**：该工具的单测（本轮的 dry-run 是真实数据只读验证；单测与主流程接线一起补）。
