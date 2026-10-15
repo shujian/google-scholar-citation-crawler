@@ -2420,7 +2420,7 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   "`refresh_venue_keys` 重算 + 清旧键 + 幂等"；`test_normalize_venue_key.py` 的两条旧断言
   （截断 → raw）按新口径改成"截断不给 key"。全套 **556 → 567** 通过 ✓。
 - **数据**：存量按新规则收敛（阶段 2 的 `backfill_venue_key --refresh --apply`：清掉 4,611 条截断
-  raw、升级 68 条），最终 3,352 条 normalized + 5,892 条按口径无 key ✓。
+  raw、升级 68 条），最终 3,352 条有 key（normalized 2,652 + raw 700 —— 那 700 条全是**未截断**的未知串，含省略号的 raw 已归零 ✓）+ 5,892 条按口径无 key ✓。
 - **文档**：`AGENTS.md` 的 Phase 2 段、三份 `.zh.md`、`issues.md`（`suggestion.md` 的结论并入后
   删除该文件）。
 
