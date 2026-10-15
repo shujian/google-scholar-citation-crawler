@@ -7,7 +7,7 @@
 
 **内容 = 原阶段 2 `code/renumber_papers.py` 的库部分，逐字搬移、语义未改**：
 `plan()` 算编号重排计划（纯函数、不碰磁盘）、`apply_plan()` 两阶段改名 + `manifest.json`、
-`merge_into()` 同作品两目录合并、`remap_progress()` 改 `progress.json` 的派生编号、
+`merge_into()` 同作品两目录合并、
 `reconcile()` 串起来，以及 `target_dir_name()` / `norm_title()` / `dir_titles()` 等助手。
 
 **为什么需要重排**：`papers/<NNN>-<slug>/` 里的 `NNN` 不是稳定标识 —— 阶段 1 每次抓取按
@@ -451,111 +451,6 @@ def merge_into(src: str, dst: str, quarantine_root: str, log=print) -> dict:
         f"（并入 {len(rec['pdfs_moved'])} 个 PDF、{len(rec['files_moved'])} 个文件，"
         f"隔离 {len(rec['quarantined'])} 项）")
     return rec
-
-
-def remap_progress(plan_dict: dict, progress_path: str, backup_dir: str,
-                   stamp: str = None, log=print) -> dict:
-    """把 ``progress.json`` 里的论文编号跟着目录改名一起改。
-
-    为什么必须做：`progress.json` 用 ``papers[str(paper_index)]["paper_no"]`` 解析论文目录
-    （运行期的 ``ProgressTracker.paper_dir_for_index`` 与巡检的 ``_paper_dir_for_index`` 同口径）。
-    目录改名后这些编号就过时了 —— 补齐会去**别的论文**目录找文件（白重下），巡检也会报上千条
-    `progress_missing`（实测 126 → 1847）。引用级编号不受影响：跳过下载判定按 ``cites_id``。
-
-    **逐条判定，不做全局映射**（这是踩坑后的结论）：映射是按**旧目录编号**建的关键字，而
-    `progress.papers[*].paper_no` 在上一轮同步后已经可能是**新编号**（同一个数字在旧/新语义下
-    是不同的论文）。全局套用会误改别人的条目、或在键碰撞时整体放弃（实测两者都发生过）。
-    现在的规则：
-
-    * 计划里的每条改名/合并都带 ``title``（旧目录的标题）与 ``old_no → new_no``；
-    * 只有 ``title`` 归一化相同**且** ``paper_no == old_no`` 的条目才改（精确）；
-    * 条目没有 title 时退回只比编号，但**目标键被别的条目占用就跳过这一条**并报告（不再整体拒绝）；
-    * 引用条目的 ``paper_index`` 跟着它所属的条目一起改。
-
-    天然幂等：改过的条目其 ``paper_no`` 已是新号，再跑不会命中。写盘前把原文件复制进 manifest 目录
-    （名字带 stamp），写盘走临时文件 + ``os.replace``。
-    """
-    data = _read_json(progress_path)
-    if not isinstance(data, dict):
-        return {"remapped_papers": 0, "remapped_citations": 0, "reason": "progress.json 读不了"}
-    stamp = stamp or "unknown"
-    if stamp in (data.get("renumber_applied") or []):
-        return {"remapped_papers": 0, "remapped_citations": 0, "reason": "该次重排已应用过，跳过"}
-
-    by_title, by_no = {}, {}
-    for m in (plan_dict.get("moves") or []) + (plan_dict.get("merges") or []):
-        old_no = m.get("old_no")
-        if old_no is None:
-            base = os.path.basename(m.get("from") or "")
-            old_no = int(base[:3]) if base[:3].isdigit() else None
-        new_no = m.get("new_no")
-        if new_no is None:
-            base = os.path.basename(m.get("to") or "")
-            new_no = int(base[:3]) if base[:3].isdigit() else None
-        if not (isinstance(old_no, int) and isinstance(new_no, int)):
-            continue
-        title = (m.get("title") or "").strip()
-        if title:
-            by_title[(norm_title(title), old_no)] = new_no
-        by_no[old_no] = new_no
-    if not by_no:
-        return {"remapped_papers": 0, "remapped_citations": 0, "reason": "计划里没有编号变更"}
-
-    papers_meta = data.get("papers") or {}
-    new_papers, remapped_papers, skipped, index_map = {}, 0, [], {}
-    for pi, entry in papers_meta.items():
-        if not isinstance(entry, dict):
-            new_papers[pi] = entry
-            continue
-        old_no = entry.get("paper_no")
-        title = (entry.get("title") or "").strip()
-        new_no = by_title.get((norm_title(title), old_no)) if title else None
-        if new_no is None and old_no in by_no and not title:
-            new_no = by_no[old_no]
-        if new_no is None or new_no == old_no:
-            new_papers[pi] = entry
-            continue
-        new_key = str(new_no - 1)
-        if new_key in papers_meta and new_key != pi:
-            skipped.append({"key": pi, "paper_no": old_no, "title": title[:40],
-                            "reason": f"目标索引 {new_key} 已被别的条目占用"})
-            new_papers[pi] = entry
-            continue
-        new_papers[new_key] = dict(entry, paper_no=new_no)
-        index_map[pi] = new_key
-        remapped_papers += 1
-
-    remapped_citations = 0
-    for _cid, c in (data.get("citations") or {}).items():
-        if not isinstance(c, dict):
-            continue
-        new_key = index_map.get(str(c.get("paper_index")))
-        if new_key is not None:
-            c["paper_index"] = int(new_key)
-            remapped_citations += 1
-
-    if not (remapped_papers or remapped_citations):
-        return {"remapped_papers": 0, "remapped_citations": 0,
-                "reason": "编号已是最新，无需改动", "skipped": skipped}
-    os.makedirs(backup_dir, exist_ok=True)
-    backup = os.path.join(backup_dir, f"progress.json.bak.{stamp}")
-    if os.path.exists(backup):
-        backup = f"{backup}.{int(_dt.datetime.now().timestamp())}"
-    with open(progress_path, "rb") as src, open(backup, "wb") as dst:
-        dst.write(src.read())
-    data["papers"] = new_papers
-    applied = list(data.get("renumber_applied") or [])
-    applied.append(stamp)
-    data["renumber_applied"] = applied
-    tmp = progress_path + ".renumber.tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, progress_path)
-    log(f"  🧭 progress.json 同步编号：papers {remapped_papers} 条、citations {remapped_citations} 条"
-        + (f"，跳过 {len(skipped)} 条（目标索引被占）" if skipped else "")
-        + f"（原文件备份 {backup}）")
-    return {"remapped_papers": remapped_papers, "remapped_citations": remapped_citations,
-            "backup": backup, "skipped": skipped}
 
 
 def _listing_sha1(paper_dir: str) -> str:
