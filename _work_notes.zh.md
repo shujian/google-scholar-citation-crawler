@@ -1619,3 +1619,33 @@ BibTeX 是结构化字段，零歧义，所以只用它；字段优先级 `journ
 
 **测试样例**（用户指定）：`R-prm: Reasoning-driven process reward modeling` = pub.no **31**、
 56 引用、`venue_key=EMNLP2025`（normalized）→ 端到端验证用 `--skip 30 --limit 1`。
+
+## Y-6 步骤 2 的失败尝试与正确做法（2026-10-15，已回滚）
+
+**试过什么**：把 `repair_progress_locations.py` / `repair_citation_filenames.py` 的库部分
+机械搬进 `code/shared/papers_repairs.py`，把 7 个阶段 2 内部符号
+（`ProgressTracker` / `STATUS_DOWNLOADED` / `snapshot_files` / `corpus_pdf_index` /
+`paper_dirs_from_progress` / `_is_valid_pdf_file` / `slug_without_prefix` / `atomic_write_json`）
+改成"调用时 `_stage2(name)` 解析"。**代码是对的**（语法/导入/别名都正常），
+但阶段 2 的测试红了 —— 说明这个做法**破坏了消费方的可测性**，于是**回滚**（不留红的仓库）。
+
+**两类真实障碍（下次必须先处理）**：
+1. **测试打的补丁落在消费方模块上** ✗。例：`tests/test_repair_citation_filenames.py` 打桩
+   `code.repair_citation_filenames._is_valid_pdf_file`（以及 `_utils.*`）；实现搬到共享件后，
+   调用点走 `_stage2()` 从 `code.citation_downloader` 取符号 —— **补丁再也不生效**，
+   于是 `test_validate_false_never_opens_pdf_files` 之类全红。
+   **正确做法（下一轮采用）**：改成**消费方模块优先**的解析 —— 薄模块把阶段 2 的符号
+   `from code.citation_downloader import _is_valid_pdf_file, …` 并把自己的模块对象传给共享件，
+   `_stage2(name)` **先 `getattr(消费方模块, name)`**、再回退到候选模块列表。补丁落在消费方
+   模块属性上就继续生效 ✓。这正是 3.a.1 `work_identity` 解析 `papers/` 根用过的同一套
+   「`code.config` 优先 → 指名的消费模块 → 否则默认」约定，工作区里已有先例。
+2. **源码级守卫盯的是消费方文件的源码** ✗。例：`tests/test_dir_snapshot.py::
+   test_no_per_entry_isfile_in_hot_paths` 断言"热点路径里不许逐个 `isfile`"，它读的是
+   `code/repair_citation_filenames.py` 的源码；实现搬走后那里只剩再导出，守卫要么失效、
+   要么误报。**正确做法**：守卫的**目标文件**跟着实现走（指向
+   `code/shared/papers_repairs.py`），断言内容不变 —— 按根 AGENTS 的说法，守卫应钉住
+   "唯一实体在哪里"，而不是"某个仓库的某个文件里有没有这段字面代码"。
+
+**教训**：搬移类改动的验收是"消费方测试**一字不改**地通过"，所以**动之前**要先扫两类东西：
+① 测试里对**消费方模块属性**的 patch（`patch.object(<模块>, '<符号>')`）；② **读源码**的守卫
+（`inspect.getsource` / 打开文件读）。这两类决定了搬移需要"消费方模块优先解析 + 守卫改指向"。
