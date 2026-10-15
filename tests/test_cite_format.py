@@ -485,16 +485,27 @@ class EnrichmentTests(unittest.TestCase):
         self.assertEqual(stats['missing_cid'], 1)
         self.assertNotIn('cite', legacy)
 
-    def test_the_other_citation_fields_stay_byte_identical(self):
+    def test_identity_fields_stay_byte_identical(self):
+        """身份字段（url / cites_id / cid）一字不动 ✓；元数据字段**允许**被 Chicago 修正 ✗→✓。
+
+        2026-10-15 用户定：Chicago 是权威来源，不一致就用它更新 `title` / `authors` /
+        `venue` / `year`（列表页那三个会被 Scholar 截断或改写）。`citation['venue']`
+        参与身份键，但身份判据读的是 `cites_id`/标题/年份/(URL/DOI/arXiv)，**URL 不动**；
+        改写带来的下游重算是用户明确接受的取舍。
+        """
         row = citation()
-        before = {key: row[key] for key in
-                  ('title', 'authors', 'venue', 'year', 'url', 'cites_id', 'cid')}
-        snapshot = json.dumps(before, sort_keys=True)
+        identity_before = {key: row[key] for key in ('url', 'cites_id', 'cid')}
+        metadata_before = {key: row[key] for key in ('title', 'authors', 'venue', 'year')}
         nav = _FakeNav(pages={CID_PATH: default_page()}, bibs={BIB_URL: BIBTEX_TEXT})
         self._run([row], nav)
-        after = {key: row[key] for key in before}
-        self.assertEqual(json.dumps(after, sort_keys=True), snapshot)
-        self.assertEqual(row['venue'], VENUE_FULL)
+        self.assertEqual({key: row[key] for key in identity_before}, identity_before)
+        corrected = (row.get('cite') or {}).get('corrected') or {}
+        for field, before in metadata_before.items():
+            if field in corrected:                      # 被修正的字段：新值 = Chicago 的值
+                self.assertEqual(corrected[field]['from'], before)
+                self.assertEqual(row[field], corrected[field]['to'])
+            else:                                        # 没被修正：保持原值
+                self.assertEqual(row[field], before)
 
     def test_bibtex_is_skipped_without_a_get_page(self):
         row = citation()
@@ -823,9 +834,15 @@ class SaveOutputWiringTests(unittest.TestCase):
         nav = _FakeNav(pages={CID_PATH: default_page()}, bibs={BIB_URL: BIBTEX_TEXT})
         saved, _ = self._save(self._fetcher(True), [citation()], nav)
         row = saved['papers'][0]['citations'][0]
-        self.assertEqual(row['cid'], CID)
-        self.assertEqual(row['cites_id'], '1234')
-        self.assertEqual(row['authors'], AUTHORS_ABBREV)
+        self.assertEqual(row['cid'], CID, "cid 不参与修正")
+        self.assertEqual(row['cites_id'], '1234', "cites_id 是身份键，一字不动")
+        # 2026-10-15 用户定：Chicago 是权威来源 → 列表页的缩写作者被**修正**成全名，
+        # 改动记在 cite.corrected 里供审计（原值 from / 新值 to）。
+        corrected = (row.get('cite') or {}).get('corrected') or {}
+        self.assertIn('authors', corrected)
+        self.assertEqual(corrected['authors']['from'], AUTHORS_ABBREV)
+        self.assertEqual(row['authors'], corrected['authors']['to'])
+        self.assertNotEqual(row['authors'], AUTHORS_ABBREV)
 
     def test_nothing_is_requested_when_the_flag_is_off(self):
         nav = _FakeNav(pages={CID_PATH: default_page()}, bibs={BIB_URL: BIBTEX_TEXT})

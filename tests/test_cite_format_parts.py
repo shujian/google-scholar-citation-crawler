@@ -95,3 +95,66 @@ class VenueKeyPrecedenceTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ChicagoCorrectionTests(unittest.TestCase):
+    """Chicago 是权威来源：不一致就用它**修正**当前条目的四个字段（用户 2026-10-15）。
+
+    身份字段（`url` / `cites_id` / `cid`）一律不动；标题只差大小写/标点不算不一致。
+    """
+
+    CHICAGO = ('Yi, Sibo, and Qi Li. "Jailbreak attacks and defenses against large '
+               'language models: A survey." arXiv preprint arXiv:2407.04295 (2024).')
+
+    def _citation(self, **over):
+        row = {'title': 'Jailbreak attacks and defenses against large language models: A survey',
+               'authors': 'S Yi, Q Li',
+               'venue': 'arXiv preprint arXiv:2407.04…',
+               'year': '2023',
+               'url': 'https://arxiv.org/abs/2407.04295',
+               'cites_id': '999', 'cid': 'cMQnZmHgB1MJ'}
+        row.update(over)
+        return row
+
+    def test_truncated_fields_are_corrected_and_audited(self):
+        from code.cite_format import apply_chicago_correction
+        row = self._citation()
+        changed = apply_chicago_correction(row, {'chicago': self.CHICAGO})
+        self.assertEqual(row['venue'], 'arXiv preprint arXiv:2407.04295')
+        self.assertEqual(row['authors'], 'Yi, Sibo, and Qi Li')
+        self.assertEqual(row['year'], '2024')
+        self.assertNotIn('title', changed, "标题一致就不该改")
+        self.assertEqual(changed['venue']['from'], 'arXiv preprint arXiv:2407.04…')
+        self.assertEqual(changed['venue']['to'], 'arXiv preprint arXiv:2407.04295')
+
+    def test_identity_fields_and_url_are_never_touched(self):
+        from code.cite_format import apply_chicago_correction
+        row = self._citation(url='u', cites_id='1234', cid='cMQnZmHgB1MJ')
+        apply_chicago_correction(row, {'chicago': self.CHICAGO})
+        self.assertEqual(row['url'], 'u')
+        self.assertEqual(row['cites_id'], '1234')
+        self.assertEqual(row['cid'], 'cMQnZmHgB1MJ')
+
+    def test_title_differing_only_in_case_or_punctuation_is_not_a_mismatch(self):
+        from code.cite_format import apply_chicago_correction
+        row = self._citation(title='Jailbreak Attacks and Defenses Against Large Language Models: A survey.')
+        changed = apply_chicago_correction(row, {'chicago': self.CHICAGO})
+        self.assertNotIn('title', changed)
+        self.assertNotIn('title', changed)
+        self.assertTrue(row['title'].endswith('survey.'), "原值保持（只差标点）")
+
+    def test_missing_chicago_value_does_not_blank_a_field(self):
+        from code.cite_format import apply_chicago_correction
+        row = self._citation(venue='keep me')
+        # Chicago 串里没有 venue 段（收尾引号后直接是年份）
+        changed = apply_chicago_correction(
+            row, {'chicago': 'Yi, Sibo. "A title." (2024).'})
+        self.assertNotIn('venue', changed)
+        self.assertEqual(row['venue'], 'keep me')
+
+    def test_other_formats_do_not_correct_anything(self):
+        from code.cite_format import apply_chicago_correction
+        row = self._citation()
+        before = dict(row)
+        self.assertEqual(apply_chicago_correction(row, {'mla': self.CHICAGO}), {})
+        self.assertEqual(row, before)

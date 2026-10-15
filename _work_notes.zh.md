@@ -1851,3 +1851,13 @@ BibTeX 是结构化字段，零歧义，所以只用它；字段优先级 `journ
 
 **另一个**：解析发生在**写 payload 之前**，所以 `changed=True` 会连带把 `venue_text` / `authors_full`
 写回 `cite_format_cache.json` —— 于是**存量缓存条目不必重新联网**就能补齐这两个字段（下次跑自动补全）。
+
+## 用 Chicago 修正字段时的两个坑（2026-10-15）
+
+1. **键名混淆**：`parse_format_parts()` 返回的键是 `authors` / `venue` / `title` / `year`（**与 citation
+   字段同名**），而 `format_extras()` 返回的是 `authors_full` / `venue_text` / `*_source`。第一版按
+   `venue_text` 去取 ⇒ `None` ⇒ 静默跳过（只有 year 被改），测试才发现 ✗。**同一份信息两套键名，
+   取值前先确认是哪一层的输出。**
+2. **"只差标点"不算不一致**：Chicago 与列表页标题常有 `…`、尾句点、大小写差异。用共享件
+   `identity_norm_title()` 归一后再比，避免把纯格式差异当成"信息变了"而做无意义的覆盖
+   （那会让下游白重算一轮）。

@@ -2283,3 +2283,20 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   就少一处风险面。
 - 测试同步改写为 `test_only_chicago_is_parsed`：Chicago 与其他格式同时存在时取 Chicago 的全作者；
   **只有** MLA/APA（哪怕有引号）、或 Chicago 无引号时 → 一律什么都不给。全套 **564 例通过** ✓。
+
+## 2026-10-15（续 16）: Chicago 一致性检查 → 修正当前条目（用户定）
+
+- **语义**（用户 2026-10-15）：Chicago 是**权威来源**；与当前条目不一致 ⇒ 说明这条引用的信息变了 ⇒
+  **用 Chicago 的值更新当前论文的这条引用**（不是"只记一笔"）。
+- **实现**：`code/cite_format.py::apply_chicago_correction(citation, formats)` —— 只处理 `title` /
+  `authors` / `venue` / `year` 四个字段（键与 `parse_format_parts()` 同名）；返回
+  `{field: {'from':…, 'to':…}}` 写进 `citation['cite']['corrected']` 供审计；在写 payload 前调用。
+- **三条边界**：① `url` / `cites_id` / `cid` **一律不动**（`cites_id` 是身份键，K109/K123/K128）；
+  ② 标题比对复用共享件 `identity_norm_title()`，**只差大小写/标点不算不一致**；③ Chicago 没给的项
+  **不覆盖**（保持原值）；只解析 Chicago（`format_extras()` 同口径）。
+- **测试 564 → 569**：新增 `ChicagoCorrectionTests` 5 例（截断字段被修正且有审计、身份字段与 url
+  不被触碰、标题只差标点不算不一致、Chicago 缺项不抹空、别的格式不修正）；并把
+  `test_cite_format.py` 的两条"一字不动"断言改写为新契约（**身份字段**仍字节不变 ✓；`title`/`authors`/
+  `venue`/`year` 允许被修正，改写后新值等于 `cite.corrected[field]['to']` ✓）。全套通过 ✓。
+- **已知取舍**（用户明确接受）：这四个字段参与下游身份判定，改写会让**已产出的下游文件被判为身份不符
+  而重算**（既有设计：宁可重算，不张冠李戴）。

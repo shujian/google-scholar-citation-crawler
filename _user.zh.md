@@ -3370,3 +3370,10 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 
 已改为**只解析 Chicago**（去掉 MLA 回退）：MLA/APA/Harvard/Vancouver 是同一份信息的不同显示，
 Chicago 已含作者全名 + 未截断 venue；少一处解析就少一处"把标题当 venue"的风险。
+
+## 2026-10-15（续 16）: 用 Chicago 修正当前论文的信息
+
+> 验证如果发现不一致，可能当前论文的信息跟之前保存的有变化。结果用来更新当前的论文信息。
+
+已实现 `apply_chicago_correction()`：Chicago 与当前条目的 `title`/`authors`/`venue`/`year` 不一致时，
+用 Chicago 的值**更新当前条目**（改动记进 `cite.corrected` 供审计）；`url`/`cites_id`/`cid` 一律不动。

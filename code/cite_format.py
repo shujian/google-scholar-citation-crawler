@@ -90,6 +90,8 @@ _CITE_PATH = '/scholar?q=info:{0}:scholar.google.com/&output=cite&scirp=0&hl=en'
 FORMAT_LABELS = ('mla', 'apa', 'chicago', 'harvard', 'vancouver')
 
 #: Key added to a citation dict; the formats live inside it.
+from code.shared.identity import identity_norm_title  # noqa: E402
+
 CITE_FIELD = 'cite'
 
 #: Cache file name, written under the crawler's ``output/`` directory.
@@ -229,6 +231,45 @@ def format_extras(formats):
         extras['authors_full'] = parts['authors']
         extras['authors_source'] = 'chicago'
     return extras
+
+
+#: 可用 Chicago 修正的字段 —— `citation` 的键与 `parse_format_parts()` 的键**同名**
+#: （注意：`authors_full` / `venue_text` 是 `format_extras()` 的键，别拿混了）
+_CHICAGO_CORRECTIONS = ('title', 'authors', 'venue', 'year')
+
+
+def apply_chicago_correction(citation, formats):
+    """用 Chicago 串里的信息**修正当前条目的字段**（用户 2026-10-15 定）。
+
+    为什么不是"只记一笔"：Chicago 是**权威来源**，而列表页的 `title` / `authors` / `venue` /
+    `year` 会被 Scholar 截断或改写；两者不一致说明**这条引用的信息已经变了**，
+    所以用 Chicago 的值**更新当前条目**（返回改动字典供审计，写进 `cite['corrected']`）。
+
+    边界（必须守住）：
+    * **只改这四个字段** —— `url` / `cites_id` / `cid` 一律不动（身份键，K109/K123/K128）；
+    * 标题比对复用共享件 `identity_norm_title()`，避免把大小写/标点差异当成不一致；
+    * Chicago 没给的那一项**不覆盖**（保持原值）；
+    * 只解析 Chicago（见 `format_extras()`），别的格式不参与。
+
+    ⚠️ 这四个字段参与下游的身份判定：改写会让**已产出的下游文件被判为身份不符而重算**
+    （既有设计：宁可重算，不张冠李戴）—— 这是用户明确接受的取舍。
+    """
+    if not isinstance(citation, dict):
+        return {}
+    parts = parse_format_parts((formats or {}).get('chicago'))
+    if not parts:
+        return {}
+    changed = {}
+    for field in _CHICAGO_CORRECTIONS:
+        new = str(parts.get(field) or '').strip()
+        old = str(citation.get(field) or '').strip()
+        if not new or new == old:
+            continue
+        if field == 'title' and identity_norm_title(new) == identity_norm_title(old):
+            continue                      # 只有大小写/标点差异 → 不算不一致
+        citation[field] = new
+        changed[field] = {'from': old, 'to': new}
+    return changed
 
 
 def parse_bibtex(source):
@@ -451,11 +492,18 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
                 entry.update(extras)
                 changed = True
 
+        # Chicago 是权威来源：与当前条目不一致就用它**修正**这四个字段（url/cites_id/cid 不动）
+        corrections = apply_chicago_correction(citation, entry.get('formats'))
+        if corrections:
+            changed = True
+
         if changed and cache_path:
             save_cite_cache(cache_path, cache)
 
         payload = dict(entry['formats'])
         payload.update(extras)
+        if corrections:
+            payload['corrected'] = corrections
         if entry.get('bibtex'):
             payload['bibtex'] = entry['bibtex']
         citation[CITE_FIELD] = payload
