@@ -65,6 +65,7 @@ from code.common import (
     rand_delay,
     ensure_papers_root,
     resolve_cite_formats,
+    resolve_renumber_papers,
     resolve_proxy_config,
     setup_proxy,
     write_json_atomic,
@@ -114,6 +115,8 @@ from code import cite_format as _cite_format
 from code.venue_quality import (
     citation_needs_cite_dialog as _vq_citation_needs_cite_dialog,
 )
+
+from code.papers_maintenance import run_for_output as run_papers_maintenance
 
 logger = get_logger(__name__)
 
@@ -1799,6 +1802,9 @@ def main():
             getattr(args, 'config', None),
         )
         logger.debug("Proxy resolution: %s", proxy.describe())
+        renumber_mode, renumber_source = resolve_renumber_papers(
+            getattr(args, "renumber_papers", None), getattr(args, "config", None))
+        logger.debug("Papers maintenance: %s (%s)", renumber_mode, renumber_source)
         cite_formats, cite_formats_source = resolve_cite_formats(
             getattr(args, 'cite_formats', None),
             getattr(args, 'config', None),
@@ -1867,6 +1873,9 @@ def main():
                           "citations outside its cache. Continuing...")
                 else:
                     print("\nNo changes in totals, but some citations are incomplete. Continuing fetch...")
+
+        # Y-6 步骤 3：论文目录的创建/编号/改名/归档由本阶段负责（默认只报告）
+        run_papers_maintenance(args.output_dir, author_id, renumber_mode, log=print)
 
         success = citation_fetcher.run()
         if not success:

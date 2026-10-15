@@ -225,3 +225,26 @@ def resolve_cite_formats(cli_value=None, config_path=None):
     if file_cfg.get("cite_formats") is not None:
         return bool(file_cfg["cite_formats"]), "config"
     return CITE_FORMATS, "default"
+
+
+#: 论文目录维护（阶段 1 负责"创建 / 编号 / 改名 / 归档"）的默认模式，见 code/papers_maintenance.py
+RENUMBER_PAPERS = "dry-run"
+
+
+def resolve_renumber_papers(cli_value=None, config_path=None):
+    """Resolve the papers-maintenance mode: CLI > config file > default.
+
+    Returns ``(mode, source)`` with *mode* in ``off`` / ``dry-run`` / ``apply`` and
+    *source* in ``cli`` / ``config`` / ``default``.
+    """
+    mode = cli_value
+    source = "cli"
+    if mode is None:
+        mode = load_config_file(config_path).get("renumber_papers")
+        source = "config"
+    if mode is None:
+        mode, source = RENUMBER_PAPERS, "default"
+    mode = str(mode).strip().lower()
+    if mode not in ("off", "dry-run", "apply"):
+        raise ValueError("renumber_papers 只能是 off / dry-run / apply，收到 %r" % (mode,))
+    return mode, source

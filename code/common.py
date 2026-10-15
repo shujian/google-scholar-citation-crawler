@@ -26,6 +26,7 @@ from code.config import (   # noqa: F401 — re-exported for compatibility
     ensure_papers_root,
     papers_root,
     resolve_cite_formats,
+    resolve_renumber_papers,
     resolve_proxy_config,
 )
 from code.lib_env import (   # noqa: F401 — re-exported for compatibility

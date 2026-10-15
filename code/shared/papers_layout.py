@@ -49,6 +49,41 @@ def _default_max_filename_len():
     return DEFAULT_MAX_FILENAME_LEN
 
 
+def paper_meta_from_pub(pub: dict, total_collected=None) -> dict:
+    """`paper_meta.json` 的**唯一构造器**（阶段 1 建目录时写、阶段 2 收集完再写一次）。
+
+    字段来源全部是阶段 1 抓到的 pub（`paper_citations.json` 的 `pub`），所以两个阶段写出来的
+    形状天然一致 —— 这是 2026-10-15 用户把"创建论文目录"移到阶段 1 时定的：
+    **阶段 1 负责创建 + 写全字段**，阶段 2 只补自己才知道的 `total_collected_citations`
+    （因此两个阶段都不会覆盖对方的字段，也不再需要"读-改-写"）。
+
+    2026-10-15 用户要求顺带补上两个 venue 字段（阶段 1 已经有）：
+    `venue_full`（详情页读到的**未截断**发表地，见 `code/venue_detail.py`）与
+    `venue_key` / `venue_key_source`（归一化身份键，会议=名+年份 / 期刊=缩写 / 预印本=服务器名）。
+    """
+    pub = pub or {}
+    meta = {
+        "no": pub.get("no"),
+        "title": pub.get("title", ""),
+        "year": pub.get("year", ""),
+        "venue": pub.get("venue", ""),
+        "authors": pub.get("authors", ""),
+        "num_citations": pub.get("num_citations", 0),
+        "url": pub.get("url", ""),
+    }
+    if pub.get("venue_full"):
+        meta["venue_full"] = pub["venue_full"]
+        if pub.get("venue_full_source"):
+            meta["venue_full_source"] = pub["venue_full_source"]
+    if pub.get("venue_key") is not None:
+        meta["venue_key"] = pub["venue_key"]
+    if pub.get("venue_key_source") is not None:
+        meta["venue_key_source"] = pub["venue_key_source"]
+    meta["total_collected_citations"] = (
+        0 if total_collected is None else total_collected)
+    return meta
+
+
 def _default_papers_base_dir():
     """调用时解析的 `papers/` 根：消费方的 `code.config.BASE_DIR` 优先，否则 `None`。
 

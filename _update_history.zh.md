@@ -2051,3 +2051,20 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   阶段 1 建的空目录匹配不上。
 - **已全部回滚**（模块、测试、config/cli/common/scholar_citation 的改动），阶段 1 恢复
   **499 例全绿**、工作区干净；问题与四个候选做法记在 `_work_notes.zh.md` 与 `KNOWN_ISSUES.md`。
+
+## 2026-10-15（续 13）: Y-6 步骤 3 —— 阶段 1 接管论文目录创建 + `paper_meta.json`（用户定）
+
+- 用户定案：① `paper_meta.json` 的**创建交给阶段 1**；② 顺带在 meta 里补 `venue_full` 与
+  `venue_key`（不做 pub 侧的 BibTeX 抓取 —— 用户确认那是误会，pub 侧本来就没有 bibtex）。
+- **共享件**新增 `paper_meta_from_pub(pub, total_collected=None)`：`paper_meta.json` 的**唯一构造器**
+  （pub 七字段 + `venue_full` / `venue_full_source` / `venue_key` / `venue_key_source`，
+  `total_collected_citations` 由阶段 2 补）。**阶段 2 的构造改用同一个函数** —— 形状不可能漂移，
+  两边都从同一个 pub 取，所以谁先写都不覆盖对方（也不需要读-改-写）。
+- **`code/papers_maintenance.py`（新）**：建目录 + 写 meta + 改名 + 归档 + `progress.json` 重映射；
+  模式 `off` / `dry-run`（默认）/ `apply`；CLI `--renumber-papers`、配置键 `renumber_papers`；
+  `main()` 在 Phase 1 之后、Phase 2 之前调用；**先改名后建目录**；异常只告警。
+- **上一轮的阻塞解除**：建目录时**同时写 meta** → 目录可被认领，不再被当孤儿归档/重建。
+  真实数据 dry-run：**241 篇 / moves 85 / merges 0 / orphans 0 / ambiguous 0 / conflicts 0**。
+- **测试**：阶段 1 **499 → 511**（`tests/test_papers_maintenance.py` 12 例：三种模式、meta 内容、
+  已存在目录的 meta 不被改写、幂等、失败隔离、解析器优先级、共享构造器唯一）；阶段 2 **543 例
+  原样通过**（meta 形状对它有向后兼容）。

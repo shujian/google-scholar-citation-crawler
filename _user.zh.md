@@ -3273,3 +3273,14 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 步骤 2 已完成并提交（阶段 2 539→543 例全绿）。步骤 3（阶段 1 接管目录创建/编号/改名/归档）
 接线写完、第一次 apply 跑通，但幂等测试暴露真问题：**阶段 1 新建的空目录会被下一轮 plan 当孤儿
 归档、再被建回来**（认领靠阶段 2 的 `paper_meta.json`）。已回滚保持全绿，四个候选做法待你选。
+
+## 2026-10-15（续 13）: `paper_meta` 交给阶段 1，并补 venue_full / venue_key
+
+> 1. 把paper_meta的创建交给阶段1。 2. paper meta中的内容跟bibtex有大量重叠，是否可以一并进行
+> 处理？以bibtex为主？并且加入venue_key字段?
+>
+> （澄清后）你说的对，我搞错了，paper_meta中更新venue_full和venue_key即可。
+
+已按此落地：阶段 1 建目录时写 `paper_meta.json`（含 `venue_full` / `venue_key` /
+`venue_key_source`），阶段 2 只补 `total_collected_citations`；两者共用共享件的唯一构造器。
+阶段的 dry-run 默认不落盘。

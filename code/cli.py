@@ -75,6 +75,12 @@ examples:
                              'untruncated venue for a citing paper); pass --no-cite-formats '
                              'to skip it. Costs one request per citing entry (plus one for '
                              'BibTeX), cached in output/cite_format_cache.json across runs')
+    parser.add_argument('--renumber-papers', dest='renumber_papers', default=None,
+                        choices=['off', 'dry-run', 'apply'],
+                        help='Papers-directory maintenance (the stage-1 side of the papers '
+                             'tree): off, dry-run (default: report only) or apply -- also '
+                             'creates missing directories with their paper_meta.json, renames '
+                             'the ones whose index moved and rewrites progress.json')
     parser.add_argument('--no-cite-formats', dest='cite_formats', action='store_false',
                         default=None,
                         help='Skip the Cite-dialog step above (faster, but citation["cite"] '
