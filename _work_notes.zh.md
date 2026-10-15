@@ -1879,3 +1879,35 @@ BibTeX 请求删掉之后，`detail_path_delay_factor()` 里那条 `scholar.bib`
 
 处置方式：删分支，并在测试里把那条 URL 从"应打折"清单**挪到反例清单**（断言返回 1.0）——
 这比单纯删掉断言更好：它把"这个 URL 现在不该享受折扣"这条意图**钉住**了。
+
+## Cite 对话框的 Referer 比"当前页"晚一格（2026-10-15，用户要求只修这一处）
+
+**现象**（用户 2026-10-15 贴的日志）：`as_ylo=2025` 那张引用列表页上第一行的 Cite 对话框请求，
+Referer 却是 `as_ylo=2023` 那张列表页 —— 而且它是**当时 session 里唯一的 referer 值**。
+
+**根因**：session 的 `referer` 头只在三处被刷新 —— `_SearchScholarIterator._load_url`（列表页翻页，
+设的是 `ctx.last_scholar_url`，也就是**上一张**列表页）、`probe_citation_start_year`（探针）、
+以及 session 重建时的 `_full_session_setup`。Cite 对话框是列表页的**子导航**
+（`cite_format.py` 走 `nav._get_soup(cite_path(cid))`），**不经** `_load_url`，于是它带着
+"上一张列表页"出门。`patched_get_page` 的打印条件是 `referer != ctx.last_scholar_url`，
+所以日志里那行 `(referer: …as_ylo=2023…)` 必然出现 —— 那一行是**真话**，只是发出去的 referer
+确实比"行所在的页"晚一格（浏览器点 Cite 带的是行所在页）。
+
+**处置**（最小改动，只碰 Cite 对话框）：`patched_get_page` 在发请求**之前**判断
+`is_cite_dialog_url(request_url)`，命中就把两个 session 的 `referer` 刷成 `ctx.last_scholar_url`
+（为空则不设，冷启动保护）。`is_cite_dialog_url()` 是"什么算 Cite 对话框"的**唯一实体**，
+`detail_path_delay_factor()` 也改用它（此前就地写死 `'output=cite' in text`），
+避免"同一个概念两处各判一次"再次漂移。
+
+**两个边界**：
+1. 刷新后 `referer == ctx.last_scholar_url`，因此 Cite 对话框的日志**不再**打印 `(referer: …)` ——
+   这是"日志与实际发送一致"的必然结果（打印逻辑本身就是为暴露"偏了一格"而写的）。
+   列表页 / profile / pub 详情页的行为一字未改。
+2. `ctx.last_scholar_url` 的语义是"最后一次成功加载的 Scholar 页"：**逐页钩子**下它就是行所在页（精确）；
+   **批量兜底段**（`_enrich_cite_formats`，保存前那轮）下它是本轮最后访问的页（近似 —— 那些行本来就
+   来自不同的页，浏览器也无唯一正解）。**未动** `view_op=view_citation`（pub 详情页）：同一类问题，
+   但用户明确只要求修 Cite 对话框这一处。
+
+**测试**：`tests/test_scholar_patch.py::CiteDialogRefererTests` 6 例（相对/绝对 URL 都刷新、
+列表页与 profile 页不动、`last_scholar_url` 为空时不设、刷新后日志不再标 referer、
+`is_cite_dialog_url()` 单一定义的正反例）。全套 543 → **549**，全绿 ✓。

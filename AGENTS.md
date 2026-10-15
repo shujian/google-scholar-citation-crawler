@@ -123,7 +123,7 @@ google-scholar-citation-crawler/
 `venue_key.py`（**薄再导出**）把 venue 归一成身份键（会议 = `名+年份`、期刊 = 缩写名、
 预印本 = 服务器名）—— 规则的**唯一实体**在 `code/shared/venue_key.py`（本仓库是宿主），
 阶段 2 / 3.a.1 / 3.a.2 / 阶段 4 经各自的 `code/_shared.py` 消费同一份）；
-`tests/` 有 544 个测试，
+`tests/` 有 549 个测试，
 21 个文件（`test_lib_env_shared.py` 守住「NO_PROXY 消毒引擎只有一份，在 `code/shared/lib_env.py`」；
 `test_shared_venue_key.py` 守住「venue_key 判据只有一份，在 `code/shared/venue_key.py`」）。
 
@@ -425,7 +425,10 @@ dependencies are stubbed in `tests/conftest.py`).
   the scale handed to `rand_delay` is `delay_scale * DETAIL_PAGE_DELAY_FACTOR` for the
   detail/Cite URLs and plain `delay_scale` for citation-list and profile pages
   (`--accelerate` stacking included), and a source-level guard asserts the two new
-  modules define no delay of their own.
+  modules define no delay of their own.  It also pins the **Referer of a Cite
+  dialog**: the dialog must be sent with the page its row was seen on
+  (`ctx.last_scholar_url`), not with the previously loaded list page, while other
+  requests keep whatever referer they had.
 - `tests/test_venue_key.py` covers the normalized venue identity: acronyms and
   spelled-out proceedings forms, Findings as its **own** venue (different from its
   host conference), TACL-not-ACL, longest-match-wins (Nature sub-journals, CL vs

@@ -4,7 +4,8 @@ code/scholarly_session.py — scholarly HTTP session setup and year probe.
 patch_scholarly() monkey-patches scholarly internals to:
   - use HTTP/2 sessions with browser-like headers
   - enforce randomised delays and mandatory long breaks
-  - track pagination and update Referer dynamically
+  - track pagination and update Referer dynamically (citation-list pagination
+    and the Cite dialogs, which are sub-navigations of a list page)
   - support soft session refresh and year-segment skipping
 
 _probe_citation_start_year() fetches the base citedby page once to read the
@@ -47,6 +48,16 @@ from code.page_visit import PageVisit
 # Pre-request pacing
 # ---------------------------------------------------------------------------
 
+def is_cite_dialog_url(url):
+    """True for a citing entry's Cite dialog URL (``output=cite``).
+
+    The single definition of "this request is a Cite dialog", shared by the
+    pacing decision (``detail_path_delay_factor``) and the Referer refresh in
+    ``patched_get_page`` — the two must agree on which URLs those are.
+    """
+    return bool(url) and 'output=cite' in str(url)
+
+
 def detail_path_delay_factor(url):
     """Pre-request-delay factor for *url* — the single definition of the pacing.
 
@@ -65,7 +76,7 @@ def detail_path_delay_factor(url):
     if not url:
         return 1.0
     text = str(url)
-    if 'view_op=view_citation' in text or 'output=cite' in text:
+    if 'view_op=view_citation' in text or is_cite_dialog_url(text):
         return DETAIL_PAGE_DELAY_FACTOR
     return 1.0
 
@@ -481,6 +492,17 @@ def patch_scholarly(ctx: SessionContext) -> None:
         request_url = _scholar_request_url(pagerequest)
         if request_url:
             ctx.current_attempt_url = request_url
+        # A Cite dialog is a sub-navigation *from* the citation-list page its row
+        # was seen on, but it never passes through
+        # _SearchScholarIterator._load_url — the hook that refreshes the session's
+        # Referer while a citation list is being walked.  Left alone the dialog
+        # therefore carries the page *before* the row's page (observed 2026-10-15:
+        # referer was the as_ylo=2023 list while the row came from the as_ylo=2025
+        # one), whereas a browser sends the page the row is on.  Refresh it before
+        # the request goes out, so what is sent and what the log line reports agree.
+        if is_cite_dialog_url(request_url) and ctx.last_scholar_url:
+            for session in (nav._session1, nav._session2):
+                session.headers['referer'] = ctx.last_scholar_url
         referer = None
         for session in (nav._session1, nav._session2):
             referer = session.headers.get('referer')

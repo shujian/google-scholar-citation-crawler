@@ -2323,3 +2323,22 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   并把 `BIBTEX_URL` 从"应打折"清单挪到**反例**清单 —— 现在断言它返回 `1.0`（**不再**享受 1/10 折扣）。
   这样将来若有人重新引入 bib 请求，默认拿到的是**全量延迟**（保守），而不是悄悄沿用折扣。
 - `AGENTS.md` 的 scholarly patch 段与测试说明段同步；测试数 **544 → 543**，全套通过 ✓。
+
+## 2026-10-15（续 19）: Cite 对话框带上"当前页"的 Referer（用户定）
+
+- **问题**（用户 2026-10-15）：`as_ylo=2025` 的引用列表页上取 Cite 对话框，请求里的 Referer 是
+  `as_ylo=2023` 那张页 —— session 的 referer 只在列表页翻页 / 探针 / session 重建时刷新，
+  而 Cite 对话框是列表页的子导航、不经 `_load_url`，于是带着"上一张列表页"出门。
+- **改动**（`code/scholarly_session.py`）：
+  - 新增 `is_cite_dialog_url(url)` —— "什么算 Cite 对话框"的唯一实体（`output=cite`），
+    `detail_path_delay_factor()` 改为复用它（原来就地写死同一判据）；
+  - `patched_get_page()` 在**发请求之前**把两个 session 的 `referer` 刷成 `ctx.last_scholar_url`
+    （仅对 Cite 对话框；`ctx.last_scholar_url` 为空时不设），使**发出的 referer**与**浏览器语义**一致，
+    也让日志与实际发送一致（此后 Cite 对话框不再打印 `(referer: …)`）。
+  - **只改这一处**：列表页 / profile / pub 详情页（`view_op=view_citation`）的行为不变；
+    `cite_format.py` / `venue_detail.py` 一如既往不含任何 header 或延迟逻辑。
+- **测试**：`tests/test_scholar_patch.py` 新增 `CiteDialogRefererTests`（6 例）—— 相对与绝对 URL 都刷新、
+  列表页与 profile 页保持原 referer、`last_scholar_url` 为空时不设、刷新后日志不再标 referer、
+  `is_cite_dialog_url()` 的正反例。测试数 **543 → 549**，全套通过 ✓。
+- **文档**：本文件 + `_work_notes.zh.md` 新增一节；`AGENTS.md` 的测试计数（544）改为实测的 549；
+  `README.md` 的 browser-header 一段本就写的是"dynamic Referer headers"，无需改。

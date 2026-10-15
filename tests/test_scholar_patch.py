@@ -809,3 +809,91 @@ class DetailPathDelayTests(FetcherTestCase):
         # Imported, never re-declared: one definition in code.config.
         self.assertIsNone(
             re.search(r'^DETAIL_PAGE_DELAY_FACTOR\s*=', session_source, re.M))
+
+
+class CiteDialogRefererTests(FetcherTestCase):
+    """A Cite dialog must carry the page its row was seen on as Referer.
+
+    The dialog is a sub-navigation of a citation-list page but does not go
+    through ``_SearchScholarIterator._load_url``, the hook that refreshes the
+    session's Referer while a list is being walked.  It therefore used to carry
+    the page *before* the row's page (logged 2026-10-15: the as_ylo=2023 list
+    while the row came from the as_ylo=2025 one).
+    """
+
+    CITE_DIALOG_URL = ('/scholar?q=info:nYGTsUfPxnMJ:scholar.google.com/'
+                       '&output=cite&scirp=0&hl=en')
+    LIST_URL = ('/scholar?as_ylo=2025&as_yhi=2025&hl=en&as_sdt=2005&sciodt=0,5'
+                '&cites=5394525667202485226&scipsc=')
+    STALE_REFERER = ('https://scholar.google.com/scholar?as_ylo=2023&as_yhi=2023'
+                     '&hl=en&as_sdt=2005&sciodt=0,5'
+                     '&cites=5394525667202485226&scipsc=')
+
+    def setUp(self):
+        super().setUp()
+        self.nav = scholarly_mod.scholarly._Scholarly__nav
+        self.nav._get_page = lambda pagerequest, premium=False: '<html></html>'
+        with patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._patch_scholarly()
+        self.ctx = self.fetcher._session_ctx
+        self.ctx.first_page_prompt_fn = None
+
+    def _referer_after(self, url):
+        """Request *url* with a stale Referer and return both sessions' Referer."""
+        for session in (self.nav._session1, self.nav._session2):
+            session.headers['referer'] = self.STALE_REFERER
+        with patch("code.scholarly_session.rand_delay", return_value=0), \
+             patch("code.scholarly_session.time.sleep", return_value=None), \
+             patch("sys.stdout", new_callable=StringIO):
+            self.nav._get_page(url)
+        return (self.nav._session1.headers['referer'],
+                self.nav._session2.headers['referer'])
+
+    def test_cite_dialog_carries_the_current_page_as_referer(self):
+        self.ctx.last_scholar_url = 'https://scholar.google.com' + self.LIST_URL
+        self.assertEqual(
+            self._referer_after(self.CITE_DIALOG_URL),
+            (self.ctx.last_scholar_url, self.ctx.last_scholar_url))
+
+    def test_cite_dialog_referer_survives_the_absolute_url_form(self):
+        self.ctx.last_scholar_url = 'https://scholar.google.com' + self.LIST_URL
+        self.assertEqual(
+            self._referer_after('https://scholar.google.com' + self.CITE_DIALOG_URL),
+            (self.ctx.last_scholar_url, self.ctx.last_scholar_url))
+
+    def test_other_requests_keep_their_referer(self):
+        """Citation-list pagination and profile pages are not touched here."""
+        self.ctx.last_scholar_url = 'https://scholar.google.com' + self.LIST_URL
+        for url in (self.LIST_URL, '/citations?user=test-author&hl=en'):
+            with self.subTest(url=url):
+                self.assertEqual(self._referer_after(url),
+                                 (self.STALE_REFERER, self.STALE_REFERER))
+
+    def test_cite_dialog_referer_stays_put_without_a_current_page(self):
+        self.ctx.last_scholar_url = ''
+        self.assertEqual(self._referer_after(self.CITE_DIALOG_URL),
+                         (self.STALE_REFERER, self.STALE_REFERER))
+
+    def test_the_log_reports_the_referer_that_is_sent(self):
+        """After the refresh the referer is the current page, so it is not flagged."""
+        self.ctx.last_scholar_url = 'https://scholar.google.com' + self.LIST_URL
+        for session in (self.nav._session1, self.nav._session2):
+            session.headers['referer'] = self.STALE_REFERER
+        with patch("code.scholarly_session.rand_delay", return_value=0), \
+             patch("code.scholarly_session.time.sleep", return_value=None), \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            self.nav._get_page(self.CITE_DIALOG_URL)
+        output = fake_stdout.getvalue()
+        self.assertIn("Request URL: https://scholar.google.com/scholar?q=info:",
+                      output)
+        self.assertNotIn("referer:", output)
+
+    def test_cite_dialog_classification_is_one_shared_function(self):
+        from code.scholarly_session import is_cite_dialog_url
+
+        self.assertTrue(is_cite_dialog_url(self.CITE_DIALOG_URL))
+        self.assertTrue(is_cite_dialog_url(
+            'https://scholar.google.com' + self.CITE_DIALOG_URL))
+        for url in (self.LIST_URL, '/citations?user=test-author&hl=en', '', None):
+            with self.subTest(url=url):
+                self.assertFalse(is_cite_dialog_url(url))

@@ -3391,3 +3391,23 @@ Chicago 已含作者全名 + 未截断 venue；少一处解析就少一处"把�
 
 已删除 `detail_path_delay_factor()` 里的 `scholar.bib` / `output=citation` 分支与文档串对应项，
 测试改成**钉住反例**（签名 bib 链接不再打折：命中它返回 1.0），`AGENTS.md` 两处同步。
+
+## 2026-10-15（续 19）: Cite 对话框的 Referer 晚一格 —— 只修这一处
+
+> crawler的这种现象是不是不太对：URL: https://scholar.google.com/scholar?as_ylo=2025&as_yhi=2025&hl=en&as_sdt=2005&sciodt=0,5&cites=5394525667202485226,8130669678676701918,3270838981782957417,3171080340502856000&scipsc=
+>         Request URL: https://scholar.google.com/scholar?as_ylo=2025&as_yhi=2025&hl=en&as_sdt=2005&sciodt=0,5&cites=5394525667202485226,8130669678676701918,3270838981782957417,3171080340502856000&scipsc=
+> 19:51:04 [INFO] Getting ...（略：抓 2025 页，Page items: 10，编号 452-461）
+>         Request URL: https://scholar.google.com/scholar?q=info:44BcOmzPt1MJ:scholar.google.com/&output=cite&scirp=0&hl=en (referer: https://scholar.google.com/scholar?as_ylo=2023&as_yhi=2023&hl=en&as_sdt=2005&sciodt=0,5&cites=5394525667202485226,8130669678676701918,3270838981782957417,3171080340502856000&scipsc=)
+> 19:52:17 [INFO] HTTP Request: GET https://scholar.google.com/scholar?q=info:44BcOmzPt1MJ:scholar.google.com/&output=cite&scirp=0&hl=en "HTTP/2 404 Not Found"
+>         [19:52:25] Blocked fetching ...: Cannot Fetch from Google Scholar.
+
+给出的诊断（三条）：① 404 被当成封锁/验证码（scholarly 的 404 分支 + `_max_retries=1` →
+`MaxTriesExceededException`，PageVisit 不看状态码，交互模式下整轮停摆要人解 captcha）；
+② 当时有**两个 crawler 实例并行**打同一个 IP/cookies（`..._185435.log` 与 `..._185836.log`）；
+③ Referer 那行是"晚一格"的真话（header 只在列表页翻页/探针/session 重建时刷新）。
+问用户要不要改，并给了三件：①4xx 与限流分开处理、②单实例锁、③Cite 对话框带"当前页"的 referer。
+
+> 我觉得只做3
+
+只改了第 ③ 件（`code/scholarly_session.py`：新增 `is_cite_dialog_url()` + `patched_get_page()`
+发请求前刷新 Cite 对话框的 referer）；① 与 ② 未动。
