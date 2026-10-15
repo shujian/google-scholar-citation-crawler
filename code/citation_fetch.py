@@ -186,6 +186,26 @@ def _direct_fetch_diagnostics_message(diagnostics, prefix="Direct fetch summary 
         f"termination={s.get('termination_reason')})"
     )
 
+def _run_page_cite_hook(fetcher, batch):
+    """把"刚抓完的这一页"交给逐页 cite/BibTeX 钩子（用户 2026-10-15 定，逐页粒度）。
+
+    **为什么逐页**：cite 对话框（`output=cite`）本来是在整篇抓完后集中发的，一次几十上百条
+    连着的 detail 请求很容易被 Scholar 看成异常流量；并进每页之后，请求序列变成
+    "列表页 → 少数几条对话框 → 列表页 …"，与人工翻页的节奏一致。
+
+    `citation_fetch` **不认识** `cite_format`（分层）：钩子是 `fetcher._on_citations_page`
+    （由 `scholar_citation` 在开始抓取前挂上，见那里的 docstring），没挂就什么都不做 ——
+    于是 `--no-cite-formats`、离线补齐等路径行为不变。钩子自身吞掉异常，坏一条不许影响抓取。
+    """
+    hook = getattr(fetcher, '_on_citations_page', None)
+    if hook is None:
+        return
+    rows = getattr(batch, 'citations', None) or []
+    if not rows:
+        return
+    hook(rows)
+
+
 def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, title,
                                     num_citations, pub_url, pub_year, resume_from,
                                     completed_years_in_current_run=None, prev_scholar_count=0,
@@ -536,6 +556,7 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
             print(f"          [{count}] {info['title'][:55]}...", flush=True)
 
     def _direct_on_page_complete(batch):
+        _run_page_cite_hook(fetcher, batch)
         save_progress(fetch_finished=False, batch=batch)
         if batch.items_on_page >= SCHOLAR_PAGE_SIZE:
             print(f"        Progress saved: {len(batch.citations)} fetched this paper, "
@@ -927,6 +948,7 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
 
             def _on_year_page_complete(batch):
                 nonlocal year_progress_saved, year_dedup_count, year_new_count
+                _run_page_cite_hook(fetcher, batch)
                 year_dedup_count = batch.dedup_count
                 year_ctx.partial_year_start[year] = _page_aligned_start(batch.start_index)
                 save_progress(fetch_finished=False, batch=batch)

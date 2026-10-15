@@ -210,6 +210,7 @@ class PaperCitationFetcher:
         # fetch engine overwrites this per paper.
         self._completed_year_segments = set()
         self._session_patched = True
+        self._install_page_cite_hook()      # 逐页取 cite/BibTeX（用户 2026-10-15）
         self._run_start_time = time.time()
 
         # Auto-load saved cookies from previous session
@@ -224,6 +225,46 @@ class PaperCitationFetcher:
                 harvest_fn=self._harvest_cookies_from_browser,
             )
 
+
+    def _install_page_cite_hook(self):
+        """挂上"逐页取 cite/BibTeX"的钩子（用户 2026-10-15 定，逐页粒度）。
+
+        `citation_fetch` 每抓完一页就调它一次（direct 与 year 两种模式都有 `on_page_complete`），
+        这里只挑**本页里还没取过、且判据说值得取**的行去问 Cite 对话框 —— 已取过的行会被
+        `citation_needs_cite_dialog()` 判为"不用抓"（已保存 bib 与线上 venue 一致 / venue 已完整
+        且作者已全名），所以同一行不会重复发请求；缓存也照旧复用。
+
+        `_enrich_cite_formats()` 的**批量**那一段保留作**兜底**：覆盖逐页路径没碰到的行
+        （resume、换年份段、当时还缺 venue 信息的行）—— 于是"一条都不漏"仍然成立。
+
+        关掉对话框（`--no-cite-formats` / 配置）时钩子为 None，抓取路径行为与从前完全一致。
+        """
+        if not getattr(self, 'cite_formats', False):
+            self._on_citations_page = None
+            return
+        cache_path = os.path.join(self.output_dir, _cite_format.CACHE_FILENAME)
+
+        def _on_citations_page(page_rows):
+            try:
+                from code.venue_quality import citation_needs_cite_dialog
+                rows = [c for c in (page_rows or [])
+                        if isinstance(c, dict) and not c.get('cite')
+                        and citation_needs_cite_dialog(c)]
+                if not rows:
+                    return
+                nav = getattr(scholarly, '_Scholarly__nav', None)
+                _cite_format.enrich_citations_with_cite_formats(
+                    rows,
+                    cache_path=cache_path,
+                    get_soup=getattr(nav, '_get_soup', None),
+                    get_page=getattr(nav, '_get_page', None),
+                    print_fn=lambda *a, **k: None,   # 逐页不刷屏；结尾由批量段汇总
+                )
+            except Exception as e:      # 坏一条不许影响抓取（与批量段同口径）
+                print(f"    (per-page citation-format step failed: "
+                      f"{type(e).__name__}: {e})", flush=True)
+
+        self._on_citations_page = _on_citations_page
 
     @staticmethod
     def _year_count_map(citations):

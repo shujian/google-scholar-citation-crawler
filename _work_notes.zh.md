@@ -1822,3 +1822,17 @@ BibTeX 是结构化字段，零歧义，所以只用它；字段优先级 `journ
 - **为什么现在才安全**：全局汇总 `download_summary.json` 已改为**只记计数、不记键** ✓，所以"同一作品被多篇
   论文引用 → 键相同"在按论文存放的结构里不会撞键 ✓（旧的扁平全局表才会 ✗，它正在退役 ✓）。
 - `download_summary.json` **无需改动** ✓（不含键 ✓）。
+
+## 逐页取 cite/BibTeX：钩子怎么接的（2026-10-15）
+
+**选点理由**：`citation_fetch.fetch_citations_with_progress()` 里，两种模式都已有"本页抓完"的回调
+（`BatchFetchSession` 的 `on_page_complete`），它们拿到 `batch`（含本页累积的 `citations`）——
+这就是"每页"的天然边界，比自己去解 `start=` 分页或拦 `patched_get_page`（那里只有 URL、没有行）干净得多。
+
+**为什么用 fetcher 属性而不是参数**：`fetch_citations_with_progress` 的签名已经很长（resume、year_ctx、
+进度回调…），而钩子是**可选**的；挂成 `fetcher._on_citations_page` 让"没挂 = 不启用"自然成立，
+`--no-cite-formats`、离线补齐、单元测试都不需要传参。
+
+**幂等靠判据不靠状态**：钩子不记"这行取过了"，而是复用 `citation_needs_cite_dialog()` ——
+取回后该行 venue/作者已完整（或已保存 bib 与线上一致）→ 判据返回 False → 同一行在后续页不会再发请求。
+所以传整页列表是安全的（这也是 `test_second_page_does_not_reask_the_same_row` 钉住的行为）。

@@ -2218,3 +2218,23 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 - **测试 541 → 543**（`tests/test_output.py::DedupKeepsSeenTotalTests` 2 例）：同一 `cites_id` 两行 →
   输出 1 行、`seen_total` 仍 2、`cached_total` 1、`dedup_count` 1、恒等式成立；且
   `fetch_complete` 仍真、`PaperFetchState.need_fetch()` 为假（**下一轮不重抓**）。全套通过 ✓。
+
+## 2026-10-15（续 13）: cite/BibTeX 改为**逐页**获取（用户定，避免异常流量特征）
+
+- **问题**：Cite 对话框原先在整篇抓完后**集中**发（`scholar_citation._enrich_cite_formats`），一次
+  几十上百条连着的 `output=cite`（detail 风格）请求，很容易被 Scholar 看成异常流量。
+- **实现（零签名改动）**：`citation_fetch.py` 新增模块级助手 `_run_page_cite_hook(fetcher, batch)`，
+  在 **direct**（`_direct_on_page_complete`）与 **year**（`_on_year_page_complete`）两个"本页抓完"
+  回调里各调一次；钩子实体是 `scholar_citation.PaperCitationFetcher._install_page_cite_hook()`
+  （在 `_patch_scholarly()` 里挂上），只挑 `not row['cite'] and citation_needs_cite_dialog(row)` 的行，
+  用**同一个缓存**与 `nav._get_soup/_get_page` 调 `enrich_citations_with_cite_formats`（`print_fn` 静默，
+  结尾由批量段汇总）。`citation_fetch` 仍**不认识** `cite_format`（分层不破）。
+- **兜底不变**：原批量段落保留，覆盖 resume / 换年份段 / 当时还缺 venue 信息的行 —— "一条都不漏"仍成立。
+  已取过的行会被 `citation_needs_cite_dialog()` 判为"不用抓"，所以不会重复发请求。
+- **开关**：`--no-cite-formats` / 配置关掉时钩子为 `None`，抓取路径与从前**一字不差**。
+- **测试 543 → 547**（`tests/test_cite_page_hook.py` 4 例）：关掉时不挂钩子；只把"需要且还没取过"的行
+  送出去（已带 `cite` 的行、venue 完整+作者全名的行都被过滤）；同一行在第二页不再重复发；源码级守卫
+  断言 direct/year 两个回调都接了线。全套 **547 例通过** ✓。
+- **踩坑记录**：插入方法时把 `_year_count_map` 的 `@staticmethod` 挤到了我的新方法上（于是 `self` 不再
+  隐式传入 → `TypeError: missing 1 required positional argument: 'self'`）。**往装饰器密集的类里插方法，
+  锚点要选在装饰器之前**。
