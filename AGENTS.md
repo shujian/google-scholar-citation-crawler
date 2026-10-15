@@ -162,8 +162,8 @@ google-scholar-citation-crawler/
   `apply_chicago_correction()` 按 Chicago **修正**（审计在 `cite.corrected`），而 `url`/`cites_id`/`cid`
   **永远一字不动**（身份键，同 `venue_detail.py` 的教训）。**默认开启**（`--no-cite-formats` 可关）：每个施引条目一次请求
   全库是数千次；缓存 `output/cite_format_cache.json` 按 `cid` 记录已解析页面，可续跑，失败不写缓存。
-  写进 `citation['cite']` 的同时**顺手刷新** `venue_key` / `venue_key_source`（用 **Chicago** 解析出的未截断
-  `journal`/`booktitle`/`series`；对话框没给 venue 字段时保持原值），所以"新数据的 venue_key 也是完整的"。
+  写进 `citation['cite']` 的同时**顺手刷新** `venue_key` / `venue_key_source`（用 **Chicago** 解析出的
+  未截断 `cite.venue_text`；对话框没给 venue 段时退回列表页 venue），所以"新数据的 venue_key 也是完整的"。
   **三种"不用抓"**（`code/venue_quality.citation_needs_cite_dialog`）：①**已保存的 venue 与本次线上
   venue 一致** → **零请求**（用户 2026-10-15：这条路径访问量大；比对见
   `venue_consistent_with_saved_bib()`：折叠后相等、或短的一侧（≥12 字符）是另一侧的前缀 ——
@@ -412,8 +412,8 @@ dependencies are stubbed in `tests/conftest.py`).
   is unspecified by default (`None`) and resolves through
   `code.config.resolve_cite_formats()` (CLI > `crawler_config.json` > default on),
   the fetcher defaults to on, `_save_output` writes the field unless the step was
-  opted out, and that write also refreshes `venue_key` from the dialog's BibTeX
-  venue (a known conference in `booktitle` becomes `EMNLP2024`-style normalized).
+  opted out, and that write also refreshes `venue_key` from the dialog's Chicago
+  venue (`cite.venue_text`: a known conference becomes `EMNLP2025`-style normalized).
 - `tests/test_venue_quality.py` covers the "do not fetch it again" rule hermetically:
   the preprint/truncation/missing predicates, the full-name check (including name
   particles and initial-only lists), the four citation-level combinations, and both
