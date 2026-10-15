@@ -116,3 +116,34 @@ def assign_indices(citations, state=None):
 
     retired |= {r["index"] for r in previous}        # 消失的 → tombstone，绝不复用
     return {"assigned": records, "next": next_number, "retired": sorted(retired)}, indices
+
+
+def assign_entry_indices(entries, previous_by_title=None):
+    """给**整份产物**的 entries 分配编号（阶段 1 写出前的最后一步，用户 2026-10-15）。
+
+    * `entries` 是产物里的 `papers` 列表（每项 `{"pub": …, "citations": [...]}`）；
+    * `previous_by_title` 是**上一版产物**按标题索引的同一结构（没有就传 `None`）；
+    * 对每个 entry：用 `assign_indices()` 算编号 → 写回 `citation["index"]` 与
+      `entry["citation_index"]`（**entry 层**，与 `pub` 平级 —— `pub` 会被 `PubInfo` 归一化，
+      放在里面会丢 ✗）。
+
+    **调用时机**：必须在 `_dedup_citations_for_output()` **之后**（对最终列表分配 ✓）。
+    **幂等**：本次没抓到的论文，其 citations 与上一轮完全相同 → 身份命中 → 编号原样沿用 ✓。
+    返回分配过的 entry 数。
+    """
+    previous_by_title = previous_by_title or {}
+    assigned = 0
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        citations = entry.get("citations") or []
+        pub = entry.get("pub") or {}
+        title = pub.get("title", "") if isinstance(pub, dict) else ""
+        previous = (previous_by_title.get(title) or {}).get("citation_index")
+        state, indices = assign_indices(citations, previous)
+        for citation, number in zip(citations, indices):
+            if isinstance(citation, dict):
+                citation["index"] = number
+        entry["citation_index"] = state
+        assigned += 1
+    return assigned

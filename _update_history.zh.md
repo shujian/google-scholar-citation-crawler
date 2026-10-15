@@ -2136,3 +2136,23 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   现在种下去会被下一次抓取丢掉 ✗。所以顺序是：**先接线（读上一版 state → `assign_indices` → 写回），
   再 apply 种子**。
 - **待补**：该工具的单测（本轮的 dry-run 是真实数据只读验证；单测与主流程接线一起补）。
+
+## 2026-10-15（续 18）: 抓取接线（引用编号）+ 种子回滚 + 一个必须知道的事实
+
+- **接线**：`_save_output` 现在读**上一版产物**（`self.out_json`，按标题索引）→ 在 entries 全部建好、
+  **去重之后**调 `citation_index.assign_entry_indices(final_results, previous_by_title)` ✓，
+  写 `citation["index"]` 与 `entry["citation_index"]`（**entry 层**：`pub` 会被 `PubInfo` 归一化丢未知键 ✗）。
+  自检：已知引文沿用 5 ✓、新引文拿 6 ✓、`next=7` ✓。阶段 1 **533 例 OK**。
+- **真实数据核对（逐条身份比对）**：编号与既有 `citations_meta.json` **一致 8,959 条** ✓（零改名）；
+  不一致 **1** 条（论文 079）；只在阶段 1 有 **68** 条；只在 meta 有 **213** 条。
+- **那 1 条不是编号缺陷**：079 的该标题在阶段 1 产物里有**两个变体**（`cites_id: None` + 真实 id ✓
+  = K123 的"同一标题两条独立引用"），meta 只有一条（合成键那个）→ 第二个变体在 meta 里无对应，
+  于是拿到新号 ✓ —— 与 68/213 一样，**根源都是两个快照不同**。
+- **⚠️ 必须知道的事实**：**阶段 1 自己的产物 ≠ 阶段 2 实际消费的输入** ✗
+  `output/author_<ID>_paper_citations.json`（9,028 条）与 `paper_downloader/local/paper_citations.json`
+  （9,200 条，阶段 2 的输入副本，10-12 的快照）**内容不同**。metas 是从**后者**建的；之前"0 新增/0 退役"
+  的完美对账也是拿**后者**比出来的 ✓。所以种子若只写阶段 1 的产物，第一次分配就会把 **213** 条判为
+  "消失"→ 下游移除产物（不可逆 ✗）。
+- **因此种子必须按"并集"做**：`assigned` = metas 的记录 ∪ 阶段 1 当前 citations（后者缺号的从水位补），
+  这样**首次分配零退役** ✓；之后才由"真的从抓取里消失"驱动退役 ✓。**已按 A 回滚本次种子**
+  （备份 sha256 校验通过、`citation_index` 块归零 ✓），等并集版工具再种。

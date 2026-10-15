@@ -118,6 +118,8 @@ from code.venue_quality import (
 
 from code.papers_maintenance import run_for_output as run_papers_maintenance
 
+from code.citation_index import assign_entry_indices
+
 logger = get_logger(__name__)
 
 from code.author_fetcher import AuthorProfileFetcher  # noqa: F401
@@ -1668,6 +1670,21 @@ class PaperCitationFetcher:
                 **({'_fetch_state': fetch_state} if fetch_state else {}),
             }
 
+        # 引用编号（2026-10-15 用户定：阶段 1 产生、**不可变**）：分配要对照**上一版产物**，
+        # 所以先把上一版按标题索引读出来（只读阶段 1 自己的文件 ✓）。
+        previous_by_title = {}
+        output_json = getattr(self, 'out_json', None)   # 产物路径（__init__ 里定：author_<ID>_paper_citations.json）
+        if output_json and os.path.exists(output_json):
+            try:
+                with open(output_json, 'r', encoding='utf-8') as f:
+                    previous_data = json.load(f)
+                for item in previous_data.get('papers', []) or []:
+                    pub_title = (item.get('pub') or {}).get('title', '')
+                    if pub_title:
+                        previous_by_title[pub_title] = item
+            except (OSError, ValueError) as exc:
+                print(f"Warning: could not read the previous output for citation indices: {exc}")
+
         final_results = []
         for i, r in enumerate(results):
             if r is not None:
@@ -1687,6 +1704,8 @@ class PaperCitationFetcher:
                     ps = paper_states.get(title)
                     citations = getattr(ps, 'citations', None) or []
                 final_results.append(_build_entry(pub, citations))
+        # 编号分配：对**去重后**的最终列表算，并写回每条引文与 entry（见 code/citation_index.py）
+        assign_entry_indices(final_results, previous_by_title)
         total_cites = sum(len(r['citations']) for r in final_results)
         # Papers that exist in the previous output but not in the current profile
         # are not written any more.  Surface it instead of dropping citations
