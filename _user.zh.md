@@ -3363,3 +3363,10 @@ Direct fetch item 从 8 空格改为 10 空格，与 year fetch 一致。
 并把结果存进 `citation['cite']` 的 `venue_text` / `authors_full`（+ `*_source`）；
 `citation_venue_key()` 优先级改为 **BibTeX 存量字段 → `venue_text` → 列表页 venue**。
 **下一步**：默认不再请求 BibTeX（你已定），并修掉"bib 失败被当成封锁、触发人工验证码"。
+
+## 2026-10-15（续 15）: 只解析 Chicago
+
+> 我觉得的chicago就有足够的信息了，其他MLA等只是显示不同而已。就不需要重复处理了。
+
+已改为**只解析 Chicago**（去掉 MLA 回退）：MLA/APA/Harvard/Vancouver 是同一份信息的不同显示，
+Chicago 已含作者全名 + 未截断 venue；少一处解析就少一处"把标题当 venue"的风险。

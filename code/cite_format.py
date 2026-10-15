@@ -212,21 +212,23 @@ def parse_format_parts(text):
 
 
 def format_extras(formats):
-    """从 Chicago（缺则 MLA）里取 `venue_text` / `authors_full`（+ `*_source`）。"""
-    for key in ('chicago', 'mla'):
-        parts = parse_format_parts((formats or {}).get(key))
-        if not parts:
-            continue
-        extras = {}
-        if parts.get('venue'):
-            extras['venue_text'] = parts['venue']
-            extras['venue_source'] = key
-        if parts.get('authors'):
-            extras['authors_full'] = parts['authors']
-            extras['authors_source'] = key
-        if extras:
-            return extras
-    return {}
+    """从 **Chicago** 里取 `venue_text` / `authors_full`（+ `*_source`）。
+
+    **只解析 Chicago**（用户 2026-10-15 定）：MLA / APA / Harvard / Vancouver 只是**同一份信息
+    的不同显示**（作者、标题、venue、年份都在里面，顺序与标点不同而已），Chicago 已经同时给出
+    作者全名与未截断的 venue，重复解析没有增量价值 —— 少一处解析就少一处把标题当 venue 的风险。
+    """
+    parts = parse_format_parts((formats or {}).get('chicago'))
+    if not parts:
+        return {}
+    extras = {}
+    if parts.get('venue'):
+        extras['venue_text'] = parts['venue']
+        extras['venue_source'] = 'chicago'
+    if parts.get('authors'):
+        extras['authors_full'] = parts['authors']
+        extras['authors_source'] = 'chicago'
+    return extras
 
 
 def parse_bibtex(source):

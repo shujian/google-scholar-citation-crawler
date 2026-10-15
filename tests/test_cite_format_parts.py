@@ -54,16 +54,17 @@ class ParseFormatPartsTests(unittest.TestCase):
         self.assertEqual(parse_format_parts('Team I. A title [Internet]. 2023 Sep 27'), {})
         self.assertEqual(parse_format_parts(''), {})
 
-    def test_chicago_wins_and_mla_is_the_fallback(self):
-        chicago = {'chicago': EXAMPLE, 'mla': 'Yi, Sibo. "Something else." Other 2020.'}
-        extras = format_extras(chicago)
+    def test_only_chicago_is_parsed(self):
+        """MLA / APA / Vancouver 是同一份信息的别的显示，不重复解析（用户 2026-10-15）。"""
+        extras = format_extras({'chicago': EXAMPLE,
+                                'mla': 'Yi, Sibo. "Something else." Other 2020.'})
         self.assertEqual(extras['venue_source'], 'chicago')
         self.assertEqual(extras['authors_source'], 'chicago')
-        self.assertIn('Yule Liu', extras['authors_full'])
-        # Chicago 缺失/无引号时才用 MLA
-        mla_only = format_extras({'mla': 'Yi, Sibo. "A survey." arXiv 2024.'})
-        self.assertEqual(mla_only['venue_source'], 'mla')
-        self.assertEqual(mla_only['venue_text'], 'arXiv')
+        self.assertIn('Yule Liu', extras['authors_full'])       # 取的是 Chicago 的全作者
+        self.assertNotIn('Something else', extras['venue_text'])
+        # 只有别的格式（有引号也不解析）、或 Chicago 无引号 → 一律什么都不给
+        self.assertEqual(format_extras({'mla': 'Yi, Sibo. "A survey." arXiv 2024.'}), {})
+        self.assertEqual(format_extras({'apa': 'Team, I. (2023). Title. arXiv.'}), {})
         self.assertEqual(format_extras({}), {})
         self.assertEqual(format_extras({'chicago': 'no quotes here'}), {})
 

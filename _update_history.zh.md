@@ -2275,3 +2275,11 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   裸年份、无引号不解析、Chicago 优先与 MLA 回退、三级优先级）。全套通过 ✓。
 - **仍待做**：默认不再请求 BibTeX（去掉第二次请求）+ 修掉"bib 失败被当成封锁 → 触发人工验证码流程"
   （`page_visit` 的人工提示还应改指对话框页而不是签名链接）。
+
+## 2026-10-15（续 15）: venue/作者只从 Chicago 解析（用户定）
+
+- `format_extras()` 去掉 MLA 回退，**只看 `chicago`**；`*_source` 恒为 `chicago`。理由（用户原话）：
+  "chicago 就有足够的信息了，其他 MLA 等只是显示不同而已，就不需要重复处理了" —— 少一处解析
+  就少一处风险面。
+- 测试同步改写为 `test_only_chicago_is_parsed`：Chicago 与其他格式同时存在时取 Chicago 的全作者；
+  **只有** MLA/APA（哪怕有引号）、或 Chicago 无引号时 → 一律什么都不给。全套 **564 例通过** ✓。
