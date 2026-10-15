@@ -2342,3 +2342,14 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   `is_cite_dialog_url()` 的正反例。测试数 **543 → 549**，全套通过 ✓。
 - **文档**：本文件 + `_work_notes.zh.md` 新增一节；`AGENTS.md` 的测试计数（544）改为实测的 549；
   `README.md` 的 browser-header 一段本就写的是"dynamic Referer headers"，无需改。
+
+## 2026-10-15（续 20）: `AGENTS.md` 不再写测试用例数量（用户定）
+
+- **用户要求**：`AGENTS.md` 里不要出现测试用例的具体数量，防止未来漂移。
+- **改动**：本仓库 `AGENTS.md` 的「Project structure」简况删掉"549 个测试，21 个文件"，
+  改成只列两个跨仓库守卫（`test_lib_env_shared.py` / `test_shared_venue_key.py`）；
+  逐文件的"（N 例）"按用户口径**保留**（那是"某个测试文件覆盖了什么"的描述，不是总量声明）。
+- **同一政策落到全部 7 个 `AGENTS.md`**（根 + 6 个阶段，含阶段 2 那份不纳入 git 的容器级文档）：
+  汇总计数（"当前 N 个测试 / N 例"）一律删掉或改写；根 `AGENTS.md` 写明了"各 `AGENTS.md`
+  一律不写测试用例的具体数量"这条约定。`citation_analysis_info/README.md` 里同类的一处也去掉。
+- **不动的**：三份 `.zh.md` 笔记里的历史计数（它们是历史记录 —— 例如本文件上一节的"543 → 549"）。

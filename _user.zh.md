@@ -3411,3 +3411,10 @@ Chicago 已含作者全名 + 未截断 venue；少一处解析就少一处"把�
 
 只改了第 ③ 件（`code/scholarly_session.py`：新增 `is_cite_dialog_url()` + `patched_get_page()`
 发请求前刷新 Cite 对话框的 referer）；① 与 ② 未动。
+
+## 2026-10-15（续 20）: AGENTS.md 不写测试数量
+
+> agents.md中不要涉及测试用例的具体数量，防止未来漂移
+
+确认范围后（"只清汇总计数"；`citation_analysis_info/README.md` 里那一处一起去掉）已落地：
+7 个 `AGENTS.md` 的汇总计数删除，根 `AGENTS.md` 写明这条约定；逐文件的"（N 例）"保留。
