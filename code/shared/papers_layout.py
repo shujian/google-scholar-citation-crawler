@@ -570,8 +570,14 @@ def apply_plan(plan_dict: dict, manifest_dir: str = None, log=print) -> dict:
             "manifest_dir": manifest_dir}
 
 
-def reconcile(papers: list, base_dir: str = None, apply: bool = False, log=print) -> dict:
-    """流程入口：算计划（+可选执行）。返回计划字典（含 applied 字段）。"""
+def reconcile(papers: list, base_dir: str = None, apply: bool = False, log=print,
+              manifest_dir: str = None) -> dict:
+    """流程入口：算计划（+可选执行）。返回计划字典（含 applied 字段）。
+
+    `manifest_dir` 一路交给 `apply_plan()` ✓ —— 调用方给了自定义 output 目录时，manifest
+    必须落在**那里**，不能默默回到默认的 `code.config.OUTPUT_DIR`（2026-10-16：测试因此把
+    `renumber_<stamp>/` 写进了仓库的 `output/`）。
+    """
     base_dir = base_dir or _default_papers_base_dir()
     if not os.path.isdir(base_dir):
         return {"base_dir": base_dir, "moves": [], "orphans": [], "ambiguous": [],
@@ -587,7 +593,7 @@ def reconcile(papers: list, base_dir: str = None, apply: bool = False, log=print
                         if not o.get("match") and o.get("path")
                         and os.path.isdir(o.get("path") or "")]
     if (p["moves"] or p.get("merges") or _pending_archive) and apply:
-        result = apply_plan(p, log=log)
+        result = apply_plan(p, manifest_dir=manifest_dir, log=log)
         p["applied"] = ((result["moved"] > 0) or (result.get("merged", 0) > 0)
                         or (result.get("archived", 0) > 0))
         p["manifest"] = result["manifest"]

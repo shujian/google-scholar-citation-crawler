@@ -24,6 +24,7 @@
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import os
 
@@ -99,10 +100,16 @@ def run(papers_root, papers, mode=DEFAULT_MODE, output_dir=None, log=print):
     try:
         from code.shared.papers_layout import reconcile
 
+        stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+
         # 顺序很重要：**先**改名对齐，**再**建缺的目录。
         # 反过来的话，新建的目标目录会与"待改名"的旧目录同时存在，共享件会把它们看成
         # "同一篇作品的两个目录"（合并/歧义），于是这一次改名反而做不成。
-        plan = reconcile(papers, base_dir=papers_root, apply=(mode == "apply"), log=log)
+        # `manifest_dir` 必须跟着调用方给的 output 目录走 ✓（2026-10-16：过去它被默默忽略，
+        # 于是"给了 output_dir 的调用方"（测试、独立工具）把 manifest 写进了默认 output/）。
+        plan = reconcile(papers, base_dir=papers_root, apply=(mode == "apply"), log=log,
+                         manifest_dir=(os.path.join(output_dir, "renumber_%s" % stamp)
+                                       if output_dir else None))
         result["plan"] = summarize(plan)
         if mode == "dry-run":
             log("[papers] dry-run：%s（用 --renumber-papers apply 落盘）" % result["plan"])

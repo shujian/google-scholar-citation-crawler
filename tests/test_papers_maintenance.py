@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -99,6 +100,27 @@ class RunModeTests(unittest.TestCase):
             self.assertEqual(again["plan"]["moves"], 0)
             self.assertEqual(again["created"], [])
             self.assertEqual(len(again.get("plan") or {}), 5)
+
+    def test_the_manifest_lands_in_the_callers_output_dir(self):
+        """`output_dir` 必须一路传到 manifest（2026-10-16）。
+
+        它过去被 `run()` 默默忽略 → `apply_plan()` 回落到默认的 `code.config.OUTPUT_DIR`，
+        于是**每次跑测试**都往仓库 `output/` 里塞一个 `renumber_<stamp>/`（实测积累 80+ 个，
+        还让"真 renumber"与"测试产生的"难以分辨 ✗）。
+        """
+        with tempfile.TemporaryDirectory() as tmp, \
+                tempfile.TemporaryDirectory() as default_out:
+            root = self._root(tmp)
+            import code.config as _cfg
+            saved = _cfg.OUTPUT_DIR
+            _cfg.OUTPUT_DIR = default_out
+            self.addCleanup(setattr, _cfg, "OUTPUT_DIR", saved)
+            PM.run(root, [{"pub": _pub(1, "B")}], mode="apply", output_dir=tmp,
+                   log=lambda *a: None)
+            self.assertTrue([d for d in os.listdir(tmp) if d.startswith("renumber_")],
+                            "manifest 目录应落在调用方给的 output_dir 里 ✓")
+            self.assertEqual(os.listdir(default_out), [],
+                             "默认 output 目录必须一个字节都不多写 ✗")
 
     def test_a_failure_never_escapes(self):
         with tempfile.TemporaryDirectory() as tmp:
