@@ -1771,3 +1771,54 @@ BibTeX 是结构化字段，零歧义，所以只用它；字段优先级 `journ
 
 **测试里如何断言"没写"**：直接比 `st_mtime_ns` 会受文件系统时间戳粒度影响，所以先 `os.utime(path, (1_000_000, 1_000_000))`
 把 mtime 固定到一个旧值，再断言它**完全没变** —— 既证明没写盘，也不依赖时钟精度。
+
+## 下载状态分离：从 `citations_meta.json` 出（2026-10-15，用户要求"先把数据准备好，后续改动才可测"）
+
+- `code/data_upgrade/prepare_download_progress.py`（阶段 2）：按**一一对应**的语义把状态从
+  `citations_meta.json` 分离成 `papers/<NNN>-<slug>/download_progress.json`（按 `cites_id`）：
+
+  | meta | progress |
+  |---|---|
+  | `download_status` | `status` |
+  | `local_filename` | `local_filename` |
+  | `fail_reason` | `reason` |
+  | —（meta 没有）| `size_bytes` ← 从既有 `progress.json` 派生的那份**补**（有才补 ✓）|
+
+- **已 apply**：241 份（旧文件全部备份到 `paper_downloader/prepare_download_progress_20261015-123538/`
+  + sha256 ✓）；**`citations_meta.json` 一个字没改** ✓。
+- **行为等价核对（决定"后续改动可测"的关键）**：逐条比对 241 篇 / **9,172 条**引文 →
+  **status 不一致 0、`local_filename` 不一致 0、缺文件 0** ✓✓
+  （dry-run 里那 1 条 `status_changed` 是旧派生文件与 meta 的差异，现在已按 meta 对齐 ✓）。
+- **测试缺口（如实）**：本工具目前只有真实数据核对 ✓，**没有单测** ✗ —— 与阶段 2 运行期切换一起补。
+
+## 全局汇总只记计数（2026-10-15 用户口径）
+
+用户明确：**全局的那份 `download_summary.json` 只汇总计数，不记具体引用**（所以"同一作品被多篇论文引用"
+在这里**天然不会撞键** —— 全局根本没有键 ✓）。
+
+- 新增 `split_progress.summary_from_paper_files(papers_root)`：**从每篇的 `download_progress.json`
+  重建汇总** —— 每篇一行 `{paper_no, collected, 各状态计数}` + 顶层 `totals` ✓；状态桶
+  `downloaded/failed/unavailable/skipped/pending`，**未知取值进 `other` 并计入总数** ✓（不静默丢 ✓）。
+- **已重建**（旧 summary 备份到 `paper_downloader/download_summary_20261015-124849/` ✓）：
+  `papers 241 / citations 9,172 / downloaded 6,070 / failed 2,871 / unavailable 51 / pending 180 /
+  skipped 0 / other 0` ✓ —— 与逐文件统计**逐项相符** ✓（文件 241 份、条目 9,172、downloaded 6,070 ✓）。
+- 这也再次确认：**改合成键（去掉源论文段）不会影响全局汇总** ✓（它不含键 ✓）。
+
+## 合成键去掉源论文段（2026-10-15 用户定）
+
+用户口径：**不需要源标识** —— 这个键标识的是"出现了**一条引用**"，应当只描述**被引用那篇作品**自己；
+源论文的信息由**文件位置**承担（引用本来就存在某篇论文目录的文件里 ✓）。
+
+- **构造点**：`code/utils.py::synthetic_cites_id()`（与 `data_upgrade.repair_synthetic_keys` 共用同一份 ✓）
+  从 `no_id:<源论文稳定标识>|<归一化标题>|<年份>|<首作者姓>` 改为
+  **`no_id:<归一化标题>|<年份>|<首作者姓>`** ✓（`paper_key` 参数保留但不再参与键；也不再要求它必须存在 ✓）。
+  消歧后缀（`#doi:` / `#arxiv:` / `#url:<sha8>` / `#pos<n>`）**完全不变** ✓。
+- **迁移（只删源段、其余逐字保留）**，已 apply 并核对：
+  - `citations_meta.json`：**94 篇 / 2,191 个键** ✓；
+  - `download_progress.json`：**94 份**（键同源 ✓）；
+  - 仍在用的扁平 `progress.json`：**2,270 个键** ✓（不改它的话运行期按旧键找不到 ✗）；
+  - 备份 + manifest：`paper_downloader/no_source_segment_20261015-131116/` ✓；
+  - 核对：`download_progress` 条目 **9,172** ✓、**241/241 篇的键都在同篇 meta 里** ✓、**残留 `no_id:url:` 0** ✓。
+- **为什么现在才安全**：全局汇总 `download_summary.json` 已改为**只记计数、不记键** ✓，所以"同一作品被多篇
+  论文引用 → 键相同"在按论文存放的结构里不会撞键 ✓（旧的扁平全局表才会 ✗，它正在退役 ✓）。
+- `download_summary.json` **无需改动** ✓（不含键 ✓）。

@@ -1650,7 +1650,9 @@ class PaperCitationFetcher:
         def _build_entry(pub, citations):
             """Build output entry with correct _fetch_state."""
             title = pub.get('title', '') if pub else ''
+            raw_count = len(citations)
             citations = self._dedup_citations_for_output(citations, title)
+            dropped = max(0, raw_count - len(citations))
             fetch_state = _freshest_fetch_state(title)
             current_total = pub.get('num_citations') if pub else None
             if current_total is not None and fetch_state:
@@ -1660,6 +1662,15 @@ class PaperCitationFetcher:
                     if isinstance(diag, dict):
                         diag['scholar_total'] = current_total
                         diag['cached_total'] = len(citations)
+                        if dropped:
+                            # 去重只改变"行怎么分组"，绝不改变"已经抓了多少"（用户 2026-10-15）：
+                            # `seen_total` 是抓取时写下的、也是完整性判据唯一看的字段，保持不动；
+                            # 把丢掉的行数补进 `dedup_count`，让恒等式
+                            # `cached_total + dedup_count == seen_total` 在**任何时刻**都成立
+                            # （否则统计口径自相矛盾：直接模式的 `dedup_count` 不会被读侧重算）。
+                            # 逐年记录不在这里改：它是抓取时的快照，读侧会用
+                            # `seen_total - cached_total` 自行重算 `dedup_count`。
+                            diag['dedup_count'] = int(diag.get('dedup_count') or 0) + dropped
             state_obj = PaperFetchState.from_dict(fetch_state)
             fetch_state = state_obj.to_dict()
             pub_out = PubInfo.from_dict(pub).to_dict() if pub else {}

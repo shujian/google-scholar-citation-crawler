@@ -2203,3 +2203,18 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   `False` 且 **mtime 不变**（先用 `os.utime` 固定旧时间再断言）、内容变化/文件不存在仍写、启动加载路径
   **不打印** `Saved cookies to`、新粘贴内容仍存盘并打印。全套 **541 例通过** ✓。
 - **README 无需改**：对外行为只是"少一行日志、少一次无谓写盘"。
+
+## 2026-10-15（续 12）: 输出去重不再让"已抓数量"对不上（用户口径）
+
+- **核查结论**：完整性判据 `is_data_complete()` 只看 **`seen_total`**（对比 `scholar_total` /
+  `histogram_total`），而 `seen_total` 是抓取时写下的（= 保存行数 + 运行内 dedup），输出去重
+  **不会**导致下一轮重抓 ✓。但发现一处**口径自相矛盾**：`scholar_citation.py::_build_entry` 的
+  `_build_entry` 把 `cached_total` 改成去重后的行数，却没同步 `dedup_count` → 落盘时
+  `cached_total + dedup_count ≠ seen_total`（年份模式下次读时会被 `citation_cache` 的规范化重算纠正，
+  **直接模式不会**）。
+- **改动**：`_build_entry` 记录去重前的行数，把丢掉的行数**加进 `dedup_count`**，使
+  `cached_total + dedup_count == seen_total` 在任何时刻成立；`seen_total` 一字不动（用户 2026-10-15：
+  "去重不要减少相关数量"）。逐年记录不在这里改（它是抓取时的快照，读侧自行重算 dedup_count）。
+- **测试 541 → 543**（`tests/test_output.py::DedupKeepsSeenTotalTests` 2 例）：同一 `cites_id` 两行 →
+  输出 1 行、`seen_total` 仍 2、`cached_total` 1、`dedup_count` 1、恒等式成立；且
+  `fetch_complete` 仍真、`PaperFetchState.need_fetch()` 为假（**下一轮不重抓**）。全套通过 ✓。

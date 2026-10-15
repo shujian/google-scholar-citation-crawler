@@ -634,3 +634,58 @@ class OutputAndReconciliationTests(FetcherTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DedupKeepsSeenTotalTests(FetcherTestCase):
+    """去重只改变"行怎么分组"，不改变"已经抓了多少"（用户 2026-10-15）。
+
+    完整性判据只看 `seen_total`（对比 Scholar 的 `scholar_total` / `histogram_total`），
+    所以输出去重**绝不能**把 `seen_total` 拉低 —— 否则"已经抓完"的论文下一轮会被当成
+    没抓完而整篇重抓。同时要保持 `cached_total + dedup_count == seen_total`，否则统计口径
+    自相矛盾（直接模式的 `dedup_count` 不会被读侧重算）。
+    """
+
+    PUB = {"no": 1, "title": "Some Paper", "num_citations": 2, "url": "https://x/1"}
+
+    def _save_with_duplicates(self):
+        row = {"title": "Citing Paper", "authors": "A", "venue": "CV",
+               "year": "2024", "url": "https://example.com/cite", "cites_id": "12345"}
+        fetch_state = {
+            "fetch_strategy": "direct",
+            "num_citations_on_scholar": 2,
+            "direct_fetch_diagnostics": {
+                "scholar_total": 2, "cached_total": 2, "seen_total": 2,
+                "dedup_count": 0, "termination_reason": "iterator_exhausted",
+            },
+        }
+        result = {"pub": dict(self.PUB),
+                  "citations": [dict(row), dict(row)]}       # 同一 cites_id → 去重掉 1 行
+        # `_build_entry` 的 fetch state 来自**运行时状态**（不是入参里的 `_fetch_state`）：
+        # 直接种进 `_paper_states`（`to_paper_fetch_state` 接受 PaperFetchState 实例 ✓）。
+        self.fetcher._paper_states = {self.PUB["title"]: PaperFetchState.from_dict(fetch_state)}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.fetcher.profile_json = os.path.join(tmpdir, "author_test-author_profile.json")
+            self.fetcher.out_json = os.path.join(tmpdir, "author_test-author_paper_citations.json")
+            self.fetcher.out_xlsx = os.path.join(tmpdir, "author_test-author_paper_citations.xlsx")
+            self.fetcher._run_start_time = 0
+            with open(self.fetcher.profile_json, "w", encoding="utf-8") as handle:
+                json.dump({"publications": [dict(self.PUB)]}, handle)
+            self.fetcher._save_output([result])
+            with open(self.fetcher.out_json, encoding="utf-8") as handle:
+                return json.load(handle)["papers"][0]
+
+    def test_dedup_moves_rows_into_dedup_count(self):
+        entry = self._save_with_duplicates()
+        self.assertEqual(len(entry["citations"]), 1, "重复行确实被收敛掉")
+        diag = entry["_fetch_state"]["direct_fetch_diagnostics"]
+        self.assertEqual(diag["seen_total"], 2, "已抓数量不许变")
+        self.assertEqual(diag["cached_total"], 1)
+        self.assertEqual(diag["dedup_count"], 1)
+        self.assertEqual(diag["cached_total"] + diag["dedup_count"], diag["seen_total"])
+
+    def test_paper_stays_complete_and_is_not_refetched(self):
+        entry = self._save_with_duplicates()
+        self.assertTrue(entry["fetch_complete"], "去重不许让论文变成未抓完")
+        state = PaperFetchState.from_dict(entry["_fetch_state"])
+        self.assertTrue(state.is_complete(2))
+        self.assertFalse(state.need_fetch(2), "下一轮不该重抓")
