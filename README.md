@@ -387,23 +387,25 @@ Some papers can never be completed by retrying: Scholar's own citation list
 returns fewer rows than its "Cited by" count, so every attempt ends with the
 same numbers. The crawler now notices this:
 
-- After each **completed** fetch the result is signed by the number of rows it
-  obtained (e.g. `direct:0`, or `year:241`) and stored together with how many
-  completed traversals in a row produced it. Scholar's own counts are
-  deliberately *not* part of the signature: they drift between runs even when
-  the listing does not (one paper's 2026 bucket alternated 190/200 ↔ 194/201
-  within a day), which used to make every run look like a new outcome and kept
-  such a paper in the plan forever.
-- Once **two completed traversals in a row obtain the same number of rows**, the
-  paper is marked `stalled` and skipped: it stays in the output with whatever was
+- After each **full walk** the result is signed by the number of rows it obtained
+  (e.g. `direct:0`, or `year:241`) and stored together with how many full walks
+  in a row produced it. Scholar's own counts are deliberately *not* part of the
+  signature: they drift between runs even when the listing does not (one paper's
+  2026 bucket alternated 190/200 ↔ 194/201 within a day), which used to make
+  every run look like a new outcome and kept such a paper in the plan forever.
+- Once **two full walks in a row obtain the same number of rows**, the paper is
+  marked `stalled` and skipped: it stays in the output with whatever was
   collected, the run summary prints `Stalled (skip): N`, and the plan lists
   `Skipping N stalled paper(s)`. It is parked even though it still looks
   incomplete — two full walks of the same list returned the same rows.
 - The stall clears itself when the paper's Scholar count grows (the one event
   that can add rows), and whenever the number of rows obtained changes.
-- A blocked or truncated attempt (and Ctrl+C) is never folded into the counter,
-  so it neither counts as a repeat nor wipes one: a transient failure cannot
-  stall a paper by itself, and cannot postpone a genuine repeat either.
+- Only a **full walk** counts: an attempt that was blocked, hit an empty page, was
+  interrupted (Ctrl+C) or deliberately stopped early never reaches the recording
+  step, so it neither counts as a repeat nor wipes one. A transient failure
+  cannot stall a paper by itself, and cannot postpone a genuine repeat either.
+  (The number compared is the paper's whole row set — rows fetched this run plus
+  the cached rows of years that were already covered — not just this run's pages.)
 
 To force a retry for a specific paper, clear its state with
 `--fetch-mode force --skip <N-1> --limit 1`.

@@ -20,6 +20,15 @@ from code.citation_io import (
 )
 
 
+#: Year-record terminations that mean the traversal stopped **before the end of
+#: its plan on purpose**, as opposed to "the list simply ended here".  The row
+#: count of such an attempt is not the count a walk of every page yields, so the
+#: stall rule must not compare it with another run's count.
+#: (`empty_page` / `empty_first_page` are blocked terminations and already show
+#: up as `complete_fetch_attempt is False`.)
+_PARTIAL_TRAVERSAL_TERMINATIONS = ('partial_resume_completed',)
+
+
 # ---------------------------------------------------------------------------
 # Year-records helpers
 # ---------------------------------------------------------------------------
@@ -270,22 +279,42 @@ class PaperFetchState:
             return ''
         return fetch_outcome_signature(strategy, summary, self.year_records)
 
+    def visited_every_page(self):
+        """True when this attempt walked its plan through to the end.
+
+        The stall rule compares **row counts**, so it may only use a count that
+        a full walk produced.  An attempt fails that in two ways:
+
+        - `complete_fetch_attempt is not True`: the traversal was blocked, hit an
+          empty page, or never finished (and a state predating the flag is
+          unknown — never stall on unknown);
+        - a year record reports `partial_resume_completed`: the resumed year
+          segment finished and the remaining years were deliberately skipped, so
+          the count is not what walking every page would give.
+        """
+        if self._complete_fetch_attempt is not True:
+            return False
+        from code.citation_cache import iter_year_records
+        for record in iter_year_records(self.year_records):
+            if record.get('termination_reason') in _PARTIAL_TRAVERSAL_TERMINATIONS:
+                return False
+        return True
+
     def record_fetch_outcome(self):
         """Fold the current (post-fetch) outcome into the stall tracking.
 
-        Only a traversal that ran to the end (`complete_fetch_attempt is True`)
-        may be folded in: a blocked or truncated attempt must neither count as
-        an identical result nor wipe a genuine repeat, so the counters are left
-        untouched (the persisted numbers still come from that attempt, which
-        makes the stored signature stop matching and clears the stall for one
-        run — the safe direction).  A state that predates the flag (None) is
-        treated the same way: never stall on an unknown outcome.
+        Only an attempt that visited every page (`visited_every_page()`) may be
+        folded in: a blocked, truncated or deliberately stopped attempt must
+        neither count as an identical result nor wipe a genuine repeat, so the
+        counters are left untouched (the persisted numbers still come from that
+        attempt, which makes the stored signature stop matching and clears the
+        stall for one run — the safe direction).
 
         Called after a fetch returns; not called when a fetch is interrupted, so
         an aborted attempt never counts as an identical result.
         Returns self for chaining.
         """
-        if self._complete_fetch_attempt is not True:
+        if not self.visited_every_page():
             return self
         signature = self.current_outcome_signature()
         if not signature:
@@ -315,9 +344,10 @@ class PaperFetchState:
     def is_stalled(self, stall_after_attempts=None):
         """True when the same result has repeated enough times to stop retrying.
 
-        "Same result" means `stall_after_attempts` **completed** traversals in a
-        row obtained the same number of rows.  Scholar's own counts are not part
-        of that comparison, so a paper whose listing simply does not contain the
+        "Same result" means `stall_after_attempts` **full walks** in a row
+        obtained the same number of rows (`visited_every_page()` decides what
+        counts as a full walk).  Scholar's own counts are not part of that
+        comparison, so a paper whose listing simply does not contain the
         citations Scholar claims is parked even though it still looks
         incomplete: two full walks of the same list gave the same rows.
 

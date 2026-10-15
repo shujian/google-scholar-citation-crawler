@@ -1986,3 +1986,34 @@ Scholar 的，**本身就在抖**（同一篇论文的 2026 桶实测 190/200 �
 （`EMNLP2024`）、占位 venue 连旧值一起不写、截断行保住盘上 `normalized`（且复跑幂等）、
 同编号不同 `cites_id` 不继承（落到 raw）、盘上 raw 被重算升级成 normalized、
 整库五篇重写零丢失。全套 **556 → 563** 全绿 ✓。真实库的复核要等抓取结束（见 `TO_RUN.md`）。
+
+## 2026-10-15（续 23）: stall 的"行数"必须来自一次走完全部页面的遍历
+
+**用户口径**：两次运行的"行数相同"必须是**访问完全部页面**得到的那份行数，中断情况下的不算。
+
+**逐条核过的路径**（`code/citation_fetch.py`）：
+
+- 被封锁：年份返回 0 行而探针说有 → `empty_page`；direct 首页 0 行 → `empty_first_page`。
+  两者都在 `BLOCKED_TERMINATIONS` 里 → `_compute_fetch_attempt_complete()` 给 `False` ✓ 已排除。
+- Ctrl+C：`save_progress(fetch_finished=False)` 之后异常上抛，`record_fetch_outcome()` 根本到不了
+  （它在主循环的 `except` 之外，只有 `break`（成功）才落到那里）✓ 已排除。
+- **漏网的一条**：`fetch_by_year()` 尾部 —— 当"上次留下的续跑点存在、且缓存逐年计数已等于探针"
+  时（`stop_partial_resume_once_satisfied`），跑完那个续跑年份段就
+  `break`（日志：`Completed resumed year segment, skipping remaining years after current year`），
+  但循环后照样 `save_progress(fetch_finished=True)` → `complete_fetch_attempt = True`。
+  这次遍历**没有走完计划**，其行数不该参与比较。
+
+**做法**：新增 `PaperFetchState.visited_every_page()` 作为唯一判据 ——
+`complete_fetch_attempt is True` **且**没有任何年份记录命中 `_PARTIAL_TRAVERSAL_TERMINATIONS`
+（当前只有 `partial_resume_completed`）。`record_fetch_outcome()` 从"直接看标志"改成调它。
+不满足时**完全不折进计数**（既不算一次、也不清零）—— 清零会让"干净—被封—干净"永远回不到 2，
+在频繁被封的环境里等于永不停机。
+
+**顺带澄清"行数"是什么**：`fetch_outcome_signature()` 取的是**整篇的行集合** —— 本次抓到的行
+**加上**已覆盖年份的缓存行（`seen_total` = 逐年记录之和，跳过的年份保留其缓存计数）。
+所以"按年跳过已达标年份"（`probe_match_skip` / `no_probe_data_skip`）不会把它做小；
+它不是"本次翻过的页数"。这也是为什么不能用"本次 new 的行数"当判据。
+
+**测试**：`tests/test_citation_status.py::StallRuleTests` 新增
+`test_an_attempt_that_skipped_the_rest_of_its_plan_is_not_folded`；夹具加 `termination` 参数。
+全套 **563 → 564** 全绿 ✓。

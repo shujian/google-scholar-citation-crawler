@@ -91,12 +91,13 @@ SCHOLAR_PAGE_SIZE = 10
 # Maximum retries when Scholar blocks a citation fetch.
 MAX_RETRIES = 3
 
-# A paper stops being retried once this many **completed** traversals in a row
-# obtained the same number of rows, even when Scholar still claims more (e.g.
-# its list holds fewer citations than its own "Cited by" count).  The comparison
-# deliberately ignores Scholar's targets, which drift between runs, so the rule
-# is "two full walks, same rows".  It clears itself when the paper's Scholar
-# count grows (scholar_changed) — the one event that can add rows — and
+# A paper stops being retried once this many **full walks** in a row obtained the
+# same number of rows, even when Scholar still claims more (e.g. its list holds
+# fewer citations than its own "Cited by" count).  A walk that was blocked,
+# interrupted or deliberately shortened does not count at all (see
+# PaperFetchState.visited_every_page), and the comparison deliberately ignores
+# Scholar's targets, which drift between runs.  It clears itself when the paper's
+# Scholar count grows (scholar_changed) — the one event that can add rows — and
 # `--fetch-mode force` clears the whole state for a manual retry.
 STALL_AFTER_ATTEMPTS = 2
 

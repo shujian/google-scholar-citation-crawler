@@ -845,12 +845,17 @@ class FetchOutcomeSignatureTests(unittest.TestCase):
 
 
 class StallRuleTests(unittest.TestCase):
-    """Only a *completed* traversal may advance the stall counter."""
+    """Only the row count of a *full walk* may advance the stall counter."""
 
     @staticmethod
-    def _state(seen_total, complete, histogram_count=None):
+    def _state(seen_total, complete, histogram_count=None, termination=None):
         from code.output_state import PaperFetchState
         histogram_count = seen_total if histogram_count is None else histogram_count
+        record = {"year": 2026,
+                  "histogram_count": histogram_count,
+                  "seen_total": seen_total}
+        if termination:
+            record["termination_reason"] = termination
         return PaperFetchState.from_dict({
             "title": "Paper",
             "fetch_strategy": "year",
@@ -861,9 +866,7 @@ class StallRuleTests(unittest.TestCase):
                 "seen_total": seen_total,
                 "cached_total": seen_total,
             },
-            "year_records": [{"year": 2026,
-                              "histogram_count": histogram_count,
-                              "seen_total": seen_total}],
+            "year_records": [record],
         })
 
     def test_two_completed_traversals_with_the_same_rows_stall_the_paper(self):
@@ -903,6 +906,24 @@ class StallRuleTests(unittest.TestCase):
         third.record_fetch_outcome()
         self.assertEqual(third.stall_count, 2)
         self.assertTrue(third.is_stalled())
+
+    def test_an_attempt_that_skipped_the_rest_of_its_plan_is_not_folded(self):
+        """`partial_resume_completed` stops early on purpose.
+
+        The year it resumed is done and the remaining years are skipped, so its
+        row count is not what walking every page would give.
+        """
+        first = self._state(83, complete=True, histogram_count=95)
+        first.record_fetch_outcome()
+        self.assertEqual(first.stall_count, 1)
+
+        skipped = self._state(83, complete=True, histogram_count=95,
+                              termination='partial_resume_completed')
+        self.assertFalse(skipped.visited_every_page())
+        skipped.inherit_stall_tracking(first)
+        skipped.record_fetch_outcome()
+        self.assertEqual((skipped.stall_signature, skipped.stall_count), ('year:83', 1))
+        self.assertFalse(skipped.is_stalled())
 
     def test_a_legacy_state_without_the_completion_flag_never_stalls(self):
         from code.output_state import PaperFetchState

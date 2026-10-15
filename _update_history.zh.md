@@ -2401,3 +2401,21 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 - **遗留（数据修复）**：被清掉的 7,901 条要等抓取跑完再补 —— 已记 `TO_RUN.md`
   （`python -m code.data_upgrade.backfill_venue_key --apply`，阶段 2 `local`）。本修复落地后，
   下一次抓取的保存步骤会自己把能重算的 key 写回来，所以那一步只是"补齐 + 复核"。
+
+## 2026-10-15（续 23）: 参与 stall 比较的行数必须来自"走完全部页面"的那次（用户定）
+
+- **用户要求**：stall 的"行数相同"必须是**访问完全部页面**拿到的行数，中断情况拿到的不算。
+- **核对**：`record_fetch_outcome()` 原本只看 `complete_fetch_attempt is True`。被封锁
+  （`empty_page` / `empty_first_page`）与 Ctrl+C（连记录都到不了）确实已排除；
+  **但** `fetch_by_year()` 有一个"续跑段做完就 `break`、余下年份不再走"的分支
+  （`stop_partial_resume_once_satisfied` → 该年记为 `partial_resume_completed`），
+  之后照样 `save_progress(fetch_finished=True)` —— 这条路是"没走完全部页面却算完成"。
+- **改动**：新增 `PaperFetchState.visited_every_page()` 作为唯一判据 —— `complete_fetch_attempt
+  is True` **且**没有任何年份记录命中 `_PARTIAL_TRAVERSAL_TERMINATIONS`（当前只有
+  `partial_resume_completed`）；`record_fetch_outcome()` 改用它。不满足就完全不折进计数。
+- **口径澄清**：比较用的"行数"是**整篇的行集合**（本次抓到的 + 已覆盖年份的缓存行），
+  不是"本次翻过的页数" —— 所以按年跳过已达标年份（`probe_match_skip`）不影响它。
+- **测试**：`tests/test_citation_status.py::StallRuleTests` 新增一例
+  （`partial_resume_completed` 的完成态不许折进计数）。全套 **563 → 564** 通过 ✓。
+- **文档**：`AGENTS.md` 的 `stalled` 条目、`README.md` 的「Stalled Papers」、`code/config.py`
+  注释、计划末尾的提示语（`N full walks in a row obtained the same number of rows`）。
