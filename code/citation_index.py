@@ -248,6 +248,21 @@ def write_citations_meta(paper_dir, citations, log=None, dry_run=False):
         return 0
     entries.sort(key=lambda e: int(e["index"]))
     path = _os.path.join(paper_dir, META_NAME)
+    # **保留阶段 2 的字段** ✓（Y-7：只动自己产生的数据 ✓）：已有 meta 里那些
+    # `download_status` / `local_filename` / `fail_reason` 等**原样带回** ✓，
+    # 所以阶段 1 开始写主体不会让阶段 2 丢失状态 ✓（等阶段 2 停止写它们后，自然消失 ✓）。
+    existing_by_index = {}
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            for old_entry in _json.load(handle):
+                if isinstance(old_entry, dict) and old_entry.get("index"):
+                    existing_by_index[int(old_entry["index"])] = old_entry
+    except (OSError, ValueError):
+        pass
+    for entry in entries:
+        for field, value in (existing_by_index.get(int(entry["index"])) or {}).items():
+            if field not in META_FIELDS and field not in entry:
+                entry[field] = value
     try:
         with open(path, "r", encoding="utf-8") as handle:
             if _json.load(handle) == entries:

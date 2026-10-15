@@ -57,3 +57,32 @@ class WriteCitationsMetaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PreserveStageTwoFieldsTests(unittest.TestCase):
+    """阶段 1 开始写主体后，**不得让阶段 2 丢状态** ✓（Y-7：只动自己产生的数据 ✓）。"""
+
+    def test_existing_download_fields_are_carried_over(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, META_NAME)
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump([{"index": 1, "cites_id": "c1", "title": "T",
+                            "download_status": "downloaded", "local_filename": "0001-T.pdf",
+                            "fail_reason": None, "size_bytes": 999},
+                           {"index": 2, "cites_id": "c2", "download_status": "failed"}], handle)
+            write_citations_meta(tmp, [{"index": 1, "cites_id": "c1", "title": "T"},
+                                       {"index": 2, "cites_id": "c2", "title": "U"}])
+            saved = {e["index"]: e for e in json.load(open(path, encoding="utf-8"))}
+            self.assertEqual(saved[1]["download_status"], "downloaded", "阶段 2 的状态必须原样保留 ✓")
+            self.assertEqual(saved[1]["local_filename"], "0001-T.pdf")
+            self.assertEqual(saved[1]["size_bytes"], 999)
+            self.assertEqual(saved[2]["download_status"], "failed")
+            # 阶段 1 自己的字段仍然以**抓取侧**为准 ✓（不被旧值覆盖 ✗）
+            self.assertEqual(saved[2]["title"], "U")
+
+    def test_no_existing_file_means_a_pure_stage_one_body(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write_citations_meta(tmp, [{"index": 1, "title": "T", "download_status": "x"}])
+            with open(os.path.join(tmp, META_NAME), encoding="utf-8") as handle:
+                self.assertEqual(json.load(handle), [{"index": 1, "title": "T"}],
+                                 "新文件里不该有下载字段 ✗")
