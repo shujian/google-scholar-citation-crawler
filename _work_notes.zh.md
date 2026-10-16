@@ -2109,3 +2109,44 @@ Data Engineering 35, no. 10 (2023): 1'`（Cite 对话框修正过的全名与未
 **测试**：`tests/test_citation_status.py::StallRuleTests` 新增
 `test_an_attempt_that_skipped_the_rest_of_its_plan_is_not_folded`；夹具加 `termination` 参数。
 全套 **563 → 564** 全绿 ✓。
+
+## Cite 对话框的 404：状态码在哪一层丢掉、又怎么捡回来（2026-10-16）
+
+**为什么以前分不出 404 和限流**：Cite 对话框走 `nav._get_soup()` → 我们 patch 过的 `_get_page` →
+scholarly 的 `_get_page`。后者对 404 的处理是"id 可能是近似的，用同一 session 再试"
+（`_navigator.py:122`），试满 `_max_retries = 5` 后抛 `MaxTriesExceededException("Cannot Fetch from
+Google Scholar.")` —— 与验证码页、429 抛出的是**同一个异常、同一句话**。状态码在那里就被丢掉了，
+`PageVisit` 只能按异常类型猜，于是 404 也被当成"被封锁"。
+
+**捡回来的位置**：唯一的落点是 httpx 自己。`_make_http2_session()` 现在挂
+`event_hooks={'response': [_remember_response]}` —— httpx 在 `Client.send()` 里对**最终响应**
+（跟随跳转之后）回调一次，正是我们要的语义。hook 把 `status_code` / `url` 写进
+`SessionContext.last_response_status` / `last_response_url`；`_fetch_with_sleep_limit()` 在**每次**
+请求前清零，这样"网络错误（没有响应）"不会被上一次遗留的 404 冒充。
+
+**谁决定"404 在这里等于没有记录"**：`is_detail_style_path(url)` —— 它复用
+`detail_path_delay_factor()`（"哪些 URL 是 detail 类"的唯一分类器：pub 详情页 + Cite 对话框），
+所以"打折延迟"和"404 语义"两件事不会各判一次。`patched_get_page` 把它作为
+`missing_record_on_404=` 传给 `PageVisit.fetch`。
+
+**PageVisit 侧**：命中 `MISSING_RECORD_STATUSES = (404, 410)` 且调用方声明了该标志时，**第一跳**就抛
+`RecordUnavailable(url, status)`，不进入 captcha/retry/cooldown 分支。语义是"服务端说这条记录不存在"
+——与"你被限流了"是两回事；`RecordUnavailable` 自带 `status`，日志打 `(HTTP 404)`。
+非 detail 页面（引用列表、profile）保持原行为：列表页 404 仍是异常信号，值得人去查。
+
+**cite_format 侧**：把 `RecordUnavailable` 记成带时间戳的**否定条目**
+`{'unavailable': True, 'status': 404, 'fetched_at': …}`，计入 `stats['unavailable']`（不计入
+`failed`），并按 `UNAVAILABLE_RETRY_DAYS = 7` 过期。**为什么不做永久判决**：句柄是 Scholar 的，
+同一作品可以有多个 cluster（实测 36 组同标题多 cluster），`cites_id` 会换代（KNOWN_ISSUES T），
+我们**还没理解它组织 cluster 的全部规则**（用户 2026-10-16 的判断）—— 所以"今天没有"只买到 7 天。
+过期时先 `cache.pop()` 再重试，保证重试与判决不会互相覆盖。
+
+**坑（当场的）**：这个循环里"写否定条目"和"清过期判决"两处都 `continue`，会绕过循环底部那句
+统一落盘（`if changed and cache_path: save_cite_cache(...)`）→ 第一版跑测试时"新鲜判决不再问"
+失败（条目根本没写到盘上）。改成两处都调 `save_cache_now()`：判决必须能在紧随其后的 Ctrl+C 中活下来。
+
+**测试怎么搭的**：`PageVisit` 的 4 例直接用 `SimpleNamespace` 当 ctx（`last_response_status=404`
+或 429），断言"调用次数 == 1、验证码回调 0 次、日志含 `no such record`"；
+`scholarly_session` 的 4 例用 `FetcherTestCase` + `nav._get_page` 桩 + 间谍 `PageVisit` 捕获
+`missing_record_on_404`，并直接调用 session 的 `event_hooks['response'][0]` 验证 hook 落点
+（httpx 在测试里是真的，所以 hook 确实装着）。

@@ -78,6 +78,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 from code.common import write_json_atomic
+from code.page_visit import RecordUnavailable
 from code.shared.venue_key import citation_venue_key
 from code.venue_quality import citation_needs_cite_dialog
 
@@ -88,6 +89,14 @@ _CITE_PATH = '/scholar?q=info:{0}:scholar.google.com/&output=cite&scirp=0&hl=en'
 
 #: The five labels Scholar's Cite dialog uses, in page order.
 FORMAT_LABELS = ('mla', 'apa', 'chicago', 'harvard', 'vancouver')
+
+#: How long a "this handle has no Cite dialog" verdict (HTTP 404/410, see
+#: `code.page_visit.RecordUnavailable`) is believed before asking again.
+#: Deliberately finite: the handle belongs to Scholar, and how it (re)builds
+#: clusters is not fully understood yet — a handle that 404s today can answer
+#: after a rebuild (measured 2026-10-16: one entry 404s reproducibly while its
+#: sibling rows answer 200 in the same minute).
+UNAVAILABLE_RETRY_DAYS = 7
 
 #: Key added to a citation dict; the formats live inside it.
 from code.shared.identity import identity_norm_title  # noqa: E402
@@ -298,6 +307,28 @@ def save_cite_cache(path, cache):
     write_json_atomic(path, cache, ensure_ascii=False, indent=2, sort_keys=True)
 
 
+def unavailable_verdict_is_fresh(entry, now=None, retry_days=None):
+    """True while a "no Cite dialog" verdict is still believed.
+
+    The verdict is ``{'unavailable': True, 'status': 404, 'fetched_at': …}``.
+    A missing or unparseable timestamp counts as *stale* (ask again), because
+    forgetting a verdict costs one request while believing a stale one costs the
+    data (`venue_text` / `authors_full`) that only the dialog carries.
+    """
+    if not isinstance(entry, dict) or not entry.get('unavailable'):
+        return False
+    days = UNAVAILABLE_RETRY_DAYS if retry_days is None else retry_days
+    try:
+        stamped = datetime.fromisoformat(str(entry.get('fetched_at') or ''))
+    except (TypeError, ValueError):
+        return False
+    now = now or datetime.now()
+    try:
+        return (now - stamped).total_seconds() < float(days) * 86400
+    except (TypeError, ValueError):
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
@@ -323,7 +354,8 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
     ``venue``.  A dialog without a venue field leaves the existing key alone.
 
     Returns a stats dict: ``total``, ``with_cid``, ``missing_cid``,
-    ``skipped_complete``, ``cache_hits``, ``fetched``, ``failed``, ``resolved``,
+    ``skipped_complete``, ``cache_hits``, ``fetched``, ``unavailable``,
+    ``failed``, ``resolved``,
     （BibTeX 已于 2026-10-15 弃用：不再有 ``bib_*`` 统计。）
     """
     citations = list(citations or [])
@@ -334,11 +366,22 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
         'skipped_complete': 0,
         'cache_hits': 0,
         'fetched': 0,
+        'unavailable': 0,
         'failed': 0,
         'resolved': 0,
     }
     cache = load_cite_cache(cache_path)
     stamp = fetched_at or datetime.now().isoformat()
+
+    def save_cache_now():
+        """Persist the cache immediately.
+
+        The branches that `continue` (a "no such record" verdict, dropping a
+        stale verdict) never reach the common save at the bottom of the loop, and
+        a verdict must survive a Ctrl+C that arrives right after it.
+        """
+        if cache_path:
+            save_cite_cache(cache_path, cache)
 
     for index, citation in enumerate(citations, 1):
         if not isinstance(citation, dict):
@@ -351,6 +394,18 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
 
         entry = cache.get(cid)
         changed = False
+        if entry is not None and entry.get('unavailable'):
+            if unavailable_verdict_is_fresh(entry):
+                # Scholar already told us this handle has no dialog.  Do not ask
+                # again this run — and, unlike a failure, do not count it as one.
+                stats['unavailable'] += 1
+                continue
+            # The verdict is old: handles are Scholar's and we do not yet
+            # understand how it (re)builds clusters, so try once more.
+            cache.pop(cid, None)
+            entry = None
+            changed = True
+            save_cache_now()
         if entry is None:
             if not citation_needs_cite_dialog(citation):
                 # Complete venue *and* full author names already in hand: this
@@ -363,6 +418,24 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
             try:
                 page = get_soup(cite_path(cid))
                 parsed = parse_cite_page(page)
+            except RecordUnavailable as e:
+                # The server says this record does not exist (HTTP 404/410) —
+                # not a block: remember it with a timestamp and move on.  Before
+                # 2026-10-16 this looked like a rate limit, so every run paid the
+                # full cooldown budget (20-35 min) for it, or parked the whole
+                # run on a captcha prompt, forever.
+                cache[cid] = {
+                    'unavailable': True,
+                    'status': getattr(e, 'status', None),
+                    'fetched_at': stamp,
+                }
+                changed = True
+                save_cache_now()
+                stats['unavailable'] += 1
+                print_fn(f"    [{index}/{len(citations)}] {cid} -> no Cite dialog "
+                         f"(HTTP {getattr(e, 'status', '?')}); remembered, "
+                         f"retry in {UNAVAILABLE_RETRY_DAYS} days")
+                continue
             except Exception as e:
                 # KeyboardInterrupt is not an Exception, so Ctrl+C still
                 # propagates and the cache keeps what was already fetched.

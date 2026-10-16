@@ -897,3 +897,89 @@ class CiteDialogRefererTests(FetcherTestCase):
         for url in (self.LIST_URL, '/citations?user=test-author&hl=en', '', None):
             with self.subTest(url=url):
                 self.assertFalse(is_cite_dialog_url(url))
+
+
+class MissingCiteDialogWiringTests(FetcherTestCase):
+    """The patch layer must see the status code and flag the detail paths.
+
+    ``scholarly._get_page`` throws the HTTP status away (a 404 just means "retry
+    with the same session" and ends in the same MaxTriesExceededException as a
+    captcha or a 429), so the status is recorded from an httpx response hook and
+    only the one-shot detail paths — the Cite dialog and the publication detail
+    page — declare that a 404 there means "no such record".
+    """
+
+    CITE_DIALOG_URL = ('/scholar?q=info:44BcOmzPt1MJ:scholar.google.com/'
+                       '&output=cite&scirp=0&hl=en')
+    DETAIL_PAGE_URL = ('/citations?hl=en&user=test-author&pagesize=100'
+                       '&view_op=view_citation&citation_for_view=test-author:abc')
+    LIST_URL = ('/scholar?as_ylo=2025&as_yhi=2025&hl=en&as_sdt=2005&sciodt=0,5'
+                '&cites=5394525667202485226&scipsc=')
+
+    def setUp(self):
+        super().setUp()
+        self.nav = scholarly_mod.scholarly._Scholarly__nav
+        self.nav._get_page = lambda pagerequest, premium=False: '<html></html>'
+        with patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._patch_scholarly()
+        self.ctx = self.fetcher._session_ctx
+        self.ctx.first_page_prompt_fn = None
+
+    def _flags_for(self, url):
+        """Return the `missing_record_on_404` flags passed for one request."""
+        flags = []
+
+        class _SpyVisit:
+            def __init__(self, ctx):
+                self.ctx = ctx
+
+            def fetch(self, fn, url, label='page', missing_record_on_404=False):
+                flags.append(missing_record_on_404)
+                return fn()
+
+        with patch("code.scholarly_session.PageVisit", _SpyVisit), \
+             patch("code.scholarly_session.rand_delay", return_value=0), \
+             patch("code.scholarly_session.time.sleep", return_value=None), \
+             patch("sys.stdout", new_callable=StringIO):
+            self.nav._get_page(url)
+        return flags
+
+    def test_the_cite_dialog_and_detail_page_declare_a_missing_record(self):
+        for url in (self.CITE_DIALOG_URL, self.DETAIL_PAGE_URL):
+            with self.subTest(url=url):
+                self.assertEqual(self._flags_for(url), [True])
+
+    def test_list_pages_do_not(self):
+        for url in (self.LIST_URL, '/citations?user=test-author&hl=en'):
+            with self.subTest(url=url):
+                self.assertEqual(self._flags_for(url), [False])
+
+    def test_the_response_hook_records_the_status_on_the_context(self):
+        sessions = [s for s in (self.nav._session1, self.nav._session2) if s]
+        self.assertTrue(sessions)
+        for session in sessions:
+            hooks = (getattr(session, 'event_hooks', None) or {}).get('response') or []
+            self.assertTrue(hooks, "no response hook installed")
+            self.ctx.last_response_status = None
+            hooks[0](types.SimpleNamespace(status_code=404, url='https://x/'))
+            self.assertEqual(self.ctx.last_response_status, 404)
+            self.assertIn('https://x/', self.ctx.last_response_url)
+
+    def test_the_status_is_cleared_before_each_request(self):
+        """A stale 404 must never be attributed to a request that got no response."""
+        seen = []
+        self.nav._get_page = (
+            lambda pagerequest, premium=False:
+            (seen.append(self.ctx.last_response_status), '<html></html>')[1])
+        with patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._patch_scholarly()
+        self.ctx = self.fetcher._session_ctx
+        self.ctx.first_page_prompt_fn = None
+        self.ctx.last_response_status = 404      # left over from an earlier page
+
+        with patch("code.scholarly_session.rand_delay", return_value=0), \
+             patch("code.scholarly_session.time.sleep", return_value=None), \
+             patch("sys.stdout", new_callable=StringIO):
+            self.nav._get_page(self.LIST_URL)
+
+        self.assertEqual(seen, [None])

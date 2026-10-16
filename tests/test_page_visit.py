@@ -5,7 +5,7 @@ from tests.conftest import patch, StringIO
 import types
 import unittest
 
-from code.page_visit import PageVisit
+from code.page_visit import PageVisit, RecordUnavailable
 
 
 def _ctx(**overrides):
@@ -128,6 +128,96 @@ class PageVisitTests(unittest.TestCase):
 
         with self.assertRaises(KeyboardInterrupt):
             PageVisit(_ctx()).fetch(fn, "https://example")
+
+
+class MissingRecordTests(unittest.TestCase):
+    """A 404 on a one-shot detail page is "no such record", not "blocked".
+
+    Measured 2026-10-16: ``info:44BcOmzPt1MJ:scholar.google.com/&output=cite``
+    answered Google's own 404 page while two sibling handles answered 200 with
+    five formats each in the same minute.  Without this distinction a dead
+    handle cost the full cooldown budget (20-35 min) per run, or parked the run
+    on a captcha prompt nobody could solve.
+    """
+
+    CITE_URL = ('https://scholar.google.com/scholar?q=info:44BcOmzPt1MJ:'
+                'scholar.google.com/&output=cite&scirp=0&hl=en')
+
+    def _run(self, fn, ctx, **kwargs):
+        with patch("code.page_visit.time.sleep", return_value=None), \
+             patch("code.page_visit.rand_delay", return_value=0), \
+             patch("sys.stdout", new_callable=StringIO) as stdout:
+            try:
+                return PageVisit(ctx).fetch(fn, self.CITE_URL, **kwargs), stdout.getvalue(), None
+            except Exception as exc:  # noqa: BLE001 - asserted by the caller
+                return None, stdout.getvalue(), exc
+
+    def test_a_detail_404_stops_immediately_without_a_captcha_prompt(self):
+        prompts = []
+        calls = []
+
+        def fn():
+            calls.append(1)
+            raise RuntimeError("Cannot Fetch from Google Scholar.")
+
+        ctx = _ctx(interactive_captcha=True,
+                   try_interactive_captcha_fn=lambda url: prompts.append(url) or True,
+                   last_response_status=404)
+        result, output, error = self._run(fn, ctx, label="cite",
+                                         missing_record_on_404=True)
+
+        self.assertIsInstance(error, RecordUnavailable)
+        self.assertEqual(error.status, 404)
+        self.assertEqual(len(calls), 1)        # no retries, no cooldowns
+        self.assertEqual(prompts, [])          # never asks for a captcha
+        self.assertIn("no such record", output)
+
+    def test_the_same_status_on_a_list_page_keeps_the_recovery_path(self):
+        prompts = []
+
+        def fn():
+            raise RuntimeError("Cannot Fetch from Google Scholar.")
+
+        ctx = _ctx(interactive_captcha=True,
+                   try_interactive_captcha_fn=lambda url: prompts.append(url) or False,
+                   last_response_status=404)
+        result, output, error = self._run(fn, ctx, label="list")
+
+        self.assertIsInstance(error, RuntimeError)
+        # The flag is what changes behaviour: the list page keeps the captcha /
+        # cooldown path (one prompt per cycle, so more than one over the run).
+        self.assertGreaterEqual(len(prompts), 1)
+        self.assertIn("Blocked fetching", output)
+        self.assertIn("HTTP 404", output)      # the status is now visible
+
+    def test_other_statuses_on_a_detail_page_are_still_blocks(self):
+        prompts = []
+
+        def fn():
+            raise RuntimeError("Cannot Fetch from Google Scholar.")
+
+        ctx = _ctx(interactive_captcha=True,
+                   try_interactive_captcha_fn=lambda url: prompts.append(url) or False,
+                   last_response_status=429)
+        result, output, error = self._run(fn, ctx, missing_record_on_404=True)
+
+        self.assertIsInstance(error, RuntimeError)
+        self.assertGreaterEqual(len(prompts), 1)
+        self.assertIn("HTTP 429", output)
+
+    def test_an_unknown_status_is_still_a_block(self):
+        """No recorded response (network error) must not become "no record"."""
+        prompts = []
+
+        def fn():
+            raise RuntimeError("connection reset")
+
+        ctx = _ctx(interactive_captcha=True,
+                   try_interactive_captcha_fn=lambda url: prompts.append(url) or False)
+        result, output, error = self._run(fn, ctx, missing_record_on_404=True)
+
+        self.assertIsInstance(error, RuntimeError)
+        self.assertGreaterEqual(len(prompts), 1)
 
 
 class InteractiveInputGuardTests(unittest.TestCase):

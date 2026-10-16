@@ -431,6 +431,33 @@ An empty page still records "no new citations" for this run, but it is no longer
 allowed to destroy data: the year (or paper) it belongs to keeps the citations
 already cached and stays incomplete, so the next run retries it.
 
+## When Scholar Has No Cite Dialog for an Entry
+
+A few citation rows have no Cite dialog at all: the list page serves the row, but
+`/scholar?q=info:<cid>:scholar.google.com/&output=cite` answers **404** (Google's own
+"Error 404 (Not Found)" page). Measured 2026-10-16 on `info:44BcOmzPt1MJ:…` — 404 three
+times over 15 hours, while two sibling rows of the same page answered 200 with five
+formats each in the same minute.
+
+That used to be indistinguishable from a rate limit (the status never reached the
+crawler), so each such entry burned the full cooldown budget (20-35 min) on every run,
+or parked the whole run on a captcha prompt nobody could solve. Now:
+
+- the HTTP status of every response is recorded, and a 404/410 on a one-shot detail
+  page (Cite dialog, publication detail page) means "this record does not exist"
+  rather than "we are blocked";
+- such an entry is remembered in `output/cite_format_cache.json` as
+  `{"unavailable": true, "status": 404, "fetched_at": …}` and not asked again for
+  `UNAVAILABLE_RETRY_DAYS` (7) — deliberately finite: the handle belongs to Scholar,
+  and how it (re)builds clusters is not fully understood yet, so a 404 today may
+  answer later;
+- the citation-formats summary counts them separately: `no dialog N`.
+
+For such a row the Cite dialog's **full author list** and **untruncated venue** are
+out of reach; the row itself (title, authors, venue, year, url) is unaffected. A
+host-wide TLS-level rejection (`www.google.com` / `scholar.google.com` answering
+`sslv3 alert handshake failure`) is a different failure and is still treated as a block.
+
 ## Year-Based Fetch Details
 
 Papers with ≥ 50 **total** citations switch to year-by-year fetch mode:

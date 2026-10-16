@@ -81,6 +81,18 @@ def detail_path_delay_factor(url):
     return 1.0
 
 
+def is_detail_style_path(url):
+    """True for the one-shot detail paths (pub detail page, Cite dialog).
+
+    The same single classifier as the pacing (``detail_path_delay_factor``),
+    read for a different purpose: on these URLs a 404/410 means "this record
+    does not exist" rather than "we are blocked" — Scholar serves the citation
+    list row but may have no Cite dialog for its cluster handle (measured
+    2026-10-16; see ``code/page_visit.py::RecordUnavailable``).
+    """
+    return detail_path_delay_factor(url) < 1.0
+
+
 # ---------------------------------------------------------------------------
 # Session context (shared mutable state between closures)
 # ---------------------------------------------------------------------------
@@ -112,6 +124,14 @@ class SessionContext:
     # expected, so an empty/blocked response is not silently recorded as
     # "fetched, 0 citations".
     last_page_evidence: Optional[dict] = None
+    # HTTP status of the last response our httpx sessions received (final
+    # response, i.e. after redirects).  scholarly's own retry loop swallows the
+    # status — a 404 simply means "retry with the same session" — so the patch
+    # layer records it here and PageVisit can tell "this record does not exist"
+    # (404/410 on a detail path) apart from "we are being blocked".  None means
+    # "no response seen for the current request" (network error).
+    last_response_status: Optional[int] = None
+    last_response_url: str = ""
 
     # injected cookies / headers (populated by _inject_cookies_from_curl)
     injected_cookies: dict = field(default_factory=dict)
@@ -397,12 +417,22 @@ def patch_scholarly(ctx: SessionContext) -> None:
     ctx.injected_cookies = {}
     ctx.injected_header_overrides = {}
 
+    def _remember_response(response):
+        # Fires once per request, on the final response (after redirects).
+        # scholarly's `_get_page` throws the status away — it treats 404 as
+        # "retry with the same session" and raises the same
+        # MaxTriesExceededException it raises for a captcha or a 429 — so this
+        # hook is the only place the status survives for PageVisit.
+        ctx.last_response_status = response.status_code
+        ctx.last_response_url = str(response.url)
+
     def _make_http2_session():
         # Use httpx (scholarly's native client, HTTP/2) instead of curl_cffi.
         # Scholar's citation-search endpoint (/scholar?cites=) rate-limits
         # curl_cffi sessions regardless of impersonation target, but accepts
         # httpx — verified empirically via 7890 proxy.
-        return httpx.Client(http2=True, follow_redirects=True)
+        return httpx.Client(http2=True, follow_redirects=True,
+                            event_hooks={'response': [_remember_response]})
 
     def _apply_browser_headers(session):
         session.headers.update(_BROWSER_HEADERS)
@@ -545,6 +575,11 @@ def patch_scholarly(ctx: SessionContext) -> None:
         delay_scale = ctx.delay_scale * detail_path_delay_factor(request_url)
 
         def _fetch_with_sleep_limit():
+            # A fresh request: drop the previous response's status so PageVisit
+            # can never attribute an old 404 to a failure that produced no
+            # response at all (the response hook records the new one).
+            ctx.last_response_status = None
+            ctx.last_response_url = ''
             original_sleep = time.sleep
             sleep_count = [0]
 
@@ -588,6 +623,11 @@ def patch_scholarly(ctx: SessionContext) -> None:
             _fetch_with_sleep_limit,
             url=request_url or f'https://scholar.google.com{ctx.last_scholar_url}',
             label=label,
+            # On a one-shot detail page a 404 means "this record has no such
+            # page" (a Cite dialog for a cluster handle Scholar does not serve),
+            # not "we are blocked": PageVisit raises RecordUnavailable instead of
+            # prompting for a captcha and burning 20-35 minutes of cooldowns.
+            missing_record_on_404=is_detail_style_path(request_url),
         )
         # After first successful Scholar page, switch to same-origin for
         # subsequent requests (real browsers only send 'none' on the

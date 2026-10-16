@@ -11,6 +11,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -430,6 +431,126 @@ class EnrichmentTests(unittest.TestCase):
         stats = self._run(['not a dict', None], _FakeNav())
         self.assertEqual(stats['with_cid'], 0)
         self.assertEqual(stats['failed'], 0)
+
+
+class UnavailableCiteDialogTests(unittest.TestCase):
+    """HTTP 404 on a Cite dialog = "no such record", not "we are blocked".
+
+    Measured 2026-10-16: `info:44BcOmzPt1MJ:scholar.google.com/&output=cite`
+    answered Google's own 404 page while sibling handles answered 200 with five
+    formats in the same minute.  Before this, such an entry looked like a rate
+    limit, so every run paid the full cooldown budget (20-35 min) for it or
+    parked the whole run on a captcha prompt.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.cache_path = os.path.join(self._tmp.name, cf.CACHE_FILENAME)
+
+    def _run(self, citations, get_soup, **kwargs):
+        kwargs.setdefault('cache_path', self.cache_path)
+        kwargs.setdefault('print_fn', quiet)
+        return cf.enrich_citations_with_cite_formats(citations, get_soup=get_soup,
+                                                     **kwargs)
+
+    @staticmethod
+    def _missing_dialog_get_soup(path):
+        raise cf.RecordUnavailable('https://scholar.google.com' + path, 404)
+
+    def test_a_404_is_remembered_instead_of_failing(self):
+        row = citation('dead-handle')
+        stats = self._run([row], self._missing_dialog_get_soup)
+
+        self.assertEqual(stats['unavailable'], 1)
+        self.assertEqual(stats['failed'], 0)          # not a failure any more
+        self.assertEqual(stats['resolved'], 0)
+        self.assertNotIn('cite', row)
+        entry = read_json(self.cache_path)['dead-handle']
+        self.assertTrue(entry['unavailable'])
+        self.assertEqual(entry['status'], 404)
+        self.assertTrue(entry['fetched_at'])
+
+    def test_a_fresh_verdict_is_not_asked_again(self):
+        self._run([citation('dead-handle')], self._missing_dialog_get_soup)
+        calls = []
+
+        def get_soup(path):                            # must never be reached
+            calls.append(path)
+            raise AssertionError('the dead handle was asked again')
+
+        stats = self._run([citation('dead-handle')], get_soup)
+
+        self.assertEqual(calls, [])
+        self.assertEqual(stats['unavailable'], 1)
+        self.assertEqual(stats['cache_hits'], 0)
+
+    def test_a_stale_verdict_is_asked_again(self):
+        """Handles are Scholar's: a 404 today may answer after a rebuild."""
+        old = (datetime.now() - timedelta(days=cf.UNAVAILABLE_RETRY_DAYS + 1)).isoformat()
+        cf.save_cite_cache(self.cache_path, {
+            'dead-handle': {'unavailable': True, 'status': 404, 'fetched_at': old},
+        })
+        nav = _FakeNav(pages={cf.cite_path('dead-handle'): default_page()})
+        stats = self._run([citation('dead-handle')], nav._get_soup)
+
+        self.assertEqual(stats['fetched'], 1)
+        self.assertEqual(stats['unavailable'], 0)
+        self.assertEqual(len(nav.calls), 1)
+
+    def test_a_verdict_without_a_timestamp_is_asked_again(self):
+        cf.save_cite_cache(self.cache_path,
+                           {'dead-handle': {'unavailable': True, 'status': 404}})
+        nav = _FakeNav(pages={cf.cite_path('dead-handle'): default_page()})
+        self._run([citation('dead-handle')], nav._get_soup)
+        self.assertEqual(len(nav.calls), 1)
+
+    def test_the_real_request_layer_feeds_the_verdict(self):
+        """PageVisit + this module compose: the recorded 404 becomes a verdict.
+
+        This pins the assumption the two halves share — the status lives on the
+        session context (scholarly swallows it), and the detail-path flag is what
+        turns it into `RecordUnavailable` instead of a captcha prompt.
+        """
+        from types import SimpleNamespace
+        from code.page_visit import PageVisit
+
+        prompts = []
+        ctx = SimpleNamespace(
+            interactive_captcha=True,
+            try_interactive_captcha_fn=lambda url: prompts.append(url) or False,
+            wait_proxy_switch_fn=None,
+            wait_status_fn=None,
+            delay_scale=0.0,
+            last_response_status=None,
+        )
+
+        def get_soup(path):
+            def request():
+                ctx.last_response_status = 404
+                raise RuntimeError('Cannot Fetch from Google Scholar.')
+            return PageVisit(ctx).fetch(
+                request, 'https://scholar.google.com' + path,
+                label='cite', missing_record_on_404=True)
+
+        with patch('code.page_visit.time.sleep', return_value=None), \
+             patch('code.page_visit.rand_delay', return_value=0):
+            stats = self._run([citation('dead-handle')], get_soup)
+
+        self.assertEqual(stats['unavailable'], 1)
+        self.assertEqual(stats['failed'], 0)
+        self.assertEqual(prompts, [])
+        self.assertTrue(read_json(self.cache_path)['dead-handle']['unavailable'])
+
+    def test_verdict_freshness_uses_the_configured_window(self):
+        now = datetime(2026, 10, 16, 12, 0, 0)
+        entry = {'unavailable': True, 'status': 404,
+                 'fetched_at': (now - timedelta(days=2)).isoformat()}
+        self.assertTrue(cf.unavailable_verdict_is_fresh(entry, now=now))
+        entry['fetched_at'] = (now - timedelta(days=9)).isoformat()
+        self.assertFalse(cf.unavailable_verdict_is_fresh(entry, now=now))
+        self.assertFalse(cf.unavailable_verdict_is_fresh({'formats': {}}, now=now))
+        self.assertFalse(cf.unavailable_verdict_is_fresh(None, now=now))
 
 
 # ---------------------------------------------------------------------------

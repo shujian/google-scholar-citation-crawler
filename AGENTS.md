@@ -173,6 +173,14 @@ google-scholar-citation-crawler/
   线上串常被 Scholar 截断，保守起见宁可多抓一次）；②venue 已完整**并且** `authors` 已是全名形态；
   ③其余才抓。跳过零请求、不写缓存；
   但**已缓存的对话框仍会复用**，以免重跑把上一轮付过钱的 `cite` 从输出里抹掉。
+  **第四种：Scholar 说"没有这个对话框"**（2026-10-16）—— `output=cite` 对某个 `cid` 回 **404/410**
+  时（实测 `info:44BcOmzPt1MJ:scholar.google.com/` 返回 Google 自己的 404 页，而同分钟两条兄弟
+  `cid` 都是 200 + 5 种格式；`scholar.google.com` 当时还对整条出口做 TLS 级拒绝，**两件事必须分开**），
+  `code/page_visit.py::RecordUnavailable` 会**直接放弃这一条**：不重试、不冷却、不弹验证码提示
+  （此前它和限流长得一样，每条白烧 20–35 分钟，或把整轮停在等人解一个不存在的验证码）。
+  `cite_format` 把它记成**带时间戳的否定条目** `{'unavailable': true, 'status': 404, 'fetched_at': …}`，
+  `UNAVAILABLE_RETRY_DAYS`（7 天）内不再问；过期后自动重问一次 —— **刻意不是永久判决**：句柄是
+  Scholar 的，它对 cluster 的组织我们**还没有完全理解**（见 `issues.md`）。
 - **`code/venue_quality.py`**（2026-10-14）：**「这条记录还值得再抓一次吗」的唯一判据**，被
   `venue_detail.py`（pub 级）与 `cite_format.py`（施引条目级）共用：`is_complete_venue()`
   （非空 + 无 `…`/`...` + 不是预印本源；缺失 ≠ 完整）、`is_preprint_venue()`（`arXiv` / `arXiv preprint
@@ -354,6 +362,11 @@ Patches `scholarly` internals rather than treating it as a black box:
   multiplies on top; neither `venue_detail.py` nor `cite_format.py` may define a
   delay of its own (guarded by `tests/test_scholar_patch.py`)
 - Performs soft session refresh every 10–20 pages
+- Records the **HTTP status** of every response (`SessionContext.last_response_status`, from an
+  httpx `response` event hook; cleared before each request).  scholarly throws the status away —
+  it treats 404 as "retry with the same session" and ends in the same
+  `MaxTriesExceededException` as a captcha or a 429 — so this hook is the only place it survives
+  for `PageVisit` (2026-10-16).
 - Verifies every patch hook point at the end of `patch_scholarly()` and raises
   when a scholarly upgrade made one of them ineffective (see
   `assert_scholarly_patches_active`)
@@ -380,7 +393,7 @@ code/scholar_citation.py  (orchestrator + PaperCitationFetcher — python -m cod
   ├── code.profile_io             ← code.pub_info
   ├── code.venue_quality          (pure: is_complete_venue / is_preprint_venue / full-name check)
   ├── code.venue_detail           ← code.common, code.venue_quality (detail page + venue cache; bs4)
-  ├── code.cite_format            ← code.common, code.venue_quality (Cite dialog + format cache; bs4)
+  ├── code.cite_format            ← code.common, code.venue_quality, code.page_visit (Cite dialog + format cache; bs4)
   ├── code.pub_info               ← code.citation_cache, code.venue_detail
   ├── code.citation_cache         (pure year/diagnostics functions)
   ├── code.citation_strategy      ← code.citation_cache

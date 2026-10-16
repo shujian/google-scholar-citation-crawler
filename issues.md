@@ -215,3 +215,40 @@ cite 页路径 —— 上述 venue 判据成立**并且**该条目 `authors` 已
    - 我一度把 `Acta Electronica Sinica` 挂给了 `Chinese Journal of Electronics` —— **写错了**：
      它其实只是《电子学报》的英文名，`Chinese Journal of Electronics` 是另一本刊。**已在本轮当场改正**
      （别名归 `电子学报`，`Chinese Journal of Electronics` 不带别名）。
+
+## 九、Cite 对话框 404 ＝"这个 cluster 句柄没有对话框"（2026-10-16 实测，已按当前理解处理）
+
+**现象**：`https://scholar.google.com/scholar?q=info:44BcOmzPt1MJ:scholar.google.com/&output=cite&scirp=0&hl=en`
+三次失败：19:52（crawler，`.com`）、05:49（crawler，`.com`）、10:5x（`output/probe_cite_rows.py`，裸 httpx，
+`.hk` 镜像）。第三次拿到 **HTTP 404**，响应体是 Google 自己的
+`<title>Error 404 (Not Found)!!1</title> … The requested URL … was not found on this server.`（1642 字节）。
+**同一分钟、同一会话**下同页两条兄弟 `cid`（`4fZewaSVrhQJ`、`XNR1XcrxA1QJ`）都是 **200 + 5 种格式**
+→ 排除"整站/整会话被封"。
+
+**它是什么**：`cid` 是**记录（cluster）的句柄**（行上的 `data-cid`，`cite_format.cite_path()` 拿它寻址
+`output=cite`），**不是文献身份**（`cites_id` 才是身份键）。所以 404 的语义是"这个句柄在 cite 端点上
+没有答复"，**不是**"这篇论文没有引用格式"——列表页明明给出了它的题目/作者/venue/年份。
+
+**顺带测到**（同一趟，论文 no=113）：Scholar 自称 9 条引用，列表页只回 **1 行**（且那 1 行正确）→ 这是
+"列表比它自己宣称的少"那一类现象（`stalled` 的成因），**与 404 是两件事**。
+
+**另一件必须分开的事**：同一天 `scholar.google.com` 与 `www.google.com` 对整条出口回
+`sslv3 alert handshake failure`（TLS 级拒绝），而 `scholar.google.com.hk` 正常 200。**"通道坏了"与
+"这个句柄没有对话框"在旧日志里长得一模一样**（都只有 `Cannot Fetch from Google Scholar.`）。
+
+**当前处置（已实现）**：`SessionContext.last_response_status`（httpx `response` hook，每请求前清零）
+保存状态码；`PageVisit.fetch(missing_record_on_404=is_detail_style_path(url))` 对 detail 类页面的
+**404/410** 直接抛 `RecordUnavailable`（不重试、不冷却、不弹验证码）；`cite_format` 记**带时间戳的否定
+条目**并在 `UNAVAILABLE_RETRY_DAYS = 7` 天后自动重问。**刻意不是永久判决**，理由见下。
+
+**待理解（用户 2026-10-16 的判断："我们对 cluster 类论文在 Scholar 内部的组织还没有全部理解"）** ——
+目前已掌握的碎片与未解问题：
+
+- 同一篇作品可以有**多个 cluster**（实测 36 组"同标题、≥2 个不同 `cites_id`"：例如同一篇的 arXiv 版
+  `6279971151076542878` 与会议版 `v7gvTAYdW8cJ`；`Pirates of the RAG` 的 2024 arXiv 行与 2025 ECAI 行）；
+- `cites_id` 会**换代**（`KNOWN_ISSUES.md` T），`cid` 是同类句柄；
+- 列表页给了行 `data-cid`，但 cite 端点可以 **404**；
+- 列表页可以**只回一部分行**（no=113：9 → 1）；
+- **未回答**：404 是节流伪装、cluster 重建、还是 Scholar 对"不同来源/版本"行的处理差异？是否需要
+  "同一作品换一个 cluster/版本再试一次"的兜底？—— 需要更多实测，可复用
+  `output/probe_cite_rows.py`（`--host=…` / 论文号 / 额外 cid）批量跑同类条目。

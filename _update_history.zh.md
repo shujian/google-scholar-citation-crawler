@@ -2457,3 +2457,35 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   （`partial_resume_completed` 的完成态不许折进计数）。全套 **563 → 564** 通过 ✓。
 - **文档**：`AGENTS.md` 的 `stalled` 条目、`README.md` 的「Stalled Papers」、`code/config.py`
   注释、计划末尾的提示语（`N full walks in a row obtained the same number of rows`）。
+
+## 2026-10-16（续 24）: Cite 对话框 404 不再被当成"被封锁"（用户定）
+
+- **实测**（`output/probe_cite_rows.py`，论文 no=113 + 两个对照，同一会话同一分钟、`.hk` 镜像）：
+  `info:44BcOmzPt1MJ:scholar.google.com/&output=cite` → **HTTP 404**（Google 自己的
+  "Error 404 (Not Found)!!1 … was not found on this server."，1642 字节）；
+  同页两条兄弟 `cid`（`XNR1XcrxA1QJ` = Pirates of the RAG、`4fZewaSVrhQJ`）都是 **200 + 5 种格式**。
+  跨 ~15 小时复现三次（19:52 / 05:49 / 10:5x）→ **条目级**，不是会话级。
+- **根因**：`cid` 是**记录（cluster）句柄**，不是文献身份；404 只说明"这个句柄在 cite 端点上没有答复"。
+  而 `scholarly._get_page` 把状态码丢掉（404 被当成"用同一 session 再试"，5 次后抛
+  `MaxTriesExceededException`，与验证码/429 同一个异常），`PageVisit` 只按异常类型判断 →
+  归类为"被封锁"：交互模式弹验证码提示、整轮停摆；非交互模式每条 20–35 分钟冷却。
+- **改动**：
+  - `code/scholarly_session.py`：httpx `response` hook 把**状态码**记进
+    `SessionContext.last_response_status`（每请求前清零；`_get_soup`/`_get_page` 只此一处能拿到它）；
+    新增 `is_detail_style_path()`（复用 `detail_path_delay_factor()` 这一个分类器），
+    `patched_get_page` 据此传 `missing_record_on_404=`。
+  - `code/page_visit.py`：新增 `RecordUnavailable`（带 `status`）；`fetch(missing_record_on_404=True)`
+    遇到 **404/410** 立即抛它——不重试、不冷却、不弹验证码；日志顺带打印 `(HTTP 404)`。
+  - `code/cite_format.py`：捕获它 → 记 `{'unavailable': True, 'status': 404, 'fetched_at': …}`、
+    计入新统计 `unavailable`（汇总行 `no dialog N`）、**不**计入 `failed`；`UNAVAILABLE_RETRY_DAYS = 7`
+    内不再问，过期自动重问一次（**刻意不是永久判决**：句柄是 Scholar 的，cluster 组织还没理解全）。
+  - 分支里 `continue` 会跳过循环底部的统一落盘，所以否定条目/清掉过期判决都**当场**
+    `save_cite_cache`。
+- **测试**：`tests/test_page_visit.py::MissingRecordTests`（4 例：detail 404 立即放弃且不弹验证码、
+  同状态在列表页仍走恢复路径、429/未知状态仍是封锁）、`tests/test_cite_format.py::UnavailableCiteDialogTests`
+  （6 例：记条目、新鲜判决不再问、过期判决重问、无时间戳视为过期、窗口判定、与 `PageVisit` 组合的端到端）、
+  `tests/test_scholar_patch.py::MissingCiteDialogWiringTests`（4 例：detail 页面声明 missing、
+  列表页不声明、状态 hook 记录、每请求前清零）。全套 **575 → 589** 通过 ✓。
+- **文档**：`AGENTS.md`（`cite_format` 的"第四种不用抓" + patch 层记录状态码 + 依赖图）、
+  `README.md`（新增「When Scholar Has No Cite Dialog for an Entry」）、`issues.md` 第九节
+  （实测 + **未回答的问题**：404 是节流伪装/cluster 重建/版本差异，是否要做"换个 cluster 再试"的兜底）。
