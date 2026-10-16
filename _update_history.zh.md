@@ -2503,3 +2503,27 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   盘上那 13 行是历次会话看到的并集。两种解释（cluster 被重建 / 会话·地区视图更小）尚未分开，
   已连同"浏览器看一眼条数"的下一步写进 `issues.md` 第九节；列表页留档 `output/probe89_list.html`。
 - **未改代码**：本轮只跑实测与记档（代码改动是上一轮 `4f03c87`）。
+
+
+## 2026-10-16（续 26）：K144 —— 引用身份键（合成键）搬到本阶段，写 meta 时补 id-less 行
+
+**问题**（用户今日拍板"搬成共享件，阶段 1 产出合成键"）：`citations_meta.json` 里有**整篇都没有
+`cites_id`** 的行（实测 `083-…` 17 行），而 K125 的合成键规则（`no_id:<归一化标题>|<年份>|<首作者姓>`
++ `#doi:`/`#arxiv:`/`#url:<sha8>`/`#pos<n>` 消歧）当时**只在阶段 2** ✗ —— 主体既然归阶段 1（Y-9），
+这条规则就得由阶段 1 产出（否则 id-less 行在 meta 里没有身份键，下游只能退回标题 ✗）。
+
+- **新增 `code/shared/citation_key.py`（宿主＝本阶段）**：把阶段 2 `code/utils.py` 里那一簇
+  （`normalize_url_for_key` / `url_fingerprint` / `normalize_title_for_key` / `first_author_surname` /
+  `is_real_cites_id` / `citation_disambiguator` / `paper_dir_slug` / `paper_identity_key` /
+  `synthetic_cites_id` / `synthetic_keys_for` / `resolve_cites_id` / `extract_doi` /
+  `extract_arxiv_id`）**逐字搬移** ✓。**验证搬迁没改语义**：对全库 9,244 行用新旧两份实现各算一遍键，
+  按 `目录|index|键` 求 sha256 —— **两边完全相同**（`869be0bf…`）✓✓。
+- **`code/citation_index.py` 写主体时补键**：`write_citations_meta()` 里整篇算一次
+  `synthetic_keys_for(rows, None)`（消歧要看到整篇 ✗ 逐条算不行），只给**没有** `cites_id` 的行填 ✓；
+  有真实 id 的一字不动 ✓。阶段 2 的 `code/utils.py` 改为**再导出**（调用点零改动 ✓）。
+- **存量收敛**：`align_citations_meta --apply` 重写 **93 篇 / 6,132 条**（只加合成键 ✓，
+  备份 `output/citations_meta_align_20261016-195254/`，幂等复跑 0 改动 ✓）→ 现在 **9,244 行全部有
+  `cites_id`**（其中合成键 **2,160** 条 ✓）。
+- **测试**：阶段 1 新增 2 例（id-less 行带共享件算出的键、同基础键按 `#doi:`/`#arxiv:` 消歧、
+  真实 id 不动），阶段 2 新增 5 例守卫（宿主可解析、`code/utils.py` 只是再导出同一个对象、
+  源码级没有实现副本、键的字节写死、`resolve_cites_id` 的优先序）。

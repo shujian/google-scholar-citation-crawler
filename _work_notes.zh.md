@@ -2182,3 +2182,30 @@ scholarly 的重试/冷却），先是列表页（多页会按 45–90 s 节奏�
 
 **附带的方法论**：探针对"列表页不健康（0 行/验证码标记）"会**直接中止** —— 否则后面的 404 就分不清
 是条目坏还是会话被挑战（这次就先中止过一次，用的是旧 cookies）。
+
+
+---
+
+## 2026-10-16（续 26）：K144 —— 合成键规则前移到阶段 1（共享件）
+
+**为什么前移**：Y-9 之后 `citations_meta.json` 的主体（含 `cites_id`）由阶段 1 写 ——
+"没有真实 id 时用什么键"正是主体的判据，所以它必须跟着数据产生者走（Y-7）✓。此前它只在阶段 2，
+于是阶段 1 写出来的 meta 里，id-less 行**一个身份键都没有**（实测 `083-…` 17 行全无 ✗），
+后果之一是 `build_index_map()` 认不出这些行的旧编号 → 补齐时按新名字落盘 → `orphan_pdf` 从 11 涨到 125 ✗。
+
+**搬法（照根 AGENTS.md「跨仓库共享代码」的标准动作）**：
+
+1. 宿主＝阶段 1（`code/shared/citation_key.py`，PEP 420 命名空间包 ✓）；
+2. **逐字搬**（一个字符都没改 ✗）—— 键的每个字节都写进了 `download_progress.json` 与下游产物；
+3. 消费方（阶段 2）`code/utils.py` 只**再导出**（`from shared.citation_key import …`），调用点零改动 ✓；
+   `_shared.py` 新增 `SHARED_CITATION_KEY_DIR = stage1_code_dir("citation_key")` 并把宿主目录追加进
+   `sys.path`（与 `venue_key` 同一机制 ✓）；
+4. 守卫测试：`tests/test_shared_citation_key.py`（宿主可解析 / 同一对象 / 源码级无副本 / 键字节写死）；
+5. 文档：根 AGENTS 共享表 + 本仓模块表 + 阶段 2 的 AGENTS 模块表。
+
+**搬迁的正确性怎么证**：两手 —— ① 对全库 9,244 行用新旧两份实现各算一遍键、按 `目录|index|键`
+求 sha256，**两边完全相同**（`869be0bf…`）✓；② 迁移后 `align_citations_meta` 的幂等复跑为 0 ✓。
+
+**消歧必须在整篇层级**：`synthetic_keys_for(rows, None)` 要看**同一篇的所有条目**才能给
+"同标题同年同姓"的多条分配 `#doi:`/`#arxiv:`/`#url:`（`meta_entry()` 是逐条的，放那里做不到 ✗），
+所以补键的落点在 `write_citations_meta()` 而不是 `meta_entry()` ✓。
