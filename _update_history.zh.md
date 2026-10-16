@@ -2424,6 +2424,22 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 - **文档**：`AGENTS.md` 的 Phase 2 段、三份 `.zh.md`、`issues.md`（`suggestion.md` 的结论并入后
   删除该文件）。
 
+## 2026-10-16（续 24）: Y-9 ③ —— 存量 `citations_meta.json` 的**主体对齐**
+
+新增 `code/data_upgrade/align_citations_meta.py`（用户："那你现在来处理吧"）：拿抓取产物逐篇重建
+主体，**只重写与盘上不一致的**（判据就是写者 `write_citations_meta()` 本身 —— 内容一致时它返回 0
+且不落盘，所以**不自己拼一份 meta**）；`index` 取产物条目自己那份（`assign_indices()` 的落点，
+不重算、不按位置）；派生 `venue_key*` 重算且**永不降级**；下载字段与退役编号由写者的合并逻辑
+原样带回。**故意没有 `-p`**：`shared/spec.py` 宿主在阶段 2，阶段 1 引它是**向后依赖** ✗（Y-7）。
+
+真实库 `--apply`：**只改了 3 篇 / 3,167 条**（001/002/003 —— 它们的 meta 停在旧世代，缺 Cite
+对话框修正过的全名与未截断 venue），备份 + manifest
+`output/citations_meta_align_20261016-104112/`，**幂等复跑 0 改动** ✓；阶段 2 字段
+（`local_filename` 3,151 / `download_status` 3,151 / `_source` 3,151 / `fail_reason` 1,154）
+与退役编号（17/18/15）**一个没丢** ✓。只读对拍的差异字段从 `{venue_key 3302, authors 16, venue 11}`
+收敛到**只剩 `venue_key` 3,293**（方向是**产物侧没有 key**，等下一次抓取补齐 ✓）。
+测试 7 例，全套 **568 → 575** ✓。
+
 ## 2026-10-15（续 23）: 参与 stall 比较的行数必须来自"走完全部页面"的那次（用户定）
 
 - **用户要求**：stall 的"行数相同"必须是**访问完全部页面**拿到的行数，中断情况拿到的不算。

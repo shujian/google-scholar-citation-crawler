@@ -2047,6 +2047,38 @@ Scholar 的，**本身就在抖**（同一篇论文的 2026 桶实测 190/200 �
 显式表的守卫（键必须真实存在于 `VENUE_CANONICAL`、前缀必须真的是某条表项的开头）、
 `refresh_venue_keys` 的重算/清旧键/幂等/容错；`test_normalize_venue_key.py` 两条旧断言按新口径更新。
 
+---
+
+## 2026-10-16（续 24）: Y-9 ③ 存量主体对齐 —— "判据就是写者本身"
+
+`code/data_upgrade/align_citations_meta.py` 的设计要点（也是**最容易做错的地方**）：
+
+1. **不自己拼 meta** ✗。判定"这篇要不要重写"的办法是**调写者**：
+   `write_citations_meta(paper_dir, rows, dry_run=True)` —— 内容一致它返回 0、根本不会落盘，
+   所以"要不要写"和"写什么"永远是同一个实现 ✓。工具只负责**取产物 → 交给写者 → 备份 + manifest**。
+2. **编号不另算** ✓：产物条目自带 `index`（抓取时 `assign_indices()` 的落点，不可变），
+   这里既不从列表位置推、也不重跑分配器。
+3. **不许丢别人的字段** ✓：`local_filename` / `download_status` / `fail_reason` / `size_bytes` /
+   `_source` / `_page_authors` / `_discovered_pdf_url` / `_reconciled_from` 都由写者的
+   "非 META_FIELDS 原样带回"逻辑保住；**退役编号**（产物里没有的 index）同样原样保留。
+   实测复核：3,151 / 3,151 / 3,151 / 1,154 与 17/18/15 一个没少 ✓。
+4. **不引阶段 2** ✗：`-p` 的解析器 `shared/spec.py` 宿主在阶段 2（它是最早的消费者），
+   阶段 1 引它就是**向后依赖**（Y-7 禁止）→ 一次性迁移工具**故意不做 `-p`**，不为了便利开关
+   新加注入器。整库跑一遍只需几秒。
+5. **对拍只是报告** ✓：内部调只读的 `compare_citations_meta.compare()`，缺 `paper_meta.json`
+   （夹具）之类的情况**不让迁移失败**（`try/except` 记进 manifest 的 `compare.error`）。
+
+**真实库结果**：`--apply` 改 **3 篇 / 3,167 条**（001/002/003）。样例 `#1090`：
+`authors='X Li, C Ma, G Li, …'` + `venue='IEEE Transactions on …'`（旧世代，截断）
+→ `authors='Li, Ximing, Chen Ma, Guozheng Li, …'` + `venue='IEEE Transactions on Knowledge &
+Data Engineering 35, no. 10 (2023): 1'`（Cite 对话框修正过的全名与未截断 venue ✓）。
+对拍的差异字段 `{venue_key 3302, authors 16, venue 11}` → **只剩 `venue_key` 3,293**，
+且方向是 `meta='SIGIR2018' normalized` / `out=''` —— **产物侧没有 key**（旧进程写的文件，
+下一次抓取会经 `refresh_venue_keys()` 补上 ✓），**不是迁移残留** ✓。幂等复跑 0 改动 ✓。
+**顺带记一个 venue 词表缺口**：上面那条 venue 因写成 `Knowledge & Data Engineering`（`&` 而非
+`and`）而落到 `raw`，而词表里 `IEEE Transactions on Knowledge and Data Engineering` 本该命中
+`TKDE` —— 是否在匹配时折叠 `&`/`and` 留待定（改共享件影响四个消费方，不在本次范围）。
+
 ## 2026-10-15（续 23）: stall 的"行数"必须来自一次走完全部页面的遍历
 
 **用户口径**：两次运行的"行数相同"必须是**访问完全部页面**得到的那份行数，中断情况下的不算。

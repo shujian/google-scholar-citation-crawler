@@ -57,7 +57,11 @@ This file provides guidance to AI coding agents working with code in this reposi
   also modules, from the project root):
   `python -m code.data_upgrade.fix_diag_from_year_record <output_json>` /
   `python -m code.data_upgrade.fix_output_fetch_state [output_dir]` /
-  `python -m code.data_upgrade.normalize_venue_key [--apply] [--author ID]`
+  `python -m code.data_upgrade.normalize_venue_key [--apply] [--author ID]` /
+  `python -m code.data_upgrade.compare_citations_meta`（只读对拍）/
+  `python -m code.data_upgrade.align_citations_meta [--apply]`
+  （Y-9 ③：把存量 `citations_meta.json` 的**主体**对齐到抓取产物 —— 只重写不一致的、
+  走 `write_citations_meta()` 这一个写者、下载字段与退役编号原样保留、默认 dry-run）
 - Example script: `code/examples/run_example.sh`
 
 ## 论文选择：按作者抓取，没有 `--papers`
