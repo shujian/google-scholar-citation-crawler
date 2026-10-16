@@ -406,5 +406,36 @@ class WiringTests(unittest.TestCase):
         self.assertIsNone(info['venue_key_source'])
 
 
+
+class AmpersandFoldingTest(unittest.TestCase):
+    """`&` 与 `and` 同义（2026-10-16）。
+
+    真库里 `IEEE Transactions on Knowledge & Data Engineering 35, no. 10 (2023): 1`
+    本该命中 `TKDE`，却因为 `&` 落到 `raw` ✗ —— 只在**匹配**时折叠，原串一字不改 ✓。
+    """
+
+    def test_the_ampersand_form_resolves_to_the_same_key(self):
+        from code.shared.venue_key import citation_venue_key
+        self.assertEqual(
+            citation_venue_key({"venue": "IEEE Transactions on Knowledge & Data "
+                                         "Engineering 35, no. 10 (2023): 1"}),
+            ("TKDE", "normalized"))
+        self.assertEqual(citation_venue_key({"venue": "IEEE Transactions on Knowledge "
+                                                       "and Data Engineering"}),
+                         ("TKDE", "normalized"))
+
+    def test_matching_is_symmetric_for_the_two_spellings(self):
+        from code.shared.venue_key import venue_match
+        self.assertTrue(venue_match("A and B Conference", "A & B Conference 2024"))
+        self.assertTrue(venue_match("A & B Conference", "A and B Conference 2024"))
+
+    def test_the_stored_text_is_never_rewritten(self):
+        from code.shared.venue_key import venue_key
+        # 认不出的含 `&` 串仍是它自己的原样（raw）—— 折叠只影响匹配 ✓
+        self.assertEqual(venue_key("Foo & Bar Workshop 2024"), "Foo & Bar Workshop 2024")
+        # 认得出的也不改变键的形状（只有词表里的规范名）✓
+        self.assertEqual(venue_key("IEEE Transactions on Knowledge & Data Engineering"),
+                         "TKDE")
+
 if __name__ == '__main__':
     unittest.main()

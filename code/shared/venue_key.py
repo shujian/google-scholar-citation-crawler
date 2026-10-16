@@ -397,6 +397,16 @@ def _build_match_table():
 _MATCH_TABLE = _build_match_table()
 
 
+def _fold_ampersand(text):
+    """`&` 与 `and` 视为同一写法（2026-10-16）。
+
+    真库里 `IEEE Transactions on Knowledge & Data Engineering 35, no. 10 (2023): 1`
+    本该命中 `TKDE`（词表里就是 `… Knowledge and Data Engineering`），却因为写成 `&`
+    落到 `raw` ✗。**只在匹配时折叠** ✓ —— 调用方拿到的原串、`raw` 键里的文本一字不改 ✗。
+    """
+    return re.sub(r'\s*&\s*', ' and ', str(text or ''))
+
+
 def venue_match(keyword, text):
     """Word-aware containment test, mirroring stage 3.a.2's matcher.
 
@@ -410,6 +420,7 @@ def venue_match(keyword, text):
     """
     if not keyword or not text:
         return False
+    keyword, text = _fold_ampersand(keyword), _fold_ampersand(text)
     flags = re.IGNORECASE
     if ' ' in keyword:
         return keyword.lower() in text.lower()
