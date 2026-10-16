@@ -209,6 +209,10 @@ google-scholar-citation-crawler/
   匹配算法照抄 3.a.2 的 `_venue_match`（多词子串 / 短全大写缩写要词边界 / 其它单名要整名），
   **但短缩写额外拒绝相邻的点**（否则 `https://www.researchsquare.com/…` 会被当成 `WWW` 会议、
   `kdd.org` 当成 `KDD`）—— 域名标签不是 venue；
+  **`&` 与 `and` 视为同一写法**（2026-10-16）：匹配前两边都把 `&` 折成 `and` ✓ ——
+  真库里 `IEEE Transactions on Knowledge & Data Engineering …` 本该命中 `TKDE`（词表就是
+  `… Knowledge and Data Engineering`）却落到 `raw` ✗；**只折叠匹配用的两个操作数，调用方拿到的
+  原串与 `raw` 键里的字面量一字不改** ✗。
   按文本长度降序尝试，所以 TACL 期刊不会被 ACL 会议吞掉、`CCMT`/`CWMT`/`WMT` 各归其位、
   Findings 是**独立于主会**的 venue。两处刻意的合并：`NIPS` → `NeurIPS`、`ACMMM` → `ACM MM`
   （同一会议不能有两个 key）。年份取 venue 串里第一个 4 位年份（会议届次），没有才退回记录自身的 year。
