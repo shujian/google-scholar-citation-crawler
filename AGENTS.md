@@ -243,6 +243,20 @@ google-scholar-citation-crawler/
   否则它无法被两个阶段同时消费。**远程可见性**：阶段 2 在 SSHFS 下靠 `<容器根>/stage1_code` 这条
   符号链接看到本目录（`code/_shared.py` 两处都试）。
 
+- **`code/shared/citation_key.py`**（2026-10-16，**跨仓库共享宿主**，K144）：引用**身份键**的
+  唯一实体 —— `paper_identity_key()`（源论文稳定标识）/ `synthetic_cites_id()`（
+  `no_id:<归一化被引标题>|<年份>|<首作者姓>`）/ `synthetic_keys_for()`（同基础键多条追加
+  `#doi:`/`#arxiv:`/`#url:<sha8>`，全缺才 `#pos<n>` 并告警）/ `resolve_cites_id()` /
+  `is_real_cites_id()` / `normalize_url_for_key()` / `url_fingerprint()` /
+  `normalize_title_for_key()` / `first_author_surname()` / `citation_disambiguator()` /
+  `paper_dir_slug()` / `extract_doi()` / `extract_arxiv_id()`。**逐字搬自阶段 2 的
+  `code/utils.py`**（键的每个字节都写进了 `download_progress.json` 与下游产物，所以一个字都不改 ✗，
+  搬迁后对全库 9,244 行算出的键 sha256 **两边完全相同** ✓）。**为什么宿主在这里**：`citations_meta.json`
+  的**主体**（含 `cites_id`）自 2026-10-16 起由阶段 1 写（Y-9），而"没有真实 `cites_id` 的条目用什么键"
+  正是这份规则 —— 所有权跟着数据产生者走（Y-7）✓。**`code/citation_index.py` 写主体时对 id-less 行补
+  这个键** ✓（消歧要看整篇条目，所以在 `write_citations_meta()` 里整篇算一次）；阶段 2 的
+  `code/utils.py` 只再导出（调用点零改动 ✓，`tests/test_shared_citation_key.py` 守卫）。
+
 - **`code/shared/identity.py`**（2026-10-15，**跨仓库共享宿主**）：引用**身份判定**的唯一实体 ——
   `same_citation_identity()`（真实 `cites_id` → **DOI / arXiv 强标识** → **弱 URL 键**（IEEE / OSF /
   Research Square / DSpace 的形状折叠）→ 归一化标题 + 年份 + 首作者姓）及其助手。**为什么宿主在本

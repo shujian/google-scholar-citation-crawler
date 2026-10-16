@@ -177,8 +177,32 @@ class PreserveStageTwoFieldsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             write_citations_meta(tmp, [{"index": 1, "title": "T", "download_status": "x"}])
             with open(os.path.join(tmp, META_NAME), encoding="utf-8") as handle:
-                self.assertEqual(json.load(handle), [{"index": 1, "title": "T"}],
-                                 "新文件里不该有下载字段 ✗")
+                rows = json.load(handle)
+            self.assertEqual(rows[0]["index"], 1)
+            self.assertEqual(rows[0]["title"], "T")
+            for field in ("download_status", "local_filename", "fail_reason", "size_bytes"):
+                self.assertNotIn(field, rows[0], "新文件里不该有下载字段 ✗")
+            # K144（2026-10-16）：没有真实 `cites_id` 的行现在带上**共享件算出的合成键** ✓ ——
+            # 主体归阶段 1 之后，键也得由它产出（`code/shared/citation_key.py`，键只有那一份 ✓）。
+            from code.shared.citation_key import synthetic_cites_id
+            self.assertEqual(rows[0]["cites_id"], synthetic_cites_id({"title": "T"}))
+
+    def test_rows_without_a_real_id_get_the_shared_synthetic_key(self):
+        """id-less 行补合成键：同基础键的多条按 `#doi:` / `#url:` 消歧（与阶段 2 同一份实现 ✓）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            write_citations_meta(tmp, [
+                {"index": 1, "title": "Same Title", "year": "2024", "authors": "X Li",
+                 "url": "https://doi.org/10.1234/abc"},
+                {"index": 2, "title": "Same Title", "year": "2024", "authors": "X Li",
+                 "url": "https://arxiv.org/abs/2401.00001"},
+                {"index": 3, "title": "Same Title", "year": "2024", "authors": "X Li",
+                 "url": "https://example.org/it", "cites_id": "real-id-3"},
+            ])
+            with open(os.path.join(tmp, META_NAME), encoding="utf-8") as handle:
+                rows = {r["index"]: r for r in json.load(handle)}
+            self.assertTrue(rows[1]["cites_id"].startswith("no_id:sametitle|2024|li#doi:"))
+            self.assertTrue(rows[2]["cites_id"].startswith("no_id:sametitle|2024|li#arxiv:"))
+            self.assertEqual(rows[3]["cites_id"], "real-id-3", "有真实 id 的一字不动 ✓")
 
 
 class RetiredEntriesAndPubEntryPointTests(unittest.TestCase):

@@ -259,8 +259,19 @@ def write_citations_meta(paper_dir, citations, log=None, dry_run=False):
     """
     import json as _json
     import os as _os
+    from code.shared.citation_key import synthetic_keys_for
 
-    entries = [meta_entry(c) for c in (citations or []) if isinstance(c, dict)]
+    # 没有真实 `cites_id` 的条目：**在这里补上合成键** ✓（K144，2026-10-16）。
+    # 规则（`no_id:<归一化标题>|<年份>|<首作者姓>` + `#doi:`/`#arxiv:`/`#url:<sha8>` 消歧、
+    # 全缺才 `#pos<n>`）的唯一实体在 `code/shared/citation_key.py`（宿主＝本阶段）——
+    # 主体既然由阶段 1 写，键就得由阶段 1 产出 ✓；下游（阶段 2 的 `build_index_map()` /
+    # `download_progress.json`）用的是**同一个函数**，所以两边算出的键逐字相同 ✓。
+    # 消歧要看到**整篇**的条目，所以只能在这一层算（`meta_entry()` 是逐条的 ✗）。
+    rows = [dict(c) for c in (citations or []) if isinstance(c, dict)]
+    for row, key in zip(rows, synthetic_keys_for(rows, None)):
+        if key and not row.get("cites_id"):
+            row["cites_id"] = key
+    entries = [meta_entry(c) for c in rows]
     entries = [e for e in entries if e.get("index")]
     if not entries:
         return 0
