@@ -2078,6 +2078,11 @@ Data Engineering 35, no. 10 (2023): 1'`（Cite 对话框修正过的全名与未
 **顺带记一个 venue 词表缺口**：上面那条 venue 因写成 `Knowledge & Data Engineering`（`&` 而非
 `and`）而落到 `raw`，而词表里 `IEEE Transactions on Knowledge and Data Engineering` 本该命中
 `TKDE` —— 是否在匹配时折叠 `&`/`and` 留待定（改共享件影响四个消费方，不在本次范围）。
+**收口**：折叠落在 `venue_match()` 开头（`_fold_ampersand()`），**只改匹配用的两个操作数** ✓ ——
+`venue_key()` / `citation_venue_key()` 的返回值与 `raw` 键仍是原串 ✗。选这里而不是
+`normalize_venue_text()` 的原因：后者是**文本规范化**（结果会被序列化进键），改它会让历史 `raw` 键
+漂移 ✗；匹配层折叠只影响"认不认得出来" ✓。真实库 9,244 条里只有 1 条受影响（TKDE），
+已 `--refresh --apply` 升级 ✓。
 
 ## 2026-10-15（续 23）: stall 的"行数"必须来自一次走完全部页面的遍历
 
