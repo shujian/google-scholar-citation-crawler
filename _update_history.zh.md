@@ -2489,3 +2489,17 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 - **文档**：`AGENTS.md`（`cite_format` 的"第四种不用抓" + patch 层记录状态码 + 依赖图）、
   `README.md`（新增「When Scholar Has No Cite Dialog for an Entry」）、`issues.md` 第九节
   （实测 + **未回答的问题**：404 是节流伪装/cluster 重建/版本差异，是否要做"换个 cluster 再试"的兜底）。
+
+## 2026-10-16（续 25）: 逐条探测扩到多页；no=89 实测到"结果集不是固定对象"
+
+- **探针**（`output/probe_cite_rows.py`，gitignored 的一次性工具）：改为**翻完所有列表页**
+  （第二页起按 crawler 的 45–90 秒列表页节奏），并在首列打印每页 `status/rows/markers`。
+- **用户给了新 cookies**（浏览器解验证码后 Copy as cURL）→ 写入 `output/curl.txt`，跑通 no=89：
+  列表页 **3 行**（`banner="3 results"`、无分页链接）→ 3 条 Cite 对话框全部 **200 + 5 种格式**；
+  对照 `44BcOmzPt1MJ` **仍然 404**（第 4 次，且是全新 cookies）→ 与 cookie/会话无关；
+  对照 `XNR1XcrxA1QJ` 200。
+- **新证据**：no=89 的 profile 说 Cited by **15**、库里存 **16** 行、当前列表只有 **3** 行，
+  而这 3 行**正是**库里唯一带 `cid` 的 3 行 → 同一个 `cites=` cluster 的**结果集不是固定对象**；
+  盘上那 13 行是历次会话看到的并集。两种解释（cluster 被重建 / 会话·地区视图更小）尚未分开，
+  已连同"浏览器看一眼条数"的下一步写进 `issues.md` 第九节；列表页留档 `output/probe89_list.html`。
+- **未改代码**：本轮只跑实测与记档（代码改动是上一轮 `4f03c87`）。

@@ -3497,3 +3497,14 @@ stall 计数永远攒不到 2，于是每轮白走约 58 个列表页。
 `RecordUnavailable`（不重试/不冷却/不弹验证码）；`cite_format` 记带时间戳的否定条目、
 7 天后自动重问。"我们对 cluster 组织还没理解全"写进 `issues.md` 第九节（含未回答的问题）。
 
+
+## 2026-10-16（续 25）: 「换这一篇」= The first impression problem（no=89），并给出新 cookies
+
+> The first impression problem: Internal bias triggers overthinking in reasoning models  换这一篇
+> （随后贴了一段在浏览器里解过验证码后 Copy as cURL 的完整 curl）
+
+`.com` 仍 TLS 级拒绝、`.hk` 的 `cites=` 端点当时被挑战，所以先用这段新 cookies 跑通了探针
+（写进 `output/curl.txt`，gitignored）。结果：列表页只有 **3 行**（banner 就写 `3 results`、无分页），
+这 3 行 Cite 对话框全部 200 + 5 种格式；对照组 `44BcOmzPt1MJ` **在新 cookies 下依旧 404**（第 4 次），
+`XNR1XcrxA1QJ` 200。更关键的是：profile 说 15、库里 16 行、现在列表只有 3 行 —— 同一个 cluster 的
+结果集不是固定对象（详见 `issues.md` 第九节的补充实测）。

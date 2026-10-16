@@ -2155,3 +2155,30 @@ Google Scholar.")` —— 与验证码页、429 抛出的是**同一个异常、
 `scholarly_session` 的 4 例用 `FetcherTestCase` + `nav._get_page` 桩 + 间谍 `PageVisit` 捕获
 `missing_record_on_404`，并直接调用 session 的 `event_hooks['response'][0]` 验证 hook 落点
 （httpx 在测试里是真的，所以 hook 确实装着）。
+
+## 一次干净的实测：同一个 cluster 的 cites 列表会变（2026-10-16）
+
+**动机**：验证"404 是句柄级、不是会话级"，同时换一篇引用少的论文（no=89）逐条试 Cite 对话框。
+
+**做法**：`output/probe_cite_rows.py` 用 `output/curl.txt` 里的 cookies/headers 直接发请求（不走
+scholarly 的重试/冷却），先是列表页（多页会按 45–90 s 节奏翻），再对每行 `cid` 逐个请求
+`output=cite`，打印 **HTTP 状态码**（crawler 的日志看不到它）、长度、解析出的格式数、是否已缓存。
+
+**结果**：
+
+```
+[1] list start=0  status=200  rows=3   markers=[]        （banner: "3 results ( 0.03 sec)"，无分页链接）
+[2] 3 行 Cite 对话框：全部 200 + 5 种格式（且已在缓存里）
+    ctl 44BcOmzPt1MJ → 404（全新 cookies 下第 4 次）    ctl XNR1XcrxA1QJ → 200 + 5
+```
+
+**这条实测的价值不在 404（已经确认过），而在列表页**：profile 说 15、盘上 16 行、现在只回 **3** 行，
+且返回的 3 行**正好**是盘上唯一带 `cid` 的那 3 行。两条推论：
+
+1. `cites=` 的结果集**不是固定对象**（我们的 16 行是历次会话的并集，其中 13 行已不在当前列表里）；
+   "只有 3 行有 cid" 因此才说得通 —— 记录 `cid` 的那段时间只见过这 3 行。
+2. 还没分开"cluster 被重建"与"会话/地区视图更小"：`.com` 当时 TLS 级拒绝，无法对照；便宜的判定是
+   用**同一个 URL** 在浏览器里看条数（15 → 会话/地区；3 → cluster 变了）。
+
+**附带的方法论**：探针对"列表页不健康（0 行/验证码标记）"会**直接中止** —— 否则后面的 404 就分不清
+是条目坏还是会话被挑战（这次就先中止过一次，用的是旧 cookies）。
