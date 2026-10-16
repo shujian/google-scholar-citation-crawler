@@ -27,6 +27,7 @@ from code.fetch_session import BatchFetchSession
 from scholarly import scholarly
 import scholarly.publication_parser as _pub_parser
 
+from code.log_utils import run_log
 from code.common import (
     SCHOLAR_PAGE_SIZE,
     SESSION_REFRESH_MAX,
@@ -811,7 +812,8 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                         'completed_earlier_in_run',
                     )
                     year_ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
-                print(f"      Year {year}: skip (already completed earlier in this run)", flush=True)
+                run_log.info(f"Year {year}: skip (already completed earlier in this run)",
+                             module="year", indent=2)
                 continue
 
             live_count = (probed_year_counts or {}).get(year)
@@ -836,7 +838,8 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                     )
                     year_ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
                     verb = '==' if fetch_mode == 'exact' else '>='
-                    print(f"      Year {year}: skip (seen={prev_seen} {verb} probe={live_count})", flush=True)
+                    run_log.info(f"Year {year}: skip (seen={prev_seen} {verb} probe={live_count})",
+                                 module="year", indent=2)
                     save_progress(fetch_finished=False)
                     continue
             elif prev_seen is not None and prev_seen > 0 and histogram_authoritative:
@@ -856,14 +859,14 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                     'no_probe_data_skip',
                 )
                 year_ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
-                print(f"      Year {year}: skip (seen={prev_seen}, "
-                      f"not in histogram)", flush=True)
+                run_log.info(f"Year {year}: skip (seen={prev_seen}, "
+                             f"not in histogram)", module="year", indent=2)
                 save_progress(fetch_finished=False)
                 continue
             elif prev_seen is not None and prev_seen > 0:
-                print(f"      Year {year}: fetching (seen={prev_seen}, no histogram "
-                      f"probe — an absent year is not evidence of completeness)",
-                      flush=True)
+                run_log.info(f"Year {year}: fetching (seen={prev_seen}, no histogram "
+                             f"probe — an absent year is not evidence of completeness)",
+                             module="year", indent=2)
 
             year_ctx.current_paper_page_count = 0  # reset per year in year-based mode
             start_index = year_ctx.partial_year_start.get(year, 0)
@@ -891,17 +894,21 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                         f" via page start {resume_page_start} "
                         f"(skip first {initial_in_page_skip})"
                     )
-                print(f"      Year {year}: resuming from {resume_note} "
-                      f"(seen={seen_for_log}, "
-                      f"probe={live_count if live_count is not None else '?'})", flush=True)
+                run_log.info(f"Year {year}: resuming from {resume_note} "
+                             f"(seen={seen_for_log}, "
+                             f"probe={live_count if live_count is not None else '?'})",
+                             module="year", indent=2)
             else:
-                print(f"      Year {year}: fetching "
-                      f"(seen={seen_for_log}, "
-                      f"probe={live_count if live_count is not None else '?'})", flush=True)
+                run_log.info(f"Year {year}: fetching "
+                             f"(seen={seen_for_log}, "
+                             f"probe={live_count if live_count is not None else '?'})",
+                             module="year", indent=2)
 
             year_url = (f'/scholar?as_ylo={year}&as_yhi={year}&hl=en'
                         f'&as_sdt=2005&sciodt=0,5&cites={pub_id}&scipsc=')
-            print(f"        URL: https://scholar.google.com{year_url}", flush=True)
+            # The URL itself is logged once, by the session layer's
+            # "Request URL:" line — printing it here too duplicated it on
+            # every single year.
 
             year_new_count = 0
             year_dedup_count = 0
@@ -974,8 +981,9 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                 # The probe says this year has citations but its page came back
                 # with no rows at all — empty/unrecognised rather than exhausted.
                 year_termination_reason = 'empty_page'
-                print(f"      Year {year}: page returned 0 rows but the probe says "
-                      f"{live_count} — recording termination as empty_page", flush=True)
+                run_log.warn(f"Year {year}: page returned 0 rows but the probe says "
+                             f"{live_count} — recording termination as empty_page",
+                             module="year", indent=2)
 
             cached_bucket = list(old_year_buckets.get(year) or [])
             year_bucket_count = len(year_batch.citations)
@@ -987,9 +995,9 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                 # year incomplete so it is retried.
                 fresh_year_buckets.pop(year, None)
                 year_bucket_count = len(cached_bucket)
-                print(f"      Year {year}: keeping {year_bucket_count} cached "
-                      f"citation(s); an empty page is not an authoritative rebuild",
-                      flush=True)
+                run_log.warn(f"Year {year}: keeping {year_bucket_count} cached "
+                             f"citation(s); an empty page is not an authoritative rebuild",
+                             module="year", indent=2)
             elif len(year_batch.citations) < len(cached_bucket) and not force_year_rebuild:
                 # A fetch must never delete citations it did not return.  A full
                 # re-scan started at page 0 seeds the batch empty, so a truncated
@@ -1008,9 +1016,9 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                 merged_bucket = cached_bucket + extra
                 fresh_year_buckets[year] = merged_bucket
                 year_bucket_count = len(merged_bucket)
-                print(f"      Year {year}: fetch returned {len(year_batch.citations)} < "
-                      f"{len(cached_bucket)} cached; keeping the cached rows "
-                      f"({len(merged_bucket)} total)", flush=True)
+                run_log.warn(f"Year {year}: fetch returned {len(year_batch.citations)} < "
+                             f"{len(cached_bucket)} cached; keeping the cached rows "
+                             f"({len(merged_bucket)} total)", module="year", indent=2)
             else:
                 fresh_year_buckets[year] = list(year_batch.citations)
             fresh_citations[:] = current_citations(complete=True)
@@ -1037,21 +1045,27 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                 year_fetch_diagnostics[year] = year_diag
             year_ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
             if year_new_count > 0 or fetcher._new_citations_count > 0:
-                print(f"      Year {year} done: {year_new_count} new in year, "
-                      f"{fetcher._new_citations_count} truly new this paper", flush=True)
+                run_log.info(f"Year {year} done: {year_new_count} new in year, "
+                             f"{fetcher._new_citations_count} truly new this paper",
+                             module="year", indent=2)
             else:
-                print(f"      Year {year} done: no new citations", flush=True)
+                run_log.info(f"Year {year} done: no new citations",
+                             module="year", indent=2)
             diag = year_fetch_diagnostics[year]
             underfetched = diag['seen_total'] < diag.get('histogram_count', diag.get('scholar_total', 0))
-            print(
-                f"      Year {year} compare: histogram={diag.get('histogram_count', diag.get('scholar_total'))}, "
+            # One line per year: the counters and the diagnosis they came from.
+            # These used to be two ("compare:" and "status:") describing the
+            # same year in the same breath.
+            run_log.info(
+                f"Year {year} status: year_total={len(year_batch.citations)}, "
+                f"year_new={year_new_count}, pages={year_ctx.current_paper_page_count}, "
+                f"skipped_years={skipped_years} | "
+                f"histogram={diag.get('histogram_count', diag.get('scholar_total'))}, "
                 f"seen={diag['seen_total']}, cached={diag['cached_total']}, "
                 f"dedup={diag['dedup_count']}, underfetched={underfetched}, "
                 f"termination={diag['termination_reason']}",
-                flush=True,
+                module="year", indent=2,
             )
-            print(f"      Year {year} status: year_total={len(year_batch.citations)}, year_new={year_new_count}, "
-                  f"pages={year_ctx.current_paper_page_count}, skipped_years={skipped_years}", flush=True)
             if not year_progress_saved:
                 save_progress(fetch_finished=False)
 

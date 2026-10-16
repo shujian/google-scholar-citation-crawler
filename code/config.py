@@ -31,6 +31,12 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUT_DIR = os.path.join(ROOT_DIR, "output")
 LOGS_DIR = os.path.join(OUTPUT_DIR, "logs")
 
+#: How many run logs stay in ``output/logs/``; older ones are **moved** (never
+#: deleted) into ``output/logs/<LOG_ARCHIVE_DIRNAME>/`` at the start of a run.
+#: 87 runs accumulated 6 MB with no policy at all (2026-10-16).
+LOG_KEEP_RUNS = 30
+LOG_ARCHIVE_DIRNAME = "old"
+
 # ============================================================
 # Runtime config file
 # ============================================================

@@ -16,6 +16,7 @@ from datetime import datetime
 from scholarly import scholarly
 
 from code.common import rand_delay, now_str
+from code.log_utils import run_log
 from code.pub_info import PubInfo
 from code.profile_io import (
     AuthorProfile,
@@ -235,11 +236,7 @@ class AuthorProfileFetcher:
 
     def run(self):
         """Main workflow."""
-        print("\n" + "=" * 70)
-        print("  Google Scholar Author Profile Fetcher")
-        print(f"  Author ID: {self.author_id}")
-        print("=" * 70)
-        print()
+        run_log.section(f"Phase 1 · author profile · {self.author_id}", module="phase")
 
         prev_profile = self.load_prev_profile()
         if prev_profile:
@@ -284,9 +281,8 @@ class AuthorProfileFetcher:
 
         # Full venue strings: one detail-page request per publication (cached
         # across runs).  Pure addition — pub['venue'] is left alone.
-        print("\n" + "=" * 70)
-        print("  Fetching full venue strings (publication detail pages)")
-        print("=" * 70)
+        run_log.section("Fetching full venue strings (publication detail pages)",
+                        module="venue")
         venue_stats = self.fetch_venue_details(publications)
         if venue_stats:
             print(f"  venue_full resolved: {venue_stats['resolved']}/{venue_stats['total']} "
@@ -305,24 +301,18 @@ class AuthorProfileFetcher:
         )
 
         # Incremental comparison + history
-        print("\n" + "=" * 70)
-        print("  Incremental Update Analysis")
-        print("=" * 70)
+        run_log.section("Incremental Update Analysis", module="profile")
         profile.append_history(prev_profile)
 
         # Save output files
-        print("\n" + "=" * 70)
-        print("  Saving Output Files")
-        print("=" * 70)
+        run_log.section("Saving Output Files", module="output")
         self.save_profile(profile)
 
-        print("\n" + "=" * 70)
-        print(f"  Done!")
-        print(f"  Author: {basics.get('name', 'N/A')}")
-        print(f"  Total citations: {basics.get('citedby', 0)}")
-        print(f"  Total publications: {len(publications)}")
-        print("=" * 70)
-        print(f"\nOutput files:")
+        run_log.section("Done", module="summary")
+        run_log.info(f"Author: {basics.get('name', 'N/A')}", module="summary")
+        run_log.info(f"Total citations: {basics.get('citedby', 0)}", module="summary")
+        run_log.info(f"Total publications: {len(publications)}", module="summary")
+        run_log.info("Output files:", module="summary")
         print(f"  JSON   : {self.profile_json}")
         print(f"  Excel  : {self.profile_xlsx}")
         print()

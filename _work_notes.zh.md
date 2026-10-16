@@ -2209,3 +2209,41 @@ scholarly 的重试/冷却），先是列表页（多页会按 45–90 s 节奏�
 **消歧必须在整篇层级**：`synthetic_keys_for(rows, None)` 要看**同一篇的所有条目**才能给
 "同标题同年同姓"的多条分配 `#doi:`/`#arxiv:`/`#url:`（`meta_entry()` 是逐条的，放那里做不到 ✗），
 所以补键的落点在 `write_citations_meta()` 而不是 `meta_entry()` ✓。
+
+## 日志 facade：为什么是它、先迁哪些、先不迁哪些（2026-10-16）
+
+**结构**：`run_log = RunLog()`（`code/log_utils.py`）是唯一的格式出口，写 `sys.stdout` ——
+也就是 `TeeStream`（终端 + run 日志文件）。**刻意不用 `logging` 的 handler 写文件**：
+`sys.stdout` 已经是那份文件的一个写者，再加 FileHandler 就是第二个写者、两边互相覆盖
+（这条约束在 `main()` 的注释里，之前就踩过）。`setup_logging()` 里那套 logger 保留给"真的想分级
+过滤"的调用，但抓取主流程现在统一走 facade。
+
+**级别语义**（默认 INFO）：`INFO` = 状态变化与结论；`DEBUG`（`-v`）= 每次请求/每页/每年明细；
+`TRACE` 预留（还没有调用点，所以没有 CLI 开关去开它 —— 等真有解析级细节再加 `-vv`，避免加一个
+没有消费者的级别）。判定 `-v` 的落点是 `setup_logging(verbose=…)`：它把 `run_log.threshold` 设为
+DEBUG/INFO，所以测试里 patch `setup_logging` 或用 `run_log.set_threshold()` 都能控制。
+
+**迁移判据**：只迁"结构性"的行 —— 阶段/步骤边界、paper 头与结论、year 结论与状态、请求与等待、
+run summary；**不迁**更深的诊断块（`Direct fetch target:` / `Probe totals:` / `Cache totals:` …）。
+理由：那些行已经统一在 6/8 空格缩进下、且是"一次性排查用"的长串，迁它们改动面大（`citation_fetch.py`
+里 30+ 处）而信息不变 —— 留给 Step 2 逐模块做。这也让 Step 1 的 diff 可审阅。
+
+**踩坑 1（重复的两个来源）**：URL 打两遍不是同一个地方打两次，而是**两个模块各打一次**：
+`citation_fetch` 打 `URL:`（它自己拼的 year URL），`patched_get_page` 打 `Request URL:`（真正要发的
+请求，还带 `(referer: …)` 与首屏说明）。保留后者：它离真正发请求最近，而且带 referer 证据。
+判据：**同一个事实有两个写者时，保留离副作用最近的那个**。
+
+**踩坑 2（缩进被写死在字符串里）**：`_format_completeness_diag()` 与
+`PaperFetchState.completeness_diag()` 返回的字符串**自带两个前导空格**（`'  no cached state → missing'`）。
+走 facade 时必须 `.strip()` 再传 `indent=`，否则出现 4 空格 + 2 空格的双重缩进。同类还有
+`diag`（`'  direct: seen_total=…'`）。**结论：缩进属于渲染层，别写进返回值** —— 新代码不要把
+前导空格烤进字符串。
+
+**踩坑 3（测试钉住的是子串）**：14 个测试文件里有 270 处 `assertIn` 断言日志文本。facade 只在行首
+加前缀，子串断言全部照旧通过 ✓；会破坏的只有两种：断言里带**行首空白**（例如 `'        URL: '`）或
+断言整行相等。迁移前先 grep 目标字符串，别凭感觉改。
+
+**归档**：`prune_run_logs(logs_dir, keep, archive_name, keep_path)` —— 按 mtime 降序保留 keep 个，
+其余 `os.replace()` 到 `<logs>/old/`（同分区内是原子改名 ✓）；`keep_path`（本次 run 的日志）永远
+不归档；目标已存在则跳过（幂等 ✓）；只认 `.log` 普通文件，`old/` 自己不会被误算 ✓。
+首次执行把 87 → 30（57 个进 `old/`）。

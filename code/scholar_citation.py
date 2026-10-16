@@ -111,7 +111,8 @@ from code.output_state import (
     to_paper_fetch_state,
 )
 from code.pub_info import PubInfo
-from code.log_utils import setup_logging, get_logger
+from code.config import LOG_ARCHIVE_DIRNAME, LOG_KEEP_RUNS
+from code.log_utils import setup_logging, get_logger, run_log, prune_run_logs
 from code import cite_format as _cite_format
 from code.venue_quality import (
     citation_needs_cite_dialog as _vq_citation_needs_cite_dialog,
@@ -997,12 +998,10 @@ class PaperCitationFetcher:
 
     def run(self):
         """Main workflow for citation fetching."""
-        print("\n" + "=" * 70)
-        print("  Google Scholar Paper Citation Fetcher (incremental + resume)")
-        limit_str = f" (first {self.limit} only, test mode)" if self.limit else ""
-        skip_str  = f"  skip first {self.skip}" if self.skip else ""
-        print(f"  Author ID: {self.author_id}{limit_str}{skip_str}")
-        print("=" * 70 + "\n")
+        limit_str = f", first {self.limit} only (test mode)" if self.limit else ""
+        skip_str = f", skip first {self.skip}" if self.skip else ""
+        run_log.section(f"Phase 2 · citations · {self.author_id}{limit_str}{skip_str}",
+                        module="phase")
 
         if not self._session_patched:
             self._patch_scholarly()
@@ -1174,22 +1173,19 @@ class PaperCitationFetcher:
                 plan_lines.append(f"  [{strategy.upper():6s}] {title}\n"
                                   f"            {gap}{change_note}")
             if plan_lines or recheck_count or stalled_count:
-                print("-" * 70)
                 if plan_lines:
-                    print(f"  Fetch plan ({len(plan_lines)} paper(s) need new data):")
-                    print("-" * 70)
+                    run_log.section(f"Fetch plan ({len(plan_lines)} paper(s) need new data)",
+                                    module="plan")
                     for line in plan_lines:
-                        print(line)
-                    print("-" * 70)
+                        run_log.info(line.strip(), module="plan")
                 if recheck_count:
-                    print(f"  Also rechecking {recheck_count} paper(s) with no "
-                          f"cached-data gap (Scholar counts changed)")
+                    run_log.info(f"Also rechecking {recheck_count} paper(s) with no "
+                                 f"cached-data gap (Scholar counts changed)", module="plan")
                 if stalled_count:
-                    print(f"  Skipping {stalled_count} stalled paper(s): "
-                          f"{STALL_AFTER_ATTEMPTS} full walks in a row "
-                          f"obtained the same number of rows (e.g. Scholar lists "
-                          f"fewer citations than its own count)")
-                print()
+                    run_log.info(f"Skipping {stalled_count} stalled paper(s): "
+                                 f"{STALL_AFTER_ATTEMPTS} full walks in a row "
+                                 f"obtained the same number of rows (e.g. Scholar lists "
+                                 f"fewer citations than its own count)", module="plan")
 
         results   = []
         fetch_idx = 0
@@ -1223,7 +1219,8 @@ class PaperCitationFetcher:
             # Papers before --skip position: store cached data, don't fetch, don't count
             if idx <= self.skip:
                 citations = cached['citations'] if cached else []
-                print(f"[{idx}/{len(publications)}] {title[:55]}... -> skip (--skip {idx}/{self.skip})")
+                run_log.info(f"[{idx}/{len(publications)}] {title[:55]}... -> skip (--skip {idx}/{self.skip})",
+                             module="paper")
                 results[idx - 1] = {'pub': pub, 'citations': citations}
                 continue
 
@@ -1235,15 +1232,18 @@ class PaperCitationFetcher:
             if st == 'skip_zero':
                 kept = cached['citations'] if cached else []
                 if kept:
-                    print(f"[{idx}/{len(publications)}] {title[:55]}... -> skip "
-                          f"(Scholar reports 0 citations; keeping {len(kept)} cached)")
+                    run_log.info(f"[{idx}/{len(publications)}] {title[:55]}... -> skip "
+                                 f"(Scholar reports 0 citations; keeping {len(kept)} cached)",
+                                 module="paper")
                 else:
-                    print(f"[{idx}/{len(publications)}] {title[:55]}... -> skip (0 citations)")
+                    run_log.info(f"[{idx}/{len(publications)}] {title[:55]}... -> skip (0 citations)",
+                                 module="paper")
                 results[idx - 1] = {'pub': pub, 'citations': kept}
                 continue
 
             if st == 'complete':
-                print(f"[{idx}/{len(publications)}] {title[:55]}... -> cached ({len(cached['citations'])} citations)")
+                run_log.info(f"[{idx}/{len(publications)}] {title[:55]}... -> cached ({len(cached['citations'])} citations)",
+                             module="paper")
                 if self.fetch_mode != 'force':
                     print(PaperCitationFetcher._format_completeness_diag(st, cached, paper_state=paper_state))
                 results[idx - 1] = {'pub': pub, 'citations': cached['citations']}
@@ -1255,7 +1255,8 @@ class PaperCitationFetcher:
             if st == 'stalled':
                 stall_note = (f" (same result {paper_state.stall_count} runs in a row)"
                               if paper_state and paper_state.stall_count else "")
-                print(f"[{idx}/{len(publications)}] {title[:55]}... -> stalled{stall_note}")
+                run_log.info(f"[{idx}/{len(publications)}] {title[:55]}... -> stalled{stall_note}",
+                             module="paper")
                 print(PaperCitationFetcher._format_completeness_diag(st, cached, paper_state=paper_state))
                 results[idx - 1] = {'pub': pub, 'citations': cached['citations'] if cached else []}
                 continue
@@ -1277,7 +1278,8 @@ class PaperCitationFetcher:
                 if (last_known_int is not None
                         and last_known_int == num_citations
                         and complete):
-                    print(f"[{idx}/{len(publications)}] {title[:55]}... -> skip-rough ({num_citations} unchanged, fetch complete)")
+                    run_log.info(f"[{idx}/{len(publications)}] {title[:55]}... -> skip-rough ({num_citations} unchanged, fetch complete)",
+                                 module="paper")
                     results[idx - 1] = {'pub': pub, 'citations': cached.get('citations', [])}
                     continue
 
@@ -1292,7 +1294,8 @@ class PaperCitationFetcher:
                 citedby_url = citedby_url[len('https://scholar.google.com'):]
 
             if not citedby_url:
-                print(f"[{idx}/{len(publications)}] {title[:55]}... -> Warning: no citedby_url, skip")
+                run_log.warn(f"[{idx}/{len(publications)}] {title[:55]}... -> no citedby_url, skip",
+                             module="paper")
                 results[idx - 1] = {'pub': pub, 'citations': cached['citations'] if cached else []}
                 continue
 
@@ -1317,9 +1320,11 @@ class PaperCitationFetcher:
             )
             action = attempt_state['action']
 
-            print(f"[{idx}/{len(publications)}] {title[:55]}...")
-            print(PaperCitationFetcher._format_completeness_diag(st, cached, paper_state=paper_state))
-            print(f"  {action}")
+            run_log.info(f"[{idx}/{len(publications)}] {title[:55]}...", module="paper")
+            diag_line = PaperCitationFetcher._format_completeness_diag(st, cached, paper_state=paper_state)
+            if diag_line:
+                run_log.info(diag_line.strip(), module="paper", indent=1)
+            run_log.info(f"{action}", module="paper", indent=1)
 
             # Skip year-based fetch when all cached citations are unyeared and
             # the previous fetch ran to completion.  Year-based diff cannot
@@ -1483,13 +1488,14 @@ class PaperCitationFetcher:
                         diag = "  target unavailable"
                     if histogram_total > 0:
                         unyeared = max(0, num_citations - histogram_total)
-                        print(f"  Done: {len(citations)} cached, {seen_total} seen{dedup_str}{new_str} "
-                              f"(scholar={num_citations}, histogram={histogram_total}, unyeared={unyeared})")
-                        print(diag, flush=True)
+                        run_log.info(f"Done: {len(citations)} cached, {seen_total} seen{dedup_str}{new_str} "
+                                     f"(scholar={num_citations}, histogram={histogram_total}, unyeared={unyeared})",
+                                     module="paper", indent=1)
+                        run_log.info(diag.strip(), module="paper", indent=1)
                     else:
-                        print(f"  Done: {len(citations)} cached, {seen_total} seen{dedup_str}{new_str} "
-                              f"(scholar_total={num_citations})")
-                        print(diag, flush=True)
+                        run_log.info(f"Done: {len(citations)} cached, {seen_total} seen{dedup_str}{new_str} "
+                                     f"(scholar_total={num_citations})", module="paper", indent=1)
+                        run_log.info(diag.strip(), module="paper", indent=1)
                     year_counts = self._year_count_map(citations)
                     if year_counts:
                         year_total = sum(year_counts.values())
@@ -1507,9 +1513,11 @@ class PaperCitationFetcher:
                     )
                     if has_direct_fetch_summary:
                         if direct_underfetched:
-                            print("  Direct fetch under-fetched; recording current results", flush=True)
+                            run_log.info("Direct fetch under-fetched; recording current results",
+                                         module="paper", indent=1)
                         else:
-                            print(f"  {self._direct_fetch_diagnostics_message(direct_fetch_diagnostics)}", flush=True)
+                            run_log.info(self._direct_fetch_diagnostics_message(direct_fetch_diagnostics),
+                                         module="paper", indent=1)
                     break
 
                 except Exception as e:
@@ -1630,9 +1638,8 @@ class PaperCitationFetcher:
         citations = [c for result in final_results
                      for c in (result.get('citations') or [])
                      if isinstance(c, dict)]
-        print("\n" + "=" * 70)
-        print("  Fetching citation formats (Cite dialog; --no-cite-formats skips this)")
-        print("=" * 70)
+        run_log.section("Fetching citation formats (Cite dialog; --no-cite-formats skips this)",
+                        module="cite")
         stats = _cite_format.enrich_citations_with_cite_formats(
             citations,
             cache_path=os.path.join(self.output_dir, _cite_format.CACHE_FILENAME),
@@ -1649,7 +1656,7 @@ class PaperCitationFetcher:
 
     def _save_output(self, results):
         """Save citation results to JSON and Excel."""
-        print("\n" + "=" * 70)
+        run_log.section("Saving Output Files", module="output")
         profile = getattr(self, '_profile_data', None)
         if profile is None and os.path.exists(self.profile_json):
             with open(self.profile_json, 'r', encoding='utf-8') as f:
@@ -1836,15 +1843,18 @@ class PaperCitationFetcher:
         total_papers = len(results)  # includes None slots (total publications)
         fetched_str = f", {self._papers_fetched_count} fetched" if self._papers_fetched_count else ""
         new_str = f", {self._run_new_citations_total} new" if self._run_new_citations_total else ""
-        print(f"\nDone! {len(final_results)}/{total_papers} papers{fetched_str}, "
-              f"{total_cites} collected citation records{new_str}")
+        run_log.section("Run summary", module="summary")
+        run_log.info(f"papers: {len(final_results)}/{total_papers}{fetched_str}, "
+                     f"{total_cites} collected citation records{new_str}",
+                     module="summary")
         curl_pages = self._session_ctx.curl_page_count
         pages_info = (f"{self._session_ctx.total_page_count} pages "
                       f"({curl_pages} this curl)")
-        print(f"Run summary: elapsed {self._elapsed_str()}"
-              f" | {pages_info}"
-              f" | {self._run_new_citations_total} new citations"
-              f" | output total = collected per-paper citation records\n")
+        run_log.info(f"elapsed {self._elapsed_str()}"
+                     f" | {pages_info}"
+                     f" | {self._run_new_citations_total} new citations"
+                     f" | output total = collected per-paper citation records",
+                     module="summary")
 
         return True
 
@@ -1879,9 +1889,16 @@ def main():
         os.makedirs(logs_dir, exist_ok=True)
         log_name = f"author_{author_id}_run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
         log_path = os.path.join(logs_dir, log_name)
+        # Keep output/logs/ bounded: older run logs move to logs/old/ (never
+        # deleted — a run log is the only record of what that crawl did).
+        kept, archived = prune_run_logs(logs_dir, keep_path=log_path)
+        if archived:
+            print(f"Archived {archived} old run log(s) to {os.path.join(logs_dir, LOG_ARCHIVE_DIRNAME)} "
+                  f"(keeping the newest {kept})")
         log_file = open(log_path, 'w', encoding='utf-8')
         sys.stdout = TeeStream(original_stdout, log_file)
-        print(f"Run log: {log_path}")
+        run_log.info(f"Run log: {log_path}", module='run')
+        run_log.info(f"Author ID: {author_id}", module='run')
     except OSError as e:
         sys.stdout = original_stdout
         print(f"Warning: Failed to open run log file: {e}")
@@ -1960,10 +1977,11 @@ def main():
                     # shortcut must not swallow it while its cache does not cover
                     # the citations yet.
                     if not citation_fetcher.has_cite_format_work():
-                        print("\n" + "=" * 70)
-                        print(f"  No changes detected (citations: {curr_citations}, publications: {curr_pubs})")
-                        print("  All citation caches are complete. Skipping citation fetch.")
-                        print("=" * 70 + "\n")
+                        run_log.section("No changes detected", module="summary")
+                        run_log.info(f"citations: {curr_citations}, publications: {curr_pubs}",
+                                     module="summary")
+                        run_log.info("All citation caches are complete. Skipping citation fetch.",
+                                     module="summary")
                         return
                     print("\nNo changes in totals, but the Cite-dialog step still has "
                           "citations outside its cache. Continuing...")

@@ -2527,3 +2527,25 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 - **测试**：阶段 1 新增 2 例（id-less 行带共享件算出的键、同基础键按 `#doi:`/`#arxiv:` 消歧、
   真实 id 不动），阶段 2 新增 5 例守卫（宿主可解析、`code/utils.py` 只是再导出同一个对象、
   源码级没有实现副本、键的字节写死、`resolve_cites_id` 的优先序）。
+
+## 2026-10-16（续 26）: 日志去重 + 层次化 + 级别 + 归档（Step 1）
+
+- **实测问题**（6 个日志）：同一 URL 相邻两遍（`URL:` + `Request URL:`，单日志 **26 对**）；
+  `Year N done` / `compare:` / `status:` 三行一件事；**21 条** `=`×70 横幅（Phase 1 连续 6 条）；
+  `Author ID:` ×4；`Page items: 0 …` ×21；缩进手写 2/4/6/8 空格；时间戳只在部分行；
+  `-v/--verbose` 无效（它配的 `logging` logger 没有任何抓取代码在用）。
+- **`code/log_utils.py`**：新增 `run_log`（`RunLog`）facade —— 每行
+  `<HH:MM:SS> <LEVEL> <module(9)> <2×indent><message>`；`section(title)` 取代横幅；
+  `info/warn/debug/trace`；`setup_logging(verbose=True)` 把阈值降到 DEBUG（`-v` 从此有意义）。
+  新增 `prune_run_logs()`：只保留最近 `LOG_KEEP_RUNS`（config，默认 **30**）个 run 日志，
+  更早的**移动**（绝不删除）到 `output/logs/old/`，当前 run 的日志受保护。
+- **去重**：删掉 `citation_fetch` 的 `URL:` 行（URL 只在 session 层的 `Request URL:` 出现一次）；
+  `Year N compare:` 的字段并入 `Year N status:`；phase/步骤横幅 → `section()`；`Author ID:` 只在 run 头。
+- **级别**：正常页的 `Page items: N` 与 `Pagination (page N)` 降为 DEBUG；零行的
+  `Page items: 0 (no citation rows)` 升为 WARN（异常，原文不变）。
+- **迁移范围（Step 1）**：phase/步骤标题、fetch plan、paper 头与结论、year 的结论/状态、
+  session 的请求/等待/分页/长休、run summary；更深的诊断行留 Step 2。
+- **文件治理当场执行**：`output/logs/` 87 → **30**（57 个进 `old/`，共 2.8 MB，未删除）。
+- **测试**：新增 `tests/test_log_utils.py`（15 例：行形状/级别门控/section 单行/`-v` 接线/
+  归档保留与"绝不删除"/幂等/忽略非 .log/缺失目录/`keep=0`）。全套 **593 → 608** 通过 ✓。
+- **文档**：`AGENTS.md` 新增「运行日志的层次与级别」；`README.md` 新增「Run Logs」并更新日志文件表。

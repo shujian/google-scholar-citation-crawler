@@ -135,7 +135,37 @@ google-scholar-citation-crawler/
 - **`code/config.py`**：集中配置。所有可调优常量（延迟、阈值、路径）的单一入口，并负责
   `crawler_config.json` 读取与 `resolve_proxy_config()`（命令行 > 文件 > 系统默认）。
   `code/common.py` 中的常量已迁移至此并保持向后兼容 re-export。
-- **`code/log_utils.py`**：结构化日志系统。`setup_logging(verbose, log_file)` 配置 console + 可选 file handler；活入口 `code.scholar_citation.main()` 只启用 console handler（它写 `sys.stdout`，也就是 `TeeStream`），因为再挂一个 FileHandler 会成为同一文件的第二个写者并互相覆盖。现有 `print()` 调用仍通过 `TeeStream` 写入日志文件；新增代码应使用 `get_logger()` 获取 logger 并调用结构化日志方法。
+- **`code/log_utils.py`**：结构化日志系统。`setup_logging(verbose, log_file)` 配置 console + 可选 file handler；活入口 `code.scholar_citation.main()` 只启用 console handler（它写 `sys.stdout`，也就是 `TeeStream`），因为再挂一个 FileHandler 会成为同一文件的第二个写者并互相覆盖。现有 `print()` 调用仍通过 `TeeStream` 写入日志文件；新增代码应使用 `run_log`（见下）。
+
+### 运行日志的层次与级别（2026-10-16）
+
+**问题**（实测 6 个日志）：一次 run 打 21 条 `=`×70 横幅（Phase 1 区域连续 6 条）；同一个 URL **相邻打两遍**
+（`citation_fetch` 的 `URL:` + session 层的 `Request URL:`，单日志 26 对）；同一件事三行
+（`Year N done` / `compare:` / `status:`）；`Author ID:` ×4；缩进手写 2/4/6/8 空格；时间戳只出现在
+部分行上；而 **`-v/--verbose` 完全无效**（它配置的 `logging` logger 没有任何抓取代码在用）。
+
+**现在**：`code/log_utils.py` 的 `run_log`（`RunLog` 实例）是**所有结构性日志的唯一出口**，每行统一为
+
+```
+11:40:13 INFO  fetch     Year 1996 status: year_total=0, year_new=0, … | histogram=0, seen=0, …
+└─ 时刻  └─ 级别  └─ 模块（左侧对齐）  └─ 每层 2 空格，层级 = run → phase → paper → year/page → 细节
+```
+
+- **级别**：`INFO` = 状态变化与结论；`DEBUG`（`-v`）= 每次请求/每页/每年明细；`TRACE`（预留）。
+  `setup_logging(verbose=True)` 把 `run_log` 的阈值降到 DEBUG，所以 `--verbose` 现在真的改变日志内容。
+- **模块标签**：`run / phase / identity / profile / venue / http / fetch / year / paper / plan / output / cite / summary`，
+  宽度固定，消息列对齐。
+- **`run_log.section(title, module=…)`** 取代横幅：一个阶段/步骤一行 `── title ────…`。
+- **一个事实一行**：`URL:` 那行已删（URL 只在 session 层的 `Request URL:` 出现一次）；
+  `Year N compare:` 的字段并入 `Year N status:`；`Author ID:` 只在 run 头出现（phase 标题里带作者）；
+  零行的 `Page items:` 升为 WARN（异常，原文不变），正常页的 `Page items: N` 与 `Pagination` 降为 DEBUG。
+- **已迁移**：phase/步骤标题、fetch plan、paper 头与 paper 结论、year 的结论与状态、session 的
+  请求/等待/分页/长休、run summary。**未迁移**（Step 2，逐模块做）：`citation_fetch.py` 里更深的
+  诊断行（`Direct fetch target:` / `Probe totals:` / `Cache totals:` 等）仍是 `print()`，缩进 6/8 空格。
+- **日志文件治理**：`output/logs/` 只保留最近 **`LOG_KEEP_RUNS`（30）** 次，更早的由
+  `prune_run_logs()` 在 run 开始时**移动**（绝不删除）到 `output/logs/old/`；当前 run 的日志永远保留。
+  2026-10-16 首次执行：87 → 30 个（57 个进 `old/`）。
+
 - **`code/lib_env.py`**（2026-10-10）：第三方库环境摆设 + `NO_PROXY` 规范化 + 代理环境桥接，
   是允许出现 `os.environ` 的唯一模块（见上）。**2026-10-14 起它的 `sanitize_no_proxy()` 只是一层
   策略包装**：迭代/拆分/幂等/回写的引擎 `code/shared/lib_env.py::sanitize_entries()` 由阶段 1 提供，

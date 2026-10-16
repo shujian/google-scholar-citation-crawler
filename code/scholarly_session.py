@@ -29,6 +29,7 @@ from scholarly import scholarly
 from scholarly._proxy_generator import MaxTriesExceededException
 from scholarly.publication_parser import _SearchScholarIterator, PublicationParser
 
+from code.log_utils import run_log
 from code.common import (
     MANDATORY_BREAK_EVERY_MAX,
     MANDATORY_BREAK_EVERY_MIN,
@@ -239,8 +240,8 @@ def record_zero_row_citation_page(ctx, soup):
     """
     evidence = citation_page_evidence(soup)
     ctx.last_page_evidence = evidence
-    print(f"        Page items: 0 (no citation rows){format_page_evidence(evidence)}",
-          flush=True)
+    run_log.warn(f"Page items: 0 (no citation rows){format_page_evidence(evidence)}",
+                 module="http", indent=2)
     return evidence
 
 
@@ -547,7 +548,8 @@ def patch_scholarly(ctx: SessionContext) -> None:
         if request_url:
             show_referer = referer and referer != ctx.last_scholar_url
             referer_str = f" (referer: {referer})" if show_referer else ""
-            print(f"        Request URL: {request_url}{referer_str}", flush=True)
+            run_log.info(f"Request URL: {request_url}{referer_str}",
+                         module="http", indent=2)
 
         # Wrap original_get_page so that scholarly's internal 60-120 s
         # sleeps are replaced by our rand_delay (45-90 s, or 1/10 of that on the
@@ -558,7 +560,8 @@ def patch_scholarly(ctx: SessionContext) -> None:
         # AND on the first page after injecting fresh cookies — no prior
         # request with those credentials exists to space apart from.
         if ctx.total_page_count == 1 or ctx.curl_page_count <= 1:
-            print(f"        {now_str()} Fetching (first page with these credentials, no delay)...", flush=True)
+            run_log.info("Fetching (first page with these credentials, no delay)...",
+                         module="http", indent=2)
 
         # Allow 1 sleep (the normal pre-request delay).  The second sleep
         # is scholarly's internal retry — kill it so PageVisit takes over
@@ -607,8 +610,8 @@ def patch_scholarly(ctx: SessionContext) -> None:
                 retry_note = (f" (retry {sleep_count[0]})"
                               if sleep_count[0] > 1 else "")
                 wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""
-                print(f"        {now_str()} Waiting {d:.0f}s before request"
-                      f"{retry_note}... [{wait_str}]", flush=True)
+                run_log.info(f"Waiting {d:.0f}s before request"
+                             f"{retry_note}... [{wait_str}]", module="http", indent=2)
                 original_sleep(d)
 
             time.sleep = _limited_sleep
@@ -685,7 +688,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
         _start_m = _re2.search(r'[?&]start=(\d+)', url)
         _url_page = int(_start_m.group(1)) // 10 + 1 if _start_m else 1
         if _url_page > 1:
-            print(f"        Pagination (page {_url_page})", flush=True)
+            run_log.debug(f"Pagination (page {_url_page})", module="http", indent=2)
 
         for session in (nav._session1, nav._session2):
             session.headers['referer'] = ctx.last_scholar_url
@@ -693,20 +696,20 @@ def patch_scholarly(ctx: SessionContext) -> None:
         if ctx.total_page_count >= ctx.next_break_at:
             d = random.uniform(MANDATORY_BREAK_MIN, MANDATORY_BREAK_MAX) * ctx.delay_scale
             wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""
-            print(f"        {now_str()} Mandatory break after {ctx.total_page_count} pages "
-                  f"({d/60:.1f} min)... [{wait_str}]", flush=True)
+            run_log.info(f"Mandatory break after {ctx.total_page_count} pages "
+                         f"({d/60:.1f} min)... [{wait_str}]", module="http", indent=2)
             time.sleep(d)
             ctx.next_break_at = (ctx.total_page_count
                                  + random.randint(MANDATORY_BREAK_EVERY_MIN, MANDATORY_BREAK_EVERY_MAX))
             if not ctx.interactive_captcha and ctx.refresh_session_fn:
-                print(f"        {now_str()} Refreshing session after break...", flush=True)
+                run_log.info("Refreshing session after break...", module="http", indent=2)
                 ctx.refresh_session_fn()
             ctx.next_refresh_at = (ctx.total_page_count
                                    + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX))
         elif ctx.total_page_count >= ctx.next_refresh_at:
             if not ctx.interactive_captcha and ctx.refresh_session_fn:
-                print(f"      {now_str()} Refreshing session "
-                      f"(after {ctx.total_page_count} pages)...", flush=True)
+                run_log.info(f"Refreshing session (after {ctx.total_page_count} pages)...",
+                             module="http", indent=1)
                 ctx.refresh_session_fn()
             ctx.next_refresh_at = (ctx.total_page_count
                                    + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX))
@@ -739,7 +742,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
             page_size = None
         self_iter._page_size = page_size if page_size and page_size > 0 else None
         if page_size:
-            print(f"        Page items: {page_size}", flush=True)
+            run_log.debug(f"Page items: {page_size}", module="http", indent=2)
         elif is_citation_list_url(url):
             # A citation page with zero result rows used to be logged silently,
             # which made a blocked/empty response look like a genuinely empty

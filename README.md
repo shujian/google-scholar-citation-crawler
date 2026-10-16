@@ -140,7 +140,40 @@ prints a warning, and the JSON is left untouched.
 | `venue_detail_cache.json` | Publication detail pages already parsed (`citation_for_view` token → full venue). Makes the `venue_full` step resumable; safe to delete to re-read every page |
 | `cite_format_cache.json` | Cite dialogs already parsed (row `cid` → the five formats + `venue_text` / `authors_full`). Makes `--cite-formats` resumable; safe to delete to re-read every dialog |
 | `author_<ID>_papers/` | **The pipeline's shared papers tree** (physical home since 2026-10-15): `<NNN>-<slug>/` per publication with the PDFs, `citations_meta.json`, `enrich_info/`, `analysis_info/`, `analysis_content/`, `.shared/work/`, `progress.json`, `old/`. Created here (idempotently); every later stage reaches it through its own `papers` symlink, never by this path |
-| `output/logs/author_<ID>_run_<ts>.log` | Full log of each run (mirrors stdout) |
+| `output/logs/author_<ID>_run_<ts>.log` | Full log of each run (mirrors stdout). The newest **30** are kept; older ones are **moved** (never deleted) to `output/logs/old/` |
+
+## Run Logs
+
+Every line of a run has the same shape, so the log can be read top-down and
+grepped like a table:
+
+```
+11:40:12 INFO  run       Run log: ./output/logs/author_…_run_20261016_114012.log
+11:40:13 INFO  phase     ── Phase 1 · author profile · HF3-E9kAAAAJ ──────────────
+11:40:13 INFO  profile     previous profile 2026-10-15T18:54 (incremental compare)
+11:40:16 WARN  http        blocked (captcha) — phase-1 page 1
+11:44:02 INFO  phase     ── Phase 2 · citations · HF3-E9kAAAAJ ──────────────────
+11:44:02 INFO  paper     [3/241] Attention is all you need... -> cached (1364 citations)
+11:44:02 INFO  year        Year 2017 done: no new citations
+11:44:02 INFO  year        Year 2017 status: year_total=120, year_new=0, pages=12, … | histogram=120, …
+11:44:03 INFO  output    ── Saving Output Files ──────────────────────────────────
+11:44:05 INFO  summary   ── Run summary ──────────────────────────────────────────
+```
+
+- `<time> <LEVEL> <module> <indent><message>`; the module tag (`run / phase /
+  profile / venue / http / fetch / year / paper / plan / output / cite / summary`)
+  is padded so messages line up, and the indent (2 spaces per level) mirrors the
+  structure: run → phase → paper → year/page → detail.
+- **Levels**: `INFO` is state changes and conclusions; `DEBUG` is the per-request
+  / per-page / per-year detail and is only printed with **`-v` / `--verbose`**
+  (which now really changes what the log contains); `WARN` marks something that
+  needs a human look, e.g. a page that returned zero rows.
+- **One fact, one line**: a phase is a single ruled `── title ──` line instead of
+  a 70-character banner, the year's counters and the diagnosis they came from are
+  one line, and a request URL is printed once (by the session layer) rather than
+  twice.
+- **Retention**: `output/logs/` keeps the newest 30 run logs; at the start of a run
+  the older ones are moved to `output/logs/old/`. Nothing is ever deleted.
 
 ## Full Venue Strings (`venue_full`)
 
