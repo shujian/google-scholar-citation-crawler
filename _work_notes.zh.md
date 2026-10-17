@@ -2247,3 +2247,18 @@ run summary；**不迁**更深的诊断块（`Direct fetch target:` / `Probe tot
 其余 `os.replace()` 到 `<logs>/old/`（同分区内是原子改名 ✓）；`keep_path`（本次 run 的日志）永远
 不归档；目标已存在则跳过（幂等 ✓）；只认 `.log` 普通文件，`old/` 自己不会被误算 ✓。
 首次执行把 87 → 30（57 个进 `old/`）。
+
+
+## 2026-10-16（续 27）：year 推断为什么要"真实 probe"（K78 收口）
+
+`_infer_strategy_and_summary()` 的推断顺序：`fetch_strategy` → `_has_year_probe()` → `direct_fetch_diagnostics`
+→ 都没有就 `(None, None)`。**判据只有两个字段**：`year_records[*].histogram_count > 0`、
+`year_fetch_diagnostics.histogram_total > 0`。
+
+**为什么不能更宽**：direct 模式的快照也带一份 year 诊断（由缓存反推、计数全 0 ✓），
+"有 year 诊断就算 year"于是把 direct 快照读成年模式，而 year 的完成判据是
+`seen ≥ histogram_total` —— `histogram_total = 0` 时**恒真** ✗（K78 的机理）。
+
+**为什么不加 `probed_year_counts`**：`PaperFetchState.from_dict()` 的归一化只保留
+`histogram_total / seen_total / dedup_count / cached_* / scholar_*` 这几个键 ✗ —— 拿被丢掉的键当判据
+是死代码。**先写判据再写测试**，测试当场把它抓出来了（保留为一条"只用真实存在的字段"的教训 ✓）。

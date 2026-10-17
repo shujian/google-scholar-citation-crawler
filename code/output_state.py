@@ -252,11 +252,28 @@ class PaperFetchState:
             return year_records_data_complete(self.year_records, summary)
         return is_data_complete(strategy, summary)
 
+    def _has_year_probe(self):
+        """有没有**真实 probe 的年证据**（K78 残留的收口，2026-10-16）。
+
+        判据：某年的 `histogram_count > 0`，或汇总里的 `histogram_total > 0`
+        （**只用这两个字段** —— 它们确实存在于持久化形状里；`probed_year_counts` 会被
+        `from_dict()` 的归一化丢掉 ✗，拿它当判据是死代码）。**为什么必须有这一条**：**每篇论文**都带一份
+        `year_fetch_diagnostics`（direct 模式由缓存反推、每年 `histogram_count` 均为 0 ✗），
+        所以"只要有 year 诊断就推断 year"会把**缺 `fetch_strategy` 的 direct 快照**读成年模式
+        → `is_data_complete('year')` 拿 `seen ≥ histogram_total(0)` 判为**完整** ✗
+        → 剩余引用永远不会补抓（K78 的实测机理）。加上这一条之后，那种坏形状退化成
+        `strategy is None` → `is_complete() == False` → **重新抓**（安全方向 ✓）。
+        """
+        for record in (self.year_records or []):
+            if isinstance(record, dict) and (record.get("histogram_count") or 0):
+                return True
+        return bool((self.year_fetch_diagnostics or {}).get("histogram_total") or 0)
+
     def _infer_strategy_and_summary(self):
         """Return (strategy, summary) using the same inference rules as is_complete."""
         strategy = self.fetch_strategy
         if not strategy:
-            if self.year_fetch_diagnostics or self.year_records:
+            if self._has_year_probe():
                 strategy = 'year'
             elif self.direct_fetch_diagnostics:
                 strategy = 'direct'

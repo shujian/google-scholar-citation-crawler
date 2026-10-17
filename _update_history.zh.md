@@ -2549,3 +2549,25 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 - **测试**：新增 `tests/test_log_utils.py`（15 例：行形状/级别门控/section 单行/`-v` 接线/
   归档保留与"绝不删除"/幂等/忽略非 .log/缺失目录/`keep=0`）。全套 **593 → 608** 通过 ✓。
 - **文档**：`AGENTS.md` 新增「运行日志的层次与级别」；`README.md` 新增「Run Logs」并更新日志文件表。
+
+
+## 2026-10-16（续 27）：K78 残留的"结构陷阱"收口（venue_full 搁置后改做的三件之一）
+
+用户："venue_full 的抓取遇到一些困难，暂时先搁置这一部分，看看其他问题有没有可以解决的。"
+
+**收的是什么**：`PaperFetchState._infer_strategy_and_summary()` 的旧规则是"只要有
+`year_fetch_diagnostics` / `year_records` 就推断 year" ✗ —— 而**每篇论文都带一份** year 诊断
+（direct 模式由缓存反推、每年 `histogram_count` 均为 0 ✗），所以**缺 `fetch_strategy` 的 direct 快照**
+会被读成年模式 → `is_data_complete('year')` 拿 `seen ≥ histogram_total(0)` 判为**完整** ✗
+→ 剩余引用永远不会补抓（K78 的实测机理；本轮只是把"将来任何缺 `fetch_strategy` 的快照"这条
+结构陷阱也堵上 ✓）。
+
+**改法**：新增 `_has_year_probe()` —— **某年 `histogram_count > 0` 或汇总 `histogram_total > 0`**
+才算真实 probe ✓；没有 probe 证据时：有 direct 诊断就落回 `direct` ✓、都没有就策略**未定**
+→ `is_complete() == False` → **重新抓**（安全方向 ✓）。
+**只用这两个字段**：`probed_year_counts` 会被 `from_dict()` 的归一化丢掉 ✗ —— 实现时先把它写进
+判据、被自己的测试当场抓到是死代码、已删 ✓。
+
+**验证**：真实库 241 篇逐篇比对新旧推断 —— **变化 0 篇** ✓（year 36 / direct 169 / None 36 不变），
+即"防御性收口、今天的数据一行不动" ✓；新增 1 例回归测试（坏形状落回 direct、无证据时不完整、
+真实 probe 仍判 year、只有汇总的老形状也算证据）。全套 **592 → 609** ✓。

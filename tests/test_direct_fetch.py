@@ -235,6 +235,48 @@ class DirectFetchTests(FetcherTestCase):
         self.assertFalse(state.is_complete(25))
         self.assertTrue(state.need_fetch(25))
 
+    def test_zero_histogram_year_diagnostics_no_longer_mean_year_mode(self):
+        """K78 残留的收口（2026-10-16）：**只有零 probe 的 year 诊断**时不许推断 year。
+
+        每篇论文都带一份 `year_fetch_diagnostics`（direct 模式由缓存反推、`histogram_count`
+        全为 0）—— 旧规则"只要有 year 诊断就 year"会让**缺 `fetch_strategy` 的 direct 快照**
+        读成年模式，而 `is_data_complete('year')` 拿 `seen ≥ histogram_total(0)` 判为完整 ✗。
+        现在退化成 `strategy is None` → `is_complete() == False` → 重新抓（安全方向 ✓）；
+        有真实 probe（`histogram_count > 0` / `histogram_total > 0`）时仍照旧推断 year ✓。
+        """
+        from code.output_state import PaperFetchState
+
+        # ① 坏形状：缺 fetch_strategy + 零 probe 的 year 诊断 + 一份 direct 诊断
+        broken = PaperFetchState.from_dict({
+            "year_fetch_diagnostics": {"histogram_total": 0, "seen_total": 2, "dedup_count": 2},
+            "year_records": [{"year": 2024, "histogram_count": 0, "seen_total": 2}],
+            "direct_fetch_diagnostics": {"scholar_total": 25, "seen_total": 2},
+        })
+        self.assertEqual(broken._infer_strategy_and_summary()[0], "direct",
+                         "有 direct 诊断时应落回 direct ✗")
+        self.assertFalse(broken.is_complete(25), "缺证据的快照不许判为完整 ✗")
+
+        # ② 连 direct 诊断也没有 → 策略未定 → 不完整（重新抓）
+        unknown = PaperFetchState.from_dict({
+            "year_fetch_diagnostics": {"histogram_total": 0, "seen_total": 0},
+            "year_records": [{"year": 2024, "histogram_count": 0, "seen_total": 0}],
+        })
+        self.assertIsNone(unknown._infer_strategy_and_summary()[0])
+        self.assertFalse(unknown.is_complete(25))
+
+        # ③ 真实 probe（histogram_count > 0）仍然推断 year ✓
+        real = PaperFetchState.from_dict({
+            "year_records": [{"year": 2024, "histogram_count": 7, "seen_total": 7}],
+            "year_fetch_diagnostics": {"histogram_total": 7, "seen_total": 7, "dedup_count": 7},
+        })
+        self.assertEqual(real._infer_strategy_and_summary()[0], "year")
+        self.assertTrue(real.is_complete(7), "每年都覆盖自己的 probe → 完整 ✓")
+
+        # ④ 汇总有非零 histogram_total 但没有 year_records（老形状）也算真实证据 ✓
+        summary_only = PaperFetchState.from_dict({
+            "year_fetch_diagnostics": {"histogram_total": 3, "seen_total": 3, "dedup_count": 3}})
+        self.assertEqual(summary_only._infer_strategy_and_summary()[0], "year")
+
     def test_fetch_citations_with_progress_complete_save_clears_direct_resume_state(self):
         self.fetcher.save_every = 100
         cache_path = os.path.join(tempfile.gettempdir(), "paper-direct-complete-save.json")
