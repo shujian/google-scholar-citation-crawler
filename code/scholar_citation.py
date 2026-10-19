@@ -115,6 +115,10 @@ from code.config import LOG_ARCHIVE_DIRNAME, LOG_KEEP_RUNS
 from code.log_utils import (INFO, get_logger, line_logger, prune_run_logs,
                                run_log, setup_logging)
 from code import cite_format as _cite_format
+
+#: `enrich_citations_with_cite_formats()` 的统计键 —— 本轮累计用同一套名字。
+_CITE_STAT_KEYS = ('total', 'with_cid', 'missing_cid', 'skipped_complete',
+                   'cache_hits', 'fetched', 'unavailable', 'failed', 'resolved')
 from code.venue_quality import (
     citation_needs_cite_dialog as _vq_citation_needs_cite_dialog,
 )
@@ -179,6 +183,11 @@ class PaperCitationFetcher:
         self._new_citations_count = 0
         self._run_new_citations_total = 0
         self._papers_fetched_count = 0
+        # Cite 对话框的本轮累计：逐页钩子与保存时的兜底段都加进来（用户 2026-10-19：
+        # 日志里要看得出"这一轮到底下载了多少 cite"）。
+        self._cite_stats = {key: 0 for key in _CITE_STAT_KEYS}
+        self._cite_files_written = 0
+        self._cite_files_unchanged = 0
 
         # Paths
         self.profile_json = os.path.join(output_dir, f"author_{author_id}_profile.json")
@@ -270,7 +279,7 @@ class PaperCitationFetcher:
                 if not rows:
                     return
                 nav = getattr(scholarly, '_Scholarly__nav', None)
-                _cite_format.enrich_citations_with_cite_formats(
+                stats = _cite_format.enrich_citations_with_cite_formats(
                     rows,
                     cache_path=cache_path,
                     get_soup=getattr(nav, '_get_soup', None),
@@ -281,6 +290,7 @@ class PaperCitationFetcher:
                     # batch step at save time may never reach that row.
                     print_fn=line_logger(INFO, "cite", indent=2),
                 )
+                self._accumulate_cite_stats(stats)
             except Exception as e:      # 坏一条不许影响抓取（与批量段同口径）
                 run_log.warn(f"per-page citation-format step failed: "
                              f"{type(e).__name__}: {e}", module="cite", indent=1)
@@ -1688,6 +1698,54 @@ class PaperCitationFetcher:
         """Wait up to max_hours (shortened by --accelerate) for the user to switch proxy/IP."""
         return _int_wait_proxy_switch(max_hours, scale=self._delay_scale)
 
+    def _cite_work(self, citations, cache_path):
+        """兜底段这一遍会真正改动的行数（补 cite 或发请求），纯计算、不发请求。
+
+        用来决定要不要打 `── Cite dialogs ──` 段标题：0 表示这一段无事可做。
+        """
+        from code.venue_quality import citation_needs_cite_dialog
+
+        cache = _cite_format.load_cite_cache(cache_path)
+        work = 0
+        for citation in citations or []:
+            cid = _cite_format.normalize_cid((citation or {}).get('cid'))
+            if not cid:
+                continue
+            entry = cache.get(cid)
+            if entry is not None and entry.get('unavailable'):
+                if not _cite_format.unavailable_verdict_is_fresh(entry):
+                    work += 1          # 否证过期 → 会重问
+                continue
+            if entry is None:
+                if citation_needs_cite_dialog(citation):
+                    work += 1
+            elif not citation.get('cite'):
+                work += 1              # 缓存命中但行上还没有 cite → 会补上
+        return work
+
+    def _accumulate_cite_stats(self, stats):
+        """把一次 cite-format 调用的统计加进本轮累计（缺键/坏值按 0 算）。"""
+        if not isinstance(stats, dict):
+            return
+        for key in _CITE_STAT_KEYS:
+            try:
+                self._cite_stats[key] += int(stats.get(key) or 0)
+            except (TypeError, ValueError):
+                pass
+
+    def _cite_coverage(self, final_results):
+        """产物里"带 cite"的行数与"五格式齐全"的行数（只数，不发请求）。"""
+        with_cite = full = 0
+        for entry in final_results or []:
+            for citation in entry.get('citations') or []:
+                payload = citation.get('cite')
+                if not isinstance(payload, dict) or not payload:
+                    continue
+                with_cite += 1
+                if all(label in payload for label in _cite_format.FORMAT_LABELS):
+                    full += 1
+        return with_cite, full
+
     def _enrich_cite_formats(self, final_results):
         """Fill ``citation['cite']`` from Scholar's Cite dialog (on by default).
 
@@ -1709,20 +1767,38 @@ class PaperCitationFetcher:
         citations = [c for result in final_results
                      for c in (result.get('citations') or [])
                      if isinstance(c, dict)]
-        run_log.section("Fetching citation formats (Cite dialog; --no-cite-formats skips this)",
-                        module="cite")
+        cache_path = os.path.join(self.output_dir, _cite_format.CACHE_FILENAME)
+        # 先数"这一段会真正改动多少行"（纯函数、零请求）：0 就不打段标题 —— 一段
+        # 什么都没做的 section 只会让人以为又要抓一遍（用户 2026-10-19）。
+        work = self._cite_work(citations, cache_path)
+        if work:
+            run_log.section(f"Cite dialogs · {work} row(s) to resolve", module="cite")
+        else:
+            run_log.debug("Cite dialogs: nothing left to resolve",
+                          module="cite", indent=1)
         stats = _cite_format.enrich_citations_with_cite_formats(
             citations,
-            cache_path=os.path.join(self.output_dir, _cite_format.CACHE_FILENAME),
+            cache_path=cache_path,
             get_soup=get_soup,
             get_page=get_page,
         )
-        run_log.info(f"citation formats resolved: {stats['resolved']}/{stats['with_cid']} "
-                     f"(fetched {stats['fetched']}, cached {stats['cache_hits']}, "
-                     f"failed {stats['failed']}, no cid {stats['missing_cid']}, "
-                     f"no dialog {stats['unavailable']}, "
-                     f"already complete {stats['skipped_complete']})",
-                     module="cite", indent=1)
+        self._accumulate_cite_stats(stats)
+        # 一遍的细节留在 DEBUG；INFO 只留"这一轮到底拿到多少 cite"这一条结论。
+        run_log.debug(f"cite pass: resolved {stats['resolved']}/{stats['with_cid']} "
+                      f"(fetched {stats['fetched']}, cached {stats['cache_hits']}, "
+                      f"failed {stats['failed']}, no cid {stats['missing_cid']}, "
+                      f"no dialog {stats['unavailable']}, "
+                      f"already complete {stats['skipped_complete']})",
+                      module="cite", indent=2)
+        if work:
+            s = self._cite_stats
+            with_cite, full_five = self._cite_coverage(final_results)
+            run_log.info(f"cite dialogs: {with_cite}/{len(citations)} rows now carry "
+                         f"formats ({full_five} with all five) | this run downloaded "
+                         f"{s['fetched']}, no dialog (404) {s['unavailable']}, "
+                         f"failed {s['failed']}, already complete "
+                         f"{s['skipped_complete']}, no cid {s['missing_cid']}",
+                         module="cite", indent=1)
 
         return stats
 
@@ -1951,11 +2027,19 @@ class PaperCitationFetcher:
             from code.config import papers_root
             _root = papers_root(self.output_dir, self.author_id)
             for entry in final_results:
-                write_cite_files(_root, entry.get('pub') or {}, entry.get('citations') or [])
+                _written, _unchanged, _missing_dir = write_cite_files(
+                    _root, entry.get('pub') or {}, entry.get('citations') or [])
+                self._cite_files_written += _written
+                self._cite_files_unchanged += _unchanged
                 # `citations_meta.json` 的**主体**也归阶段 1（Y-9 ✓）：只写自己的字段 ✓，
                 # 阶段 2 的下载字段与退役编号的旧条目**原样保留** ✓（Y-7：只动自己的数据 ✓）。
                 write_citations_meta_for_pub(_root, entry.get('pub') or {},
                                              entry.get('citations') or [])
+            if self._cite_files_written:
+                _note = (f", {self._cite_files_unchanged} unchanged"
+                         if self._cite_files_unchanged else "")
+                run_log.info(f"cite files: {self._cite_files_written} written{_note}",
+                             module="output", indent=1)
         except Exception as exc:   # noqa: BLE001 —— 落盘失败绝不影响抓取主流程
             run_log.warn(f"could not write cite files: {exc}",
                          module="output", indent=1)

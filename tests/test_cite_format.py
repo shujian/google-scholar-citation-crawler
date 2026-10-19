@@ -746,7 +746,7 @@ class SaveOutputWiringTests(unittest.TestCase):
         saved, output = self._save(self._fetcher(True), [citation()], nav)
         cite = saved['papers'][0]['citations'][0]['cite']
         self.assertEqual(cite['chicago'], CHICAGO)
-        self.assertIn('citation formats resolved: 1/1', output)
+        self.assertIn('cite dialogs: 1/1 rows now carry formats', output)
         self.assertTrue(os.path.exists(self.cache_path))
 
     def test_cid_is_persisted_in_the_output(self):
@@ -768,7 +768,7 @@ class SaveOutputWiringTests(unittest.TestCase):
         saved, output = self._save(self._fetcher(False), [citation()], nav)
         self.assertEqual(nav.calls, [])
         self.assertNotIn('cite', saved['papers'][0]['citations'][0])
-        self.assertNotIn('citation formats resolved', output)
+        self.assertNotIn('cite dialogs:', output)
 
     def test_a_missing_navigator_still_saves_the_output(self):
         saved, output = self._save(self._fetcher(True), [citation()], None)

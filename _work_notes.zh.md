@@ -2424,3 +2424,21 @@ manifest，幂等。
   "a full walk came back short of Scholar's own count"，不再输出 "1 full walks"。
 - **测试口径**：`test_output_state` / `test_citation_status` 里三例要验证的是"重复才算数"，
   改成显式 `is_stalled(stall_after_attempts=2)`；默认值另有一例专测（一遍即判死）。
+
+## Cite 统计为什么先"预算"再打印（2026-10-19）
+
+保存时的兜底段（`_enrich_cite_formats`）遍历全库 9,000+ 条，但绝大多数行没有 cid、或已缓存、
+或缓存的 404 否证还没过期 —— 真正会改动的常常只有个位数。旧版**无条件**打段标题
+`── Fetching citation formats (…; --no-cite-formats skips this) ──`，于是"什么都没做"的一段
+也像"又要抓一遍"（用户 2026-10-19 追问）。
+
+处置：`_cite_work(citations, cache_path)` 用与 `enrich_citations_with_cite_formats()` 同一套判据
+（`normalize_cid` / `citation_needs_cite_dialog` / `unavailable_verdict_is_fresh` / 缓存里有没有 `cite`）
+**只算不减**，0 → 不打段、整段静默（留一句 DEBUG）；N → 段标题带上 N。这一遍自己的明细
+（`resolved/fetched/cached/failed/…`）降为 DEBUG 的 `cite pass:`，INFO 只留一条结论 ——
+既满足"一个事实一行"，也让"这一轮到底下载了多少 cite"有个稳定的一行答案。
+
+**并发教训**：这次同时有另一组改动（checkpoint / baseline / stall）在同一个
+`code/scholar_citation.py` 里进行，工作区一度同时有双方的未提交改动。收尾时**按 hunk 摘自己的**
+（用 `git apply --cached` 只放我的 hunk，再 `git diff --cached` 复核没有对方的符号），
+避免把别人的在飞工作卷进自己的提交；对方那部分仍留在工作区由他们自己提交。

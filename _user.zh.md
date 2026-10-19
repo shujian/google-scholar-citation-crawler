@@ -3617,3 +3617,13 @@ scholar=1376 unchanged; recheck by year; drop unyeared)`。）
 
 已落地：阈值 1；`_normalize_year_records()` 保留 `short_attempts` / `stalled` / `stalled_probe`；
 逐年 `cached_total` 按落盘行数收口（`resync_year_record_counts()`）。阶段 1 单测全绿（新增 3 例）。
+
+## 2026-10-19（续 24）: cite 下载量统计 + 按日志规范重做
+
+> 请在日志里统计一下下载了多少cite，也在日志里输出
+
+> 注意之前日志有相应的规范做法
+
+按规范重做了：一条 INFO 结论行（覆盖率 + 本轮下载/404/失败/跳过/无 cid），
+`── Cite dialogs · N row(s) to resolve ──` 只在有活时打（`_cite_work()` 预算），
+旧的 `citation formats resolved:` 降 DEBUG 的 `cite pass:`，cite 文件写入数回到 `output` 模块下。

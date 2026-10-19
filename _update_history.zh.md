@@ -2759,3 +2759,19 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   4 例；3 例旧用例改为显式传 `stall_after_attempts=2`，因为它们要验证的是"重复"而不是阈值）。
   整套里另有 24 F / 10 E 是**既有**问题（本机代理下会走真网络 + 工作区里另一处未提交改动的
   `write_baseline`），与本次无关：HEAD 独立 worktree 上同样 24 F / 7 E。
+
+## 2026-10-19（续 24）: Cite 下载量统计进日志，且只占一条结论行（用户定）
+
+- **用户要求**："统计一下下载了多少 cite，也在日志里输出"，并强调**按既有日志规范**做。
+- **规范对齐**（对照 `AGENTS.md` 的日志节）：
+  - **一个事实一行**：删掉旧的 `citation formats resolved: …`（和新增统计重复），降为 DEBUG 的 `cite pass:`；
+    只留一条 INFO 结论：`cite dialogs: X/Y rows now carry formats (N with all five) | this run downloaded …, no dialog (404) …, failed …, already complete …, no cid …`。
+  - **section 只在有活时打**：`_cite_work()` 先算"这一遍会真正改动的行数"（缓存命中补 cite / 需要发请求 /
+    否证过期），0 就**整段静默**；有活才打 `── Cite dialogs · N row(s) to resolve ──`。
+    这修掉了"段标题无条件打印、看起来又要抓一轮"的观感问题。
+  - **计数在发生处**：cite 文件写入数放进 `INFO output  cite files: N written, M unchanged`（0 时不打）。
+  - 模块标签：段与结论 `cite`、写文件 `output`。
+- **实现**：`self._cite_stats`（`_CITE_STAT_KEYS` 一套键）累加逐页钩子与兜底段两处 stats；
+  `_cite_coverage()` 从产物数覆盖率；`_cite_work()` 纯函数预算。
+- **测试**：`tests/test_cite_format.py` 的两条断言跟着改名（`citation formats resolved` → `cite dialogs:`）。
+  其余用例未动；模块级全绿（本仓工作区当时还有另一组未提交改动，见 `_work_notes` 的并发说明）。

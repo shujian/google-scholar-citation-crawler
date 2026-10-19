@@ -164,6 +164,12 @@ google-scholar-citation-crawler/
 - **一个事实一行**：`URL:` 那行已删（URL 只在 session 层的 `Request URL:` 出现一次）；
   `Year N compare:` 的字段并入 `Year N status:`；`Author ID:` 只在 run 头出现（phase 标题里带作者）；
   零行的 `Page items:` 保留原文但升为 WARN（异常），正常页改由下面的**逐页进度行**承担。
+- **Cite 统计只留一条结论行（2026-10-19 用户定）**：保存时的兜底段先算"这一遍会真正改动多少行"
+  （`_cite_work()`：纯函数、零请求），候选为 0 就**整段静默**；有活才打
+  `── Cite dialogs · N row(s) to resolve ──`，段尾只有一条 INFO
+  `cite dialogs: 812/9071 rows now carry formats (584 with all five) | this run downloaded 619, no dialog (404) 167, failed 0, already complete …, no cid …`；
+  这一遍的明细（`resolved/fetched/cached/…`）降为 DEBUG 的 `cite pass:`。
+  写文件的计数回到它发生的位置：`INFO output  cite files: N written, M unchanged`（`N == 0` 时不打）。
 - **逐页进度行（2026-10-19，用户要求）**：抓引用列表时每页一行 INFO
   `11:40:13 INFO  year      2025 · page 3 · 10 items`（direct 模式无年份 → `page 2 · 7 items`）。
   这是"现在抓到哪一年、第几页"的唯一来源 —— 上一版把 `Pagination (page N)` / `Page items: N`
@@ -232,6 +238,8 @@ google-scholar-citation-crawler/
   `[1/1] HSM_htxRbXcJ "Bi-directional NMT with synthetic par" -> no Cite dialog (HTTP 404); remembered, retry in 7 days`。
   只有**失败/否证**的行才会走到这条路径（成功不打印），所以 INFO 不会刷屏；
   `page_visit` 那条请求级 WARN 仍保留（它只知道 URL）—— 两者分工：一条说"哪个请求被拒"，一条说"哪一行没了"。
+  **统计口径**（2026-10-19）：`self._cite_stats` 把逐页钩子与保存兜底段的 stats 累加，保存时用
+  `_cite_coverage()` 数"产物里带 cite 的行 / 五格式齐全的行"，两者合成上面那条 `cite dialogs:` 结论行。
   注意：断言行标题是**跑这一轮才有的**，历史日志里只有 cid。
 - **`code/venue_quality.py`**（2026-10-14）：**「这条记录还值得再抓一次吗」的唯一判据**，被
   `venue_detail.py`（pub 级）与 `cite_format.py`（施引条目级）共用：`is_complete_venue()`
