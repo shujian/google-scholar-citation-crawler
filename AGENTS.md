@@ -422,6 +422,10 @@ Patches `scholarly` internals rather than treating it as a black box:
   first page after fresh cookies are injected** (`total_page_count == 1` / `curl_page_count <= 1`):
   no earlier request with those credentials exists to space apart from, so waiting there only wastes time
 - Takes mandatory long breaks every 8–12 pages to reset Scholar's rate-limit window
+  — and **a successfully solved captcha resets that counter** (`reset_break_counter()`, 2026-10-19):
+  solving one is itself a multi-minute interruption, so without the reset the very next page often hit
+  another 3–6 min break.  Only the break window moves; the session-refresh counter is left alone
+  (freshly injected cookies are meant to be used right away).
 - Charges **1/10 of the normal delay on the detail-style paths**:
   `patched_get_page()` sleeps `rand_delay(ctx.delay_scale * detail_path_delay_factor(url))`,
   where the factor is `code.config.DETAIL_PAGE_DELAY_FACTOR` and

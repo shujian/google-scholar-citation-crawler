@@ -135,6 +135,7 @@ from code.interactive import (
 )
 from code.scholarly_session import (
     SessionContext,
+    reset_break_counter as _ss_reset_break_counter,
     patch_scholarly as _ss_patch_scholarly,
     refresh_scholarly_session as _ss_refresh_scholarly_session,
     probe_citation_start_year as _ss_probe_citation_start_year,
@@ -1632,6 +1633,11 @@ class PaperCitationFetcher:
         )
         if result:
             self._captcha_solved_count += 1
+            # 解完验证码 = 一次不短的中断：把 mandatory-break 的计时**清零** ✓
+            # （用户 2026-10-19：否则刚解完验证码又会紧接着撞上 3–6 分钟长休 ✗）
+            ctx = getattr(self, '_session_ctx', None)
+            if ctx is not None:
+                _ss_reset_break_counter(ctx)
         return result
 
     def _wait_proxy_switch(self, max_hours=24):

@@ -406,6 +406,21 @@ def assert_scholarly_patches_active(checks):
         )
 
 
+def reset_break_counter(ctx):
+    """解完验证码之后把 mandatory-break 的计时**清零**（用户 2026-10-19 定）。
+
+    **背景**：长休的判据是"页数够了没"（`total_page_count >= next_break_at`）。人工解验证码那几分钟
+    本身就是一次不短的中断 —— 甚至比 3–6 分钟还久 —— 但计数器不动 ✗，于是解完验证码常常**紧接着**
+    又撞上一次长休（用户实测反复遇到 ✗）。判据：把 `next_break_at` 推成"当前页数 + 一个完整窗口" ✓，
+    与"长休之后重排窗口"那一段逻辑**完全一致** ✓。
+
+    **只清长休计数**：会话刷新（`next_refresh_at`）不动 —— 刚注入的 cookies 正是想马上用 ✓。
+    """
+    ctx.next_break_at = ctx.total_page_count + random.randint(
+        MANDATORY_BREAK_EVERY_MIN, MANDATORY_BREAK_EVERY_MAX)
+    return ctx.next_break_at
+
+
 def patch_scholarly(ctx: SessionContext) -> None:
     """
     Monkey-patch scholarly internals for browser simulation + rate-limit safety.

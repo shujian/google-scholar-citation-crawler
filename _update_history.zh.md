@@ -2624,3 +2624,22 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 空的新值不清空、身份字段不动、幂等）。**第一次尝试失败的原因**也记一下：当时把 helper 的插入锚点
 写成 `def _year_ranges(`（那个函数不在这个模块里 ✗）→ helper 没插进去、替换却照做 → 运行期
 `NameError` ✗；现在 helper 放在文件末尾（模块级，调用时解析 ✓）。
+
+
+## 2026-10-19（续 29）：解完验证码把 mandatory-break 计数清零（K150）
+
+**用户**："我发现输入过验证码之后，有时候还会碰到 mandatory break，我希望这个 mandatory break 计数清零。"
+
+**为什么会出现**：长休的判据是页数（`total_page_count >= next_break_at`，`code/scholarly_session.py`
+的 `patched_load_url`）。人工解验证码那几分钟本身就是一次不短的中断，**但计数器不动** ✗ ——
+于是"解完验证码 → 下一页"经常正好越过阈值，立刻又吃一次 3–6 分钟长休 ✗。
+
+**改法**：新增 `reset_break_counter(ctx)`（`code/scholarly_session.py`）—— 把
+`next_break_at` 推成"**当前页数 + 一个完整窗口**"（`random.randint(MANDATORY_BREAK_EVERY_MIN,
+MAX)`），与"长休之后重排窗口"那一段逻辑**完全一致** ✓。接线在
+`scholar_citation._try_interactive_captcha()` 成功分支（与 `_captcha_solved_count += 1` 并列）✓。
+**只清长休计数**：`next_refresh_at` 不动 —— 刚注入的 cookies 正是想马上用 ✓。
+
+**验证**：阶段 1 **621 → 623** 全绿 ✓（1 例纯函数：窗口落在 `[总页数+8, 总页数+12]`、且不动
+`next_refresh_at`；1 例接线：走**类方法**（夹具把实例方法换成了恒 False 的桩 ✗）断言成功后
+`_captcha_solved_count == 1` 且 `next_break_at` 往后推 ✓）。

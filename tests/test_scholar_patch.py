@@ -20,6 +20,45 @@ class ScholarPatchAndIdentityTests(FetcherTestCase):
             fetcher = scholar_citation.PaperCitationFetcher("test-author", output_dir=d)
             self.assertEqual(fetcher._curl_save_path, os.path.join(d, "curl.txt"))
 
+    def test_solving_a_captcha_resets_the_mandatory_break_counter(self):
+        """解完验证码之后长休计时清零（用户 2026-10-19）。
+
+        长休判据是"页数够了没"（`total_page_count >= next_break_at`）。人工解验证码本身就是一次
+        不短的中断，但计数器不动 → 解完常常紧接着又撞一次 3–6 分钟长休 ✗。`reset_break_counter()`
+        把窗口推到"当前页数 + 一个完整窗口" ✓，与会话刷新无关 ✓。
+        """
+        from code.scholarly_session import SessionContext, reset_break_counter
+        from code import config as CFG
+
+        ctx = SessionContext(author_id="X")
+        ctx.total_page_count = 20
+        ctx.next_break_at = 22            # 再走两页就该长休了（解验证码前就快到了）
+        ctx.next_refresh_at = 15
+        reset_break_counter(ctx)
+        self.assertGreaterEqual(ctx.next_break_at,
+                                20 + CFG.MANDATORY_BREAK_EVERY_MIN)
+        self.assertLessEqual(ctx.next_break_at,
+                             20 + CFG.MANDATORY_BREAK_EVERY_MAX)
+        self.assertEqual(ctx.next_refresh_at, 15,
+                         "只清长休计数，会话刷新的计时不动 ✓")
+
+    def test_a_successful_captcha_resets_the_break_counter(self):
+        """接线：`_try_interactive_captcha()` 成功后调用 `reset_break_counter()` ✓。"""
+        from code.scholarly_session import SessionContext
+
+        ctx = SessionContext(author_id="X")
+        ctx.total_page_count = 30
+        ctx.next_break_at = 31
+        self.fetcher._session_ctx = ctx
+        self.fetcher._captcha_solved_count = 0
+        with patch("code.scholar_citation._int_try_interactive_captcha", return_value=True):
+            # 夹具把实例上的 `_try_interactive_captcha` 换成了恒 False 的桩 ✗ ——
+            # 这里显式走**类方法**，测的是真实实现 ✓。
+            ok = type(self.fetcher)._try_interactive_captcha(self.fetcher, "u")
+        self.assertTrue(ok)
+        self.assertEqual(self.fetcher._captcha_solved_count, 1)
+        self.assertGreater(ctx.next_break_at, 31, "成功后窗口必须往后推 ✓")
+
     def test_patch_scholarly_logs_request_url_before_page_fetch(self):
         nav = scholarly_mod.scholarly._Scholarly__nav
         seen_requests = []

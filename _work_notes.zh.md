@@ -2309,3 +2309,17 @@ run summary；**不迁**更深的诊断块（`Direct fetch target:` / `Probe tot
    少一种就意味着信息更少 ✓。新的为空/更少时**绝不清空** ✓（与 `cached rows` 的保守方向一致）。
 4. **索引只建一次**（`cached_by_key`）：一页最多 10 行、年份桶最多几千行，逐行线性扫会变成 O(n·m)；
    按 `_citation_identity_keys()` 建 map 后每行 O(1) ✓。
+
+
+## 2026-10-19（续 29）：为什么重置长休只写"重排窗口"这一句
+
+`next_break_at = total_page_count + randint(EVERY_MIN, EVERY_MAX)` —— 与长休真正结束时那一行
+**一字不差** ✓。三种写法对比：
+
+| 写法 | 问题 |
+|---|---|
+| `next_break_at = total_page_count` | 下一页立刻再次触发（阈值已到）✗ |
+| `next_break_at += EVERY` | 会把"历史已欠的页数"一起补上，窗口漂移不可预期 ✗ |
+| **`= total_page_count + EVERY`** | 等价于"刚长休完"，语义唯一、可测 ✓ |
+
+另：**不动** `next_refresh_at` —— 会话刷新不睡、只换 session，而且刚注入的 cookies 正要用 ✓。
