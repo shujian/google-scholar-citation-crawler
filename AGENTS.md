@@ -227,6 +227,12 @@ google-scholar-citation-crawler/
   `cite_format` 把它记成**带时间戳的否定条目** `{'unavailable': true, 'status': 404, 'fetched_at': …}`，
   `UNAVAILABLE_RETRY_DAYS`（7 天）内不再问；过期后自动重问一次 —— **刻意不是永久判决**：句柄是
   Scholar 的，它对 cluster 的组织我们**还没有完全理解**（见 `issues.md`）。
+  **每条否证都带行标题，并且是 INFO**（2026-10-19，用户要求"以后能从日志直接看出哪些论文 404"）：
+  `_on_citations_page` 不再把 `print_fn` 静音，逐行经 `line_logger(INFO, "cite")` 输出，行形如
+  `[1/1] HSM_htxRbXcJ "Bi-directional NMT with synthetic par" -> no Cite dialog (HTTP 404); remembered, retry in 7 days`。
+  只有**失败/否证**的行才会走到这条路径（成功不打印），所以 INFO 不会刷屏；
+  `page_visit` 那条请求级 WARN 仍保留（它只知道 URL）—— 两者分工：一条说"哪个请求被拒"，一条说"哪一行没了"。
+  注意：断言行标题是**跑这一轮才有的**，历史日志里只有 cid。
 - **`code/venue_quality.py`**（2026-10-14）：**「这条记录还值得再抓一次吗」的唯一判据**，被
   `venue_detail.py`（pub 级）与 `cite_format.py`（施引条目级）共用：`is_complete_venue()`
   （非空 + 无 `…`/`...` + 不是预印本源；缺失 ≠ 完整）、`is_preprint_venue()`（`arXiv` / `arXiv preprint

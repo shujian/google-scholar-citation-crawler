@@ -103,9 +103,15 @@ UNAVAILABLE_RETRY_DAYS = 7
 from code.shared.identity import identity_norm_title  # noqa: E402
 
 def _log_cite_line(message="", **_ignored):
-    """Default ``print_fn``: a per-row Cite-dialog line goes through the run log."""
+    """Default ``print_fn``: a per-row Cite-dialog line goes through the run log.
+
+    INFO, not DEBUG: ``enrich_citations_with_cite_formats`` prints nothing for a
+    successful row, so only the give-up/failure rows reach this function — and a
+    "no Cite dialog" verdict names a record that will stay missing for 7 days, so
+    it has to be visible without ``-v`` (same reasoning as the wait line).
+    """
     for part in str(message).split("\n"):
-        run_log.debug(part.lstrip(), module="cite", indent=1)
+        run_log.info(part.lstrip(), module="cite", indent=1)
 
 
 CITE_FIELD = 'cite'
@@ -440,7 +446,14 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
                 changed = True
                 save_cache_now()
                 stats['unavailable'] += 1
-                print_fn(f"    [{index}/{len(citations)}] {cid} -> no Cite dialog "
+                # The row's title belongs in this line: the request-level
+                # warning in page_visit only knows the URL, and the cid alone
+                # cannot be looked up once the run has not saved yet (user
+                # 2026-10-19 asked "which papers 404'd" and the log could not
+                # answer it).
+                title = ' '.join(str(citation.get('title') or '').split())[:60]
+                print_fn(f"    [{index}/{len(citations)}] {cid} "
+                         f"\"{title or '(no title)'}\" -> no Cite dialog "
                          f"(HTTP {getattr(e, 'status', '?')}); remembered, "
                          f"retry in {UNAVAILABLE_RETRY_DAYS} days")
                 continue

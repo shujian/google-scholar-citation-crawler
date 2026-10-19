@@ -2709,3 +2709,19 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
 
 **验证**：阶段 1 **631 → 633** 全绿 ✓（gap/effective/汇总三处的判据一致性、落盘往返不丢标记、
 以及"汇总仍用旧声称会判不完整"的反向断言 + 重建路径的源码级守卫）。
+
+## 2026-10-19（续 23）: Cite 对话框的 404 行带上论文标题（用户定 A）
+
+- **起因**（用户："看看哪些论文能获得 cite 弹出框，哪些会出现 404"）：读今天的两个 run 发现
+  404 行里**只有 cid**（`label = request_url[:80]`，run2 甚至被截成 `&outpu`），而**成功根本没有
+  逐行日志**（逐页钩子把 `print_fn` 静音了）；69 条 404 只有 13 条能靠"产物里有 cid 的行"反查到标题
+  （产物 9,037 条里只有 110 条带 cid —— 短年份重扫保留缓存时新行被丢了）。
+- **改动**（两处）：
+  1. `code/cite_format.py`：否证那条消息加上行标题（截 60 字符、空白压平），
+     `[1/1] HSM_htxRbXcJ "Bi-directional NMT with synthetic par" -> no Cite dialog (HTTP 404); remembered, retry in 7 days`；
+     默认 `print_fn`（`_log_cite_line`）从 DEBUG 提到 **INFO** —— 成功不打印、只有失败/否证走这里。
+  2. `code/scholar_citation.py::_install_page_cite_hook`：`print_fn` 不再 `lambda: None`，
+     改接 `line_logger(INFO, "cite")`，所以**逐页阶段**的失败/否证也进日志（此前只有保存时的批量段才有）。
+- **分工**：`page_visit` 的请求级 WARN（只有 URL）说"哪个请求被拒"；`cite_format` 的行级 INFO 说
+  "哪一行（含标题）没了"。旧的 404 日志里仍然只有 cid（历史不可补）。
+- **验证**：既有 633 例通过（含他人新增的用例）；用一次假的 `RecordUnavailable` 冒烟确认行形如上。

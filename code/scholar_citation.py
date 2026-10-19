@@ -111,7 +111,8 @@ from code.output_state import (
 )
 from code.pub_info import PubInfo
 from code.config import LOG_ARCHIVE_DIRNAME, LOG_KEEP_RUNS
-from code.log_utils import setup_logging, get_logger, run_log, prune_run_logs
+from code.log_utils import (INFO, get_logger, line_logger, prune_run_logs,
+                               run_log, setup_logging)
 from code import cite_format as _cite_format
 from code.venue_quality import (
     citation_needs_cite_dialog as _vq_citation_needs_cite_dialog,
@@ -262,7 +263,11 @@ class PaperCitationFetcher:
                     cache_path=cache_path,
                     get_soup=getattr(nav, '_get_soup', None),
                     get_page=getattr(nav, '_get_page', None),
-                    print_fn=lambda *a, **k: None,   # 逐页不刷屏；结尾由批量段汇总
+                    # Per-row lines only appear when a row cannot be resolved
+                    # (success is silent), so they go to the run log instead of
+                    # being swallowed: the 404 verdict names the row, and the
+                    # batch step at save time may never reach that row.
+                    print_fn=line_logger(INFO, "cite", indent=2),
                 )
             except Exception as e:      # 坏一条不许影响抓取（与批量段同口径）
                 run_log.warn(f"per-page citation-format step failed: "
