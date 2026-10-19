@@ -470,6 +470,12 @@ recorded:
 - `termination=empty_first_page` — a direct-mode list returned no rows while
   Scholar reports citations for the paper
 - `termination=empty_page` — a probed year (histogram says N > 0) returned no rows
+- `Blocked fetching ...: redirected to Google's block page (https://www.google.com/sorry/index)`
+  — Scholar bounced the request to its `/sorry/` interstitial (measured
+  2026-10-19: `302` → `/sorry/index`, which then answered `429`). The redirect
+  itself is treated as the block, so an interstitial that serves its CAPTCHA page
+  with **200** takes the captcha/retry path instead of being parsed as an empty
+  citation list.
 
 An empty page still records "no new citations" for this run, but it is no longer
 allowed to destroy data: the year (or paper) it belongs to keeps the citations

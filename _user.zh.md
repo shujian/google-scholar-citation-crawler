@@ -3627,3 +3627,20 @@ scholar=1376 unchanged; recheck by year; drop unyeared)`。）
 按规范重做了：一条 INFO 结论行（覆盖率 + 本轮下载/404/失败/跳过/无 cid），
 `── Cite dialogs · N row(s) to resolve ──` 只在有活时打（`_cite_work()` 预算），
 旧的 `citation formats resolved:` 降 DEBUG 的 `cite pass:`，cite 文件写入数回到 `output` 模块下。
+
+**你的输入**（贴出 httpx/scholarly 的两行）：
+
+> 21:51:04 [INFO] Getting https://scholar.google.com/scholar?oi=bibs&…cites=…
+> 21:52:04 [INFO] HTTP Request: GET … "HTTP/2 302 Found"
+> 21:52:08 [INFO] HTTP Request: GET https://www.google.com/sorry/index?… "HTTP/2 429 Too Many Requests"
+> 这是不是也有问题？
+
+说明：302 → `/sorry/` 是 Google 的拦截流程，判定链本身没错（最终 429 被识别为 block）；
+但发现两处问题：① 被 302 送到 sorry 页这件事在 run log 里没有痕迹；② `httpx` / `scholarly`
+的 INFO 行绕过 `run_log` 直接打 stderr（括号格式），既污染现场又从不进日志文件。
+
+**你的要求**："a+b吧"
+
+已落地：`block_redirect_target()` + `ScholarBlockedRedirect`（重定向到 `/sorry/` 即算 block，
+即使 sorry 页回 200）+ `setup_logging()` 把 `httpx`/`httpcore`/`scholarly` 压到 WARNING（`-v` 给回 DEBUG）。
+你明确只做 a+b，**没有**动 markers（captcha/unusual_traffic/consent）的升级。

@@ -2775,3 +2775,27 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   `_cite_coverage()` 从产物数覆盖率；`_cite_work()` 纯函数预算。
 - **测试**：`tests/test_cite_format.py` 的两条断言跟着改名（`citation formats resolved` → `cite dialogs:`）。
   其余用例未动；模块级全绿（本仓工作区当时还有另一组未提交改动，见 `_work_notes` 的并发说明）。
+
+### 2026-10-19 深夜（续）：302 → /sorry/ 也算 block + 第三方 logger 压到 WARNING
+
+- **触发**：用户贴出一次真实请求的原始日志 —— `GET /scholar?cites=…` 得 `HTTP/2 302 Found`，跟到
+  `www.google.com/sorry/index?…` 得 429。判定链没错（最终 429 已被 `page_visit` 认成 block），但
+  ① 被 302 带走这件事只在 httpx 的 INFO 行里，run log 一个字都没有；② 那两条 `[INFO]` 是 root
+  logger 的括号格式，**从不进日志文件**（见下）。
+- **改动**：
+  1. `code/scholarly_session.py`：`block_redirect_target(url)`（只认 google.com 下的 `/sorry`，
+     只留 scheme+host+path，丢掉 `q=` 令牌）+ `ScholarBlockedRedirect`；response hook 记下
+     `ctx.block_redirect_url`，`patched_get_page` 在调用返回后把它**当 block 抛出**（即使 sorry 页
+     回 200，也能走 cookie/重试/冷却路径，而不是把 CAPTCHA 页解析成"零行的引用列表"）；
+     每次请求前清空该字段，防止上一页的重定向误伤下一页。
+  2. `code/log_utils.py`：`setup_logging()` 把 `httpx` / `httpcore` / `scholarly` 设为 WARNING
+     （`-v` 时 DEBUG）。此前它们以 INFO 打每条请求（含完整 URL 与 sorry 页的挑战令牌），
+     且因为 root handler 写 stderr 而永远进不了 run log。
+- **日志/文档**：README 的 "Diagnosing Empty Pages" 增加这条新的 block 行；AGENTS 的日志章节与
+  scholarly patch 章节各一节。
+- **测试**：新增 4 例（重定向被抛成 block、每请求前清空、hook 记录并去令牌、纯函数只认 `/sorry`）
+  + 1 例 logger 级别；**注意** `test_scholar_patch` 里取 nav 必须从 `code.scholarly_session.scholarly`
+  取 —— `tests/conftest` 的 `scholarly` 桩与真实模块在"先 import 真 scholarly"的模块顺序下是两个
+  对象，取错一边就 patch 不到（这套既有顺序敏感性就是该文件 24 个既有失败的一部分）。
+- **验证**：整套 646 例，与改动前**同一失败集**（24 F / 10 E，全部既有：本机代理下走真网络 +
+  工作区里未提交的 `write_baseline`）。

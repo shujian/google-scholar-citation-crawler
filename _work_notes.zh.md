@@ -2442,3 +2442,37 @@ manifest，幂等。
 `code/scholar_citation.py` 里进行，工作区一度同时有双方的未提交改动。收尾时**按 hunk 摘自己的**
 （用 `git apply --cached` 只放我的 hunk，再 `git diff --cached` 复核没有对方的符号），
 避免把别人的在飞工作卷进自己的提交；对方那部分仍留在工作区由他们自己提交。
+
+## 2026-10-19 深夜（续）：为什么"重定向到 /sorry"要单独判
+
+Google 对被打的请求不是直接回 429，而是 `302 → www.google.com/sorry/index`，**由那个中间页决定**
+最后回什么。实测那次中间页回了 429，所以状态码救了命；但它也常回 **200**（就是 CAPTCHA 页本身）。
+
+- 回 200 时旧行为：`scholarly` 的 `_get_soup` 拿到一个没有 `gs_r` 结果的页面 → `page_size` 为 0 →
+  `record_zero_row_citation_page()` 只打一条 WARN（`markers=captcha` 之类），然后按 `empty_page`
+  收尾。于是整轮按 45–90s 的节奏继续翻下一页/下一年，**永远不会提示换 cookie**，而整条出口其实
+  已经被标记。详情页（Cite 对话框、出版详情页）更糟：会被当成"没有这个记录"。
+- 判据：响应最终 URL 落在 `google.com` 的 `/sorry` 下（`block_redirect_target()` 只认这个形状；
+  consent / 其它 google 页面不认，避免误伤）。
+- 抛出点：`patched_get_page` 里包住 `original_get_page` 的闭包 —— 那是唯一"请求刚回来、soup 还没
+  被解析"的时刻；抛 `ScholarBlockedRedirect` 之后由 `PageVisit` 按普通 block 处理（交互模式弹
+  cookie，无人值守走重试/冷却/换代理）。
+- **为什么不在 hook 里抛**：httpx 的 response event hook 只是观察者，抛异常会打断 httpx 自己的
+  重定向处理；而且 hook 里拿不到"这次请求的结束"这个时点。
+- **令牌**：`/sorry/index?continue=…&q=EgSM…` 的 `q` 是每次挑战现铸的，日志里只留
+  `https://www.google.com/sorry/index` —— 判据和日志都不需要 query。
+- **每请求前清空**：`block_redirect_url` 与 `last_response_status` 一样是"这次请求"的状态；
+  不清空的话，上一页的 `/sorry` 会把下一页（成功）也判成 block。
+
+## 2026-10-19 深夜（续）：第三方 logger 为什么必须压掉
+
+`setup_logging()` 的 root handler 写 **stderr**，而 run log 是 **stdout** 上的 `TeeStream`：
+所以 `httpx`（每请求一条 INFO，重定向时按跳各一条）与 `scholarly`（`Getting <url>`）的行
+**只出现在终端、从不进日志文件** —— 事后 grep 归档日志会看不到这些请求。实测今天 6 个
+`output/logs/*.log` 里 `HTTP Request:` 的条数是 **0**（用户贴的两行来自终端）。
+
+形状也不同：它们是 `21:52:04 [INFO] HTTP Request: …`（`LOG_FORMAT_CONSOLE` 的括号格式），
+与 `run_log` 的 `21:52:04 INFO  http  …` 并存 —— 一次请求在屏幕上出现两遍、两份格式。
+
+压到 WARNING（`-v` 给回 DEBUG）同时解决三件事：重复、URL 泄漏（含 sorry 的 `q=` 令牌）、
+"同一事实两个出口"。`httpx` 真正的错误（WARNING/ERROR）仍然照常显示。

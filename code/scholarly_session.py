@@ -22,6 +22,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -132,6 +133,11 @@ class SessionContext:
     # "no response seen for the current request" (network error).
     last_response_status: Optional[int] = None
     last_response_url: str = ""
+    # The /sorry/ interstitial behind the current request, or "".  Recorded by
+    # the response hook and raised as a block by patched_get_page: a redirect to
+    # Google's block page is a block even when the interstitial answers 200, and
+    # the status code alone cannot express that.
+    block_redirect_url: str = ""
 
     # injected cookies / headers (populated by _inject_cookies_from_curl)
     injected_cookies: dict = field(default_factory=dict)
@@ -263,6 +269,56 @@ def record_zero_row_citation_page(ctx, soup):
     run_log.warn(f"Page items: 0 (no citation rows){format_page_evidence(evidence)}",
                  module="http", indent=2)
     return evidence
+
+
+# ---------------------------------------------------------------------------
+# Redirected to Google's block page
+# ---------------------------------------------------------------------------
+
+#: Path of the interstitial Google bounces a request it has decided to challenge
+#: to (measured 2026-10-19: `/scholar?oi=bibs&cites=…` answered 302 →
+#: `https://www.google.com/sorry/index?continue=…`, and the interstitial then
+#: answered 429).
+_BLOCK_REDIRECT_PATH = '/sorry'
+
+
+class ScholarBlockedRedirect(Exception):
+    """Scholar answered with a redirect to Google's /sorry/ block page.
+
+    The status code alone covers the observed case (the interstitial answered
+    429), but the same interstitial also serves its CAPTCHA page with **200**:
+    then nothing raises, the page reaches the parser as a citation list with
+    zero rows — or, on a one-shot detail page, as "no such record".  Treating
+    the redirect itself as the block keeps both cases on the recovery path
+    PageVisit already has (fresh cookies, retries, cooldowns).
+    """
+
+    def __init__(self, url, target):
+        self.url = url
+        #: Scheme + host + path only — the query carries a per-challenge token
+        #: that has no business in the run log.
+        self.target = target
+        super().__init__(f"redirected to Google's block page ({target})")
+
+
+def block_redirect_target(url):
+    """Return the block-page URL *url* points at, or '' when it is a normal page.
+
+    Only the `/sorry/` interstitial counts: any other landing page is not
+    evidence of a block, and a false positive here would park a run that is
+    actually fine.  The query string is dropped on purpose (it holds the
+    challenge token).
+    """
+    try:
+        parts = urlsplit(str(url or ''))
+    except ValueError:
+        return ''
+    host = (parts.hostname or '').lower()
+    if not (host == 'google.com' or host.endswith('.google.com')):
+        return ''
+    if not parts.path.startswith(_BLOCK_REDIRECT_PATH):
+        return ''
+    return f'{parts.scheme}://{host}{parts.path}'
 
 
 # ---------------------------------------------------------------------------
@@ -462,6 +518,12 @@ def patch_scholarly(ctx: SessionContext) -> None:
         # hook is the only place the status survives for PageVisit.
         ctx.last_response_status = response.status_code
         ctx.last_response_url = str(response.url)
+        # ...and the only place the *redirect destination* survives: httpx
+        # follows `302 → www.google.com/sorry/`, so the blocked request ends up
+        # looking like a page we asked for.
+        target = block_redirect_target(ctx.last_response_url)
+        if target:
+            ctx.block_redirect_url = target
 
     def _make_http2_session():
         # Use httpx (scholarly's native client, HTTP/2) instead of curl_cffi.
@@ -620,6 +682,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
             # response at all (the response hook records the new one).
             ctx.last_response_status = None
             ctx.last_response_url = ''
+            ctx.block_redirect_url = ''
             original_sleep = time.sleep
             sleep_count = [0]
 
@@ -660,9 +723,19 @@ def patch_scholarly(ctx: SessionContext) -> None:
 
             time.sleep = _limited_sleep
             try:
-                return original_get_page(pagerequest, premium)
+                result = original_get_page(pagerequest, premium)
             finally:
                 time.sleep = original_sleep
+            # A redirect to Google's block page is a block even when the
+            # interstitial answered 200: without this the CAPTCHA page would be
+            # parsed as a citation list with no rows (or as "no such record" on a
+            # detail page), and the run would keep pacing requests at a session
+            # that is already flagged.
+            target = ctx.block_redirect_url
+            if target:
+                ctx.block_redirect_url = ''
+                raise ScholarBlockedRedirect(request_url, target)
+            return result
 
         page_visit = PageVisit(ctx)
         label = request_url[:80] if request_url else "scholar page"

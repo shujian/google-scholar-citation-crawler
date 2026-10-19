@@ -26,6 +26,16 @@ LOG_FORMAT_FILE = "%(asctime)s [%(levelname)s] %(message)s"
 LOG_DATEFMT_CONSOLE = "%H:%M:%S"
 LOG_DATEFMT_FILE = "%Y-%m-%d %H:%M:%S"
 
+#: Third-party loggers that must not speak for themselves on the console.
+#: `httpx` logs every request at INFO (and every redirect hop with it, full URL
+#: included — seen 2026-10-19: `HTTP Request: GET https://www.google.com/sorry/
+#: index?…&q=<token> "HTTP/2 429 Too Many Requests"`) and `scholarly` logs
+#: `Getting <url>`; both bypass `run_log`, and because the root handler writes
+#: **stderr** (stdout is the TeeStream that mirrors into the run log) such lines
+#: never reached the archived log at all.  At WARNING they only surface when
+#: something is genuinely wrong; `-v` gives their own DEBUG detail back.
+_THIRD_PARTY_LOGGERS = ("httpx", "httpcore", "scholarly")
+
 
 def setup_logging(
     verbose: bool = False,
@@ -44,6 +54,12 @@ def setup_logging(
     # ``--verbose`` also decides whether the run-log facade prints its per-item
     # detail (per request, per page, per year) — see ``RunLog``.
     run_log.set_threshold(DEBUG if verbose else INFO)
+
+    # Their own record must not duplicate ours (run_log already prints one line
+    # per request/page at DEBUG), and their URLs carry tokens we do not want
+    # echoing.  Explicit level, so it also works when this is called twice.
+    for name in _THIRD_PARTY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.DEBUG if verbose else logging.WARNING)
 
     root = logging.getLogger()
     root.setLevel(level)

@@ -95,6 +95,31 @@ class RunLogShapeTests(unittest.TestCase):
             lu.setup_logging(verbose=True)
             self.assertEqual(lu.run_log.threshold, lu.DEBUG)
 
+    def test_third_party_loggers_are_muted_unless_verbose(self):
+        """httpx/scholarly must not print their own copy of every request.
+
+        Seen 2026-10-19 in the terminal: the bracketed root-logger lines
+        ``21:52:04 [INFO] HTTP Request: GET https://www.google.com/sorry/index?…``
+        and ``21:51:04 [INFO] Getting https://scholar.google.com/scholar?…`` — a
+        second, differently formatted copy of each request (redirect hops
+        included, challenge token in the URL) that never reached the run log,
+        because the root handler writes stderr while the log is stdout.
+        """
+        import logging
+        levels = {name: logging.getLogger(name).level
+                  for name in lu._THIRD_PARTY_LOGGERS}
+        self.addCleanup(lambda: [logging.getLogger(name).setLevel(level)
+                                 for name, level in levels.items()])
+        with patch("sys.stderr", new_callable=StringIO):
+            lu.setup_logging(verbose=False)
+            for name in lu._THIRD_PARTY_LOGGERS:
+                self.assertEqual(logging.getLogger(name).level, logging.WARNING,
+                                 f"{name} would print its own INFO lines")
+            lu.setup_logging(verbose=True)
+            for name in lu._THIRD_PARTY_LOGGERS:
+                self.assertEqual(logging.getLogger(name).level, logging.DEBUG,
+                                 f"-v should give {name} its DEBUG detail back")
+
 
 class PruneRunLogsTests(unittest.TestCase):
     """Keep the newest N run logs; move the rest to logs/old/ — never delete."""

@@ -1027,6 +1027,114 @@ class MissingCiteDialogWiringTests(FetcherTestCase):
         self.assertEqual(seen, [None])
 
 
+class BlockRedirectTests(FetcherTestCase):
+    """A redirect to Google's /sorry/ interstitial is a block, not a page.
+
+    Measured 2026-10-19: ``/scholar?oi=bibs&cites=…`` answered ``302 Found``,
+    httpx followed it to ``www.google.com/sorry/index?…`` and that answered 429.
+    The status code alone covered that run, but the same interstitial serves its
+    CAPTCHA page with **200** — then nothing raises, the page reaches the parser
+    as "a citation list with no rows" (or as "no such record" on a detail page),
+    and the run keeps pacing requests at a session that is already flagged.
+    """
+
+    LIST_URL = ('/scholar?as_ylo=2025&as_yhi=2025&hl=en&as_sdt=2005&sciodt=0,5'
+                '&cites=5394525667202485226&scipsc=')
+    REDIRECT = 'https://www.google.com/sorry/index'
+
+    def setUp(self):
+        super().setUp()
+        # Take the nav from the module the patch layer itself imports.  When the
+        # real `scholarly` was imported before `tests/conftest` installed its
+        # stub, `conftest.scholarly_mod.scholarly` and `code.scholarly_session`'s
+        # `scholarly` are two different objects, and patching one of them leaves
+        # the other untouched (that mismatch is why several tests in this file
+        # only fail when other modules ran first).
+        from code import scholarly_session as _ss
+        self.nav = _ss.scholarly._Scholarly__nav
+        self.blocked = True
+
+        def _fake_get_page(pagerequest, premium=False):
+            # A stand-in for what the httpx response hook records when the block
+            # page is the final (post-redirect) URL.
+            if self.blocked:
+                self.fetcher._session_ctx.block_redirect_url = self.REDIRECT
+            return '<html></html>'
+
+        self.nav._get_page = _fake_get_page
+        with patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._patch_scholarly()
+        self.ctx = self.fetcher._session_ctx
+        self.ctx.first_page_prompt_fn = None
+
+    class _SpyVisit:
+        """Skip PageVisit's recovery (it would sleep for minutes); just call."""
+
+        def __init__(self, ctx):
+            pass
+
+        def fetch(self, fn, url, label='page', missing_record_on_404=False):
+            return fn()
+
+    def _request(self):
+        with patch("code.scholarly_session.PageVisit", self._SpyVisit), \
+             patch("code.scholarly_session.rand_delay", return_value=0), \
+             patch("code.scholarly_session.time.sleep", return_value=None), \
+             patch("sys.stdout", new_callable=StringIO):
+            return self.nav._get_page(self.LIST_URL)
+
+    def test_the_block_redirect_is_raised_as_a_block(self):
+        from code.scholarly_session import ScholarBlockedRedirect
+        with self.assertRaises(ScholarBlockedRedirect) as caught:
+            self._request()
+        self.assertEqual(caught.exception.target, self.REDIRECT)
+
+    def test_the_flag_is_cleared_before_each_request(self):
+        """A stale redirect must not condemn the next, healthy request."""
+        self.blocked = False
+        self.ctx.block_redirect_url = self.REDIRECT     # left over from the last page
+        self.assertEqual(self._request(), '<html></html>')
+        self.assertEqual(self.ctx.block_redirect_url, '')
+
+    def test_the_response_hook_records_the_block_redirect(self):
+        sessions = [s for s in (self.nav._session1, self.nav._session2) if s]
+        self.assertTrue(sessions)
+        for session in sessions:
+            hooks = (getattr(session, 'event_hooks', None) or {}).get('response') or []
+            self.ctx.block_redirect_url = ''
+            hooks[0](types.SimpleNamespace(
+                status_code=200,
+                url='https://www.google.com/sorry/index?continue=x&q=TOKEN'))
+            # 200 on the interstitial is still a block...
+            self.assertEqual(self.ctx.block_redirect_url, self.REDIRECT)
+            # ...and the challenge token is dropped from what we keep.
+            self.assertNotIn('TOKEN', self.ctx.block_redirect_url)
+            # A normal page never sets it.
+            self.ctx.block_redirect_url = ''
+            hooks[0](types.SimpleNamespace(
+                status_code=200, url='https://scholar.google.com/scholar?cites=1'))
+            self.assertEqual(self.ctx.block_redirect_url, '')
+
+
+class BlockRedirectTargetTests(unittest.TestCase):
+    """Only Google's /sorry/ interstitial counts as a block redirect."""
+
+    def test_only_googles_sorry_interstitial_counts(self):
+        from code.scholarly_session import block_redirect_target
+        self.assertEqual(
+            block_redirect_target(
+                'https://www.google.com/sorry/index?continue=x&q=TOKEN'),
+            'https://www.google.com/sorry/index')
+        for url in ('https://scholar.google.com/scholar?cites=1',
+                    'https://www.google.com/',
+                    'https://consent.google.com/m?continue=x',
+                    'https://notgoogle.com/sorry/',
+                    'https://google.com.evil.example/sorry/',
+                    '', None):
+            with self.subTest(url=url):
+                self.assertEqual(block_redirect_target(url), '')
+
+
 class CitationPageProgressTests(RunLogDebugCase):
     """One INFO line per citation-list page: where the traversal is (2026-10-19).
 

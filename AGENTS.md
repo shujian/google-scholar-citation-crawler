@@ -181,6 +181,12 @@ google-scholar-citation-crawler/
   `code/venue_detail.py` / `code/cite_format.py` / `code/profile_io.py` 保留 `print_fn` 接缝给测试，
   但默认值已换成 `line_logger(...)` / 各自的 `_log_*_line` 适配器（经 `run_log` 输出），
   所以"默认打印"也是同一种行形状。
+- **第三方 logger 一律压到 WARNING（2026-10-19）**：`httpx` 每条请求打一行 INFO（重定向时连跳转
+  各一行，带完整 URL —— 实测含 `www.google.com/sorry/index?…&q=<令牌>`），`scholarly` 打
+  `Getting <url>`；它们绕过 `run_log`，形状是括号版 `21:52:04 [INFO] HTTP Request: GET …`，与
+  `run_log` 的 `21:52:04 INFO  http  …` 并存。**而且从不进日志文件**：root handler 写 stderr，
+  run log 是 stdout 的 TeeStream。`setup_logging()` 把 `httpx` / `httpcore` / `scholarly` 设为
+  WARNING（`-v` 给回 DEBUG）。
 - **测试**：`tests/conftest.py::RunLogDebugCase` 把阈值降到 DEBUG（测试会断言请求/页级明细），
   `FetcherTestCase` 已继承它；`setup_logging()` 会把阈值改回 INFO，所以**每个测试自己声明**，
   不能只在模块级设一次。
@@ -476,7 +482,13 @@ Patches `scholarly` internals rather than treating it as a black box:
   httpx `response` event hook; cleared before each request).  scholarly throws the status away —
   it treats 404 as "retry with the same session" and ends in the same
   `MaxTriesExceededException` as a captcha or a 429 — so this hook is the only place it survives
-  for `PageVisit` (2026-10-16).
+  for `PageVisit` (2026-10-16).  The same hook also records **where the request
+  landed** when Google bounces it to its `/sorry/` block page: `block_redirect_target()`
+  keeps scheme+host+path only (the interstitial's `q=` token is dropped), and
+  `patched_get_page` raises `ScholarBlockedRedirect` after the call.  The redirect is
+  treated as the block even when the interstitial answers **200** — otherwise a CAPTCHA
+  page reaches the parser as "a citation list with no rows" (or as "no such record" on a
+  detail page) and the run keeps pacing a flagged session (2026-10-19).
 - Verifies every patch hook point at the end of `patch_scholarly()` and raises
   when a scholarly upgrade made one of them ineffective (see
   `assert_scholarly_patches_active`)
