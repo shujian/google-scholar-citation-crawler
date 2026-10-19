@@ -3644,3 +3644,12 @@ scholar=1376 unchanged; recheck by year; drop unyeared)`。）
 已落地：`block_redirect_target()` + `ScholarBlockedRedirect`（重定向到 `/sorry/` 即算 block，
 即使 sorry 页回 200）+ `setup_logging()` 把 `httpx`/`httpcore`/`scholarly` 压到 WARNING（`-v` 给回 DEBUG）。
 你明确只做 a+b，**没有**动 markers（captcha/unusual_traffic/consent）的升级。
+
+**你的要求**："失败的测试要处理一下。"
+
+已落地：整套 34 条失败（24 F + 10 E）**清零**，而且整套从 500 秒降到 1.3 秒 —— 根因是
+`tests/test_checkpoint_handoff.py` 先 import 了 `code.*`、没先 import `tests.conftest`，
+于是 `scholarly` / `openpyxl` 的测试桩没装上，真的 Navigator/Workbook 顶上来（还顺带真的走了网络）。
+另补两处：conftest 现在检测到这种顺序会直接 `RuntimeError`；`test_year_fetch_main` 的
+`FakePaperFetcher` 补上 `write_baseline` / `has_pending_work` / `has_cite_format_work`
+（你工作区里 `main()` 新调用 `write_baseline` 那次改动）。

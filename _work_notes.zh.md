@@ -2476,3 +2476,23 @@ Google 对被打的请求不是直接回 429，而是 `302 → www.google.com/so
 
 压到 WARNING（`-v` 给回 DEBUG）同时解决三件事：重复、URL 泄漏（含 sorry 的 `q=` 令牌）、
 "同一事实两个出口"。`httpx` 真正的错误（WARNING/ERROR）仍然照常显示。
+
+## 2026-10-19 深夜（续）：一套 hermetic 测试为什么能"整套红、单跑绿"
+
+`tests/conftest.py` 靠 `sys.modules.setdefault` 装 `scholarly` / `openpyxl` 桩 ——
+**setdefault 只有在真包还没被 import 时才生效**。所以它的约束是"先于任何 `code.*` 被 import"，
+而这条约束以前只写在 docstring 里，没人守。
+
+- 违反它的是 `tests/test_checkpoint_handoff.py`：它在文件头直接 `import code.scholar_citation`，
+  而它字母序排在所有 `from tests.conftest import …` 的模块**之前**。
+- 后果（实测，2026-10-19）：真 `scholarly` 赢了 `sys.modules` →
+  * `code.scholarly_session.scholarly` 绑的是真单例；`FetcherTestCase.setUp` 写的
+    `scholarly_mod.scholarly._Scholarly__nav = _DummyNav()` 落在**没人读**的 SimpleNamespace 上，
+    于是"延时 / referer / 状态码 / 客户端关闭 / patch 自检"这批用例全部在不该有的真实 Navigator 上跑；
+  * 真 `openpyxl` 赢了 → `save_profile_xlsx` 返回真 Workbook，测试断言的 `.sheets` 不存在；
+  * 真 scholarly 还让 `_patch_scholarly()` 建出真 httpx 客户端，部分用例**真的走代理发请求** →
+    整套 500 秒、失败数随网络抖动（同一份代码两次跑可以是 24 F / 10 E 或 27 F / 11 E）。
+- 判据：**同一批用例"单模块跑绿、整套跑红"，先怀疑 import 顺序，而不是业务代码**。
+- 修法两层：① 违反者补 `import tests.conftest`（根因）；② conftest 装完桩后检查
+  `code.scholarly_session` 是否已被真包绑过，是就 `RuntimeError` 并指名模块 —— 以后谁再犯是
+  **一条明确的错**，而不是 30 条互不相关的失败。这样"测试是 hermetic 的"才真的成立。

@@ -416,6 +416,17 @@ class YearFetchMainTests(FetcherTestCase):
             def _patch_scholarly(self):
                 pass
 
+            # `main()` 在抓取前先落 baseline、并据此判断"这一轮有没有活"；
+            # 假 fetch 只需如实回应，别让缺方法把 main 打断（2026-10-19）。
+            def write_baseline(self):
+                pass
+
+            def has_pending_work(self):
+                return True
+
+            def has_cite_format_work(self):
+                return False
+
             def run(self):
                 return True
 
@@ -469,6 +480,15 @@ class YearFetchMainTests(FetcherTestCase):
 
             def _patch_scholarly(self):
                 pass
+
+            def write_baseline(self):
+                pass
+
+            def has_pending_work(self):
+                return True
+
+            def has_cite_format_work(self):
+                return False
 
             def run(self):
                 print("Citation fetch done")
@@ -540,6 +560,9 @@ class YearFetchMainTests(FetcherTestCase):
                 pass
 
             def _patch_scholarly(self):
+                pass
+
+            def write_baseline(self):
                 pass
 
             def has_pending_work(self):

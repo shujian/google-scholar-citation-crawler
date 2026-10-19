@@ -2799,3 +2799,23 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   对象，取错一边就 patch 不到（这套既有顺序敏感性就是该文件 24 个既有失败的一部分）。
 - **验证**：整套 646 例，与改动前**同一失败集**（24 F / 10 E，全部既有：本机代理下走真网络 +
   工作区里未提交的 `write_baseline`）。
+
+### 2026-10-19 深夜（续）：阶段 1 整套测试清零（34 失败 → 0），并从 500 秒回到 1.3 秒
+
+- **症状**：`python -m unittest discover -s tests` 出 24 F / 10 E，全部集中在
+  `test_scholar_patch`（延时 / referer / 状态码 / 客户端关闭 / patch 自检）、`test_profile`（xlsx 断言）
+  与 `test_venue_detail`（"没有 navigator"那条）；每个模块**单独跑却全绿**，整套要 500 秒。
+- **根因**：`tests/conftest.py` 用 `sys.modules.setdefault` 安装 `scholarly` / `openpyxl` 桩，
+  前提是它**先于**任何 `code.*` 被 import。`tests/test_checkpoint_handoff.py`（字母序第二个）
+  先 `import code.scholar_citation`，于是真 `scholarly` / 真 `openpyxl` 占了 `sys.modules`，
+  conftest 的桩全部落空 → `FetcherTestCase.setUp` 把 `_DummyNav` 写进没人读的 `SimpleNamespace`、
+  xlsx 断言拿到真 `Workbook` → 30+ 条失败；真 scholarly 还让部分用例真的建了 httpx 客户端/走网络，
+  于是整套 500 秒。
+- **改动**：
+  1. `tests/test_checkpoint_handoff.py`：在 `code` 之前 `import tests.conftest`（并删掉重复的
+     `sys.path.insert`）。
+  2. `tests/conftest.py`：装完桩后检查 `code.scholarly_session` 是否已经被真包绑过 —— 是就立即
+     `RuntimeError` 并指名那个模块（这行注释里写了实测数字：34 失败 / 500 秒 vs 0 失败 / 1.3 秒）。
+  3. `tests/test_year_fetch_main.py`：假 fetch 补 `write_baseline` / `has_pending_work` /
+     `has_cite_format_work` —— `main()` 现在抓取前先落 baseline 并按此判断有没有活。
+- **验证**：阶段 1 **646 例全绿、1.3 秒**（无网络）；根目录 `./run_all_tests.sh` 六套 **2,497 例全绿**。

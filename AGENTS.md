@@ -541,6 +541,12 @@ scholarly import) and no second copy of the workflow.
 Tests are in `tests/` and require no network or real Excel library (all external
 dependencies are stubbed in `tests/conftest.py`).
 
+- **`tests/conftest.py` 必须先于任何 `code.*` 被 import**：它用 `sys.modules.setdefault` 安装
+  `scholarly` / `openpyxl` 的桩。某个测试模块若先 import 了 `code.*`，真包就赢了 `sys.modules` ——
+  `FetcherTestCase` 把 `_DummyNav` 写进没人读的对象、xlsx 断言拿到真 `Workbook`，于是整套 30+ 条
+  失败（patch 延时 / referer / 状态码 / xlsx），而每个模块单独跑却全绿。2026-10-19 实测：一个模块
+  少这一行 → 34 失败 / 500 秒（真网络）；补上 → **0 失败 / 1.3 秒**。conftest 现在检测到这种顺序
+  会**直接抛 `RuntimeError`** 并指名那个模块，别再让它以 30 条无关失败的样子出现。
 - `FetcherTestCase` base class provides a fully-initialised `self.fetcher` with all
   runtime attributes zeroed out and common method stubs in place.
 - Each test file covers one functional area; see `_work_notes.zh.md` 项目结构 for the mapping.

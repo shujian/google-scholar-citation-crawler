@@ -16,7 +16,12 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# `tests.conftest` installs the `scholarly` / `openpyxl` stubs and MUST be
+# imported before anything imports `code.*`: otherwise the real packages win
+# `sys.modules`, `FetcherTestCase` writes its DummyNav into an object no code
+# reads, and every patch-layer/xlsx test fails with whatever the real
+# Navigator/Workbook happens to contain (the module alone still passes).
+import tests.conftest  # noqa: E402,F401
 
 import code.scholar_citation as SC  # noqa: E402
 from code.config import papers_root  # noqa: E402

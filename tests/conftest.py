@@ -182,6 +182,25 @@ styles_mod.Alignment = _Style
 sys.modules.setdefault("openpyxl.styles", styles_mod)
 
 
+# The stubs above only win when this file is imported **before** anything that
+# imports `code.*` (see the module docstring).  A test module that imports the
+# crawler first binds the *real* `scholarly` / `openpyxl`: `FetcherTestCase` then
+# writes its `_DummyNav` into an object no code reads, and the patch-layer/xlsx
+# tests fail with whatever the real Navigator/Workbook happens to contain —
+# while each module still passes when run alone.  Fail loudly instead of leaving
+# 30 confusing failures to be diagnosed (measured 2026-10-19: one module was
+# missing the import and the suite went 34 failures / 500 s → 0 / 1 s).
+_live_session = sys.modules.get("code.scholarly_session")
+if (_live_session is not None
+        and getattr(_live_session, "scholarly", None) is not scholarly_mod.scholarly):
+    raise RuntimeError(
+        "tests.conftest must be imported before any `code.*` module: "
+        "%s imported the crawler first, so the real `scholarly`/`openpyxl` are "
+        "bound and the test stubs are bypassed.  Add `import tests.conftest` "
+        "above the `code` imports of that test module."
+        % getattr(_live_session, "__name__", "a test module"))
+
+
 # ---------------------------------------------------------------------------
 # Base test case with shared setUp
 # ---------------------------------------------------------------------------
