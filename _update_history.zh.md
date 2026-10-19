@@ -2739,3 +2739,23 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   不会落盘；测试的 `partial_json` 重定向到 scratch。
 - 验证：`tests.test_checkpoint_handoff`（3 例）、`tests.test_output`（20 例）、
   `tests.test_main_loop`（16 例）通过；未跑整套。
+
+### 2026-10-19 深夜：stalled 阈值 2 → 1，并修掉两处"记录写歪"的缺陷
+
+- **触发**：用户的日志里，12:28 那轮刚抓完的 [1/241] 在新一轮里又被抓了一遍（21:51 起）。
+  查下来不是判据错，而是 `STALL_AFTER_ATTEMPTS = 2`：要**连续两次**完整走完得到同样的条数才判死，
+  所以"刚抓过"的那篇恰好是第二遍 —— 一篇 1,377 条的论文，短年份一年就是 23 页 / 半小时级。
+- **改动**：
+  1. `code/config.py`：`STALL_AFTER_ATTEMPTS = 1`（用户定）。一遍完整走完仍然比 Scholar 声称的少 →
+     直接 stalled、不再重抓；仍由 `scholar_changed` / `--fetch-mode force` 恢复。
+  2. `code/output_state.py::_normalize_year_records()`：保存/读回时保留
+     `short_attempts` / `stalled` / `stalled_probe`（此前只留 6 个计数字段 → K151 的"重扫一遍就判死"
+     跨 run 永远不生效，每轮都从 `short_attempts = 0` 重来）。
+  3. `code/output_state.py::resync_year_record_counts()` + `_save_output` 的 `_build_entry` 调用：
+     逐年 `cached_total` 改成**落盘行数**、差额进 `dedup_count`，`seen_total`（完整性判据）不动。
+  4. 两条日志措辞：计划里的 "Skipping N stalled paper(s)" 与逐篇的 "-> stalled (...)" 在阈值为 1 时
+     不再说 "1 full walks …"。
+- **验证**：阶段 1 单测全绿（新增"一遍即判死""阈值可配""年记录往返保留判死字段""逐年计数按行收口"
+  4 例；3 例旧用例改为显式传 `stall_after_attempts=2`，因为它们要验证的是"重复"而不是阈值）。
+  整套里另有 24 F / 10 E 是**既有**问题（本机代理下会走真网络 + 工作区里另一处未提交改动的
+  `write_baseline`），与本次无关：HEAD 独立 worktree 上同样 24 F / 7 E。

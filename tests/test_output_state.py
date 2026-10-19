@@ -271,6 +271,59 @@ class PaperFetchStateTests(unittest.TestCase):
         self.assertEqual(fs.year_shortfall_summary(), '2026(64/66)')
         self.assertIn('short years: 2026(64/66)', fs.completeness_diag())
 
+    def test_year_records_keep_the_short_attempt_and_stall_fields(self):
+        """The per-year bookkeeping must survive the save/reload rebuild.
+
+        `_normalize_year_records()` rebuilds every record from a fixed key list;
+        it used to drop `short_attempts` / `stalled` / `stalled_probe`, so the
+        "re-scan once, then treat the probe as stale" rule could never fire
+        across runs — every run restarted at `short_attempts = 0`.
+        """
+        fs = PaperFetchState.from_dict({
+            "title": "T", "fetch_strategy": "year",
+            "year_records": [{
+                "year": 2021, "histogram_count": 222, "cached_total": 220,
+                "seen_total": 220, "dedup_count": 0,
+                "termination_reason": "short_page_stop",
+                "short_attempts": 3, "stalled": True, "stalled_probe": 222,
+            }],
+        })
+        out = fs.to_dict()
+        record = out["year_records"][0]
+        self.assertEqual(record["short_attempts"], 3)
+        self.assertTrue(record["stalled"])
+        self.assertEqual(record["stalled_probe"], 222)
+        # ...and the rules that read them agree.
+        from code.citation_cache import year_record_gap
+        self.assertEqual(year_record_gap(record), 0,
+                         "两遍都只有 220 条 → gap 记 0，论文不再永远 partial")
+        back = PaperFetchState.from_dict(out).year_records[0]
+        self.assertTrue(back["stalled"])
+        self.assertEqual(back["short_attempts"], 3)
+
+    def test_resync_year_record_counts_follows_the_stored_rows(self):
+        """`cached_total` must describe the rows on disk, `seen_total` the fetch."""
+        from code.output_state import resync_year_record_counts
+        records = [
+            {"year": 2021, "histogram_count": 222, "cached_total": 221,
+             "seen_total": 221, "dedup_count": 0,
+             "termination_reason": "short_page_stop",
+             "short_attempts": 1, "stalled": False, "stalled_probe": 0},
+            {"year": 2026, "histogram_count": 71, "cached_total": 71,
+             "seen_total": 71, "dedup_count": 0,
+             "termination_reason": "short_page_stop"},
+        ]
+        citations = ([{"year": "2021", "title": "a"}] * 220
+                     + [{"year": "2026", "title": "b"}] * 69)
+        resync_year_record_counts(records, citations)
+        # The file holds 220 / 69 rows, so that is what the records now claim...
+        self.assertEqual((records[0]["cached_total"], records[1]["cached_total"]), (220, 69))
+        # ...while the fetch-time truth (`seen_total`) and its verdict stay put.
+        self.assertEqual((records[0]["seen_total"], records[1]["seen_total"]), (221, 71))
+        self.assertEqual((records[0]["dedup_count"], records[1]["dedup_count"]), (1, 2))
+        self.assertEqual(records[0]["short_attempts"], 1)
+        self.assertEqual(records[0]["termination_reason"], "short_page_stop")
+
     def test_complete_fetch_attempt_is_tri_state(self):
         """A missing flag means 'unknown', an explicit False means 'did not finish'."""
         self.assertIsNone(PaperFetchState.from_dict({"title": "T"}).complete_fetch_attempt)
@@ -337,7 +390,8 @@ class FetchStallTests(unittest.TestCase):
         fs._direct_fetch_diagnostics["seen_total"] = 20
         fs.record_fetch_outcome()
         self.assertEqual((fs.stall_signature, fs.stall_count), ("direct:20", 1))
-        self.assertFalse(fs.is_stalled())
+        # 计数器确实重开了：默认阈值 1 下"新结果"本身就算一次，所以要显式要 2 次才判定。
+        self.assertFalse(fs.is_stalled(stall_after_attempts=2))
 
     def test_record_fetch_outcome_ignores_an_unfinished_traversal(self):
         fs = self._direct_state()
@@ -348,7 +402,8 @@ class FetchStallTests(unittest.TestCase):
         blocked.inherit_stall_tracking(fs)
         blocked.record_fetch_outcome()
         self.assertEqual((blocked.stall_signature, blocked.stall_count), ("direct:0", 1))
-        self.assertFalse(blocked.is_stalled())
+        # 默认阈值是 1，所以这里显式要 2 次才判定 —— 只看"未完成的走法没被算进去"。
+        self.assertFalse(blocked.is_stalled(stall_after_attempts=2))
 
     def test_record_fetch_outcome_without_diagnostics_clears_tracking(self):
         fs = PaperFetchState.from_dict({
@@ -364,12 +419,18 @@ class FetchStallTests(unittest.TestCase):
         fs.record_fetch_outcome()
         self.assertEqual((fs.stall_signature, fs.stall_count), (None, 0))
 
-    def test_is_stalled_only_after_repeated_identical_outcomes(self):
+    def test_one_full_walk_is_enough_by_default(self):
+        """STALL_AFTER_ATTEMPTS == 1 (2026-10-19 用户定：抓过一遍还不够就判死)."""
         fs = self._direct_state()
         fs.record_fetch_outcome()
-        self.assertFalse(fs.is_stalled())          # one attempt is not a stall
+        self.assertTrue(fs.is_stalled())
+
+    def test_is_stalled_needs_the_configured_number_of_repeats(self):
+        fs = self._direct_state()
         fs.record_fetch_outcome()
-        self.assertTrue(fs.is_stalled())           # STALL_AFTER_ATTEMPTS == 2
+        self.assertFalse(fs.is_stalled(stall_after_attempts=2))   # 一次不算
+        fs.record_fetch_outcome()
+        self.assertTrue(fs.is_stalled(stall_after_attempts=2))    # 两次才算
 
     def test_is_stalled_false_when_scholar_count_changed(self):
         fs = self._direct_state(stall_signature="direct:0", stall_count=2)

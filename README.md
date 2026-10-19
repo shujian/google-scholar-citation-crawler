@@ -434,11 +434,14 @@ same numbers. The crawler now notices this:
   signature: they drift between runs even when the listing does not (one paper's
   2026 bucket alternated 190/200 ↔ 194/201 within a day), which used to make
   every run look like a new outcome and kept such a paper in the plan forever.
-- Once **two full walks in a row obtain the same number of rows**, the paper is
-  marked `stalled` and skipped: it stays in the output with whatever was
-  collected, the run summary prints `Stalled (skip): N`, and the plan lists
-  `Skipping N stalled paper(s)`. It is parked even though it still looks
-  incomplete — two full walks of the same list returned the same rows.
+- Once **`STALL_AFTER_ATTEMPTS` full walks in a row obtain the same number of
+  rows**, the paper is marked `stalled` and skipped: it stays in the output with
+  whatever was collected, the run summary prints `Stalled (skip): N`, and the
+  plan lists `Skipping N stalled paper(s)`. It is parked even though it still
+  looks incomplete — the same list returned the same rows. The threshold is
+  **1** since 2026-10-19: one full walk that still comes up short is enough, so
+  "the paper that was just fetched" is not walked again from page 1. Raise it
+  only if you would rather give a transient short listing a second chance.
 - The stall clears itself when the paper's Scholar count grows (the one event
   that can add rows), and whenever the number of rows obtained changes.
 - Only a **full walk** counts: an attempt that was blocked, hit an empty page, was

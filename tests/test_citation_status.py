@@ -869,13 +869,16 @@ class StallRuleTests(unittest.TestCase):
             "year_records": [record],
         })
 
-    def test_two_completed_traversals_with_the_same_rows_stall_the_paper(self):
+    def test_one_completed_traversal_that_lands_short_stalls_the_paper(self):
+        """Default `STALL_AFTER_ATTEMPTS == 1`: a full walk that lands short parks it."""
         first = self._state(83, complete=True, histogram_count=95)
         first.record_fetch_outcome()
         self.assertEqual(first.stall_count, 1)
+        self.assertTrue(first.is_stalled())
+        self.assertFalse(first.is_complete())
 
         # Next run: Scholar claims one more citation, the traversal returns the
-        # same rows.  The paper is parked even though it still looks incomplete.
+        # same rows.  The repeat keeps it parked (and shows up in the log).
         second = self._state(83, complete=True, histogram_count=96)
         second.inherit_stall_tracking(first)
         second.record_fetch_outcome()
@@ -923,7 +926,8 @@ class StallRuleTests(unittest.TestCase):
         skipped.inherit_stall_tracking(first)
         skipped.record_fetch_outcome()
         self.assertEqual((skipped.stall_signature, skipped.stall_count), ('year:83', 1))
-        self.assertFalse(skipped.is_stalled())
+        # 默认阈值 1，所以显式要 2 次才判定 —— 这里只看"故意早停的走法没被算进去"。
+        self.assertFalse(skipped.is_stalled(stall_after_attempts=2))
 
     def test_a_legacy_state_without_the_completion_flag_never_stalls(self):
         from code.output_state import PaperFetchState

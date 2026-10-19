@@ -364,10 +364,12 @@ class PaperFetchState:
 
         "Same result" means `stall_after_attempts` **full walks** in a row
         obtained the same number of rows (`visited_every_page()` decides what
-        counts as a full walk).  Scholar's own counts are not part of that
-        comparison, so a paper whose listing simply does not contain the
+        counts as a full walk).  The default is 1 (2026-10-19 用户定: one full walk
+        that still comes up short is enough), so a paper is parked as soon as
+        its first completed walk lands short.  Scholar's own counts are not part
+        of that comparison, so a paper whose listing simply does not contain the
         citations Scholar claims is parked even though it still looks
-        incomplete: two full walks of the same list gave the same rows.
+        incomplete: the same list simply yields the same rows.
 
         Clears itself when the paper's Scholar total grows (`scholar_changed`) —
         the one event that can add rows — and when the number of rows obtained
@@ -515,24 +517,38 @@ def _normalize_year_records(data):
     """Return a sorted list of per-year record dicts (oldest first).
 
     Accepts a year_records list or a year_fetch_diagnostics dict (old format).
+
+    `short_attempts` / `stalled` / `stalled_probe` are carried through: they are
+    what lets a year that the listing cannot fill stop being re-scanned
+    (`citation_fetch._stall_now`, `citation_cache.year_record_effective_histogram`).
+    This rebuild used to keep only the six counting fields, so the K151 year-level
+    rule was write-only — every run reloaded `short_attempts = 0`, never re-scanned
+    from page 1, never marked the year stalled, and the paper was walked again on
+    every run (2026-10-19).
     """
+
+    def _record(item, year):
+        ct = item.get('cached_total', 0) or 0
+        dd = item.get('dedup_count', 0) or 0
+        return {
+            'year': year,
+            'histogram_count': item.get('histogram_count', item.get('scholar_total', 0)) or 0,
+            'cached_total': ct,
+            'seen_total': item.get('seen_total', ct + dd),
+            'dedup_count': dd,
+            'termination_reason': item.get('termination_reason', 'iterator_exhausted'),
+            'short_attempts': item.get('short_attempts', 0) or 0,
+            'stalled': bool(item.get('stalled')),
+            'stalled_probe': item.get('stalled_probe', 0) or 0,
+        }
+
     if isinstance(data, list):
         records = []
         for item in data:
             if isinstance(item, dict) and 'year' in item:
                 try: year = int(item['year'])
                 except (TypeError, ValueError): continue
-                hc = item.get('histogram_count', item.get('scholar_total', 0)) or 0
-                ct = item.get('cached_total', 0) or 0
-                dd = item.get('dedup_count', 0) or 0
-                records.append({
-                    'year': year,
-                    'histogram_count': hc,
-                    'cached_total': ct,
-                    'seen_total': item.get('seen_total', ct + dd),
-                    'dedup_count': dd,
-                    'termination_reason': item.get('termination_reason', 'iterator_exhausted'),
-                })
+                records.append(_record(item, year))
         records.sort(key=lambda r: r['year'])
         return records if records else None
     if isinstance(data, dict):
@@ -541,20 +557,42 @@ def _normalize_year_records(data):
             if not isinstance(diag, dict) or 'year' not in diag: continue
             try: year = int(diag['year'])
             except (TypeError, ValueError): continue
-            hc = diag.get('histogram_count', diag.get('scholar_total', 0)) or 0
-            ct = diag.get('cached_total', 0) or 0
-            dd = diag.get('dedup_count', 0) or 0
-            records.append({
-                'year': year,
-                'histogram_count': hc,
-                'cached_total': ct,
-                'seen_total': diag.get('seen_total', ct + dd),
-                'dedup_count': dd,
-                'termination_reason': diag.get('termination_reason', 'iterator_exhausted'),
-            })
+            records.append(_record(diag, year))
         records.sort(key=lambda r: r['year'])
         return records if records else None
     return None
+
+
+def resync_year_record_counts(year_records, citations):
+    """Make each year record's row counts describe *citations* (the stored rows).
+
+    2026-10-19 用户定：去重只改变"行怎么分组"，绝不改变"已经抓了多少" ——
+    `seen_total` 是抓取时写下的事实、也是完整性判据唯一看的字段，**保持不动**；
+    `cached_total` 改成这个年份**实际存下来的行数**，差额并入 `dedup_count`，让
+    `cached_total + dedup_count == seen_total` 对着磁盘上的数据成立。
+
+    为什么需要：输出级去重（`_dedup_citations_for_output`）会从 citations 里删掉重复行，
+    而 per-year 记录是抓取时的快照 —— 不重算的话，文件里 1,377 行、记录却声称 1,379 行，
+    某一年会比实际"满"一条（实测 2026 记着 71、实际 69）。完整性判据不受影响，因为
+    `seen_total` 没动；变的只是"这一年到底存了几行"。
+
+    Returns *year_records* (mutated in place) so callers can chain.
+    """
+    from code.citation_cache import iter_year_records, year_count_map
+    rows = year_count_map(citations or [])
+    for record in iter_year_records(year_records):
+        try:
+            year = int(record.get('year'))
+        except (TypeError, ValueError):
+            continue
+        try:
+            seen = int(record.get('seen_total') or 0)
+        except (TypeError, ValueError):
+            seen = 0
+        cached = rows.get(year, 0)
+        record['cached_total'] = cached
+        record['dedup_count'] = max(0, seen - cached)
+    return year_records
 
 
 def _year_effective_histogram(record):

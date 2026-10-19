@@ -109,7 +109,13 @@ MAX_RETRIES = 3
 # Scholar's targets, which drift between runs.  It clears itself when the paper's
 # Scholar count grows (scholar_changed) — the one event that can add rows — and
 # `--fetch-mode force` clears the whole state for a manual retry.
-STALL_AFTER_ATTEMPTS = 2
+#
+# 2026-10-19 用户定：**1** —— 完整走完一遍、结果仍比 Scholar 声称的少，就判 stalled、
+# 不再重抓。此前是 2（连续两遍条数相同才判死），而"刚抓过的那篇又从第 1 篇开始抓一遍"
+# 正是第二遍的开销（实测一篇 1,377 条的论文，仅短的那一年就要 23 页、半小时级）。
+# 代价（已知并接受）：列表只因一次短页而早停时不再有第二遍兜底 —— 靠 `--fetch-mode force`
+# 或 Scholar 计数上涨（scholar_changed）恢复。
+STALL_AFTER_ATTEMPTS = 1
 
 # ============================================================
 # API / network

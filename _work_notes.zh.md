@@ -2396,3 +2396,31 @@ manifest，幂等。
   早期版本在 `_save_output()` 里 `if not enabled: return`，会跳过 Excel/summary —— 已改为只跳过
   checkpoint 块（`test_output` 的 Excel 失败用例因此恢复）。
 - **当前运行不受影响**：12:28 启动的进程加载的是旧代码，不会 checkout；本次改动只在**下一次**阶段 1 运行生效。
+
+## 2026-10-19 深夜：一份"年诊断"其实有**三个**写者（第三个把判死字段吃掉了）
+
+上一节（续 31）只盯住了两个写者：运行期的 `year_ctx.year_fetch_diagnostics` 与落盘的
+`build_year_records()`。真实数据上 review 时发现第三个：`PaperFetchState.to_dict()` 把
+`year_records` 交给 `_normalize_year_records()` 重建，而那个函数**只保留 6 个计数字段**
+（year / histogram_count / cached_total / seen_total / dedup_count / termination_reason）。
+
+- **后果**：K151 续 31 的"重扫一遍结果没变 → 该年判死"在**跨 run** 时永远不生效。
+  `citation_fetch` 每轮从 `year_fetch_diagnostics` 读 `prev_short_attempts`（来自持久化的
+  year_records），读到的永远是 0 → `_resume_start_after_short_attempts()` 不触发重扫 →
+  `rescanned_from_zero` 恒 False → `_stall_now` 恒 False。实测 2021 年那条记录
+  （`histogram=222, cached=220, seen=220, short_page_stop`）里根本没有 `short_attempts` 字段。
+- **判据**：`stalled` / `stalled_probe` 是 `year_record_gap()` / `year_record_effective_histogram()`
+  的输入（判死年份 gap 记 0）。丢了它们，这种年份只能靠**论文级** stall 兜底。
+- **修法**：`_record()` 工厂函数带上三个字段（两个分支共用，顺带消掉重复）。
+- **第二个缺陷**：输出级去重 `_dedup_citations_for_output()` 删的是 `citations` 里的行，
+  逐年记录是抓取快照、不跟着改 —— 实测文件 1,377 行、逐年 `cached_total` 合计 1,379 行
+  （2026 记 71、实际 69），某一年看起来比磁盘"满"一条，日志里看不出来。
+  修法是 `resync_year_record_counts(year_records, citations)`：**只改 `cached_total`**（= 该年实际
+  行数），差额进 `dedup_count`，`seen_total` 保持抓取时的事实 —— 所以完整性判据与 stall 签名都不动，
+  不会凭空造出新短年。放在 `_save_output` 的 `_build_entry` 里（去重之后、序列化之前）。
+- **阈值改 1 的取舍**（用户定）：`record_fetch_outcome()` 只在"走完每一页"的尝试后计数，所以
+  一次性判死的风险面是"某年因短页/丢页而早停"；这类情况不再有第二遍兜底，靠
+  `scholar_changed` 或 `--fetch-mode force` 恢复。日志里阈值为 1 时改用
+  "a full walk came back short of Scholar's own count"，不再输出 "1 full walks"。
+- **测试口径**：`test_output_state` / `test_citation_status` 里三例要验证的是"重复才算数"，
+  改成显式 `is_stalled(stall_after_attempts=2)`；默认值另有一例专测（一遍即判死）。

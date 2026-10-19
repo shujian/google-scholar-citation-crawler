@@ -106,6 +106,7 @@ from code.output_state import (
     PaperState,
     index_year_records as _os_index_year_records,
     load_paper_states as _os_load_paper_states,
+    resync_year_record_counts as _os_resync_year_record_counts,
     resolve_citation_status_from_output as _os_resolve_citation_status_from_output,
     to_paper_fetch_state,
 )
@@ -1207,10 +1208,13 @@ class PaperCitationFetcher:
                     run_log.info(f"Also rechecking {recheck_count} paper(s) with no "
                                  f"cached-data gap (Scholar counts changed)", module="plan")
                 if stalled_count:
-                    run_log.info(f"Skipping {stalled_count} stalled paper(s): "
-                                 f"{STALL_AFTER_ATTEMPTS} full walks in a row "
-                                 f"obtained the same number of rows (e.g. Scholar lists "
-                                 f"fewer citations than its own count)", module="plan")
+                    why = (f"{STALL_AFTER_ATTEMPTS} full walks in a row obtained the "
+                           f"same number of rows"
+                           if STALL_AFTER_ATTEMPTS > 1 else
+                           "its last full walk came back short of the count Scholar claims")
+                    run_log.info(f"Skipping {stalled_count} stalled paper(s): {why} "
+                                 f"(e.g. Scholar lists fewer citations than its own "
+                                 f"count)", module="plan")
 
         results   = []
         fetch_idx = 0
@@ -1290,8 +1294,12 @@ class PaperCitationFetcher:
             # lists fewer citations than it reports), so retrying cannot help
             # while Scholar's counts stay the same.  Kept in the output as-is.
             if st == 'stalled':
-                stall_note = (f" (same result {paper_state.stall_count} runs in a row)"
-                              if paper_state and paper_state.stall_count else "")
+                if paper_state and paper_state.stall_count:
+                    stall_note = (f" (same result {paper_state.stall_count} runs in a row)"
+                                  if paper_state.stall_count > 1 else
+                                  " (a full walk came back short of Scholar's own count)")
+                else:
+                    stall_note = ""
                 run_log.info(f"[{idx}/{len(publications)}] {title[:55]}... -> stalled{stall_note}",
                              module="paper")
                 run_log.info(PaperCitationFetcher._format_completeness_diag(
@@ -1883,9 +1891,13 @@ class PaperCitationFetcher:
                             # 把丢掉的行数补进 `dedup_count`，让恒等式
                             # `cached_total + dedup_count == seen_total` 在**任何时刻**都成立
                             # （否则统计口径自相矛盾：直接模式的 `dedup_count` 不会被读侧重算）。
-                            # 逐年记录不在这里改：它是抓取时的快照，读侧会用
-                            # `seen_total - cached_total` 自行重算 `dedup_count`。
                             diag['dedup_count'] = int(diag.get('dedup_count') or 0) + dropped
+            if fetch_state:
+                # 逐年记录同样要对着落盘结果收口（2026-10-19）：`cached_total` 是这一年
+                # **实际存下来的行数**，`seen_total` 仍是抓取时的事实。此前它只是抓取
+                # 快照、去重后不重算，于是文件里 1,377 行、记录却声称 1,379 行
+                # （某一年比实际"满"一条，日志里看不出来）。
+                _os_resync_year_record_counts(fetch_state.get('year_records'), citations)
             state_obj = PaperFetchState.from_dict(fetch_state)
             fetch_state = state_obj.to_dict()
             pub_out = PubInfo.from_dict(pub).to_dict() if pub else {}

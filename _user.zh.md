@@ -3599,3 +3599,21 @@ Step 2（把 `citation_fetch.py` 更深的诊断行也迁进 facade）留给下�
 用户随后明确：**阶段 2 不需要改动**，不要自主跑整套程序，只做小规模、可控、不碰数据文件的测试。
 因此实现方式是：阶段 1 每完成一篇就写一份**完整 schema** 的 `author_<ID>_paper_citations.partial.json`
 （`papers` 始终含全部论文，未处理的沿用上一版引文），阶段 2 现有输入格式即可直接读取。
+
+## 2026-10-19 深夜：stalled 阈值改为 1 + 两处记录缺陷
+
+**你的输入**：
+
+> 帮我检查一下日志。这篇论文之前刚刚抓取过，是不是不应该重复抓取？
+
+（附日志：`[1/241] Deep matrix factorization …` / `fetch (1377 cached, seen=1380,
+scholar=1376 unchanged; recheck by year; drop unyeared)`。）
+
+说明：这篇在 12:28 那一轮已经抓完（2021 年走完 23 页），但 2021 的 220 < Scholar 声称的 222，
+所以按年判据仍是 partial、又进了计划。查代码后说明它不是"该跳过却被重抓"，而是
+`STALL_AFTER_ATTEMPTS = 2` 要求**第二遍**同样的结果才判死；同时发现两处记录缺陷。
+
+**你的要求**："STALL_AFTER_ATTEMPTS = 2 改成1吧。其他的bug也请一并修改。"
+
+已落地：阈值 1；`_normalize_year_records()` 保留 `short_attempts` / `stalled` / `stalled_probe`；
+逐年 `cached_total` 按落盘行数收口（`resync_year_record_counts()`）。阶段 1 单测全绿（新增 3 例）。

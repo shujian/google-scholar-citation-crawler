@@ -381,12 +381,22 @@ Status is derived from **current counts and diagnostics**, not from persisted `c
   (`fetch_outcome_signature` counts the rows seen and deliberately ignores
   Scholar's targets, which drift between runs even when the listing does not),
   so retrying cannot help — the list does not contain what Scholar claims
-  (e.g. Scholar lists fewer citations than it reports).  Only an attempt that
+  (e.g. Scholar lists fewer citations than it reports).  **The threshold is 1
+  since 2026-10-19** (用户定): one full walk that lands short parks the paper, so
+  "the paper that was just fetched" is not walked again.  Only an attempt that
   **walked every page** is folded into the counter (`complete_fetch_attempt`,
   plus no year record reporting `partial_resume_completed`), so a blocked or
   intentionally shortened run neither counts as a repeat nor wipes one.
   Cleared when the paper's Scholar count grows (`scholar_changed`); force a
   retry with `--fetch-mode force`.
+- Per-year bookkeeping (`short_attempts` / `stalled` / `stalled_probe`) must
+  survive `PaperFetchState.to_dict()` → `_normalize_year_records()`: that
+  rebuild is the **second writer** of every year record, and dropping these
+  fields there made the K151 "rescan once, then treat the probe as stale" rule
+  write-only (every run restarted at `short_attempts = 0` and re-walked the
+  year).  `cached_total` in a year record is the number of rows **on disk**
+  (`output_state.resync_year_record_counts()`, called from `_build_entry`),
+  while `seen_total` stays the fetch-time fact the completeness rule reads.
 - A year whose re-scan returns **fewer rows than the cache** keeps the cached rows and only
   appends identities it has not seen ✓ — but for a row present on both sides it now **merges the
   fresh row's `cite` / `cid` into the cached one** (`_merge_cite_into()`, 2026-10-19): the Cite
