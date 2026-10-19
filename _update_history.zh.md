@@ -2606,3 +2606,21 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   0 captcha solves` / `waiting 74s (retry 1/2) · …`。重试的**原因**（`Error fetching …`）与 `Request URL`
   仍是 DEBUG。用户明确"不用测试了" → **未新增测试**，只跑既有全套（620 例通过）。
 - **文档**：`AGENTS.md` 的级别口径、`README.md` 的 Levels 一条各补这个例外。
+
+
+## 2026-10-19（续 28）：年份重扫时把新行的 **Cite 数据**并进缓存行（K148）
+
+**问题**（用户 2026-10-19 指出）：Cite 对话框是**逐页**抓的（`a0e0c9f`，一页 ≤10 条、抓完该页就取那几条），
+但年份重扫回来条数比缓存少时，合并逻辑是"**缓存全留 + 只追加新身份**" ✗ —— 同一身份的那些新行**整条被丢掉** ✗，
+于是刚刚为它们付过钱的 `cite` 白抓了 ✗。
+
+**改法**（`code/citation_fetch.py`）：新增 `_merge_cite_into(cached, fresh)` —— 同一身份时把
+**`cite`**（缓存没有、或缓存格式数更少时才取 ✓）与 **`cid`**（缓存缺才补 ✓）并进缓存行；
+`title` / `authors` / `venue` / `year` / `url` / `cites_id` / `venue_key*` **一个都不碰** ✗
+（前者归 Chicago 修正那条路，后两者是派生字段、保存时重算 ✓）；新的 `cite` 为空/更少时**绝不清空** ✗。
+合并循环按身份键建一次索引（`cached_by_key`），未命中才 append ✓。
+
+**验证**：阶段 1 **620 → 621** 全绿 ✓（新增 1 例覆盖五条：补 `cite`/`cid`、缓存更全时不降级、
+空的新值不清空、身份字段不动、幂等）。**第一次尝试失败的原因**也记一下：当时把 helper 的插入锚点
+写成 `def _year_ranges(`（那个函数不在这个模块里 ✗）→ helper 没插进去、替换却照做 → 运行期
+`NameError` ✗；现在 helper 放在文件末尾（模块级，调用时解析 ✓）。

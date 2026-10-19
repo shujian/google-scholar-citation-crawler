@@ -1047,14 +1047,21 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                 # rows than the cache; keep the cached rows and add the new ones.
                 # exact mode (force_year_rebuild) deliberately rebuilds the
                 # bucket from Scholar, so it is exempt.
-                cached_keys = set()
+                cached_by_key = {}
                 for citation in cached_bucket:
-                    cached_keys.update(fetcher._citation_identity_keys(citation))
-                extra = [
-                    citation for citation in year_batch.citations
-                    if not any(key in cached_keys
-                               for key in fetcher._citation_identity_keys(citation))
-                ]
+                    for key in fetcher._citation_identity_keys(citation):
+                        cached_by_key.setdefault(key, citation)
+                extra = []
+                for citation in year_batch.citations:
+                    target = next((cached_by_key[key]
+                                   for key in fetcher._citation_identity_keys(citation)
+                                   if key in cached_by_key), None)
+                    if target is None:
+                        extra.append(citation)
+                    else:
+                        # 同一身份：缓存行留下 ✓，但**把这一行的 Cite 数据并进去** ✓
+                        # （用户 2026-10-19：逐页抓来的 `cite` 不许因为"只保留缓存"而丢 ✗）
+                        _merge_cite_into(target, citation)
                 merged_bucket = cached_bucket + extra
                 fresh_year_buckets[year] = merged_bucket
                 year_bucket_count = len(merged_bucket)
@@ -1138,3 +1145,28 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
     save_progress(fetch_finished=True)
     return list(fresh_citations)
 
+
+def _merge_cite_into(cached, fresh):
+    """把新抓那一行的 **Cite 数据**并进缓存行（只补/升级 ✓；身份字段一律不碰 ✗）。
+
+    用户 2026-10-19 定：逐页抓到的 `cite` 是为那几条付过钱的 —— 若同一身份已在缓存里，
+    **不能整条丢掉** ✗，至少要把 `cite`（与寻址用的 `cid`）补进缓存行 ✓。
+
+    * 只认 `cite` 与 `cid` 两个键 ✓；`title` / `authors` / `venue` / `year` / `url` /
+      `cites_id` / `venue_key*` 一律不动 ✗（前者由 Chicago 修正那条路管，后两者是派生字段、
+      保存时重算 ✓）。
+    * **永不降级**：缓存已有 `cite` 且格式数不少于新的 → 保持原样 ✓（新的为空/更少时更不该清空 ✗）。
+    """
+    if not isinstance(cached, dict) or not isinstance(fresh, dict):
+        return False
+    changed = False
+    fresh_cite = fresh.get("cite")
+    if isinstance(fresh_cite, dict) and fresh_cite:
+        current = cached.get("cite")
+        if not isinstance(current, dict) or len(fresh_cite) > len(current):
+            cached["cite"] = dict(fresh_cite)
+            changed = True
+    if not cached.get("cid") and fresh.get("cid"):
+        cached["cid"] = fresh["cid"]
+        changed = True
+    return changed

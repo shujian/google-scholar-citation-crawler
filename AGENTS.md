@@ -381,6 +381,13 @@ Status is derived from **current counts and diagnostics**, not from persisted `c
   intentionally shortened run neither counts as a repeat nor wipes one.
   Cleared when the paper's Scholar count grows (`scholar_changed`); force a
   retry with `--fetch-mode force`.
+- A year whose re-scan returns **fewer rows than the cache** keeps the cached rows and only
+  appends identities it has not seen ✓ — but for a row present on both sides it now **merges the
+  fresh row's `cite` / `cid` into the cached one** (`_merge_cite_into()`, 2026-10-19): the Cite
+  dialog is fetched **per page**, i.e. for the freshly fetched rows, so dropping those rows
+  outright threw that data away ✗.  Only `cite` (when the cache has none or fewer formats) and
+  `cid` (when missing) are taken; identity fields and every other field stay as the cache has
+  them, and nothing is ever downgraded.
 - Year mode: skip only when **every** year covers its own probe
   (`seen_total >= histogram_count` in the per-year records) *and* the aggregate
   holds.  The aggregate alone is not enough: years whose bucket exceeds the

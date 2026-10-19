@@ -971,6 +971,57 @@ class YearFetchMainTests(FetcherTestCase):
         self.assertIn("keeping the cached rows", output)
 
 
+    def test_a_cached_row_absorbs_the_cite_data_of_its_fresh_twin(self):
+        """同身份的新行不丢弃：把它的 `cite` / `cid` 并进**缓存行**（用户 2026-10-19）。
+
+        逐页抓 Cite 对话框是按"这一页的行"付钱的 —— 年份重扫回来条数比缓存少时，缓存行留下 ✓，
+        但同一身份那一行的 `cite` 必须补进去 ✓；缓存已有更全的 `cite` 时**不降级** ✗；
+        身份字段（title/authors/venue/year/url/cites_id）**一个都不碰** ✗。
+        （合并的具体判据在纯函数 `_merge_cite_into()`；端到端的"缓存行不丢 + 新身份追加"由
+        `test_truncated_year_scan_keeps_cached_rows` 覆盖 ✓。）
+        """
+        from code.citation_fetch import _merge_cite_into
+
+        full_cite = {"mla": "m", "apa": "a", "chicago": "c", "harvard": "h", "vancouver": "v"}
+
+        # ① 缓存缺 cite/cid → 用新的补上 ✓
+        cached = {"cites_id": "cid-a", "title": "A", "url": "u-a", "year": "2025"}
+        fresh = {"cites_id": "cid-a", "title": "A", "url": "u-a", "year": "2025",
+                 "cid": "cidA1", "cite": {"mla": "fresh"}}
+        self.assertTrue(_merge_cite_into(cached, fresh))
+        self.assertEqual(cached["cite"], {"mla": "fresh"})
+        self.assertEqual(cached["cid"], "cidA1")
+
+        # ② 缓存已有 5 种格式 → 不降级 ✗（cid 也不覆盖）
+        cached = {"cites_id": "cid-b", "cid": "cidB0", "cite": dict(full_cite)}
+        fresh = {"cites_id": "cid-b", "cid": "cidB1", "cite": {"mla": "fresh"}}
+        self.assertFalse(_merge_cite_into(cached, fresh))
+        self.assertEqual(cached["cite"], full_cite)
+        self.assertEqual(cached["cid"], "cidB0")
+
+        # ③ 新的 cite 为空/更少 → 绝不清空缓存 ✓
+        cached = {"cites_id": "cid-c", "cite": {"mla": "m", "apa": "a"}}
+        self.assertFalse(_merge_cite_into(cached, {"cites_id": "cid-c", "cite": {}}))
+        self.assertEqual(cached["cite"], {"mla": "m", "apa": "a"})
+        self.assertFalse(_merge_cite_into(cached, {"cites_id": "cid-c"}))
+        self.assertEqual(cached["cite"], {"mla": "m", "apa": "a"})
+
+        # ④ 身份字段一个都不碰 ✗（哪怕新的写法不同）
+        cached = {"cites_id": "cid-d", "title": "Old Title", "authors": "O A",
+                  "venue": "V", "year": "2025", "url": "u-d"}
+        fresh = {"cites_id": "cid-d", "title": "New Title", "authors": "N B",
+                 "venue": "V2", "year": "2026", "url": "u-d2", "cite": {"mla": "x"}}
+        _merge_cite_into(cached, fresh)
+        self.assertEqual((cached["title"], cached["authors"], cached["venue"],
+                          cached["year"], cached["url"]),
+                         ("Old Title", "O A", "V", "2025", "u-d"))
+        self.assertEqual(cached["cite"], {"mla": "x"})
+
+        # ⑤ 幂等：同样的合并再做一次不改变任何东西 ✓
+        snapshot = dict(cached)
+        self.assertFalse(_merge_cite_into(cached, fresh))
+        self.assertEqual(cached, snapshot)
+
     def test_probed_year_with_no_rows_keeps_paper_incomplete(self):
         """A probed year that came back with no rows must stay visible.
 
