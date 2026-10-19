@@ -311,9 +311,26 @@ def write_citations_meta(paper_dir, citations, log=None, dry_run=False):
     # **旧条目里本次输入没有的编号原样保留** ✓（上游引文消失 = 退役 ✓，但盘上的记录
     # 不能因一次重写就凭空消失 ✗ —— 与"归档不删除"同一口径 ✓；真要清理由对账工具做 ✓）。
     fresh = {int(e["index"]) for e in entries}
+    fresh_by_cid = {}
+    for entry in entries:
+        cid = entry.get("cites_id")
+        if cid:
+            fresh_by_cid.setdefault(cid, entry)
     for index, old_entry in existing_by_index.items():
-        if index not in fresh:
-            entries.append(old_entry)
+        if index in fresh:
+            continue
+        cid = old_entry.get("cites_id")
+        target = fresh_by_cid.get(cid) if cid else None
+        if target is not None:
+            # 同一作品**换了编号**（编号漂移）：旧行不是"退役条目"，不能原样留下 ——
+            # 否则 meta 里同一个 cites_id 两行，阶段 2 的下载字段还挂在没有文件的那行 ✗
+            # （2026-10-19 实测 2 例：`1388/1434`、`1421/1435`）。把阶段 2 的字段交给
+            # 新行，旧行不再保留；文件名随后由阶段 2 的 `preflight_repairs` 对齐 ✓。
+            for field, value in old_entry.items():
+                if field not in META_FIELDS and field not in target:
+                    target[field] = value
+            continue
+        entries.append(old_entry)
     entries.sort(key=lambda e: int(e["index"]))
     try:
         with open(path, "r", encoding="utf-8") as handle:

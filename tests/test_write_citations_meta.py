@@ -219,6 +219,35 @@ class RetiredEntriesAndPubEntryPointTests(unittest.TestCase):
             self.assertEqual(saved[0]["title"], "New", "在册条目按抓取侧更新 ✓")
             self.assertEqual(saved[1]["title"], "Retired", "退役条目原样保留 ✓")
 
+    def test_same_work_at_a_new_index_does_not_leave_a_duplicate_row(self):
+        """编号漂移（同一 `cites_id` 换了 index）不许在 meta 里留下两行（2026-10-19）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, META_NAME)
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump([{"index": 1388, "cites_id": "c1", "title": "T",
+                            "download_status": "failed", "fail_reason": "Timeout",
+                            "local_filename": "1388-T.pdf"}], handle)
+            write_citations_meta(tmp, [{"index": 1434, "cites_id": "c1", "title": "T"}])
+            saved = json.load(open(path, encoding="utf-8"))
+            self.assertEqual([e["index"] for e in saved], [1434],
+                             "换号后旧行必须消失，不能作为退役条目留下 ✗")
+            self.assertEqual(saved[0]["download_status"], "failed", "阶段 2 字段要交给新行 ✓")
+            self.assertEqual(saved[0]["fail_reason"], "Timeout")
+            self.assertEqual(saved[0]["local_filename"], "1388-T.pdf")
+            self.assertEqual(write_citations_meta(tmp, [{"index": 1434, "cites_id": "c1",
+                                                         "title": "T"}]), 0, "幂等 ✓")
+
+    def test_a_truly_retired_work_is_still_kept(self):
+        """只有"同一作品换号"才删旧行；真退役（新输入里没有这个 cites_id）照旧保留。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, META_NAME)
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump([{"index": 1, "cites_id": "live", "title": "Live"},
+                           {"index": 5, "cites_id": "gone", "title": "Gone"}], handle)
+            write_citations_meta(tmp, [{"index": 1, "cites_id": "live", "title": "Live"}])
+            saved = json.load(open(path, encoding="utf-8"))
+            self.assertEqual([e["index"] for e in saved], [1, 5], "退役条目仍要保留 ✓")
+
     def test_pub_entry_point_reuses_the_layout_and_never_creates_a_dir(self):
         from code.citation_index import write_citations_meta_for_pub
         with tempfile.TemporaryDirectory() as tmp:

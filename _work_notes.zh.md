@@ -2323,3 +2323,29 @@ run summary；**不迁**更深的诊断块（`Direct fetch target:` / `Probe tot
 | **`= total_page_count + EVERY`** | 等价于"刚长休完"，语义唯一、可测 ✓ |
 
 另：**不动** `next_refresh_at` —— 会话刷新不睡、只换 session，而且刚注入的 cookies 正要用 ✓。
+
+## 同一作品换号后的 meta 合并（K152，2026-10-19）
+
+`write_citations_meta()` 的旧行合并只按 `index`：
+```python
+fresh = {int(e["index"]) for e in entries}
+for index, old_entry in existing_by_index.items():
+    if index not in fresh:
+        entries.append(old_entry)      # 旧号一律当退役保留
+```
+编号不可变的前提在真实库里**不总成立**：阶段 1 的 `assign_indices()` 会给同一 `cites_id` 分配新号
+（实测 `1388→1434`、`1421→1435`），于是同一作品两行：新行是产物里的活行、旧行带着阶段 2 的
+`local_filename`/`fail_reason`。`meta 行数 − 唯一 cites_id` 因此比跨论文重复多 2。
+
+修法：先建 `fresh_by_cid`（`cites_id → 新行`）；对"旧号不在 fresh 里"的行：
+- `cites_id` 在 `fresh_by_cid` 里 → 把 `META_FIELDS` **之外**的字段搬给新行（阶段 2 的状态不丢），
+  **不**把旧行 append；
+- `cites_id` 不在 → 真退役，照旧保留。
+
+存量工具 `dedupe_meta_rows` 用同一条判据，但活行由**抓取产物**的 `pub.no → index` 决定（比"字段多/编号大"
+可靠）；产物里没有该篇时退回"字段最多、编号最大"的行。写回用 `indent=1` 与写者一致，逐篇备份 +
+manifest，幂等。
+
+**别顺手跑 align**：`align_citations_meta --apply` 会用产物重写那 1 篇 / 784 行，而其中 1 条 `differ`
+是 meta 侧保留的 Cite 对话框全名/未截断 venue（"永不降级"的正常结果）—— 写者不保证对 `authors`/`venue`
+字符串不降级，跑了会退回去 ✗。
