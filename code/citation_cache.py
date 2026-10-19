@@ -76,7 +76,8 @@ def dump_year_count_map(year_counts):
 # Year fetch diagnostics helpers
 # ---------------------------------------------------------------------------
 
-def build_year_fetch_diagnostics(year, histogram_count, cached_total, dedup_count, termination_reason):
+def build_year_fetch_diagnostics(year, histogram_count, cached_total, dedup_count, termination_reason,
+                                short_attempts=0):
     """Build a single-year diagnostics dict from raw fetch results."""
     try:
         year = int(year)
@@ -94,6 +95,10 @@ def build_year_fetch_diagnostics(year, histogram_count, cached_total, dedup_coun
     cached_total = max(0, cached_total)
     dedup_count = max(0, dedup_count)
     seen_total = cached_total + dedup_count
+    try:
+        short_attempts = int(short_attempts or 0)
+    except (TypeError, ValueError):
+        short_attempts = 0
     return {
         'year': year,
         'histogram_count': histogram_count,
@@ -101,6 +106,8 @@ def build_year_fetch_diagnostics(year, histogram_count, cached_total, dedup_coun
         'seen_total': seen_total,
         'dedup_count': dedup_count,
         'termination_reason': termination_reason or 'iterator_exhausted',
+        # 连续多少次"见到的比 Scholar 声称的少"（2026-10-19）：连续 N 次 → 下一次从第 1 页重扫。
+        'short_attempts': max(0, short_attempts),
     }
 
 
@@ -116,6 +123,7 @@ def normalize_year_fetch_diagnostics(year_fetch_diagnostics):
             raw_diag.get('cached_total'),
             raw_diag.get('dedup_count', 0),
             raw_diag.get('termination_reason'),
+            raw_diag.get('short_attempts', 0),
         )
         if not diagnostic:
             continue

@@ -1022,6 +1022,43 @@ class YearFetchMainTests(FetcherTestCase):
         self.assertFalse(_merge_cite_into(cached, fresh))
         self.assertEqual(cached, snapshot)
 
+    def test_a_year_that_stayed_short_is_rescanned_from_page_one(self):
+        """连续 `RESCAN_AFTER_SHORT_ATTEMPTS` 次没收全 → 下一次从第 1 页重扫（用户 2026-10-19）。
+
+        偏移续跑是"可变列表里的位置" ✗：列表上方插入条目后从旧偏移续会掠过被挤下去的行，
+        而那一年永远"差几条"、每次都从同一个偏移续 ✗。连续几次都没收全 = 偏移不再可信 →
+        清零重扫一遍（按身份键去重）✓。
+        """
+        from code.citation_fetch import _resume_start_after_short_attempts
+        from code.common import RESCAN_AFTER_SHORT_ATTEMPTS as N
+
+        # 未到阈值 → 照旧续 ✓
+        self.assertEqual(_resume_start_after_short_attempts(60, N - 1), 60)
+        # 到阈值 → 从头 ✓
+        self.assertEqual(_resume_start_after_short_attempts(60, N), 0)
+        self.assertEqual(_resume_start_after_short_attempts(60, N + 5), 0)
+        # 本来就没有偏移（或脏值）→ 0 ✓
+        self.assertEqual(_resume_start_after_short_attempts(0, N + 5), 0)
+        self.assertEqual(_resume_start_after_short_attempts("junk", N), 0)
+        # 阈值必须是个正整数 ✓
+        self.assertGreaterEqual(N, 1)
+
+    def test_a_short_attempt_is_counted_and_a_full_one_resets_the_count(self):
+        """诊断里记"连续没收全次数"：又短了 +1，收全了归零，并且能原样落盘/读回 ✓。"""
+        from code.citation_cache import (build_year_fetch_diagnostics,
+                                         normalize_year_fetch_diagnostics)
+
+        diag = build_year_fetch_diagnostics(2025, 153, 146, 0, "iterator_exhausted", 2)
+        self.assertEqual(diag["short_attempts"], 2)
+        self.assertEqual(build_year_fetch_diagnostics(2025, 153, 146, 0, "x")["short_attempts"], 0,
+                         "旧调用点（不带该参数）默认 0 ✓")
+        self.assertEqual(build_year_fetch_diagnostics(2025, 153, 12, 0, "x", 7)["short_attempts"], 7)
+        # 归一化（读盘路径）不得把计数器丢掉 ✗
+        normalized = normalize_year_fetch_diagnostics(
+            {2025: {"year": 2025, "histogram_count": 153, "cached_total": 146,
+                    "dedup_count": 0, "termination_reason": "x", "short_attempts": 4}})
+        self.assertEqual(normalized[2025]["short_attempts"], 4)
+
     def test_probed_year_with_no_rows_keeps_paper_incomplete(self):
         """A probed year that came back with no rows must stay visible.
 

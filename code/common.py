@@ -13,6 +13,7 @@ from code.config import (   # noqa: F401 — re-exported for compatibility
     CITE_FORMATS,
     DELAY_MAX,
     DELAY_MIN,
+    RESCAN_AFTER_SHORT_ATTEMPTS,
     MANDATORY_BREAK_EVERY_MAX,
     MANDATORY_BREAK_EVERY_MIN,
     MANDATORY_BREAK_MAX,

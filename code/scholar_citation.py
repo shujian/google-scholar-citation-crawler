@@ -283,8 +283,10 @@ class PaperCitationFetcher:
         return _cc_dump_year_count_map(year_counts)
 
     @staticmethod
-    def _build_year_fetch_diagnostics(year, histogram_count, cached_total, dedup_count, termination_reason):
-        return _cc_build_year_fetch_diagnostics(year, histogram_count, cached_total, dedup_count, termination_reason)
+    def _build_year_fetch_diagnostics(year, histogram_count, cached_total, dedup_count, termination_reason,
+                                      short_attempts=0):
+        return _cc_build_year_fetch_diagnostics(year, histogram_count, cached_total, dedup_count,
+                                                termination_reason, short_attempts)
 
     @staticmethod
     def _normalize_year_fetch_diagnostics(year_fetch_diagnostics):

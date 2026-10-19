@@ -405,6 +405,12 @@ Papers with `>= YEAR_BASED_THRESHOLD (50)` citations switch to year-by-year fetc
 - Supports resume via `partial_year_start` offsets, which are persisted with the
   paper's fetch state (a `completed_year_segments` set only avoids re-walking a
   year inside the same run — it is deliberately not carried across runs)
+  — but an offset is a **position in a mutable list**, so if Scholar inserts rows above it between
+  runs the resume can walk past them and the year stays "N short" forever, always resuming from the
+  same offset.  A year whose `short_attempts` (how many consecutive attempts came back under
+  Scholar's own count, kept in `year_fetch_diagnostics`) reaches `RESCAN_AFTER_SHORT_ATTEMPTS`
+  is therefore re-scanned **from page 1** once, relying on identity-key dedup instead of the
+  offset (`_resume_start_after_short_attempts()`, 2026-10-19); a full attempt resets the counter
 - Oldest→newest year order
 - Year range is determined by `probe_citation_start_year()` via the Scholar histogram DOM
 - An interrupted fetch persists the in-run snapshot (citations fetched so far +

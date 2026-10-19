@@ -29,6 +29,7 @@ import scholarly.publication_parser as _pub_parser
 
 from code.log_utils import run_log
 from code.common import (
+    RESCAN_AFTER_SHORT_ATTEMPTS,
     SCHOLAR_PAGE_SIZE,
     SESSION_REFRESH_MAX,
     SESSION_REFRESH_MIN,
@@ -61,6 +62,26 @@ def _build_direct_resume_state(next_index, scholar_total, citedby_url):
         citedby_url=citedby_url,
     )
     return rs.to_dict()
+
+def _resume_start_after_short_attempts(start_index, short_attempts):
+    """年份续跑起点：连续 `RESCAN_AFTER_SHORT_ATTEMPTS` 次没收全 → **从第 1 页重扫** ✓。
+
+    为什么（用户 2026-10-19）：偏移续跑省时间 ✓，但它是"可变列表里的位置" ✗ —— Scholar 在两次
+    运行之间往那一年列表上方插入/调整条目时，从旧偏移续跑会掠过被挤下去的行 ✗，而那一年又永远
+    "差几条"，于是每次都从同一个偏移续 ✗、永远补不上。连续几次都没收全 = 偏移不再可信 → 清零重扫
+    一遍（按身份键去重，代价是多翻几页）✓。
+
+    未到阈值、或本来就没有偏移 → 原样返回 ✓（0 就是从头）。
+    """
+    try:
+        start_index = int(start_index or 0)
+        short_attempts = int(short_attempts or 0)
+    except (TypeError, ValueError):
+        return 0
+    if start_index > 0 and short_attempts >= RESCAN_AFTER_SHORT_ATTEMPTS:
+        return 0
+    return start_index
+
 
 def _page_aligned_start(index):
     return _page_align(index)
@@ -906,7 +927,23 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                              module="year", indent=2)
 
             year_ctx.current_paper_page_count = 0  # reset per year in year-based mode
-            start_index = year_ctx.partial_year_start.get(year, 0)
+            prev_short_attempts = 0
+            _prev_diag = year_fetch_diagnostics.get(year)
+            if isinstance(_prev_diag, dict):
+                try:
+                    prev_short_attempts = int(_prev_diag.get('short_attempts') or 0)
+                except (TypeError, ValueError):
+                    prev_short_attempts = 0
+            start_index = _resume_start_after_short_attempts(
+                year_ctx.partial_year_start.get(year, 0), prev_short_attempts)
+            if start_index == 0 and year_ctx.partial_year_start.get(year, 0) > 0:
+                # 偏移续跑快、但"位置"会随列表变动而漏行 ✗（用户 2026-10-19）。
+                # 连续这么多次都没收全 → 干脆从第 1 页重扫一遍，用身份键去重 ✓。
+                run_log.warn(f"Year {year}: re-scanning from page 1 "
+                             f"(stayed short {prev_short_attempts} times; "
+                             f"the resume offset is not trusting itself again)",
+                             module="year", indent=2)
+                start_index = 0
             resume_page_start = _page_aligned_start(start_index)
             initial_in_page_skip = start_index - resume_page_start
             resuming_partial_year = year in year_ctx.partial_year_start
@@ -1076,12 +1113,15 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                 year_ctx.completed_year_segments.add(year)
             year_ctx.dedup_count += year_batch.dedup_count
             live_count_for_diag = live_count if live_count is not None else len(year_batch.citations)
+            _short_this_attempt = (live_count is not None
+                                   and year_bucket_count < live_count)
             year_diag = fetcher._build_year_fetch_diagnostics(
                 year,
                 live_count_for_diag,
                 year_bucket_count,
                 year_batch.dedup_count,
                 year_termination_reason,
+                (prev_short_attempts + 1) if _short_this_attempt else 0,
             )
             if year_diag is not None:
                 # seen_total is the number of DISTINCT rows the year holds.

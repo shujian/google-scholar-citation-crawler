@@ -78,6 +78,10 @@ SESSION_REFRESH_MAX = 20
 
 # Mandatory long break after every N pages to let Scholar's rate-limit
 # window reset.
+# 某一年连续这么多次都没抓全（`seen < probe`）→ **下一次从第 1 页重扫**该年
+# （2026-10-19 用户定：偏移续跑可能因为列表变动而永久漏行，重扫一次兜住 ✓）。
+RESCAN_AFTER_SHORT_ATTEMPTS = 3
+
 MANDATORY_BREAK_EVERY_MIN = 8
 MANDATORY_BREAK_EVERY_MAX = 12
 MANDATORY_BREAK_MIN = 180   # 3 minutes
