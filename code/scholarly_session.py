@@ -38,7 +38,6 @@ from code.common import (
     SESSION_REFRESH_MAX,
     SESSION_REFRESH_MIN,
     _scholar_request_url,
-    now_str,
     rand_delay,
 )
 from code.config import DETAIL_PAGE_DELAY_FACTOR
@@ -231,6 +230,27 @@ def format_page_evidence(evidence):
     return f" [{'; '.join(parts)}]" if parts else ''
 
 
+def citation_page_progress(url, item_count):
+    """One INFO line per citation-list page: ``2025 · page 2 · 10 items``（模块列已写 `year`）.
+
+    The page counter and the year used to survive only in DEBUG lines
+    (``Pagination (page N)`` / ``Page items: N``), so a normal run gave no sign
+    of *where* in the traversal it was (user 2026-10-19).  Direct mode has no
+    year filter, so its pages read ``page 2 · 10 items``.
+    """
+    text = str(url or '')
+    year_m = re.search(r'[?&]as_ylo=(\d{4})', text)
+    start_m = re.search(r'[?&]start=(\d+)', text)
+    page = int(start_m.group(1)) // 10 + 1 if start_m else 1
+    where = f"{year_m.group(1)} · " if year_m else ''
+    return f"{where}page {page} · {item_count} items"
+
+
+def citation_page_module(url):
+    """Module tag for a citation-list page: ``year`` when the year filter is on."""
+    return "year" if 'as_ylo=' in str(url or '') else "fetch"
+
+
 def record_zero_row_citation_page(ctx, soup):
     """Store and log the evidence for a citation page that returned no rows.
 
@@ -342,9 +362,9 @@ def complete_browser_fingerprint(header_overrides):
         return
     if len(present) != len(_BROWSER_IDENTITY_HEADERS):
         missing = sorted(_BROWSER_IDENTITY_HEADERS - set(present))
-        print(f"  (Incomplete browser identity in cURL — missing "
-              f"{', '.join(missing)}; keeping hardcoded default fingerprint.)",
-              flush=True)
+        run_log.warn(f"Incomplete browser identity in cURL — missing "
+                     f"{', '.join(missing)}; keeping hardcoded default fingerprint.",
+                     module="http", indent=1)
         for h in _BROWSER_IDENTITY_HEADERS:
             header_overrides.pop(h, None)
         return
@@ -355,16 +375,17 @@ def complete_browser_fingerprint(header_overrides):
     sec_ch_ua = header_overrides['sec-ch-ua']
     sec_vers = set(_SEC_CH_UA_VERSION_RE.findall(sec_ch_ua))
     if ua_ver and sec_vers and ua_ver not in sec_vers:
-        print(f"  (Browser identity version mismatch: user-agent "
-              f"Chrome/Edg/Firefox {ua_ver} vs sec-ch-ua "
-              f"{', '.join(sorted(sec_vers))}; keeping hardcoded default "
-              f"fingerprint.)", flush=True)
+        run_log.warn(f"Browser identity version mismatch: user-agent "
+                     f"Chrome/Edg/Firefox {ua_ver} vs sec-ch-ua "
+                     f"{', '.join(sorted(sec_vers))}; keeping hardcoded default "
+                     f"fingerprint.", module="http", indent=1)
         for h in _BROWSER_IDENTITY_HEADERS:
             header_overrides.pop(h, None)
         return
 
-    print(f"  Adopted browser fingerprint from cURL "
-          f"(user-agent v{ua_ver or '?'}, sec-ch-ua {sec_ch_ua})", flush=True)
+    run_log.info(f"Adopted browser fingerprint from cURL "
+                 f"(user-agent v{ua_ver or '?'}, sec-ch-ua {sec_ch_ua})",
+                 module="http", indent=1)
 
 
 def assert_scholarly_patches_active(checks):
@@ -477,8 +498,9 @@ def patch_scholarly(ctx: SessionContext) -> None:
         _apply_browser_headers(session)
         for k, v in old_cookies.items():
             session.cookies.set(k, v)
-    print(f"  Browser headers applied (HTTP/2, Chrome/145, sec-ch-ua-*, referer; "
-          f"{len(old_cookies)} profile cookies preserved)", flush=True)
+    run_log.info(f"Browser headers applied (HTTP/2, Chrome/145, sec-ch-ua-*, "
+                 f"referer; {len(old_cookies)} profile cookies preserved)",
+                 module="http", indent=1)
 
     # Patch _new_session: re-apply browser identity after 403-triggered rebuild
     original_new_session = nav._new_session
@@ -548,8 +570,8 @@ def patch_scholarly(ctx: SessionContext) -> None:
         if request_url:
             show_referer = referer and referer != ctx.last_scholar_url
             referer_str = f" (referer: {referer})" if show_referer else ""
-            run_log.info(f"Request URL: {request_url}{referer_str}",
-                         module="http", indent=2)
+            run_log.debug(f"Request URL: {request_url}{referer_str}",
+                          module="http", indent=2)
 
         # Wrap original_get_page so that scholarly's internal 60-120 s
         # sleeps are replaced by our rand_delay (45-90 s, or 1/10 of that on the
@@ -560,8 +582,8 @@ def patch_scholarly(ctx: SessionContext) -> None:
         # AND on the first page after injecting fresh cookies — no prior
         # request with those credentials exists to space apart from.
         if ctx.total_page_count == 1 or ctx.curl_page_count <= 1:
-            run_log.info("Fetching (first page with these credentials, no delay)...",
-                         module="http", indent=2)
+            run_log.debug("Fetching (first page with these credentials, no delay)...",
+                          module="http", indent=2)
 
         # Allow 1 sleep (the normal pre-request delay).  The second sleep
         # is scholarly's internal retry — kill it so PageVisit takes over
@@ -610,8 +632,8 @@ def patch_scholarly(ctx: SessionContext) -> None:
                 retry_note = (f" (retry {sleep_count[0]})"
                               if sleep_count[0] > 1 else "")
                 wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""
-                run_log.info(f"Waiting {d:.0f}s before request"
-                             f"{retry_note}... [{wait_str}]", module="http", indent=2)
+                run_log.debug(f"Waiting {d:.0f}s before request"
+                              f"{retry_note}... [{wait_str}]", module="http", indent=2)
                 original_sleep(d)
 
             time.sleep = _limited_sleep
@@ -687,8 +709,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
         import re as _re2
         _start_m = _re2.search(r'[?&]start=(\d+)', url)
         _url_page = int(_start_m.group(1)) // 10 + 1 if _start_m else 1
-        if _url_page > 1:
-            run_log.debug(f"Pagination (page {_url_page})", module="http", indent=2)
+
 
         for session in (nav._session1, nav._session2):
             session.headers['referer'] = ctx.last_scholar_url
@@ -742,7 +763,10 @@ def patch_scholarly(ctx: SessionContext) -> None:
             page_size = None
         self_iter._page_size = page_size if page_size and page_size > 0 else None
         if page_size:
-            run_log.debug(f"Page items: {page_size}", module="http", indent=2)
+            # One line per page — the only place that says *where* in the
+            # traversal the run is (which year, which page, how many rows).
+            run_log.info(citation_page_progress(url, page_size),
+                         module=citation_page_module(url), indent=1)
         elif is_citation_list_url(url):
             # A citation page with zero result rows used to be logged silently,
             # which made a blocked/empty response look like a genuinely empty
@@ -813,7 +837,8 @@ def refresh_scholarly_session() -> None:
     """Clear got_403 without discarding the httpx session or its cookies."""
     nav = scholarly._Scholarly__nav
     nav.got_403 = False
-    print("      (Session reset: got_403 cleared, cookies preserved)", flush=True)
+    run_log.info("Session reset: got_403 cleared, cookies preserved",
+                 module="http", indent=2)
 
 
 # ---------------------------------------------------------------------------
@@ -858,14 +883,16 @@ def probe_citation_start_year(
             soup = nav._get_soup(citedby_url)
             ctx.last_scholar_url = full_url
         except Exception as e:
-            print(f"      {now_str()} Probe blocked (attempt {attempt}): {e}", flush=True)
+            run_log.warn(f"Probe blocked (attempt {attempt}): {e}",
+                         module="year", indent=2)
             if ctx.interactive_captcha and ctx.try_interactive_captcha_fn:
                 solved = ctx.try_interactive_captcha_fn(full_url)
                 if solved:
                     continue
             if attempt >= MAX_PROBE_RETRIES:
-                print(f"      Probe gave up after {MAX_PROBE_RETRIES} attempts, "
-                      f"falling back to pub_year heuristic", flush=True)
+                run_log.warn(f"Probe gave up after {MAX_PROBE_RETRIES} attempts, "
+                             f"falling back to pub_year heuristic",
+                             module="year", indent=2)
                 return None
             if ctx.wait_proxy_switch_fn:
                 ctx.wait_proxy_switch_fn()
@@ -908,9 +935,10 @@ def probe_citation_start_year(
 
                 if num_citations is not None and hist_total >= num_citations:
                     ctx.probed_year_count_complete = True
-                    print(f"      Scholar year range probe: start_year = {earliest} "
-                          f"(from full histogram DOM, {len(years)} year values found, "
-                          f"total={hist_total})", flush=True)
+                    run_log.info(f"Year range probe: start_year = {earliest} "
+                                 f"(from full histogram DOM, {len(years)} year values "
+                                 f"found, total={hist_total})",
+                                 module="year", indent=2)
                     return earliest
 
                 conservative_start = earliest
@@ -920,19 +948,23 @@ def probe_citation_start_year(
                     used_pub_year_fallback = True
                 if num_citations is not None:
                     unyeared = num_citations - hist_total
-                    print(f"      Scholar year range probe: histogram incomplete "
-                          f"(hist_total={hist_total}, scholar_total={num_citations}, unyeared={unyeared}), "
-                          f"using conservative start_year = {conservative_start}", flush=True)
+                    run_log.info(f"Year range probe: histogram incomplete "
+                                 f"(hist_total={hist_total}, "
+                                 f"scholar_total={num_citations}, unyeared={unyeared}); "
+                                 f"conservative start_year = {conservative_start}",
+                                 module="year", indent=2)
                 else:
-                    print(f"      Scholar year range probe: histogram total unavailable, "
-                          f"using conservative start_year = {conservative_start}", flush=True)
+                    run_log.info(f"Year range probe: histogram total unavailable; "
+                                 f"conservative start_year = {conservative_start}",
+                                 module="year", indent=2)
                 if pub_year_int is not None:
                     fallback_note = ('pub_year fallback applied' if used_pub_year_fallback
                                      else 'pub_year fallback not needed')
-                    print(f"      Conservative year traversal: pub_year={pub_year_int} "
-                          f"({fallback_note})", flush=True)
+                    run_log.info(f"Conservative year traversal: pub_year={pub_year_int} "
+                                 f"({fallback_note})", module="year", indent=2)
                 else:
-                    print("      Conservative year traversal: pub_year unavailable", flush=True)
+                    run_log.info("Conservative year traversal: pub_year unavailable",
+                                 module="year", indent=2)
                 return conservative_start
 
             # Fallback 1: single-year histogram links
@@ -965,23 +997,28 @@ def probe_citation_start_year(
                     earliest = min(earliest, pub_year_int)
                 year_summary = (ctx.format_year_set_summary_fn(years)
                                 if ctx.format_year_set_summary_fn else str(sorted(years)))
-                print(f"      Scholar year range probe: start_year = {earliest} "
-                      f"(from fallback, {len(years)} year values found)", flush=True)
-                print(f"      Fallback year summary: {year_summary}", flush=True)
-                print("      Conservative year traversal: no complete histogram available",
-                      flush=True)
+                run_log.info(f"Year range probe: start_year = {earliest} "
+                             f"(from fallback, {len(years)} year values found)",
+                             module="year", indent=2)
+                run_log.debug(f"Fallback year summary: {year_summary}",
+                              module="year", indent=2)
+                run_log.info("Conservative year traversal: no complete histogram "
+                             "available", module="year", indent=2)
                 return earliest
 
             if pub_year_int is not None:
-                print(f"      (Year range probe: no year data found on page, "
-                      f"using pub_year {pub_year_int})", flush=True)
-                print("      Conservative year traversal: using pub_year fallback only",
-                      flush=True)
+                run_log.info(f"Year range probe: no year data found on page; "
+                             f"using pub_year {pub_year_int}",
+                             module="year", indent=2)
+                run_log.info("Conservative year traversal: using pub_year fallback "
+                             "only", module="year", indent=2)
                 return pub_year_int
 
-            print(f"      (Year range probe: no year data found on page)", flush=True)
+            run_log.info("Year range probe: no year data found on page",
+                         module="year", indent=2)
             return None
 
         except Exception as e:
-            print(f"      (Year range probe: parsing failed: {e})", flush=True)
+            run_log.warn(f"Year range probe: parsing failed: {e}",
+                         module="year", indent=2)
             return None

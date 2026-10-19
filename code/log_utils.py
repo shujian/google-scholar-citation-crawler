@@ -149,6 +149,20 @@ class RunLog:
 run_log = RunLog()
 
 
+def line_logger(level: int = INFO, module: str = "run", indent: int = 1):
+    """Return a ``print``-shaped callable that writes through the run log.
+
+    Older modules take a ``print_fn`` seam so their callers (and tests) can
+    capture the lines they emit.  This keeps that seam while giving each line the
+    run's shape: ``print_fn='…'`` becomes one run-log line at *level*, and a
+    multi-line message becomes one line per message line.
+    """
+    def write_line(message="", **_ignored):
+        for part in str(message).split("\n"):
+            run_log.write(level, part.lstrip(), module=module, indent=indent)
+    return write_line
+
+
 def prune_run_logs(logs_dir: str, keep: int = None, archive_name: str = None,
                    keep_path: Optional[str] = None) -> tuple:
     """Keep the newest *keep* run logs, move the rest into an archive subdir.

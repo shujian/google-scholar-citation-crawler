@@ -61,7 +61,6 @@ from code.common import (
     YEAR_BASED_THRESHOLD,
     _scholar_request_url,
     extract_author_id,
-    now_str,
     rand_delay,
     ensure_papers_root,
     resolve_cite_formats,
@@ -219,7 +218,8 @@ class PaperCitationFetcher:
         # Auto-load saved cookies from previous session
         saved_curl = _int_load_curl_from_file(self._curl_save_path)
         if saved_curl:
-            print(f"  Loading saved cookies from {self._curl_save_path}", flush=True)
+            run_log.info(f"Loading saved cookies from {self._curl_save_path}",
+                         module="http", indent=1)
             self._inject_cookies_from_curl(saved_curl)
         else:
             # Prompt once on first Scholar request (only in interactive TTY sessions)
@@ -264,8 +264,8 @@ class PaperCitationFetcher:
                     print_fn=lambda *a, **k: None,   # 逐页不刷屏；结尾由批量段汇总
                 )
             except Exception as e:      # 坏一条不许影响抓取（与批量段同口径）
-                print(f"    (per-page citation-format step failed: "
-                      f"{type(e).__name__}: {e})", flush=True)
+                run_log.warn(f"per-page citation-format step failed: "
+                             f"{type(e).__name__}: {e}", module="cite", indent=1)
 
         self._on_citations_page = _on_citations_page
 
@@ -722,8 +722,8 @@ class PaperCitationFetcher:
                 by_key.update({key: match for key in keys})
         if not dropped:
             return rows
-        print(f"  Deduplicated {dropped} duplicate citation row(s) for "
-              f"'{title[:50]}' ({len(kept)} kept)", flush=True)
+        run_log.info(f"Deduplicated {dropped} duplicate citation row(s) for "
+                     f"'{title[:50]}' ({len(kept)} kept)", module="paper", indent=1)
         return kept
 
     @staticmethod
@@ -1015,7 +1015,8 @@ class PaperCitationFetcher:
 
         # Load profile
         if not os.path.exists(self.profile_json):
-            print(f"Error: {self.profile_json} not found. Profile must be fetched first.")
+            run_log.error(f"{self.profile_json} not found; the profile must be "
+                          f"fetched first", module="run")
             return False
         with open(self.profile_json, 'r', encoding='utf-8') as f:
             profile = json.load(f)
@@ -1025,7 +1026,8 @@ class PaperCitationFetcher:
         # Build citedby_url mapping from profile publications.
         # Each publication in the profile already has citedby_url and url fields.
         if not publications:
-            print(f"Error: {self.profile_json} has no publications. Profile must be fetched first.")
+            run_log.error(f"{self.profile_json} has no publications; the profile "
+                          f"must be fetched first", module="run")
             return False
         url_map = {p['title']: {
             'citedby_url': p.get('citedby_url', ''),
@@ -1044,7 +1046,8 @@ class PaperCitationFetcher:
                 title = pub['title']
                 if title in self._paper_states:
                     del self._paper_states[title]
-                    print(f"  Force mode: cleared output state for '{title[:55]}'")
+                    run_log.info(f"Force mode: cleared output state for "
+                                 f"'{title[:55]}'", module="plan", indent=2)
 
         def cache_status(pub):
             # Update PaperFetchState with current profile counts BEFORE
@@ -1110,22 +1113,24 @@ class PaperCitationFetcher:
         # random shuffle here had no effect: the main loop iterates
         # `publications` and recomputes each status, never the shuffled list.
         stalled_count = sum(1 for s, *_ in statuses if s == 'stalled')
-        print(f"Total papers: {len(publications)}")
-        print(f"  Zero citations (skip):     {sum(1 for s, *_ in statuses if s == 'skip_zero')}")
-        print(f"  Cache complete (skip):     {sum(1 for s, *_ in statuses if s == 'complete')}")
-        if stalled_count:
-            print(f"  Stalled (skip):            {stalled_count}")
-        print(f"  Need fetch/resume:         {len(need_fetch)}")
         output_state_count = len(getattr(self, '_paper_states', {}))
+        run_log.section(f"Fetch plan · {len(publications)} papers", module="plan")
+        run_log.info(f"{len(need_fetch)} need fetch/resume, "
+                     f"{sum(1 for s, *_ in statuses if s == 'complete')} complete, "
+                     f"{sum(1 for s, *_ in statuses if s == 'skip_zero')} zero-citation, "
+                     f"{stalled_count} stalled", module="plan", indent=1)
         if output_state_count:
-            print(f"  Output state loaded:       {output_state_count} papers")
+            run_log.debug(f"output state loaded: {output_state_count} papers",
+                          module="plan", indent=1)
         else:
-            print(f"  Output state:              none (will fall back to cache files)")
+            run_log.debug("output state: none (falling back to cache files)",
+                          module="plan", indent=1)
         if self.skip:
-            print(f"  Skipping first {self.skip} (--skip)")
+            run_log.info(f"skipping the first {self.skip} paper(s) (--skip)",
+                         module="plan", indent=1)
         if self.limit:
-            print(f"  Processing limit (--limit): {self.limit}")
-        print()
+            run_log.info(f"processing at most {self.limit} paper(s) (--limit)",
+                         module="plan", indent=1)
 
         # Pre-flight plan: list every paper that actually needs new data.
         # A paper whose cached data already meets the target (no gap) needs
@@ -1193,7 +1198,7 @@ class PaperCitationFetcher:
         try:
             self._run_main_loop(publications, cache_status, url_map, need_fetch, results, fetch_idx)
         except KeyboardInterrupt:
-            print(f"\n  Interrupted by user. Saving results...", flush=True)
+            run_log.warn("Interrupted by user. Saving results...", module="run")
         finally:
             # Always save output (normal completion, interruption, error, or partial results)
             self._save_output(results)
@@ -1245,7 +1250,8 @@ class PaperCitationFetcher:
                 run_log.info(f"[{idx}/{len(publications)}] {title[:55]}... -> cached ({len(cached['citations'])} citations)",
                              module="paper")
                 if self.fetch_mode != 'force':
-                    print(PaperCitationFetcher._format_completeness_diag(st, cached, paper_state=paper_state))
+                    run_log.info(PaperCitationFetcher._format_completeness_diag(
+                        st, cached, paper_state=paper_state), module="paper", indent=1)
                 results[idx - 1] = {'pub': pub, 'citations': cached['citations']}
                 continue
 
@@ -1257,7 +1263,8 @@ class PaperCitationFetcher:
                               if paper_state and paper_state.stall_count else "")
                 run_log.info(f"[{idx}/{len(publications)}] {title[:55]}... -> stalled{stall_note}",
                              module="paper")
-                print(PaperCitationFetcher._format_completeness_diag(st, cached, paper_state=paper_state))
+                run_log.info(PaperCitationFetcher._format_completeness_diag(
+                    st, cached, paper_state=paper_state), module="paper", indent=1)
                 results[idx - 1] = {'pub': pub, 'citations': cached['citations'] if cached else []}
                 continue
 
@@ -1341,7 +1348,9 @@ class PaperCitationFetcher:
                         and num_citations <= s_total_check):
                     all_citations = cached.get('citations', [])
                     if all_citations and not self._filter_citations_with_year(all_citations):
-                        print(f"  -> skip (all {len(all_citations)} cached citations are unyeared)")
+                        run_log.info(f"skip (all {len(all_citations)} cached "
+                                     f"citations are unyeared)",
+                                     module="paper", indent=2)
                         results[idx - 1] = {'pub': pub, 'citations': all_citations}
                         continue
 
@@ -1358,7 +1367,9 @@ class PaperCitationFetcher:
                     self._next_refresh_at = self._session_ctx.total_page_count + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
                     if attempt > 1:
                         if fetch_completed:
-                            print(f"  {now_str()} Retrying post-fetch reconciliation with in-memory citations")
+                            run_log.info("Retrying post-fetch reconciliation with "
+                                         "in-memory citations",
+                                         module="fetch", indent=2)
                         else:
                             # Reload citations and current-run completed years from file.
                             # partial_year_start is kept from memory (in-memory only, not persisted)
@@ -1419,7 +1430,10 @@ class PaperCitationFetcher:
                                 # _resolve_refresh_strategy which always returns None.
                                 direct_resume_state = latest_cache.get('direct_resume_state') if latest_cache else None
                                 retry_suffix = self._direct_resume_log_suffix(direct_resume_state)
-                                print(f"  {now_str()} Retrying with {len(resume_from)} cached citations from previous attempt{retry_suffix}")
+                                run_log.info(f"Retrying with {len(resume_from)} "
+                                             f"cached citations from previous "
+                                             f"attempt{retry_suffix}",
+                                             module="fetch", indent=2)
                     if not fetch_completed:
                         citations = self._fetch_citations_with_progress(
                             citedby_url, None, title, num_citations,
@@ -1502,7 +1516,8 @@ class PaperCitationFetcher:
                         unyeared = max(0, len(citations) - year_total)
                         year_summary = self._format_year_count_summary(year_counts)
                         unyeared_suffix = f", unyeared={unyeared}" if unyeared else ""
-                        print(f"  Year summary: {year_summary}{unyeared_suffix}", flush=True)
+                        run_log.info(f"Year summary: {year_summary}{unyeared_suffix}",
+                                     module="year", indent=2)
                     # Read diagnostics from in-memory PaperFetchState (updated above).
                     pst = to_paper_fetch_state(getattr(self, '_paper_states', {}).get(title) if getattr(self, '_paper_states', None) else None)
                     direct_fetch_diagnostics = (pst.direct_fetch_diagnostics or {}) if pst else {}
@@ -1536,16 +1551,18 @@ class PaperCitationFetcher:
                     attempt_str = (str(attempt) if self.interactive_captcha
                                    else f"{attempt}/{MAX_RETRIES}")
                     total_new = self._run_new_citations_total + max(0, self._new_citations_count)
-                    print(f"  [{now}] Error (attempt {attempt_str}, "
-                          f"pages: {self._session_ctx.total_page_count} total / "
-                          f"{self._session_ctx.curl_page_count} this curl, "
-                          f"new citations: {total_new}): {e}")
+                    run_log.warn(f"Error (attempt {attempt_str}, "
+                                 f"pages: {self._session_ctx.total_page_count} total / "
+                                 f"{self._session_ctx.curl_page_count} this curl, "
+                                 f"new citations: {total_new}): {e}",
+                                 module="paper", indent=1)
                     if is_post_fetch_failure:
                         continue
                     # Non-interactive: give up after MAX_RETRIES attempts
                     if not self.interactive_captcha and attempt >= MAX_RETRIES:
                         traceback.print_exc()
-                        print(f"\n  [{now}] All retry attempts exhausted. Terminating.", flush=True)
+                        run_log.error("All retry attempts exhausted. Terminating.",
+                                      module="paper")
                         # run()'s finally writes the output (including the
                         # in-flight paper's partial citations); saving here too
                         # would write a second, less complete file on the way out.
@@ -1559,10 +1576,12 @@ class PaperCitationFetcher:
                                     getattr(self, '_last_scholar_url',
                                             'https://scholar.google.com/scholar')))
                         if solved:
-                            print(f"  {now_str()} Retrying with injected cookies (attempt {attempt + 1})...",
-                                  flush=True)
+                            run_log.info(f"Retrying with injected cookies "
+                                         f"(attempt {attempt + 1})...",
+                                         module="http", indent=2)
                             continue  # skip wait, go to next attempt
-                    print(f"  [{now}] Progress already saved to cache by PageVisit/batch")
+                    run_log.debug(f"Progress already saved to cache by "
+                                  f"PageVisit/batch", module="paper", indent=2)
 
             results[idx - 1] = {'pub': pub, 'citations': citations or []}
             self._run_new_citations_total += self._new_citations_count
@@ -1577,7 +1596,8 @@ class PaperCitationFetcher:
                 pst.record_fetch_outcome()
 
             if fetch_idx < (self.limit or len(need_fetch)):
-                print(f"  {now_str()} Next paper... [{self._wait_status()}]", flush=True)
+                run_log.info(f"Next paper... [{self._wait_status()}]",
+                             module="paper", indent=1)
 
     def _inject_cookies_from_curl(self, curl_str):
         """Parse cookies and selected headers from a pasted cURL command."""
@@ -1632,8 +1652,9 @@ class PaperCitationFetcher:
         get_soup = getattr(nav, '_get_soup', None)
         get_page = getattr(nav, '_get_page', None)
         if not callable(get_soup):
-            print("  Cite dialogs unavailable (no scholarly navigator); leaving "
-                  "citation['cite'] empty.", flush=True)
+            run_log.warn("Cite dialogs unavailable (no scholarly navigator); "
+                         "leaving citation['cite'] empty",
+                         module="cite", indent=1)
             return None
         citations = [c for result in final_results
                      for c in (result.get('citations') or [])
@@ -1646,11 +1667,12 @@ class PaperCitationFetcher:
             get_soup=get_soup,
             get_page=get_page,
         )
-        print(f"  citation formats resolved: {stats['resolved']}/{stats['with_cid']} "
-              f"(fetched {stats['fetched']}, cached {stats['cache_hits']}, "
-              f"failed {stats['failed']}, no cid {stats['missing_cid']}, "
-              f"no dialog {stats['unavailable']}, "
-              f"already complete {stats['skipped_complete']})")
+        run_log.info(f"citation formats resolved: {stats['resolved']}/{stats['with_cid']} "
+                     f"(fetched {stats['fetched']}, cached {stats['cache_hits']}, "
+                     f"failed {stats['failed']}, no cid {stats['missing_cid']}, "
+                     f"no dialog {stats['unavailable']}, "
+                     f"already complete {stats['skipped_complete']})",
+                     module="cite", indent=1)
 
         return stats
 
@@ -1744,7 +1766,8 @@ class PaperCitationFetcher:
                     if pub_title:
                         previous_by_title[pub_title] = item
             except (OSError, ValueError) as exc:
-                print(f"Warning: could not read the previous output for citation indices: {exc}")
+                run_log.warn(f"could not read the previous output for citation "
+                             f"indices: {exc}", module="output", indent=1)
 
         final_results = []
         for i, r in enumerate(results):
@@ -1779,7 +1802,8 @@ class PaperCitationFetcher:
                 write_citations_meta_for_pub(_root, entry.get('pub') or {},
                                              entry.get('citations') or [])
         except Exception as exc:   # noqa: BLE001 —— 落盘失败绝不影响抓取主流程
-            print(f"Warning: could not write cite files: {exc}")
+            run_log.warn(f"could not write cite files: {exc}",
+                         module="output", indent=1)
         total_cites = sum(len(r['citations']) for r in final_results)
         # Papers that exist in the previous output but not in the current profile
         # are not written any more.  Surface it instead of dropping citations
@@ -1788,9 +1812,11 @@ class PaperCitationFetcher:
         dropped_titles = [title for title in getattr(self, '_paper_states', {})
                           if title and title not in current_titles]
         if dropped_titles:
-            print(f"Warning: {len(dropped_titles)} paper(s) present in the previous "
-                  f"output are missing from the current profile and are dropped "
-                  f"(e.g. {', '.join(sorted(dropped_titles)[:2])[:110]})", flush=True)
+            run_log.warn(f"{len(dropped_titles)} paper(s) present in the previous "
+                         f"output are missing from the current profile and are "
+                         f"dropped (e.g. "
+                         f"{', '.join(sorted(dropped_titles)[:2])[:110]})",
+                         module="output", indent=1)
 
         # Opt-in: resolve every citation's five formats (MLA/APA/Chicago/Harvard/
         # Vancouver) + BibTeX from Scholar's Cite dialog, keyed by the row's cid.
@@ -1804,11 +1830,13 @@ class PaperCitationFetcher:
             try:
                 self._enrich_cite_formats(final_results)
             except KeyboardInterrupt:
-                print("  Citation-format step interrupted; writing the output with "
-                      "what was already resolved (the cache keeps the rest).", flush=True)
+                run_log.warn("Citation-format step interrupted; writing the output "
+                             "with what was already resolved (the cache keeps the "
+                             "rest)", module="cite", indent=1)
             except Exception as e:
-                print(f"Warning: citation-format step failed "
-                      f"({type(e).__name__}: {e}); writing the output without it", flush=True)
+                run_log.warn(f"citation-format step failed "
+                             f"({type(e).__name__}: {e}); writing the output "
+                             f"without it", module="cite", indent=1)
 
         # `venue_key` / `venue_key_source` 是**派生字段**：序列化前统一重算 ✓（2026-10-15）。
         # 缓存恢复的行（`citation_fetch` 直接复用上一轮的 dict）不带这两个字段，照抄会让
@@ -1818,7 +1846,8 @@ class PaperCitationFetcher:
             _ci_refresh_venue_keys([c for entry in final_results
                                     for c in (entry.get('citations') or [])])
         except Exception as exc:   # noqa: BLE001 —— 派生字段刷新失败绝不影响抓取落盘
-            print(f"Warning: could not refresh venue keys: {exc}", flush=True)
+            run_log.warn(f"could not refresh venue keys: {exc}",
+                         module="venue", indent=1)
 
         output_payload = {
             'author_id': self.author_id,
@@ -1829,16 +1858,16 @@ class PaperCitationFetcher:
         }
         write_json_atomic(self.out_json, output_payload,
                           ensure_ascii=False, indent=2)
-        print(f"Saved JSON : {self.out_json}")
+        run_log.info(f"Saved JSON: {self.out_json}", module="output", indent=1)
 
         # The Excel file is a convenience view; a failure there must not abort a
         # run whose data is already on disk.
         try:
             self._save_xlsx(final_results, metadata=output_payload)
-            print(f"Saved Excel: {self.out_xlsx}")
+            run_log.info(f"Saved Excel: {self.out_xlsx}", module="output", indent=1)
         except Exception as e:
-            print(f"Warning: could not write {self.out_xlsx}: "
-                  f"{type(e).__name__}: {e}", flush=True)
+            run_log.warn(f"could not write {self.out_xlsx}: "
+                         f"{type(e).__name__}: {e}", module="output", indent=1)
 
         total_papers = len(results)  # includes None slots (total publications)
         fetched_str = f", {self._papers_fetched_count} fetched" if self._papers_fetched_count else ""
@@ -1893,15 +1922,16 @@ def main():
         # deleted — a run log is the only record of what that crawl did).
         kept, archived = prune_run_logs(logs_dir, keep_path=log_path)
         if archived:
-            print(f"Archived {archived} old run log(s) to {os.path.join(logs_dir, LOG_ARCHIVE_DIRNAME)} "
-                  f"(keeping the newest {kept})")
+            run_log.info(f"Archived {archived} old run log(s) to "
+                         f"{os.path.join(logs_dir, LOG_ARCHIVE_DIRNAME)} "
+                         f"(keeping the newest {kept})", module="output", indent=1)
         log_file = open(log_path, 'w', encoding='utf-8')
         sys.stdout = TeeStream(original_stdout, log_file)
         run_log.info(f"Run log: {log_path}", module='run')
         run_log.info(f"Author ID: {author_id}", module='run')
     except OSError as e:
         sys.stdout = original_stdout
-        print(f"Warning: Failed to open run log file: {e}")
+        run_log.warn(f"Failed to open run log file: {e}", module="run")
         log_file = None
         log_path = None
 
@@ -1924,25 +1954,25 @@ def main():
         )
         logger.debug("Cite-dialog step: %s (%s)", cite_formats, cite_formats_source)
         if not cite_formats:
-            print("Note: --no-cite-formats — citing entries will keep the list page's "
-                  "abbreviated authors and truncated venue (citation['cite'] stays empty).")
+            run_log.info("--no-cite-formats: citing entries keep the list page's "
+                         "abbreviated authors and truncated venue "
+                         "(citation['cite'] stays empty)", module="cite", indent=1)
         setup_proxy(proxy.proxy_url, proxy.no_proxy)
         export_proxy_env(proxy.proxy_url, proxy.no_proxy)
         # Console-only logging: sys.stdout is the TeeStream that mirrors into the
         # run log, so a FileHandler here would be a second writer on the same
         # file and the two would overwrite each other's lines.
         setup_logging(verbose=getattr(args, 'verbose', False))
-        logger.info("Author ID: %s", author_id)
         logger.debug("fetch mode=%s skip=%s limit=%s interactive=%s accelerate=%s",
                      args.fetch_mode, args.skip, args.limit,
                      args.interactive_captcha, args.accelerate)
-        print(f"Author ID: {author_id}")
 
         delay_scale = args.accelerate
         if args.accelerate != 1.0 and not args.interactive_captcha:
-            print(f"Warning: --accelerate {args.accelerate} shortens every wait "
-                  f"(Scholar rate-limits sooner). Use it with --interactive-captcha, "
-                  f"which lets you solve a captcha without restarting.")
+            run_log.warn(f"--accelerate {args.accelerate} shortens every wait "
+                         f"(Scholar rate-limits sooner). Use it with "
+                         f"--interactive-captcha, which lets you solve a captcha "
+                         f"without restarting", module="run", indent=1)
 
         # Patch scholarly before profile fetch so both phases share the same
         # HTTP/2 session — avoids the cold-session block on the first citation page.
@@ -1983,10 +2013,12 @@ def main():
                         run_log.info("All citation caches are complete. Skipping citation fetch.",
                                      module="summary")
                         return
-                    print("\nNo changes in totals, but the Cite-dialog step still has "
-                          "citations outside its cache. Continuing...")
+                    run_log.info("No changes in totals, but the Cite-dialog step "
+                                 "still has citations outside its cache. Continuing...",
+                                 module="run")
                 else:
-                    print("\nNo changes in totals, but some citations are incomplete. Continuing fetch...")
+                    run_log.info("No changes in totals, but some citations are "
+                                 "incomplete. Continuing fetch...", module="run")
 
         # Y-6 步骤 3：论文目录的创建/编号/改名/归档由本阶段负责（默认只报告）
         run_papers_maintenance(args.output_dir, author_id, renumber_mode, log=print)
@@ -2005,9 +2037,10 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n\nInterrupted by user. Progress has been saved to cache.")
+        run_log.warn("Interrupted by user. Progress has been saved to cache.",
+                     module="run")
         sys.exit(0)
     except Exception as e:
-        print(f"\nError: {e}")
+        run_log.error(f"{e}", module="run")
         traceback.print_exc()
         sys.exit(1)

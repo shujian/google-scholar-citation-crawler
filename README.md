@@ -172,6 +172,10 @@ grepped like a table:
   a 70-character banner, the year's counters and the diagnosis they came from are
   one line, and a request URL is printed once (by the session layer) rather than
   twice.
+- **Page progress**: every citation-list page prints one `INFO` line, e.g.
+  `11:40:13 INFO  year      2025 · page 3 · 10 items`, so a run that is 40 minutes
+  into a year still says which year and which page it is on (`page 2 · 7 items`
+  in direct mode, where there is no year filter).
 - **Retention**: `output/logs/` keeps the newest 30 run logs; at the start of a run
   the older ones are moved to `output/logs/old/`. Nothing is ever deleted.
 

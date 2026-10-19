@@ -1,7 +1,7 @@
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from tests.conftest import patch, StringIO
+from tests.conftest import patch, StringIO, RunLogDebugCase
 import types
 import unittest
 
@@ -20,7 +20,7 @@ def _ctx(**overrides):
     return types.SimpleNamespace(**values)
 
 
-class PageVisitTests(unittest.TestCase):
+class PageVisitTests(RunLogDebugCase):
     """PageVisit must recover, but never loop forever."""
 
     def _visit(self, fn, ctx=None, label="page"):

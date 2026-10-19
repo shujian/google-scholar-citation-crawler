@@ -15,6 +15,29 @@ import os  # noqa: F401
 import tempfile  # noqa: F401
 
 
+# Tests assert on run-log lines that make up the *detail* of a run (one line per
+# request / per page), so the whole suite runs at DEBUG.  Production defaults to
+# INFO; ``tests/test_log_utils.py`` drives the threshold itself and restores it.
+from code.log_utils import (run_log as _run_log, DEBUG as _DEBUG,  # noqa: E402
+                             INFO as _INFO)
+
+_run_log.set_threshold(_DEBUG)
+
+
+class RunLogDebugCase(unittest.TestCase):
+    """Base for test cases that assert on run-log *detail* lines.
+
+    Production logs at INFO (conclusions) and keeps the per-request/per-page
+    detail at DEBUG (``--verbose``).  A test that reads those detail lines must
+    say so itself: ``setup_logging()`` inside ``main()`` resets the threshold, so
+    a module-level default alone would depend on test ordering.
+    """
+
+    def setUp(self):
+        _run_log.set_threshold(_DEBUG)
+        self.addCleanup(_run_log.set_threshold, _INFO)
+
+
 # ---------------------------------------------------------------------------
 # Stub classes
 # ---------------------------------------------------------------------------
@@ -163,7 +186,7 @@ sys.modules.setdefault("openpyxl.styles", styles_mod)
 # Base test case with shared setUp
 # ---------------------------------------------------------------------------
 
-class FetcherTestCase(unittest.TestCase):
+class FetcherTestCase(RunLogDebugCase):
     """
     Base class for PaperCitationFetcher tests.
     Imports scholar_citation lazily (after stubs are installed) and provides
@@ -176,6 +199,7 @@ class FetcherTestCase(unittest.TestCase):
         cls.sc = sc
 
     def setUp(self):
+        super().setUp()          # RunLogDebugCase: run-log detail at DEBUG
         sc = self.sc
         scholarly_mod.scholarly._Scholarly__nav = _DummyNav()
         self.fetcher = sc.PaperCitationFetcher("test-author", output_dir=".")

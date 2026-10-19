@@ -47,6 +47,13 @@ from datetime import datetime
 
 from bs4 import BeautifulSoup
 
+from code.log_utils import run_log
+
+
+def _log_venue_line(message="", **_ignored):
+    """Default ``print_fn``: per-publication detail goes through the run log."""
+    for part in str(message).split("\n"):
+        run_log.debug(part.lstrip(), module="venue", indent=1)
 from code.common import write_json_atomic
 from code.venue_quality import is_complete_venue
 
@@ -164,8 +171,9 @@ def load_venue_cache(path):
         with open(path, 'r', encoding='utf-8') as handle:
             data = json.load(handle)
     except (json.JSONDecodeError, OSError, TypeError, ValueError) as e:
-        print(f"Warning: {path} is unreadable ({type(e).__name__}: {e}); "
-              f"starting an empty venue cache", flush=True)
+        run_log.warn(f"{path} is unreadable ({type(e).__name__}: {e}); "
+                     f"starting an empty venue cache",
+                     module="venue", indent=1)
         return {}
     if not isinstance(data, dict):
         return {}
@@ -183,7 +191,8 @@ def save_venue_cache(path, cache):
 # ---------------------------------------------------------------------------
 
 def enrich_publications_with_venue_full(publications, cache_path=None,
-                                        get_soup=None, print_fn=print,
+                                        get_soup=None,
+                                        print_fn=_log_venue_line,
                                         fetched_at=None):
     """Fetch one detail page per publication and fill in ``venue_full``.
 

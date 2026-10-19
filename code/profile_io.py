@@ -1,5 +1,11 @@
 import json
 import os
+from code.log_utils import run_log
+
+
+def _log_output_line(message="", **_ignored):
+    """Default ``print_fn`` for the Excel write: one run-log line."""
+    run_log.info(str(message).lstrip(), module="output", indent=1)
 import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -82,11 +88,12 @@ class AuthorProfile:
             backup = f"{path}.corrupt"
             try:
                 shutil.copy2(path, backup)
-                print(f"Warning: {path} is unreadable ({e}); backed it up to "
-                      f"{backup} and continuing as a first run", flush=True)
+                run_log.warn(f"{path} is unreadable ({e}); backed it up to "
+                             f"{backup} and continuing as a first run",
+                             module="profile", indent=1)
             except OSError:
-                print(f"Warning: {path} is unreadable ({e}); continuing as a "
-                      f"first run (backup failed)", flush=True)
+                run_log.warn(f"{path} is unreadable ({e}); continuing as a first "
+                             f"run (backup failed)", module="profile", indent=1)
             return None
         # Migrate legacy history.json if change_history is missing
         if 'change_history' not in data:
@@ -144,17 +151,20 @@ class AuthorProfile:
             new_papers = record['new_papers']
             changed_citations = record['changed_citations']
             if new_papers:
-                print(f"\nNew papers ({len(new_papers)}):")
+                run_log.info(f"New papers ({len(new_papers)}):", module="profile")
                 for t in new_papers[:5]:
-                    print(f"  + {t[:70]}")
+                    run_log.info(f"+ {t[:70]}", module="profile", indent=1)
                 if len(new_papers) > 5:
-                    print(f"  ... {len(new_papers)} total")
+                    run_log.info(f"... {len(new_papers)} total",
+                                 module="profile", indent=1)
             if changed_citations:
-                print(f"\nCitation changes ({len(changed_citations)}):")
+                run_log.info(f"Citation changes ({len(changed_citations)}):",
+                             module="profile")
                 for c in changed_citations:
-                    print(f"  {c['title'][:60]}... {c['old']} -> {c['new']}")
+                    run_log.info(f"{c['title'][:60]}... {c['old']} -> {c['new']}",
+                                 module="profile", indent=1)
             if not new_papers and not changed_citations:
-                print("  (No changes in this run)")
+                run_log.info("No changes in this run", module="profile", indent=2)
 
         self.change_history.append(record)
         return record
@@ -187,7 +197,7 @@ def save_profile_xlsx(
     font_cls,
     pattern_fill_cls,
     alignment_cls,
-    print_fn=print,
+    print_fn=_log_output_line,
 ):
     """Save Excel file with 3 sheets: overview, publications, and history.
 

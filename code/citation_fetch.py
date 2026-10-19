@@ -33,7 +33,6 @@ from code.common import (
     SESSION_REFRESH_MAX,
     SESSION_REFRESH_MIN,
     _scholar_request_url,
-    now_str,
     rand_delay,
 )
 from code.fetch_session import YearFetchSession  # replaces FetchContext
@@ -532,9 +531,13 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
         _url=_direct_request_url(citedby_url, normalized_direct_resume_state),
     )
 
-    print("        Direct fetch mode: no year probe, summary shown after fetch", flush=True)
-    print(f"        Direct fetch target: scholar_total={current_scholar_total()}, prev_scholar={prev_scholar_count}, "
-          f"cached_total={len(old_citations)}{_direct_resume_log_suffix(normalized_direct_resume_state)}", flush=True)
+    run_log.debug("Direct fetch mode: no year probe, summary shown after fetch",
+                  module="fetch", indent=2)
+    run_log.debug(f"Direct fetch target: scholar_total={current_scholar_total()}, "
+                  f"prev_scholar={prev_scholar_count}, "
+                  f"cached_total={len(old_citations)}"
+                  f"{_direct_resume_log_suffix(normalized_direct_resume_state)}",
+                  module="fetch", indent=2)
     fetcher._current_attempt_url = _scholar_request_url(direct_batch.url)
 
     old_cache_id_keys = set()
@@ -544,9 +547,10 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
 
     def _direct_on_citation(info, identity_keys, is_new, is_dupe, existing_label):
         if is_dupe:
-            print(f"          [dedup] Skipping duplicate: {info['title'][:50]}... "
-                  f"({info.get('venue', 'N/A')}, {info.get('year', '?')})\n"
-                  f"                    Existing: {existing_label}", flush=True)
+            run_log.debug(f"[dedup] Skipping duplicate: {info['title'][:50]}... "
+                          f"({info.get('venue', 'N/A')}, {info.get('year', '?')}); "
+                          f"existing: {existing_label}",
+                          module="fetch", indent=3)
         else:
             if is_new:
                 if not any(k in counted_new_keys for k in identity_keys):
@@ -554,14 +558,16 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
                     for k in identity_keys:
                         counted_new_keys.add(k)
             count = len(direct_batch.citations)
-            print(f"          [{count}] {info['title'][:55]}...", flush=True)
+            run_log.debug(f"[{count}] {info['title'][:55]}...",
+                          module="fetch", indent=3)
 
     def _direct_on_page_complete(batch):
         _run_page_cite_hook(fetcher, batch)
         save_progress(fetch_finished=False, batch=batch)
         if batch.items_on_page >= SCHOLAR_PAGE_SIZE:
-            print(f"        Progress saved: {len(batch.citations)} fetched this paper, "
-                  f"{fetcher._new_citations_count} new this paper", flush=True)
+            run_log.debug(f"Progress saved: {len(batch.citations)} fetched this "
+                          f"paper, {fetcher._new_citations_count} new this paper",
+                          module="fetch", indent=2)
 
     direct_iterator = fetcher._iter_direct_citedby(
         citedby_url,
@@ -593,10 +599,11 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
         # read as a normal end-of-list fetch forever (the page-level evidence is
         # in the 'Page items: 0' line above).
         direct_fetch_termination_reason = 'empty_first_page'
-        print(f"        {now_str()} Citation list returned 0 rows for "
-              f"scholar_total={current_scholar_total()} "
-              f"({_scholar_request_url(direct_batch.url)}) "
-              f"— recording termination as empty_first_page", flush=True)
+        run_log.warn(f"Citation list returned 0 rows for "
+                     f"scholar_total={current_scholar_total()} "
+                     f"({_scholar_request_url(direct_batch.url)}) "
+                     f"— recording termination as empty_first_page",
+                     module="fetch", indent=2)
 
     direct_fetch_diagnostics = _build_direct_fetch_diagnostics(
         scholar_total=current_scholar_total(),
@@ -609,16 +616,26 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
     direct_materialized_total = len(direct_materialized_cache)
     cached_year_map = fetcher._year_count_map(direct_materialized_cache)
     cached_year_sum = sum(cached_year_map.values())
-    print("        Probe summary: none", flush=True)
-    print(f"        Probe totals: scholar_total={current_scholar_total()}, year_sum=0, missing_from_histogram=?", flush=True)
-    print(f"        Cache summary: {fetcher._format_year_count_summary(cached_year_map)}", flush=True)
-    print(f"        Cache totals: cached_total={direct_materialized_total}, cached_year_sum={cached_year_sum}, cached_unyeared={direct_materialized_total - cached_year_sum}, dedup_num={year_ctx.dedup_count}", flush=True)
+    run_log.debug("Probe summary: none", module="fetch", indent=2)
+    run_log.debug(f"Probe totals: scholar_total={current_scholar_total()}, "
+                  f"year_sum=0, missing_from_histogram=?", module="fetch", indent=2)
+    run_log.debug(f"Cache summary: "
+                  f"{fetcher._format_year_count_summary(cached_year_map)}",
+                  module="fetch", indent=2)
+    run_log.debug(f"Cache totals: cached_total={direct_materialized_total}, "
+                  f"cached_year_sum={cached_year_sum}, "
+                  f"cached_unyeared={direct_materialized_total - cached_year_sum}, "
+                  f"dedup_num={year_ctx.dedup_count}", module="fetch", indent=2)
     s = direct_fetch_diagnostics
     new_count = len(fresh_citations)
     total_count = direct_materialized_total
-    print(f"        Direct fetch totals: scholar_total={s['scholar_total']}, new={new_count}, total_cached={total_count}, seen_total={s['seen_total']}", flush=True)
+    run_log.info(f"Direct fetch totals: scholar_total={s['scholar_total']}, "
+                 f"new={new_count}, total_cached={total_count}, "
+                 f"seen_total={s['seen_total']}", module="fetch", indent=2)
     if _direct_fetch_is_underfetched(direct_fetch_diagnostics):
-        print(f"        {_direct_fetch_diagnostics_message(direct_fetch_diagnostics, prefix='Direct fetch under-fetched ')}", flush=True)
+        run_log.warn(_direct_fetch_diagnostics_message(
+            direct_fetch_diagnostics, prefix='Direct fetch under-fetched '),
+            module="fetch", indent=2)
     save_progress(fetch_finished=True, batch=direct_batch)
     return list(fresh_citations)
 
@@ -733,14 +750,17 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
         elif year_count_map:
             cache_min = min(year_count_map.keys())
             if cache_min < start_year:
-                print(f"      Using cache min year {cache_min} (probe returned {start_year})", flush=True)
+                run_log.info(f"Using cache min year {cache_min} "
+                             f"(probe returned {start_year})",
+                             module="year", indent=2)
                 start_year = cache_min
 
     total_years = current_year - start_year + 1
     skipped_years = 0
 
-    print(f"  Year-based plan: {start_year}-{current_year} "
-          f"(current-run completed={len(year_ctx.completed_year_segments)})", flush=True)
+    run_log.info(f"Year-based plan: {start_year}-{current_year} "
+                 f"(current-run completed={len(year_ctx.completed_year_segments)})",
+                 module="plan", indent=1)
 
     year_range = range(start_year, current_year + 1)
 
@@ -761,20 +781,37 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
     probed_hist_total = count_summary['histogram_total']
     probed_missing_from_histogram = count_summary['scholar_unyeared_count']
     histogram_authoritative = probed_hist_total > 0
-    print(f"    Probe summary: {fetcher._format_year_count_summary(probed_year_counts)}", flush=True)
+    run_log.debug(f"Probe summary: "
+                  f"{fetcher._format_year_count_summary(probed_year_counts)}",
+                  module="year", indent=2)
     if num_citations is None:
-        print(f"    Probe totals: scholar_total=?, year_sum={probed_hist_total}, missing_from_histogram=?", flush=True)
+        run_log.debug(f"Probe totals: scholar_total=?, "
+                      f"year_sum={probed_hist_total}, "
+                      f"missing_from_histogram=?", module="year", indent=2)
     else:
-        print(f"    Probe totals: scholar_total={num_citations}, year_sum={probed_hist_total}, missing_from_histogram={probed_missing_from_histogram}", flush=True)
-    print(f"    Cache summary: {fetcher._format_year_count_summary(cached_year_counts)}", flush=True)
-    print(f"    Cache totals: cached_total={cached_total_citations}, seen_total={cached_seen_total}, "
-          f"cached_year_sum={cached_year_total}, cached_unyeared={cached_unyeared_citations}, dedup_num={year_ctx.dedup_count}", flush=True)
+        run_log.debug(f"Probe totals: scholar_total={num_citations}, "
+                      f"year_sum={probed_hist_total}, "
+                      f"missing_from_histogram={probed_missing_from_histogram}",
+                      module="year", indent=2)
+    run_log.debug(f"Cache summary: "
+                  f"{fetcher._format_year_count_summary(cached_year_counts)}",
+                  module="year", indent=2)
+    run_log.debug(f"Cache totals: cached_total={cached_total_citations}, "
+                  f"seen_total={cached_seen_total}, "
+                  f"cached_year_sum={cached_year_total}, "
+                  f"cached_unyeared={cached_unyeared_citations}, "
+                  f"dedup_num={year_ctx.dedup_count}", module="year", indent=2)
     effective_target = probed_hist_total if histogram_authoritative else num_citations
     probe_note = "" if is_year else " (no histogram probe)"
-    print(f"    Fetch context: "
-          f"prev_scholar={prev_scholar_count}, target={effective_target}, total_years={total_years}{probe_note}", flush=True)
-    print(f"    Current-run completed years: {fetcher._format_year_set_summary(year_ctx.completed_year_segments)}", flush=True)
-    print(f"    Partial resume points: {fetcher._format_partial_year_start_summary(year_ctx.partial_year_start)}", flush=True)
+    run_log.debug(f"Fetch context: prev_scholar={prev_scholar_count}, "
+                  f"target={effective_target}, total_years={total_years}{probe_note}",
+                  module="year", indent=2)
+    run_log.info(f"Current-run completed years: "
+                 f"{fetcher._format_year_set_summary(year_ctx.completed_year_segments)}",
+                 module="year", indent=2)
+    run_log.info(f"Partial resume points: "
+                 f"{fetcher._format_partial_year_start_summary(year_ctx.partial_year_start)}",
+                 module="year", indent=2)
     # Sync stale diagnostics with current probe/cache values so that
     # year_fetch_diagnostic_matches_total can correctly recognise years
     # that were completed in a prior run even when the cite count has grown.
@@ -934,9 +971,11 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
             def _on_year_citation(info, identity_keys, is_new, is_dupe, existing_label):
                 nonlocal year_new_count
                 if is_dupe:
-                    print(f"          [dedup] Skipping duplicate: {info['title'][:50]}... "
-                          f"({info.get('venue', 'N/A')}, {info.get('year', '?')})\n"
-                          f"                    Existing: {existing_label}", flush=True)
+                    run_log.debug(f"[dedup] Skipping duplicate: "
+                                  f"{info['title'][:50]}... "
+                                  f"({info.get('venue', 'N/A')}, "
+                                  f"{info.get('year', '?')}); existing: {existing_label}",
+                                  module="year", indent=3)
                 else:
                     if is_new:
                         # Cross-year dedup within this run: only count if not
@@ -951,7 +990,8 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                     fresh_year_buckets[year] = list(year_batch.citations)
                     fresh_citations[:] = current_citations(complete=True)
                     count = len(fresh_citations)
-                    print(f"          [{count}] {info['title'][:55]}...", flush=True)
+                    run_log.debug(f"[{count}] {info['title'][:55]}...",
+                                  module="year", indent=3)
 
             def _on_year_page_complete(batch):
                 nonlocal year_progress_saved, year_dedup_count, year_new_count
@@ -961,8 +1001,10 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                 save_progress(fetch_finished=False, batch=batch)
                 year_progress_saved = True
                 if batch.items_on_page >= SCHOLAR_PAGE_SIZE:
-                    print(f"        Progress saved: {len(batch.citations)} fetched for year {year}, "
-                          f"{year_new_count} new in year, {fetcher._new_citations_count} truly new this paper", flush=True)
+                    run_log.debug(f"Progress saved: {len(batch.citations)} fetched "
+                                  f"for year {year}, {year_new_count} new in year, "
+                                  f"{fetcher._new_citations_count} truly new this paper",
+                                  module="year", indent=2)
 
             year_batch.run(
                 fetcher,
@@ -1078,7 +1120,9 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                     'partial_resume_completed',
                 )
                 year_ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
-                print(f"  Year {year}: Completed resumed year segment, skipping remaining years after current year", flush=True)
+                run_log.info(f"Year {year}: completed resumed year segment; "
+                             f"skipping the remaining years",
+                             module="year", indent=1)
                 break
 
     except KeyboardInterrupt:
@@ -1089,9 +1133,8 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
         raise
 
     fresh_citations[:] = current_citations(complete=True)
-    year_log = fetcher._year_fetch_log_message(year_fetch_diagnostics)
-    year_log_indented = year_log.replace("\n", "\n        ")
-    print(f"    {year_log_indented}", flush=True)
+    for _line in fetcher._year_fetch_log_message(year_fetch_diagnostics).split("\n"):
+        run_log.info(_line, module="year", indent=2)
     save_progress(fetch_finished=True)
     return list(fresh_citations)
 

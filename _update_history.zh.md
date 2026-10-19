@@ -2571,3 +2571,26 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
 **验证**：真实库 241 篇逐篇比对新旧推断 —— **变化 0 篇** ✓（year 36 / direct 169 / None 36 不变），
 即"防御性收口、今天的数据一行不动" ✓；新增 1 例回归测试（坏形状落回 direct、无证据时不完整、
 真实 probe 仍判 year、只有汇总的老形状也算证据）。全套 **592 → 609** ✓。
+
+## 2026-10-19（续 21）: 日志收口 —— 205 处 print 全部迁到 run_log（用户定 A 方案）
+
+- **问题**（用户：日志越来越复杂）：`365e67f` 只迁移了一半，实测最新 run 423 行里 187 行新式 /
+  227 行旧 print，旧式行有 9 种缩进宽度 —— 两套机制并存。
+- **改动**：`scholarly_session` / `citation_fetch` / `scholar_citation` / `author_fetcher` /
+  `profile_io` / `venue_detail` / `cite_format` / `page_visit` / `common` / `output_state`
+  的全部 `print` 经 `run_log` 输出；`code/` 下只剩 `interactive.py`（交互提示）与
+  `RunLog.write` 自己那一处 `print`。`print_fn` 接缝保留，默认值改成 `run_log` 适配器
+  （新增通用件 `log_utils.line_logger()`）。
+- **找回丢失的进度信息**：每页一行 INFO `2025 · page 3 · 10 items`（direct 模式 `page 2 · 7 items`），
+  判据 `citation_page_progress()` / `citation_page_module()`；这是"抓到哪一年第几页"的唯一来源
+  （上一版把 `Pagination` / `Page items` 降到 DEBUG 后默认级别看不到）。
+- **级别口径**：INFO = 状态变化与结论；DEBUG（`-v`）= 请求 URL、等待、重试、逐条明细、探针/缓存计数。
+- **测试**：新增 `tests/conftest.py::RunLogDebugCase`（每个测试自己声明 DEBUG，因为
+  `setup_logging()` 会把阈值改回 INFO）；`FetcherTestCase` / `PageVisitTests` 继承它；
+  `test_log_utils` 恢复"进来时的阈值"。新增 `tests/test_scholar_patch.py::CitationPageProgressTests`
+  （6 例：年份/页码/条目数、direct 无年份、页码由 `start=` 决定、模块标签、空 URL、
+  以及"进度行必须是 INFO、旧的 DEBUG 行已删"的源码级断言）。
+- **文档**：`AGENTS.md` 的日志节（迁移完成 + 逐页进度行 + 测试侧声明）、`README.md` 的日志小节
+  各加一条。
+- **一次外部干扰**：改到一半发现 `code/citation_fetch.py` 被外部改回原样（27 处 print 回来），
+  已重做并**立即提交**，避免长期未提交的改动被覆盖。

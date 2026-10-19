@@ -2,13 +2,16 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tests.conftest import (
-    FetcherTestCase, scholarly_mod, _DummyNav, _DummyIterator,
+    FetcherTestCase, RunLogDebugCase, scholarly_mod, _DummyNav, _DummyIterator,
     patch, StringIO, json, tempfile,
 )
 import time
 import types
 import unittest
 from code import scholar_citation
+from code.scholarly_session import (  # noqa: E402
+    citation_page_module, citation_page_progress,
+)
 
 class ScholarPatchAndIdentityTests(FetcherTestCase):
     def test_curl_save_path_defaults_to_output_dir(self):
@@ -983,3 +986,52 @@ class MissingCiteDialogWiringTests(FetcherTestCase):
             self.nav._get_page(self.LIST_URL)
 
         self.assertEqual(seen, [None])
+
+
+class CitationPageProgressTests(RunLogDebugCase):
+    """One INFO line per citation-list page: where the traversal is (2026-10-19).
+
+    Before this, the year and the page number only appeared in DEBUG lines
+    (``Pagination (page N)`` / ``Page items: N``), so a normal run could not tell
+    which year or which page it was on.
+    """
+
+    YEAR_PAGE_1 = ('/scholar?as_ylo=2025&as_yhi=2025&hl=en&as_sdt=2005'
+                   '&sciodt=0,5&cites=1,2&scipsc=')
+    YEAR_PAGE_3 = ('/scholar?start=20&hl=en&as_sdt=2005&sciodt=0,5'
+                   '&as_ylo=2025&as_yhi=2025&cites=1,2&scipsc=')
+    DIRECT_PAGE_2 = ('/scholar?start=10&hl=en&as_sdt=2005&sciodt=0,5'
+                     '&cites=1,2&scipsc=')
+
+    def test_year_mode_page_line_carries_year_page_and_items(self):
+        self.assertEqual(citation_page_progress(self.YEAR_PAGE_1, 10),
+                         "2025 · page 1 · 10 items")
+        self.assertEqual(citation_page_progress(self.YEAR_PAGE_3, 10),
+                         "2025 · page 3 · 10 items")
+
+    def test_direct_mode_page_line_has_no_year(self):
+        self.assertEqual(citation_page_progress(self.DIRECT_PAGE_2, 7),
+                         "page 2 · 7 items")
+
+    def test_page_number_comes_from_the_start_parameter(self):
+        self.assertEqual(citation_page_progress('/scholar?start=0&cites=1', 10),
+                         "page 1 · 10 items")
+        self.assertEqual(citation_page_progress('/scholar?start=90&cites=1', 10),
+                         "page 10 · 10 items")
+
+    def test_module_tag_follows_the_year_filter(self):
+        self.assertEqual(citation_page_module(self.YEAR_PAGE_1), "year")
+        self.assertEqual(citation_page_module(self.DIRECT_PAGE_2), "fetch")
+        self.assertEqual(citation_page_module(None), "fetch")
+
+    def test_empty_url_is_still_a_page_one_line(self):
+        self.assertEqual(citation_page_progress(None, 3), "page 1 · 3 items")
+
+    def test_page_line_is_info_and_the_old_debug_lines_are_gone(self):
+        """The progress line is INFO; it is not left at DEBUG (it was the loss)."""
+        import code.scholarly_session as mod
+
+        source = open(mod.__file__, encoding='utf-8').read()
+        self.assertIn("run_log.info(citation_page_progress(url, page_size)", source)
+        self.assertNotIn('run_log.debug(f"Pagination (page', source)
+        self.assertNotIn('run_log.debug(f"Page items: {page_size}"', source)

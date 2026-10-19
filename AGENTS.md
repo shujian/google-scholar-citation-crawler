@@ -158,10 +158,21 @@ google-scholar-citation-crawler/
 - **`run_log.section(title, module=…)`** 取代横幅：一个阶段/步骤一行 `── title ────…`。
 - **一个事实一行**：`URL:` 那行已删（URL 只在 session 层的 `Request URL:` 出现一次）；
   `Year N compare:` 的字段并入 `Year N status:`；`Author ID:` 只在 run 头出现（phase 标题里带作者）；
-  零行的 `Page items:` 升为 WARN（异常，原文不变），正常页的 `Page items: N` 与 `Pagination` 降为 DEBUG。
-- **已迁移**：phase/步骤标题、fetch plan、paper 头与 paper 结论、year 的结论与状态、session 的
-  请求/等待/分页/长休、run summary。**未迁移**（Step 2，逐模块做）：`citation_fetch.py` 里更深的
-  诊断行（`Direct fetch target:` / `Probe totals:` / `Cache totals:` 等）仍是 `print()`，缩进 6/8 空格。
+  零行的 `Page items:` 保留原文但升为 WARN（异常），正常页改由下面的**逐页进度行**承担。
+- **逐页进度行（2026-10-19，用户要求）**：抓引用列表时每页一行 INFO
+  `11:40:13 INFO  year      2025 · page 3 · 10 items`（direct 模式无年份 → `page 2 · 7 items`）。
+  这是"现在抓到哪一年、第几页"的唯一来源 —— 上一版把 `Pagination (page N)` / `Page items: N`
+  降到 DEBUG 后，默认级别下**看不到进度**了 ✗。判据在 `citation_page_progress()` /
+  `citation_page_module()`（`code/scholarly_session.py`），页码取 URL 的 `start=`、年份取 `as_ylo=`。
+- **迁移已完成（2026-10-19）**：`code/` 下**只有 `interactive.py` 还写 `print()`**（它是交互提示，
+  不是日志），其余模块全部经 `run_log`；`log_utils.py` 里那一个 `print()` 是 `RunLog.write` 本身。
+  原来 205 处 `print` / 62 处 `run_log` 的并存状态结束。
+  `code/venue_detail.py` / `code/cite_format.py` / `code/profile_io.py` 保留 `print_fn` 接缝给测试，
+  但默认值已换成 `line_logger(...)` / 各自的 `_log_*_line` 适配器（经 `run_log` 输出），
+  所以"默认打印"也是同一种行形状。
+- **测试**：`tests/conftest.py::RunLogDebugCase` 把阈值降到 DEBUG（测试会断言请求/页级明细），
+  `FetcherTestCase` 已继承它；`setup_logging()` 会把阈值改回 INFO，所以**每个测试自己声明**，
+  不能只在模块级设一次。
 - **日志文件治理**：`output/logs/` 只保留最近 **`LOG_KEEP_RUNS`（30）** 次，更早的由
   `prune_run_logs()` 在 run 开始时**移动**（绝不删除）到 `output/logs/old/`；当前 run 的日志永远保留。
   2026-10-16 首次执行：87 → 30 个（57 个进 `old/`）。

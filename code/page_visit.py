@@ -15,7 +15,8 @@ import random
 import time
 from datetime import datetime
 
-from code.common import rand_delay, now_str
+from code.common import rand_delay
+from code.log_utils import run_log
 
 
 #: HTTP statuses that mean "this record does not exist", as opposed to
@@ -129,8 +130,9 @@ class PageVisit:
             except Exception as e:
                 status = _status_of(e, self.ctx)
                 if missing_record_on_404 and status in MISSING_RECORD_STATUSES:
-                    print(f"        {now_str()} {label}: HTTP {status} — no such "
-                          f"record (not a block); giving up on it", flush=True)
+                    run_log.warn(f"{label}: HTTP {status} — no such record "
+                                 f"(not a block); giving up on it",
+                                 module="http", indent=1)
                     raise RecordUnavailable(url, status) from e
 
                 # -- captcha recovery (interactive mode) -----------------
@@ -138,8 +140,9 @@ class PageVisit:
                         and self.ctx.try_interactive_captcha_fn
                         and not captcha_attempted):
                     captcha_attempted = True
-                    print(f"        {now_str()} Blocked fetching {label}: {e}"
-                          f"{_status_note(status)}", flush=True)
+                    run_log.warn(f"Blocked fetching {label}: {e}"
+                                 f"{_status_note(status)}",
+                                 module="http", indent=1)
                     solved = self.ctx.try_interactive_captcha_fn(url)
                     if solved:
                         retries = 0
@@ -152,10 +155,12 @@ class PageVisit:
                     retries += 1
                     d = rand_delay(self.ctx.delay_scale)
                     wait_str = self.ctx.wait_status_fn() if self.ctx.wait_status_fn else ""
-                    print(f"        {now_str()} Error fetching {label} "
-                          f"(retry {retries}/{max_retries}): {e}"
-                          f"{_status_note(status)}", flush=True)
-                    print(f"        {now_str()} Waiting {d:.0f}s... [{wait_str}]", flush=True)
+                    run_log.debug(f"Error fetching {label} "
+                                  f"(retry {retries}/{max_retries}): {e}"
+                                  f"{_status_note(status)}",
+                                  module="http", indent=1)
+                    run_log.debug(f"Waiting {d:.0f}s... [{wait_str}]",
+                                  module="http", indent=1)
                     time.sleep(d)
                     continue
 
@@ -165,9 +170,10 @@ class PageVisit:
                 # immediately asking for a proxy switch.
                 cooldowns += 1
                 if cooldowns > max_cooldowns:
-                    print(f"        {now_str()} {label} still failing after "
-                          f"{max_cooldowns} cooldowns: {e}"
-                          f"{_status_note(status)}", flush=True)
+                    run_log.warn(f"{label} still failing after "
+                                 f"{max_cooldowns} cooldowns: {e}"
+                                 f"{_status_note(status)}",
+                                 module="http", indent=1)
                     if self.ctx.wait_proxy_switch_fn and self.ctx.wait_proxy_switch_fn():
                         retries = 0
                         captcha_attempted = False
@@ -176,9 +182,9 @@ class PageVisit:
                     raise
                 d = random.uniform(300, 600) * self.ctx.delay_scale
                 wait_str = self.ctx.wait_status_fn() if self.ctx.wait_status_fn else ""
-                print(f"        {now_str()} Rate-limit cooldown after "
-                      f"{label} failures: waiting {d/60:.0f} min... [{wait_str}]",
-                      flush=True)
+                run_log.warn(f"Rate-limit cooldown after {label} failures: "
+                             f"waiting {d/60:.0f} min... [{wait_str}]",
+                             module="http", indent=1)
                 time.sleep(d)
                 retries = 0
                 captcha_attempted = False

@@ -15,8 +15,8 @@ from datetime import datetime
 
 from scholarly import scholarly
 
-from code.common import rand_delay, now_str
-from code.log_utils import run_log
+from code.common import rand_delay
+from code.log_utils import INFO, line_logger, run_log
 from code.pub_info import PubInfo
 from code.profile_io import (
     AuthorProfile,
@@ -42,7 +42,8 @@ class AuthorProfileFetcher:
         self.profile_xlsx = os.path.join(output_dir, f"author_{author_id}_profile.xlsx")
         self.venue_detail_cache = os.path.join(output_dir, VENUE_DETAIL_CACHE_FILENAME)
 
-        print(f"Output files: author_{author_id}_profile.json / .xlsx")
+        run_log.info(f"Output files: author_{author_id}_profile.json / .xlsx",
+                     module="output", indent=1)
 
     # ------------------------------------------------------------------
     # Phase 1
@@ -54,9 +55,7 @@ class AuthorProfileFetcher:
         Always fetches from network (only 1 request) to detect citation changes.
         Returns (basics_dict, fetched_from_network).
         """
-        print("\nPhase 1: Fetching author basic info...")
-        print(f"  Author ID: {self.author_id}")
-        print("Connecting to Google Scholar...")
+        run_log.info(f"Author ID: {self.author_id}", module="profile", indent=1)
 
         try:
             # Build the author stub locally (no HTTP request) so that
@@ -72,7 +71,7 @@ class AuthorProfileFetcher:
             author_filled = scholarly.fill(author, sections=['basics', 'indices', 'counts'])
             if author_filled is None:
                 raise ValueError("fill() returned None — Scholar may be rate-limiting")
-            print("Author found.")
+            run_log.debug("Author found", module="profile", indent=1)
             self._author_stub = author_filled  # cache for fetch_publications to reuse
 
             current_year = datetime.now().year
@@ -93,22 +92,24 @@ class AuthorProfileFetcher:
                 'cites_per_year': {str(k): v for k, v in cites_per_year.items()},
             }
 
-            print(f"\nAuthor: {basics['name']}")
-            print(f"  Affiliation: {basics['affiliation']}")
-            print(f"  Total citations: {basics['citedby']}")
-            print(f"  Citations this year: {basics['citedby_this_year']}")
-            print(f"  h-index: {basics['hindex']}")
-            print(f"  i10-index: {basics['i10index']}")
+            run_log.info(f"Author: {basics['name']} · {basics['affiliation']}",
+                         module="profile", indent=1)
+            run_log.info(f"citations: {basics['citedby']} total, "
+                         f"{basics['citedby_this_year']} this year; "
+                         f"h-index {basics['hindex']}, i10-index {basics['i10index']}",
+                         module="profile", indent=2)
 
             return basics, True
 
         except (AttributeError, TypeError) as e:
-            print(f"Failed to fetch basic info: network issue or Scholar rate-limiting "
-                  f"(got unexpected None in response: {e})")
-            print("Please check your network connection or proxy and try again.")
+            run_log.warn(f"Failed to fetch basic info: network issue or Scholar "
+                         f"rate-limiting (unexpected None in response: {e})",
+                         module="profile", indent=1)
+            run_log.info("check the network connection or proxy, then retry",
+                         module="profile", indent=2)
             return None, False
         except Exception as e:
-            print(f"Failed to fetch basic info: {e}")
+            run_log.error(f"Failed to fetch basic info: {e}", module="profile", indent=1)
             traceback.print_exc()
             return None, False
 
@@ -131,8 +132,7 @@ class AuthorProfileFetcher:
             if prev_publications:
                 return prev_publications
 
-        print("\nPhase 2: Fetching all publications (auto-pagination)...")
-        print("Connecting to Google Scholar...")
+        run_log.section("Phase 1b · publications", module="profile")
 
         try:
             # Reuse the stub from fetch_basics if available, avoiding a redundant
@@ -142,33 +142,38 @@ class AuthorProfileFetcher:
                 author = scholarly.search_author_id(self.author_id)
 
             d = rand_delay(self.delay_scale)
-            print(f"{now_str()} Waiting {d:.0f}s...")
+            run_log.debug(f"Waiting {d:.0f}s...", module="http", indent=1)
             time.sleep(d)
 
-            print("Fetching full publication list (may take several minutes)...")
+            run_log.debug("fetching the full publication list (may take several "
+                          "minutes)", module="profile", indent=1)
             author_with_pubs = scholarly.fill(author, sections=['publications'])
 
             raw_pubs = author_with_pubs.get('publications', [])
-            print(f"Found {len(raw_pubs)} publications")
+            run_log.info(f"Found {len(raw_pubs)} publications",
+                         module="profile", indent=1)
 
             publications = []
             for i, pub in enumerate(raw_pubs, 1):
                 publications.append(PubInfo.from_scholarly(pub, i).to_dict())
 
                 if i % 20 == 0:
-                    print(f"  Processed {i}/{len(raw_pubs)} papers...")
+                    run_log.debug(f"Processed {i}/{len(raw_pubs)} papers...",
+                                  module="profile", indent=2)
 
             # Sort by citation count (descending) and renumber
             publications.sort(key=lambda x: x['num_citations'], reverse=True)
             for i, pub in enumerate(publications, 1):
                 pub['no'] = i
 
-            print(f"Publication list fetched ({len(publications)} papers)")
+            run_log.info(f"Publication list fetched ({len(publications)} papers)",
+                         module="profile", indent=1)
 
             return publications
 
         except Exception as e:
-            print(f"Failed to fetch publications: {e}")
+            run_log.error(f"Failed to fetch publications: {e}",
+                          module="profile", indent=1)
             traceback.print_exc()
             return None
 
@@ -191,8 +196,9 @@ class AuthorProfileFetcher:
         nav = getattr(scholarly, '_Scholarly__nav', None)
         get_soup = getattr(nav, '_get_soup', None)
         if not callable(get_soup):
-            print("  Publication detail pages unavailable (no scholarly "
-                  "navigator); leaving venue_full empty.")
+            run_log.warn("Publication detail pages unavailable (no scholarly "
+                         "navigator); leaving venue_full empty",
+                         module="venue", indent=1)
             return None
         return enrich_publications_with_venue_full(
             publications,
@@ -206,7 +212,7 @@ class AuthorProfileFetcher:
 
     def save_profile(self, profile, print_fn=None):
         """Save an AuthorProfile to JSON and Excel output files."""
-        _pn = print_fn or print
+        _pn = print_fn or line_logger(INFO, "output")
         profile.save_json(self.profile_json, print_fn=_pn)
 
         # The Excel file is a convenience view; its failure must not discard a
@@ -241,14 +247,17 @@ class AuthorProfileFetcher:
         prev_profile = self.load_prev_profile()
         if prev_profile:
             prev_time = prev_profile.fetch_time or 'N/A'
-            print(f"Found previous profile ({prev_time}), will compare incrementally")
+            run_log.info(f"Found previous profile ({prev_time}), will compare "
+                         f"incrementally", module="profile", indent=1)
         else:
-            print("No previous profile found, this is the first fetch")
+            run_log.info("No previous profile found, this is the first fetch",
+                         module="profile", indent=1)
 
         # Phase 1: Basic info
         basics, basics_fetched = self.fetch_basics()
         if not basics:
-            print("Failed to fetch basic info, exiting")
+            run_log.error("Failed to fetch basic info, exiting",
+                          module="profile", indent=1)
             return False
 
         # Phase 2: Publications
@@ -258,7 +267,9 @@ class AuthorProfileFetcher:
             old_citedby = prev_profile.total_citations
             new_citedby = basics.get('citedby', 0)
             if new_citedby != old_citedby:
-                print(f"\nTotal citations changed ({old_citedby} -> {new_citedby}), refreshing publications...")
+                run_log.info(f"Total citations changed ({old_citedby} -> "
+                             f"{new_citedby}), refreshing publications...",
+                             module="profile", indent=1)
                 force_refresh = True
 
         publications = self.fetch_publications(
@@ -271,13 +282,14 @@ class AuthorProfileFetcher:
                 # A failed fetch is not evidence that the author has no papers.
                 # Writing it would replace a good publication list with zero
                 # papers and the failure would be invisible in the output.
-                print(f"Failed to fetch publications; keeping the previous "
-                      f"{len(prev_publications)} publication(s) from "
-                      f"{self.profile_json}", flush=True)
+                run_log.warn(f"Failed to fetch publications; keeping the previous "
+                             f"{len(prev_publications)} publication(s) from "
+                             f"{self.profile_json}", module="profile", indent=1)
                 return True
             publications = []
 
-        print(f"\nFetch complete: {len(publications)} publications")
+        run_log.info(f"Fetch complete: {len(publications)} publications",
+                     module="profile", indent=1)
 
         # Full venue strings: one detail-page request per publication (cached
         # across runs).  Pure addition — pub['venue'] is left alone.
@@ -285,12 +297,14 @@ class AuthorProfileFetcher:
                         module="venue")
         venue_stats = self.fetch_venue_details(publications)
         if venue_stats:
-            print(f"  venue_full resolved: {venue_stats['resolved']}/{venue_stats['total']} "
-                  f"(fetched {venue_stats['fetched']}, cached {venue_stats['cache_hits']}, "
-                  f"no venue field {venue_stats['no_venue_field']}, "
-                  f"failed {venue_stats['failed']}, "
-                  f"no token {venue_stats['missing_token']}, "
-                  f"already complete {venue_stats['skipped_complete']})")
+            run_log.info(
+                f"venue_full resolved: {venue_stats['resolved']}/{venue_stats['total']} "
+                f"(fetched {venue_stats['fetched']}, cached {venue_stats['cache_hits']}, "
+                f"no venue field {venue_stats['no_venue_field']}, "
+                f"failed {venue_stats['failed']}, "
+                f"no token {venue_stats['missing_token']}, "
+                f"already complete {venue_stats['skipped_complete']})",
+                module="venue", indent=1)
 
         # Build the new profile
         profile = AuthorProfile(
@@ -313,8 +327,7 @@ class AuthorProfileFetcher:
         run_log.info(f"Total citations: {basics.get('citedby', 0)}", module="summary")
         run_log.info(f"Total publications: {len(publications)}", module="summary")
         run_log.info("Output files:", module="summary")
-        print(f"  JSON   : {self.profile_json}")
-        print(f"  Excel  : {self.profile_xlsx}")
-        print()
+        run_log.info(f"JSON: {self.profile_json}", module="summary", indent=1)
+        run_log.info(f"Excel: {self.profile_xlsx}", module="summary", indent=1)
 
         return True

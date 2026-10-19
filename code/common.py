@@ -36,6 +36,8 @@ from code.lib_env import (   # noqa: F401 — re-exported for compatibility
     sanitize_no_proxy,
 )
 
+from code.log_utils import run_log
+
 
 def rand_delay(scale=1.0):
     """Return a random delay between DELAY_MIN and DELAY_MAX seconds."""
@@ -125,12 +127,13 @@ def setup_proxy(proxy_url=None, no_proxy=None):
         resolved = resolve_proxy_config()
         proxy_url, no_proxy = resolved.proxy_url, resolved.no_proxy
     if not proxy_url:
-        print('Proxy: none configured, connecting directly')
+        run_log.info("Proxy: none configured, connecting directly", module="run")
     else:
         clean = proxy_url.replace('http://', '').replace('https://', '')
-        print(f'Proxy: {clean} (configured via --proxy-url / crawler_config.json / system proxy)')
+        run_log.info(f"Proxy: {clean} (configured via --proxy-url / "
+                     f"crawler_config.json / system proxy)", module="run")
     if no_proxy:
-        print(f'Proxy bypass (no_proxy): {no_proxy}')
+        run_log.info(f"Proxy bypass (no_proxy): {no_proxy}", module="run")
 
 
 def extract_author_id(author_input):

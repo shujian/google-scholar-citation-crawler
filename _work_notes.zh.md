@@ -2262,3 +2262,38 @@ run summary；**不迁**更深的诊断块（`Direct fetch target:` / `Probe tot
 **为什么不加 `probed_year_counts`**：`PaperFetchState.from_dict()` 的归一化只保留
 `histogram_total / seen_total / dedup_count / cached_* / scholar_*` 这几个键 ✗ —— 拿被丢掉的键当判据
 是死代码。**先写判据再写测试**，测试当场把它抓出来了（保留为一条"只用真实存在的字段"的教训 ✓）。
+
+## 日志收口：205 处 print 全部迁到 run_log（2026-10-19）
+
+**背景**：`365e67f` 引入了 `run_log`（一个行形状 + 级别 + 模块标签 + 保留策略），但只替换了
+一小半 —— 实测最新一次 run 的 423 行里 **187 行新式 / 227 行旧 print**，旧式行的行首缩进有
+**9 种宽度**（0/2/4/5/6/7/8/10/12/20）。于是"日志变统一"实际变成了"两套并存"。
+
+**这次做完的**（用户 2026-10-19「感觉日志越来越复杂了」→ 选 A：做完迁移）：
+
+- 逐模块替换：`scholarly_session` / `citation_fetch` / `scholar_citation` / `author_fetcher` /
+  `profile_io` / `venue_detail` / `cite_format` / `page_visit` / `common` / `output_state`。
+  现在 `code/` 下**只剩 `interactive.py` 写 `print()`**（交互提示，不是日志）与 `RunLog.write`
+  自己那一个 `print()`。
+- `print_fn` 接缝保留（测试靠它收集输出），但默认值换成经 `run_log` 输出的适配器：
+  `venue_detail._log_venue_line` / `cite_format._log_cite_line`（DEBUG，逐条明细）、
+  `profile_io._log_output_line`（INFO）、`author_fetcher.save_profile` 用
+  `line_logger(INFO, "output")`（`log_utils.line_logger()` 是新加的通用适配器）。
+- **顺手补齐的信息**：上一版把 `Pagination (page N)` / `Page items: N` 降到 DEBUG 后，默认
+  级别下"抓到哪一年、第几页"看不见了（用户 2026-10-19 指出）。现在每页一行 INFO：
+  `year 2025 · page 3 · 10 items`（direct 模式无年份）。判据在
+  `citation_page_progress()` / `citation_page_module()`，页码取 URL 的 `start=`、年份取 `as_ylo=`。
+
+**级别的判定口径**（这次统一后）：INFO = 状态变化与结论（阶段、计划、每页、每年结论、论文结论、
+保存、汇总、警告）；DEBUG（`-v`）= 每次请求的 URL、等待秒数、重试、逐条标题、探针/缓存计数。
+所以"想确认为什么慢/卡在哪"用 `-v`，"看进度"看默认级别就够。
+
+**测试侧的一个坑**：`setup_logging(verbose=False)` 会把 `run_log` 阈值改回 INFO，而很多测试
+断言的是请求/页级明细行 → 阈值必须**每个测试自己声明**。加了 `tests/conftest.py::RunLogDebugCase`
+（setUp 设 DEBUG、cleanup 还原 INFO），`FetcherTestCase` 与 `test_page_visit.PageVisitTests`
+继承了它；`test_log_utils` 的 `setup_logging` 用例改成"恢复进来时的阈值"而不是硬写 INFO
+（否则它一跑，后面的模块就悄悄失去明细行）。
+
+**教训**：中途发现 `code/citation_fetch.py` 的迁移被**外部改写回原样**（mtime 变了、27 处 print
+回来了，git status 里它也不在改动列表）。所以这次改完立刻跑测试 + 立刻提交，不再让长时间
+未提交的改动悬在工作区里。

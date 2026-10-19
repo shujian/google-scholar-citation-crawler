@@ -14,6 +14,7 @@ import shutil
 from dataclasses import dataclass, field
 from typing import Optional
 
+from code.log_utils import run_log
 from code.citation_io import (
     derive_citation_cache_state,
     resolve_citation_status_from_state,
@@ -619,11 +620,12 @@ def _read_output_json(output_path):
         backup = f"{output_path}.corrupt"
         try:
             shutil.copy2(output_path, backup)
-            print(f"Warning: {output_path} could not be read ({e}); backed it up to "
-                  f"{backup}. All papers are treated as missing.", flush=True)
+            run_log.warn(f"{output_path} could not be read ({e}); backed it up to "
+                         f"{backup}. All papers are treated as missing",
+                         module="output", indent=1)
         except OSError:
-            print(f"Warning: {output_path} could not be read ({e}). All papers are "
-                  f"treated as missing.", flush=True)
+            run_log.warn(f"{output_path} could not be read ({e}). All papers are "
+                         f"treated as missing", module="output", indent=1)
         return None
 
 

@@ -84,12 +84,16 @@ class RunLogShapeTests(unittest.TestCase):
 
     def test_setup_logging_makes_verbose_meaningful(self):
         """``--verbose`` switches the facade to DEBUG; without it, INFO."""
+        # The suite runs at DEBUG (tests assert on per-request detail lines), so
+        # restore *that* afterwards instead of hardcoding INFO - otherwise the
+        # next test module silently loses its detail lines.
+        saved = lu.run_log.threshold
+        self.addCleanup(lu.run_log.set_threshold, saved)
         with patch("sys.stderr", new_callable=StringIO):
             lu.setup_logging(verbose=False)
             self.assertEqual(lu.run_log.threshold, lu.INFO)
             lu.setup_logging(verbose=True)
             self.assertEqual(lu.run_log.threshold, lu.DEBUG)
-        lu.run_log.set_threshold(lu.INFO)
 
 
 class PruneRunLogsTests(unittest.TestCase):

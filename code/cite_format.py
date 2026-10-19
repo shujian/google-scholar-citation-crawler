@@ -78,6 +78,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 from code.common import write_json_atomic
+from code.log_utils import run_log
 from code.page_visit import RecordUnavailable
 from code.shared.venue_key import citation_venue_key
 from code.venue_quality import citation_needs_cite_dialog
@@ -100,6 +101,12 @@ UNAVAILABLE_RETRY_DAYS = 7
 
 #: Key added to a citation dict; the formats live inside it.
 from code.shared.identity import identity_norm_title  # noqa: E402
+
+def _log_cite_line(message="", **_ignored):
+    """Default ``print_fn``: a per-row Cite-dialog line goes through the run log."""
+    for part in str(message).split("\n"):
+        run_log.debug(part.lstrip(), module="cite", indent=1)
+
 
 CITE_FIELD = 'cite'
 
@@ -285,8 +292,9 @@ def load_cite_cache(path):
         with open(path, 'r', encoding='utf-8') as handle:
             data = json.load(handle)
     except (json.JSONDecodeError, OSError, TypeError, ValueError) as e:
-        print(f"Warning: {path} is unreadable ({type(e).__name__}: {e}); "
-              f"starting an empty citation-format cache", flush=True)
+        run_log.warn(f"{path} is unreadable ({type(e).__name__}: {e}); "
+                     f"starting an empty citation-format cache",
+                     module="cite", indent=1)
         return {}
     if not isinstance(data, dict):
         return {}
@@ -335,7 +343,7 @@ def unavailable_verdict_is_fresh(entry, now=None, retry_days=None):
 
 def enrich_citations_with_cite_formats(citations, cache_path=None,
                                        get_soup=None, get_page=None,
-                                       print_fn=print, fetched_at=None):
+                                       print_fn=_log_cite_line, fetched_at=None):
     """Fill ``citation['cite']`` for every citation that carries a ``cid``.
 
     *get_soup* takes the relative Cite-dialog path and returns the page (soup or
