@@ -2594,3 +2594,15 @@ Computational Linguistics: Human Language Technologies (Volume 1: Long Papers)`�
   各加一条。
 - **一次外部干扰**：改到一半发现 `code/citation_fetch.py` 被外部改回原样（27 处 print 回来），
   已重做并**立即提交**，避免长期未提交的改动被覆盖。
+
+## 2026-10-19（续 22）: 等待行回到 INFO（用户定）
+
+- **问题**（用户 2026-10-19 追问"为什么没有等待秒数"）：上一轮按"INFO = 结论 / DEBUG = 每次请求"把
+  `Waiting 74s before request…` 压在 DEBUG，结果 **45–90 s 的每次请求静默**，而 5–10 分钟长休反而
+  在 INFO 开口 —— 该报的静默、不该报的开口，正好反了；那行还带着 `elapsed / new citations / pages /
+  captcha solves`，是 run 的心跳。
+- **改动**（两处）：`scholarly_session.patched_get_page` 的请求前等待与 `page_visit` 的重试等待都改成
+  **INFO**，并压成一行：`waiting 74s · elapsed 20s, 0 new citations, 2 pages (3 this curl),
+  0 captcha solves` / `waiting 74s (retry 1/2) · …`。重试的**原因**（`Error fetching …`）与 `Request URL`
+  仍是 DEBUG。用户明确"不用测试了" → **未新增测试**，只跑既有全套（620 例通过）。
+- **文档**：`AGENTS.md` 的级别口径、`README.md` 的 Levels 一条各补这个例外。

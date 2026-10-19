@@ -159,8 +159,12 @@ class PageVisit:
                                   f"(retry {retries}/{max_retries}): {e}"
                                   f"{_status_note(status)}",
                                   module="http", indent=1)
-                    run_log.debug(f"Waiting {d:.0f}s... [{wait_str}]",
-                                  module="http", indent=1)
+                    # INFO for the same reason as the pre-request wait in
+                    # scholarly_session: it is the run's heartbeat while the
+                    # crawler sits between attempts.  The *cause* stays DEBUG.
+                    detail = f" · {wait_str}" if wait_str else ""
+                    run_log.info(f"waiting {d:.0f}s (retry {retries}/{max_retries})"
+                                 f"{detail}", module="http", indent=1)
                     time.sleep(d)
                     continue
 

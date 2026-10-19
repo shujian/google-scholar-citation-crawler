@@ -3540,3 +3540,13 @@ Step 2（把 `citation_fetch.py` 更深的诊断行也迁进 facade）留给下�
 
 已做完 A：`code/` 下除 `interactive.py`（交互提示）与 `RunLog.write` 外再无 `print`；
 并新增逐页 INFO 进度行 `2025 · page 3 · 10 items`，补回"哪一年、第几页"。
+
+## 2026-10-19（续 22）: 等待秒数回到 INFO
+
+> 为什么没有等待秒数相关的信息？
+
+> 不用测试了，按照这个改吧。
+
+解释：是我按"INFO=结论、DEBUG=每次请求细节"把它压到 DEBUG 了，而这造成了"每次请求静默 1.5 分钟、
+5–10 分钟长休反而有字"的错位，且那行是带 elapsed/页数的心跳。按提议改成一行 INFO：
+`waiting 74s · elapsed …`（重试同样 `waiting 74s (retry 1/2) · …`），未加测试。

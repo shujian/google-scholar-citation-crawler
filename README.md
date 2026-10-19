@@ -167,7 +167,11 @@ grepped like a table:
 - **Levels**: `INFO` is state changes and conclusions; `DEBUG` is the per-request
   / per-page / per-year detail and is only printed with **`-v` / `--verbose`**
   (which now really changes what the log contains); `WARN` marks something that
-  needs a human look, e.g. a page that returned zero rows.
+  needs a human look, e.g. a page that returned zero rows.  The **wait** lines are
+  the one deliberate exception: `waiting 74s · elapsed 20s, 0 new citations,
+  2 pages (3 this curl), 0 captcha solves` prints at `INFO`, because the 45–90 s
+  between two requests is the longest silence in a run and this line is the only
+  heartbeat (it carries the elapsed time and the counters).
 - **One fact, one line**: a phase is a single ruled `── title ──` line instead of
   a 70-character banner, the year's counters and the diagnosis they came from are
   one line, and a request URL is printed once (by the session layer) rather than

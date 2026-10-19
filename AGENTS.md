@@ -153,6 +153,11 @@ google-scholar-citation-crawler/
 
 - **级别**：`INFO` = 状态变化与结论；`DEBUG`（`-v`）= 每次请求/每页/每年明细；`TRACE`（预留）。
   `setup_logging(verbose=True)` 把 `run_log` 的阈值降到 DEBUG，所以 `--verbose` 现在真的改变日志内容。
+  **唯一的例外是"等待"行（2026-10-19 用户定）**：`waiting 74s · elapsed 20s, 0 new citations,
+  2 pages (3 this curl), 0 captcha solves` 是 INFO —— 两次请求之间的 45–90 秒是 run 里最长的静默，
+  这行同时是**心跳**（带 elapsed/新增/页数/验证码次数）。压到 DEBUG 会造成"每次请求静默一分半、
+  5–10 分钟长休反而有字"的错位。重试等待同口径：`waiting 74s (retry 1/2) · …`（INFO），
+  而重试的**原因** `Error fetching … (retry 1/2)` 仍留 DEBUG。URL 也仍是 DEBUG。
 - **模块标签**：`run / phase / identity / profile / venue / http / fetch / year / paper / plan / output / cite / summary`，
   宽度固定，消息列对齐。
 - **`run_log.section(title, module=…)`** 取代横幅：一个阶段/步骤一行 `── title ────…`。

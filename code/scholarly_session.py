@@ -632,8 +632,15 @@ def patch_scholarly(ctx: SessionContext) -> None:
                 retry_note = (f" (retry {sleep_count[0]})"
                               if sleep_count[0] > 1 else "")
                 wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""
-                run_log.debug(f"Waiting {d:.0f}s before request"
-                              f"{retry_note}... [{wait_str}]", module="http", indent=2)
+                # INFO on purpose (user 2026-10-19): the 45-90 s between two
+                # requests is the longest silence in a run, and this line is the
+                # only heartbeat - it also carries elapsed / new citations /
+                # pages / captcha solves.  Hiding it at DEBUG left the log quiet
+                # for a minute and a half per request while the 5-10 min breaks
+                # were announced.
+                detail = f" · {wait_str}" if wait_str else ""
+                run_log.info(f"waiting {d:.0f}s{retry_note}{detail}",
+                             module="http", indent=2)
                 original_sleep(d)
 
             time.sleep = _limited_sleep
