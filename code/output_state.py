@@ -557,13 +557,19 @@ def _normalize_year_records(data):
     return None
 
 
+def _year_effective_histogram(record):
+    """见 `citation_cache.year_record_effective_histogram`（同一判据，按需导入避免环）。"""
+    from code.citation_cache import year_record_effective_histogram
+    return year_record_effective_histogram(record)
+
+
 def _normalize_year_summary_from_records(records):
     """Derive the year-fetch summary from per-year records."""
     if not records:
         return None
     return {
         'scholar_total': None,
-        'histogram_total': sum(r.get('histogram_count', r.get('scholar_total', 0)) or 0 for r in records),
+        'histogram_total': sum(_year_effective_histogram(r) for r in records),
         'cached_total': sum(r.get('cached_total', 0) or 0 for r in records),
         'cached_year_total': sum(r.get('cached_total', 0) or 0 for r in records),
         'seen_total': sum(r.get('seen_total', 0) or 0 for r in records),

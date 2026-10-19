@@ -2364,3 +2364,19 @@ manifest，幂等。
 **为什么把计数器放诊断里**：它本来就是"这一年的抓取事实"的一部分 ✓，随 `year_fetch_diagnostics` 一起
 持久化/读回（`normalize_year_fetch_diagnostics` 重建条目时必须带上它 ✗ 否则计数器在落盘往返后丢失 ✗）；
 放新字段又要动 `output_state` 的 schema/归一化/快照测试 ✗，不值。
+
+
+## 2026-10-19（续 31）：为什么判死标记必须写进两条路径
+
+同一份"年诊断"有**两个写者路径**：
+
+1. **运行期**：`year_ctx.year_fetch_diagnostics[year]` = 本次抓取的事实（含 stalled/短路计数）✓；
+2. **落盘**：`build_year_records()` 会用 `_build_year_fetch_diagnostics(...)` **逐条重建** ✗ ——
+   旧实现只从 `existing` 取 `dedup_count` / `termination_reason`，其余字段一律丢弃 ✗。
+
+所以只在运行期设 `stalled` 是**无效的** ✗：保存后读回就没有了，论文照旧 partial、照旧每 3 次重扫 ✗。
+守卫用**源码级断言**（`existing.get('stalled', False)` 必须出现在 `citation_fetch` 源码里）盯住这条，
+因为它是"跨函数的数据流"、没有自然断点 ✗。
+
+**另一处必须一起改**：`year_records_gap()` 里原本**内联**算 `histogram_count - seen_total` ✗，
+与 `year_record_gap()` 判据不一致 ✗ → 已改为调用后者 ✓（单一判据）。

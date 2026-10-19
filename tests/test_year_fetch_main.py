@@ -1059,6 +1059,59 @@ class YearFetchMainTests(FetcherTestCase):
                     "dedup_count": 0, "termination_reason": "x", "short_attempts": 4}})
         self.assertEqual(normalized[2025]["short_attempts"], 4)
 
+    def test_a_year_settles_when_the_rescan_returns_the_same_count(self):
+        """重扫一遍结果没变 → 认作"网页信息与 probe 不符"，不再算"差几条"、也不再重扫（用户 2026-10-19）。
+
+        判据落在 `year_record_gap()`：`stalled` 且 `stalled_probe >= histogram_count`（Scholar 的
+        声称没继续涨）→ gap 记 0 ✓；probe 一涨 → 恢复成普通年份、gap 照算 ✓（自愈）。
+        """
+        from code.citation_cache import (build_year_fetch_diagnostics, year_record_gap,
+                                         year_record_effective_histogram,
+                                         year_records_data_complete)
+
+        stalled = build_year_fetch_diagnostics(2018, 153, 114, 0, "iterator_exhausted",
+                                              0, True, 153)
+        self.assertEqual(year_record_gap(stalled), 0, "两遍都只有 114 条 → 不是没抓全 ✓")
+        # 汇总与逐年都要一致：否则论文永远 partial ✗
+        # （汇总的 histogram_total 由 year_record_effective_histogram() 扣掉陈旧声称 ✓）
+        summary = {"histogram_total": year_record_effective_histogram(stalled),
+                   "seen_total": 114, "termination_reason": "iterator_exhausted"}
+        self.assertEqual(summary["histogram_total"], 114)
+        self.assertTrue(year_records_data_complete([stalled], summary))
+        # 汇总仍用旧的 153 → 判不完整（说明这条修正确实是它带来的 ✓）
+        self.assertFalse(year_records_data_complete(
+            [stalled], {"histogram_total": 153, "seen_total": 114,
+                        "termination_reason": "iterator_exhausted"}))
+
+        # Scholar 的声称涨了 → 重新算缺口（自愈）✓
+        grown = build_year_fetch_diagnostics(2018, 160, 114, 0, "iterator_exhausted", 0, True, 153)
+        self.assertEqual(year_record_gap(grown), 46)
+        # 没判死的年份照常算 ✓
+        plain = build_year_fetch_diagnostics(2018, 153, 114, 0, "iterator_exhausted")
+        self.assertEqual(year_record_gap(plain), 39)
+
+        # 落盘往返不得丢掉判死标记 ✗
+        from code.citation_cache import normalize_year_fetch_diagnostics
+        back = normalize_year_fetch_diagnostics(
+            {2018: {"year": 2018, "histogram_count": 153, "cached_total": 114, "dedup_count": 0,
+                    "termination_reason": "iterator_exhausted", "stalled": True,
+                    "stalled_probe": 153}})
+        self.assertTrue(back[2018]["stalled"])
+        self.assertEqual(back[2018]["stalled_probe"], 153)
+        self.assertEqual(year_record_gap(back[2018]), 0)
+
+    def test_the_short_and_stalled_flags_survive_the_year_record_rebuild(self):
+        """落盘路径的守卫：`build_year_records()` 重建每条记录时必须把三个字段带上 ✗ 否则判死标记一落盘就丢。"""
+        import inspect
+        from code import citation_fetch as _cf_mod
+        source = inspect.getsource(_cf_mod)
+        for needle in ("existing.get('short_attempts', 0)",
+                       "existing.get('stalled', False)",
+                       "existing.get('stalled_probe', 0)"):
+            self.assertIn(needle, source)
+        # 汇总也必须用"有效声称"，否则已判死的年份会把论文永远钉在 partial ✗
+        self.assertIn("_year_effective_histogram(_record)", source)
+
     def test_probed_year_with_no_rows_keeps_paper_incomplete(self):
         """A probed year that came back with no rows must stay visible.
 

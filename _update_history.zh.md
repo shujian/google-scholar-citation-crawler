@@ -2686,3 +2686,26 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
 
 **验证**：阶段 1 **629 → 631** 全绿 ✓（1 例纯函数：未到阈值照旧续 / 到阈值清零 / 0 与脏值 / 阈值正整数；
 1 例诊断：计数器写入、旧调用默认 0、归一化不丢 key）。
+
+
+## 2026-10-19（续 31）：重扫结果没变 → 判定"网页信息与 probe 不符"，该年判死（K151 续）
+
+**用户**："如果重扫第二次跟第一次的结果一样，那应该认定是网页信息与probe不符，这段逻辑之前也讨论过。"
+—— 正是 `STALL_AFTER_ATTEMPTS`（论文级 stalled）的**按年版本** ✓。
+
+**之前缺的口子**：K151 的重扫是"每 3 次没收全就重扫一遍"✗ —— 如果**列表真的只有 114 条**而 probe 声称 153，
+那它会**每 3 次运行就白扫一整年** ✗，而年份永远 `seen < histogram` → 论文永远 partial ✗。
+
+**改法**：
+* 诊断新增 `stalled` / `stalled_probe`（`citation_cache.build_year_fetch_diagnostics` 带参数、
+  `normalize_year_fetch_diagnostics` 保留；`build_year_records()` 重建记录时**必须带上**，
+  否则一落盘就丢 ✗ —— 有源码级守卫测试）；
+* 判据：**这次是从第 1 页重扫**（`rescanned_from_zero`）**且**结果与上一轮**完全相同**（`year_bucket_count == prev_seen`）
+  **且**不是空页 → `stalled=True`、`stalled_probe=当时的 probe`、`short_attempts` 归零 ✓；
+* 效果：`year_record_gap()` 对"判死且 probe 没涨"的年份返回 **0** ✓；`year_record_effective_histogram()`
+  让汇总的 `histogram_total` 也扣掉这份陈旧声称 ✓（否则 `is_data_complete()` 永远 False ✗）；
+  下次运行时该年直接 `settled (listing holds N, Scholar claims M — the listing is what it is)` 跳过 ✓；
+* **自愈**：probe 涨过 `stalled_probe` → 判死失效、恢复正常抓取 ✓（`--fetch-mode force` 也会重试 ✓）。
+
+**验证**：阶段 1 **631 → 633** 全绿 ✓（gap/effective/汇总三处的判据一致性、落盘往返不丢标记、
+以及"汇总仍用旧声称会判不完整"的反向断言 + 重建路径的源码级守卫）。

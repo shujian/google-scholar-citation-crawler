@@ -410,7 +410,12 @@ Papers with `>= YEAR_BASED_THRESHOLD (50)` citations switch to year-by-year fetc
   same offset.  A year whose `short_attempts` (how many consecutive attempts came back under
   Scholar's own count, kept in `year_fetch_diagnostics`) reaches `RESCAN_AFTER_SHORT_ATTEMPTS`
   is therefore re-scanned **from page 1** once, relying on identity-key dedup instead of the
-  offset (`_resume_start_after_short_attempts()`, 2026-10-19); a full attempt resets the counter
+  offset (`_resume_start_after_short_attempts()`, 2026-10-19); a full attempt resets the counter.  If that re-scan comes back with the **same** count, the listing and Scholar's histogram
+  simply disagree, so the year is marked `stalled` (with `stalled_probe`, the claim it disagreed
+  with): it stops being re-scanned, its gap counts as **0** (`year_record_effective_histogram()`
+  also keeps it out of the summary's `histogram_total`, otherwise the paper would stay `partial`
+  forever) and it is skipped on later runs — until the probe grows past `stalled_probe` or a
+  `--fetch-mode force` retry
 - Oldest→newest year order
 - Year range is determined by `probe_citation_start_year()` via the Scholar histogram DOM
 - An interrupted fetch persists the in-run snapshot (citations fetched so far +

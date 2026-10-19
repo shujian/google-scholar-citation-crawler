@@ -284,9 +284,10 @@ class PaperCitationFetcher:
 
     @staticmethod
     def _build_year_fetch_diagnostics(year, histogram_count, cached_total, dedup_count, termination_reason,
-                                      short_attempts=0):
+                                      short_attempts=0, stalled=False, stalled_probe=0):
         return _cc_build_year_fetch_diagnostics(year, histogram_count, cached_total, dedup_count,
-                                                termination_reason, short_attempts)
+                                                termination_reason, short_attempts,
+                                                stalled, stalled_probe)
 
     @staticmethod
     def _normalize_year_fetch_diagnostics(year_fetch_diagnostics):

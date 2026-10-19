@@ -20,6 +20,7 @@ from datetime import datetime
 from code.citation_cache import (
     is_data_complete,
     iter_year_records,
+    year_record_effective_histogram as _year_effective_histogram,
     year_records_data_complete,
 )
 from code.fetch_session import BatchFetchSession
@@ -352,6 +353,9 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
                     cached_total,
                     existing.get('dedup_count', 0),
                     existing.get('termination_reason'),
+                    existing.get('short_attempts', 0),
+                    existing.get('stalled', False),
+                    existing.get('stalled_probe', 0),
                 )
             else:
                 hc = probed_year_counts.get(year, 0 if not is_year else cached_total)
@@ -454,9 +458,15 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
         )
         # year_fetch_diagnostics IS the summary (no 'summary' sub-key).
         # Per-year entries live in year_records (top-level).
+        # 已判死年份的陈旧声称不计入汇总（2026-10-19）：否则 is_data_complete() 永远 False ✗
+        _effective_hist_total = None
+        for _record in iter_year_records(year_records_to_save):
+            _effective_hist_total = (_effective_hist_total or 0) + _year_effective_histogram(_record)
         year_fetch_diagnostics_save = {
             'scholar_total': count_summary['scholar_total'],
-            'histogram_total': count_summary['histogram_total'],
+            'histogram_total': (_effective_hist_total
+                                if _effective_hist_total is not None
+                                else count_summary['histogram_total']),
             'cached_total': count_summary['cached_total'],
             'cached_year_total': count_summary['cached_year_total'],
             'seen_total': count_summary['seen_total'],
@@ -928,15 +938,38 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
 
             year_ctx.current_paper_page_count = 0  # reset per year in year-based mode
             prev_short_attempts = 0
+            prev_stalled = False
+            prev_stalled_probe = 0
+            prev_seen_for_stall = 0
             _prev_diag = year_fetch_diagnostics.get(year)
             if isinstance(_prev_diag, dict):
                 try:
                     prev_short_attempts = int(_prev_diag.get('short_attempts') or 0)
                 except (TypeError, ValueError):
                     prev_short_attempts = 0
+                prev_stalled = bool(_prev_diag.get('stalled'))
+                try:
+                    prev_stalled_probe = int(_prev_diag.get('stalled_probe') or 0)
+                except (TypeError, ValueError):
+                    prev_stalled_probe = 0
+                try:
+                    prev_seen_for_stall = int(_prev_diag.get('seen_total') or 0)
+                except (TypeError, ValueError):
+                    prev_seen_for_stall = 0
+            if prev_stalled and (live_count is None or live_count <= prev_stalled_probe):
+                # 走完两遍都只有这么多条 → "网页信息与 probe 不符"（用户 2026-10-19 定），
+                # 不是没抓全：跳过这一年 ✗，等 probe 涨了再说 ✓。
+                year_ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
+                run_log.info(f"Year {year}: settled (listing holds {prev_seen_for_stall}, "
+                             f"Scholar claims {live_count if live_count is not None else '?'} "
+                             f"— the listing is what it is)", module="year", indent=2)
+                save_progress(fetch_finished=False)
+                continue
             start_index = _resume_start_after_short_attempts(
                 year_ctx.partial_year_start.get(year, 0), prev_short_attempts)
-            if start_index == 0 and year_ctx.partial_year_start.get(year, 0) > 0:
+            rescanned_from_zero = (start_index == 0
+                                   and year_ctx.partial_year_start.get(year, 0) > 0)
+            if rescanned_from_zero:
                 # 偏移续跑快、但"位置"会随列表变动而漏行 ✗（用户 2026-10-19）。
                 # 连续这么多次都没收全 → 干脆从第 1 页重扫一遍，用身份键去重 ✓。
                 run_log.warn(f"Year {year}: re-scanning from page 1 "
@@ -1115,13 +1148,25 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
             live_count_for_diag = live_count if live_count is not None else len(year_batch.citations)
             _short_this_attempt = (live_count is not None
                                    and year_bucket_count < live_count)
+            # 重扫（从第 1 页走完）拿到的条数与上一轮**完全相同** → 这是"网页信息与 probe
+            # 不符"，不是没抓全（用户 2026-10-19 定）：记下 probe，之后 probe 不涨就不再抓 ✗。
+            _stall_now = bool(rescanned_from_zero
+                              and _short_this_attempt
+                              and year_termination_reason != 'empty_page'
+                              and year_bucket_count == prev_seen_for_stall)
+            if _stall_now:
+                run_log.warn(f"Year {year}: stalled — two full scans both hold "
+                             f"{year_bucket_count} while Scholar claims {live_count}; "
+                             f"treating the probe as stale", module="year", indent=2)
             year_diag = fetcher._build_year_fetch_diagnostics(
                 year,
                 live_count_for_diag,
                 year_bucket_count,
                 year_batch.dedup_count,
                 year_termination_reason,
-                (prev_short_attempts + 1) if _short_this_attempt else 0,
+                0 if _stall_now else ((prev_short_attempts + 1) if _short_this_attempt else 0),
+                _stall_now,
+                (live_count if live_count is not None else prev_stalled_probe) if _stall_now else 0,
             )
             if year_diag is not None:
                 # seen_total is the number of DISTINCT rows the year holds.
