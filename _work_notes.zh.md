@@ -2380,3 +2380,19 @@ manifest，幂等。
 
 **另一处必须一起改**：`year_records_gap()` 里原本**内联**算 `histogram_count - seen_total` ✗，
 与 `year_record_gap()` 判据不一致 ✗ → 已改为调用后者 ✓（单一判据）。
+
+## 2026-10-19 阶段性落盘（handoff checkpoint）
+
+- **为什么不是只写 per-paper meta**：阶段 2 的输入契约是 `paper_citations.json`（`papers[].pub/citations`），
+  只有目录里的 meta 不够；而改阶段 2 去读目录/加 pending 协议被用户否掉（"阶段 2 不需要改动"）。
+  所以 checkpoint 写成**完整 schema 的 partial 产物**：`papers` 始终是全部论文，未处理论文沿用上一版
+  引文（首次运行为空），阶段 2 的启动校验无需任何新参数即可通过。
+- **写点**：`run()` 置 `_checkpoint_enabled=True`；`_run_main_loop()` 在**下一篇开始前**落盘上一篇
+  （不在每个 `continue` 分支里重复写），循环结束后统一补最后一篇。每篇只写自己的 meta/cite；
+  partial 整体重写（用户明确要求每篇落盘；本机 output，6 MB 级）。
+- **index 一致性**：per-paper checkpoint 也走 `assign_entry_indices([entry], previous_by_title)`；
+  与最终 `_save_output` 同一判据，编号不会因"先写 partial"而漂移。
+- **测试隔离**：`_checkpoint_enabled` 默认 False；`tests/conftest.py` 把 `partial_json` 指到 scratch。
+  早期版本在 `_save_output()` 里 `if not enabled: return`，会跳过 Excel/summary —— 已改为只跳过
+  checkpoint 块（`test_output` 的 Excel 失败用例因此恢复）。
+- **当前运行不受影响**：12:28 启动的进程加载的是旧代码，不会 checkout；本次改动只在**下一次**阶段 1 运行生效。

@@ -183,6 +183,17 @@ class PaperCitationFetcher:
         self.profile_json = os.path.join(output_dir, f"author_{author_id}_profile.json")
         self.out_json = os.path.join(output_dir, f"author_{author_id}_paper_citations.json")
         self.out_xlsx = os.path.join(output_dir, f"author_{author_id}_paper_citations.xlsx")
+        # 阶段性交接（2026-10-19 用户要求）：每处理完一篇就把该篇的 meta/cite 与一份
+        # partial 产物落盘；阶段 2 可只消费已完成论文，不必等整轮 8 小时。
+        self.partial_json = os.path.join(
+            output_dir, f"author_{author_id}_paper_citations.partial.json")
+        self._checkpoint_entries = {}
+        self._checkpointed = set()
+        # 只在**真实主循环**里启用：直接调 `_save_output()` 的测试不应在仓库根留下 partial 文件
+        self._checkpoint_enabled = False
+        self._checkpoint_prev = None
+        self._checkpoint_publications = []
+        self._checkpoint_results = []
         self._curl_save_path = os.path.join(output_dir, "curl.txt")
 
         # Session context shared with the scholarly patch layer
@@ -1205,6 +1216,8 @@ class PaperCitationFetcher:
         fetch_idx = 0
 
         try:
+            # 真实运行才启用阶段性交接；测试直接调 `_run_main_loop()` 不应产生落盘副作用。
+            self._checkpoint_enabled = True
             self._run_main_loop(publications, cache_status, url_map, need_fetch, results, fetch_idx)
         except KeyboardInterrupt:
             run_log.warn("Interrupted by user. Saving results...", module="run")
@@ -1219,7 +1232,16 @@ class PaperCitationFetcher:
 
         papers_processed = 0  # counts papers after --skip (for --limit)
 
+        self._checkpoint_publications = publications
+        self._checkpoint_results = results
         for idx, pub in enumerate(publications, 1):
+            # 上一篇已经处理完（无论 fetch / cached / skip）→ 现在落盘它；放在循环头而不是
+            # 每个分支里，避免漏掉 continue 路径（最后一篇在循环后统一补）。
+            if idx > 1:
+                _prev = results[idx - 2]
+                if _prev is not None:
+                    self._checkpoint_paper(_prev.get('pub') or {},
+                                           _prev.get('citations') or [])
             title         = pub['title']
             num_citations = pub['num_citations']
             cache_result = cache_status(pub)
@@ -1608,6 +1630,12 @@ class PaperCitationFetcher:
                 run_log.info(f"Next paper... [{self._wait_status()}]",
                              module="paper", indent=1)
 
+        # 最后一篇（以及被 --limit 截断后仍未落盘的条目）统一补一次
+        for _prev in results:
+            if _prev is not None:
+                self._checkpoint_paper(_prev.get('pub') or {},
+                                       _prev.get('citations') or [])
+
     def _inject_cookies_from_curl(self, curl_str):
         """Parse cookies and selected headers from a pasted cURL command."""
         result = _int_inject_cookies(
@@ -1689,6 +1717,107 @@ class PaperCitationFetcher:
                      module="cite", indent=1)
 
         return stats
+
+    def _checkpoint_previous_by_title(self):
+        """上一版产物按标题索引（与 `_save_output` 同一来源），只读一次。"""
+        if self._checkpoint_prev is not None:
+            return self._checkpoint_prev
+        prev = {}
+        if os.path.exists(self.out_json):
+            try:
+                with open(self.out_json, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                for item in data.get("papers", []) or []:
+                    title = (item.get("pub") or {}).get("title", "")
+                    if title:
+                        prev[title] = item
+            except (OSError, ValueError):
+                prev = {}
+        self._checkpoint_prev = prev
+        return prev
+
+    def _checkpoint_generation(self):
+        profile = getattr(self, "_profile_data", None) or {}
+        return profile.get("fetch_time") or ""
+
+    def _write_partial_product(self, partial=True, entries=None):
+        """把**完整 schema** 的当前快照写成阶段 2 可直接读取的产物（无需改阶段 2）。
+
+        每篇处理完后调用一次：已完成论文用本轮结果，未处理的论文沿用上一版产物里的
+        引文（第一次运行则暂时为空），所以 `papers` 始终是全部 241 篇 —— 阶段 2 的
+        启动校验（输入每篇都要有目录）可以照常通过，不需要 `pending` 之类的新协议。
+        另外带 `partial` / `generation` / `completed_papers` 供人判断进度。
+        """
+        publications = self._checkpoint_publications or []
+        if not publications:
+            return
+        prev = self._checkpoint_previous_by_title()
+        built = []
+        if entries is not None:
+            built = list(entries)
+        else:
+            results = self._checkpoint_results or []
+            for i, pub in enumerate(publications):
+                result = results[i] if i < len(results) else None
+                title = (pub or {}).get("title", "")
+                if result is not None:
+                    citations = result.get("citations") or []
+                else:
+                    citations = ((prev.get(title) or {}).get("citations") or [])
+                citations = self._dedup_citations_for_output(list(citations), title)
+                built.append({
+                    "pub": PubInfo.from_dict(pub).to_dict() if pub else {},
+                    "citations": citations,
+                })
+            assign_entry_indices(built, prev)
+        payload = {
+            "author_id": self.author_id,
+            "papers": built,
+            "fetch_time": datetime.now().isoformat(),
+            "partial": bool(partial),
+            "generation": self._checkpoint_generation(),
+            "completed_papers": [
+                (entry.get("pub") or {}).get("no")
+                for entry in built
+                if isinstance((entry.get("pub") or {}).get("no"), int)
+            ] if entries is not None else [
+                (pub or {}).get("no")
+                for i, pub in enumerate(publications)
+                if i < len(self._checkpoint_results or [])
+                and (self._checkpoint_results or [])[i] is not None
+                and isinstance((pub or {}).get("no"), int)
+            ],
+        }
+        write_json_atomic(self.partial_json, payload,
+                          ensure_ascii=False, indent=2)
+
+    def _checkpoint_paper(self, pub, citations):
+        """每篇处理完后的阶段性落盘：meta + cite 文件 + partial 产物。
+
+        只写**这篇**的数据，绝不重写其它论文；幂等（同一标题只写一次）。失败只告警，
+        绝不影响抓取主流程（与 `_save_output` 的落盘策略一致）。
+        """
+        if not self._checkpoint_enabled:
+            return
+        try:
+            title = (pub or {}).get("title", "")
+            if not title or title in self._checkpointed:
+                return
+            citations = self._dedup_citations_for_output(list(citations or []), title)
+            entry = {"pub": PubInfo.from_dict(pub).to_dict() if pub else {},
+                     "citations": citations}
+            assign_entry_indices([entry], self._checkpoint_previous_by_title())
+            from code.config import papers_root
+            root = papers_root(self.output_dir, self.author_id)
+            write_cite_files(root, entry.get("pub") or {}, citations)
+            write_citations_meta_for_pub(root, entry.get("pub") or {}, citations)
+            self._checkpoint_entries[title] = entry
+            self._checkpointed.add(title)
+            self._write_partial_product(partial=True)
+        except Exception as exc:   # noqa: BLE001 —— 阶段性落盘绝不能挡住抓取
+            run_log.warn(f"checkpoint write failed for "
+                         f"{(pub or {}).get('title', '?')[:60]}: {exc}",
+                         module="output", indent=1)
 
     def _save_output(self, results):
         """Save citation results to JSON and Excel."""
@@ -1873,6 +2002,23 @@ class PaperCitationFetcher:
         write_json_atomic(self.out_json, output_payload,
                           ensure_ascii=False, indent=2)
         run_log.info(f"Saved JSON: {self.out_json}", module="output", indent=1)
+
+        # 整轮结束：把 partial 交接文件也补成“全部完成”，这样阶段 2 用同一个路径
+        # 拿到的最后快照不会把已完成的论文误当成 pending。
+        if self._checkpoint_enabled:
+            try:
+                self._checkpoint_entries = {
+                    (entry.get("pub") or {}).get("title", ""): entry
+                    for entry in final_results
+                    if (entry.get("pub") or {}).get("title")
+                }
+                self._checkpoint_publications = publications
+                self._write_partial_product(partial=False, entries=final_results)
+                run_log.info(f"Saved checkpoint: {self.partial_json}",
+                             module="output", indent=1)
+            except Exception as e:   # noqa: BLE001
+                run_log.warn(f"could not write {self.partial_json}: "
+                             f"{type(e).__name__}: {e}", module="output", indent=1)
 
         # The Excel file is a convenience view; a failure there must not abort a
         # run whose data is already on disk.

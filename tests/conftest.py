@@ -209,6 +209,8 @@ class FetcherTestCase(RunLogDebugCase):
         self._scratch_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self._scratch_dir.cleanup)
         self.fetcher._curl_save_path = os.path.join(self._scratch_dir.name, "curl.txt")
+        # 阶段性交接文件也必须落在 scratch 里（否则 run() 测试会把 partial 写进仓库根）
+        self.fetcher.partial_json = os.path.join(self._scratch_dir.name, "partial.json")
         self.fetcher._completed_year_segments = set()
         self.fetcher._partial_year_start = {}
         self.fetcher._probed_year_counts = None

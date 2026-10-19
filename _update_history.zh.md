@@ -2725,3 +2725,17 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
 - **分工**：`page_visit` 的请求级 WARN（只有 URL）说"哪个请求被拒"；`cite_format` 的行级 INFO 说
   "哪一行（含标题）没了"。旧的 404 日志里仍然只有 cid（历史不可补）。
 - **验证**：既有 633 例通过（含他人新增的用例）；用一次假的 `RecordUnavailable` 冒烟确认行形如上。
+
+### 2026-10-19 阶段 1 阶段性落盘（每篇一份完整快照）
+
+- `code/scholar_citation.py`：`run()` 里启用 checkpoint；`_run_main_loop()` 每进入下一篇前把上一篇落盘
+  （循环后统一补最后一篇，覆盖 skip / cached / stalled 全部路径）。
+- 每篇写 `papers/<NNN>-<slug>/citations_meta.json` + `citations/<NNNN>-*.json`（该篇 index 已定），
+  并写 `output/author_<ID>_paper_citations.partial.json`：**完整 schema、全部论文**，未处理的论文沿用
+  上一版产物里的引文；带 `partial` / `generation` / `completed_papers` 供人判断进度。
+- 阶段 2 **零改动**：它仍按普通 `paper_citations.json` 读；把 partial 复制/指向它即可，启动校验的
+  "输入每篇都要有目录" 仍然成立。
+- 只在**真实 `run()`** 启用（`_checkpoint_enabled`）：测试直接调 `_run_main_loop()` / `_save_output()`
+  不会落盘；测试的 `partial_json` 重定向到 scratch。
+- 验证：`tests.test_checkpoint_handoff`（3 例）、`tests.test_output`（20 例）、
+  `tests.test_main_loop`（16 例）通过；未跑整套。
