@@ -672,9 +672,14 @@ class PaperCitationFetcher:
     def _wait_status(self):
         """Return a status string for wait messages."""
         total = self._run_new_citations_total + max(0, self._new_citations_count)
-        run_pages = self._session_ctx.total_page_count
+        # `total_page_count` 是**请求数**（引用页 + Cite 对话框 + 详情页），
+        # `citation_page_count` 是**引用列表页数** —— 两个数都不是一个意思，别只写 "pages"
+        # （2026-10-19：以前把请求数当页数，长休看起来"每 10 页一次"其实是每 10 次请求）。
+        run_pages = getattr(self._session_ctx, 'citation_page_count', 0)
+        run_requests = self._session_ctx.total_page_count
         curl_pages = self._session_ctx.curl_page_count
-        pages_str = f"{run_pages} pages ({curl_pages} this curl)"
+        pages_str = (f"{run_pages} pages / {run_requests} requests "
+                     f"({curl_pages} this curl)")
         return (f"elapsed {self._elapsed_str()}, "
                 f"{total} new citations, "
                 f"{pages_str}, "
@@ -1601,8 +1606,9 @@ class PaperCitationFetcher:
                                    else f"{attempt}/{MAX_RETRIES}")
                     total_new = self._run_new_citations_total + max(0, self._new_citations_count)
                     run_log.warn(f"Error (attempt {attempt_str}, "
-                                 f"pages: {self._session_ctx.total_page_count} total / "
-                                 f"{self._session_ctx.curl_page_count} this curl, "
+                                 f"pages: {self._session_ctx.citation_page_count} / "
+                                 f"requests: {self._session_ctx.total_page_count} "
+                                 f"({self._session_ctx.curl_page_count} this curl), "
                                  f"new citations: {total_new}): {e}",
                                  module="paper", indent=1)
                     if is_post_fetch_failure:
@@ -2133,7 +2139,8 @@ class PaperCitationFetcher:
                      f"{total_cites} collected citation records{new_str}",
                      module="summary")
         curl_pages = self._session_ctx.curl_page_count
-        pages_info = (f"{self._session_ctx.total_page_count} pages "
+        pages_info = (f"{getattr(self._session_ctx, 'citation_page_count', 0)} pages / "
+                      f"{self._session_ctx.total_page_count} requests "
                       f"({curl_pages} this curl)")
         run_log.info(f"elapsed {self._elapsed_str()}"
                      f" | {pages_info}"

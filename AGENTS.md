@@ -465,7 +465,12 @@ Patches `scholarly` internals rather than treating it as a black box:
 - Enforces randomised 45–90s waits before every request — **except the first page of a run and the
   first page after fresh cookies are injected** (`total_page_count == 1` / `curl_page_count <= 1`):
   no earlier request with those credentials exists to space apart from, so waiting there only wastes time
-- Takes mandatory long breaks every 8–12 pages to reset Scholar's rate-limit window
+- Takes mandatory long breaks every 8–12 **citation-list pages** to reset Scholar's
+  rate-limit window.  The counter is `ctx.citation_page_count`（2026-10-19 修）——
+  `total_page_count` 数的是**每一次请求**（一页后面会跟 0–10 次 Cite 对话框/详情页请求），
+  拿它来判长休等于"每 1–2 个列表页就歇 3–6 分钟"（实测 89 个列表页里 53 次长休、计数差值
+  一串 +11 = 10 次对话框 + 1 页）。第一次请求/注入 cookie 之后的"免等待"判据仍用
+  `total_page_count`（那里要的就是请求数）
   — and **a successfully solved captcha resets that counter** (`reset_break_counter()`, 2026-10-19):
   solving one is itself a multi-minute interruption, so without the reset the very next page often hit
   another 3–6 min break.  Only the break window moves; the session-refresh counter is left alone

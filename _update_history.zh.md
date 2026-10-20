@@ -2839,3 +2839,20 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
 - **测试**：`test_log_utils` 新增"文件拿到屏幕隐藏的明细 / 不重复"与阈值语义 2 例；
   `test_scholar_patch` 的逐页行守卫改为钉住 DEBUG（并说明为什么它现在不该刷屏）。
   阶段 1 648 例全绿。
+
+### 2026-10-19 深夜（续）：长休计数从"请求数"改成"引用列表页数"
+
+- **用户**："mandantory stop 每 10 个页面就会发生，是不是计数出现了问题？"
+- **根因**：`Mandatory break` 的判据是 `ctx.total_page_count >= next_break_at`，而
+  `total_page_count` 在 `patched_get_page` 里对**每一次请求** +1 —— 引用列表页、Cite 对话框、
+  出版详情页都算。抓一页会顺带发 0–10 次对话框请求（默认开启的 `--cite-formats`），所以
+  8–12 的窗口在实践中变成"每 1–2 个引用页就长休一次"。
+- **证据**（`output/logs/..._20261019_122807.log`，9 小时）：逐页行 **89** 条，`Mandatory break`
+  **53** 次，计数器到 727；长休之间的计数差是一串 `+11`（= 10 次对话框 + 1 个列表页），
+  而真正的列表页差多数是 `+1`。
+- **改动**：`SessionContext.citation_page_count`（只在 `patched_load_url` 里 +1）；
+  长休与会话刷新改用它；`reset_break_counter()`（解验证码后）也用它；`_wait_status` / run summary /
+  重试 WARN 里把两个数分开写（`89 pages / 812 requests`），不再把请求数叫 "pages"。
+- **测试**：新增 `MandatoryBreakPacingTests` 2 例（请求数涨到 500 也不长休；到页数阈值时才长休，
+  并按 8+8..12 重排）；两处既有用例（解验证码重置、接线）改到新计数器。
+  阶段 1 **650 例全绿**。

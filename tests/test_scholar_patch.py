@@ -23,15 +23,16 @@ class ScholarPatchAndIdentityTests(FetcherTestCase):
     def test_solving_a_captcha_resets_the_mandatory_break_counter(self):
         """解完验证码之后长休计时清零（用户 2026-10-19）。
 
-        长休判据是"页数够了没"（`total_page_count >= next_break_at`）。人工解验证码本身就是一次
-        不短的中断，但计数器不动 → 解完常常紧接着又撞一次 3–6 分钟长休 ✗。`reset_break_counter()`
-        把窗口推到"当前页数 + 一个完整窗口" ✓，与会话刷新无关 ✓。
+        长休判据是"**引用列表页**够了没"（`citation_page_count >= next_break_at`）。人工解验证码
+        本身就是一次不短的中断，但计数器不动 → 解完常常紧接着又撞一次 3–6 分钟长休 ✗。
+        `reset_break_counter()` 把窗口推到"当前页数 + 一个完整窗口" ✓，与会话刷新无关 ✓。
         """
         from code.scholarly_session import SessionContext, reset_break_counter
         from code import config as CFG
 
         ctx = SessionContext(author_id="X")
-        ctx.total_page_count = 20
+        ctx.citation_page_count = 20
+        ctx.total_page_count = 500        # 请求数不能参与这个判据
         ctx.next_break_at = 22            # 再走两页就该长休了（解验证码前就快到了）
         ctx.next_refresh_at = 15
         reset_break_counter(ctx)
@@ -47,7 +48,7 @@ class ScholarPatchAndIdentityTests(FetcherTestCase):
         from code.scholarly_session import SessionContext
 
         ctx = SessionContext(author_id="X")
-        ctx.total_page_count = 30
+        ctx.citation_page_count = 30      # 长休按引用列表页计数（2026-10-19）
         ctx.next_break_at = 31
         self.fetcher._session_ctx = ctx
         self.fetcher._captcha_solved_count = 0
@@ -738,6 +739,63 @@ if __name__ == '__main__':
 
 
 from code.config import DETAIL_PAGE_DELAY_FACTOR  # noqa: E402
+
+
+class MandatoryBreakPacingTests(FetcherTestCase):
+    """长休按**引用列表页**计数，不按请求数（2026-10-19 修）。
+
+    `total_page_count` 数的是每一次请求：抓完一页会顺带发 0–10 次 Cite 对话框 / 详情页请求，
+    所以拿它跟 `next_break_at`（8–12）比，等于"每 1–2 个列表页就长休一次"。用户实测
+    "mandatory stop 每 10 个页面就来一次"——那个 10 正是请求数（10 次对话框 + 1 页），
+    不是随机抽签。现在 `citation_page_count` 只数列表页。
+    """
+
+    LIST_URL = '/scholar?as_ylo=2025&as_yhi=2025&hl=en&cites=1,2&scipsc='
+
+    def setUp(self):
+        super().setUp()
+        from code import scholarly_session as _ss
+        self.ss = _ss
+        self.nav = _ss.scholarly._Scholarly__nav
+        self.nav._get_page = lambda pagerequest, premium=False: '<html></html>'
+        with patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._patch_scholarly()
+        self.ctx = self.fetcher._session_ctx
+        self.ctx.first_page_prompt_fn = None
+        self.ctx.delay_scale = 0.0
+
+    def _load(self):
+        from scholarly.publication_parser import _SearchScholarIterator
+        from tests.conftest import _DummyIterator
+        with patch("code.scholarly_session.time.sleep") as sleep, \
+             patch("sys.stdout", new_callable=StringIO) as out:
+            _SearchScholarIterator._load_url(_DummyIterator(None, self.LIST_URL),
+                                             self.LIST_URL)
+        return out.getvalue(), sleep
+
+    def test_a_break_comes_after_page_count_not_request_count(self):
+        self.ctx.citation_page_count = 7
+        self.ctx.total_page_count = 500          # 对话框/详情页的请求
+        self.ctx.next_break_at = 8
+        self.ctx.next_refresh_at = 999
+        output, sleep = self._load()
+
+        self.assertIn("Mandatory break after 8 pages", output)
+        # 之后按 8 + (8..12) 重排 —— 仍然是"页"，不是请求数。
+        self.assertGreaterEqual(self.ctx.next_break_at, 16)
+        self.assertLessEqual(self.ctx.next_break_at, 20)
+        self.assertTrue(sleep.called)
+
+    def test_no_break_while_only_page_detail_requests_grow(self):
+        self.ctx.citation_page_count = 3         # 只走了 3 个列表页
+        self.ctx.total_page_count = 500          # 但已经发了 500 次请求
+        self.ctx.next_break_at = 8
+        self.ctx.next_refresh_at = 999
+        output, sleep = self._load()
+
+        self.assertNotIn("Mandatory break", output)
+        self.assertEqual(self.ctx.citation_page_count, 4)
+        self.assertFalse(sleep.called)
 
 
 class DetailPathDelayTests(FetcherTestCase):

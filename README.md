@@ -362,7 +362,8 @@ Notes:
 Google Scholar aggressively rate-limits automated requests. This tool uses multiple mitigation layers:
 
 - **Randomized delays**: 45–90 s between requests; the **detail-style paths** — publication detail pages, citing entries' Cite dialogs and their signed BibTeX download — run at **1/10 of that (~4.5–9 s)** via the single `code.config.DETAIL_PAGE_DELAY_FACTOR` setting. `--accelerate` still scales everything on top; citation-list pagination keeps the full delay and is the only path with the mandatory breaks. Honest cost: Scholar rate-limits by volume, so the shorter delay reaches the block sooner in wall-clock terms (the first venue pass was blocked after ~75–88 pages); the disk cache plus resume is what makes it worthwhile — stop at the first blocked page, come back later, and far less wall-clock goes into waiting
-- **Mandatory long breaks**: Every 8–12 pages, a 3–6 minute break resets Scholar's sliding-window rate limit
+- **Mandatory long breaks**: Every 8–12 **citation-list pages** (Cite dialogs and detail pages
+  do not count), a 3–6 minute break resets Scholar's sliding-window rate limit
 - **Browser header simulation**: Full `sec-fetch-*`, `sec-ch-ua-*`, `user-agent`, `accept`, `accept-language`, and dynamic `Referer` headers sent over HTTP/2 via scholarly's native `httpx` client. When a browser cURL is injected, the whole browser fingerprint (user-agent + `sec-ch-ua` + `sec-ch-ua-full-version-list`, enforced as one coherent unit) is adopted from that cURL so it always matches the browser that issued the cookies; a built-in Chrome 145 default is only the cold-start fallback
 - **Session refresh**: Soft-resets the session every 10–20 pages (preserves cookies, clears `got_403` flag)
 - **Fast failure**: `scholarly` retries limited to 1 per page so failures reach the paper-level retry quickly

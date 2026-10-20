@@ -116,6 +116,14 @@ class SessionContext:
     total_page_count: int = 0
     curl_page_count: int = 0       # pages accessed with current curl/cookies
     current_paper_page_count: int = 0  # resets per paper, not per year-segment or retry
+    #: Citation-list pages only (2026-10-19).  `total_page_count` counts **every
+    #: request** — a citation page drags 0-10 Cite-dialog / detail-page requests
+    #: behind it, so pacing the 8-12 page mandatory break with it collapsed to
+    #: "a break every 1-2 citation pages" (measured: 53 breaks over 89 pages,
+    #: counter deltas of +11 = 10 dialogs + 1 page).  Breaks and session
+    #: refreshes pace on this counter; first-page/first-curl checks keep using
+    #: `total_page_count`.
+    citation_page_count: int = 0
     next_break_at: int = 0
     next_refresh_at: int = 0
     last_scholar_url: str = ""
@@ -472,7 +480,7 @@ def reset_break_counter(ctx):
 
     **只清长休计数**：会话刷新（`next_refresh_at`）不动 —— 刚注入的 cookies 正是想马上用 ✓。
     """
-    ctx.next_break_at = ctx.total_page_count + random.randint(
+    ctx.next_break_at = ctx.citation_page_count + random.randint(
         MANDATORY_BREAK_EVERY_MIN, MANDATORY_BREAK_EVERY_MAX)
     return ctx.next_break_at
 
@@ -763,6 +771,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
     original_next = _SearchScholarIterator.__next__
 
     ctx.total_page_count = 0
+    ctx.citation_page_count = 0
     ctx.next_break_at = random.randint(MANDATORY_BREAK_EVERY_MIN, MANDATORY_BREAK_EVERY_MAX)
     ctx.next_refresh_at = ctx.next_break_at + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX)
 
@@ -797,6 +806,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
         self_iter._items_in_current_page = 0
         self_iter._finished_current_page = False
         ctx.current_paper_page_count += 1
+        ctx.citation_page_count += 1
         # Derive page number from URL start= param so it matches the actual page
         # being fetched regardless of retries or iterator resets.
         import re as _re2
@@ -807,25 +817,25 @@ def patch_scholarly(ctx: SessionContext) -> None:
         for session in (nav._session1, nav._session2):
             session.headers['referer'] = ctx.last_scholar_url
 
-        if ctx.total_page_count >= ctx.next_break_at:
+        if ctx.citation_page_count >= ctx.next_break_at:
             d = random.uniform(MANDATORY_BREAK_MIN, MANDATORY_BREAK_MAX) * ctx.delay_scale
             wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""
-            run_log.info(f"Mandatory break after {ctx.total_page_count} pages "
+            run_log.info(f"Mandatory break after {ctx.citation_page_count} pages "
                          f"({d/60:.1f} min)... [{wait_str}]", module="http", indent=2)
             time.sleep(d)
-            ctx.next_break_at = (ctx.total_page_count
+            ctx.next_break_at = (ctx.citation_page_count
                                  + random.randint(MANDATORY_BREAK_EVERY_MIN, MANDATORY_BREAK_EVERY_MAX))
             if not ctx.interactive_captcha and ctx.refresh_session_fn:
                 run_log.info("Refreshing session after break...", module="http", indent=2)
                 ctx.refresh_session_fn()
-            ctx.next_refresh_at = (ctx.total_page_count
+            ctx.next_refresh_at = (ctx.citation_page_count
                                    + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX))
-        elif ctx.total_page_count >= ctx.next_refresh_at:
+        elif ctx.citation_page_count >= ctx.next_refresh_at:
             if not ctx.interactive_captcha and ctx.refresh_session_fn:
-                run_log.info(f"Refreshing session (after {ctx.total_page_count} pages)...",
+                run_log.info(f"Refreshing session (after {ctx.citation_page_count} pages)...",
                              module="http", indent=1)
                 ctx.refresh_session_fn()
-            ctx.next_refresh_at = (ctx.total_page_count
+            ctx.next_refresh_at = (ctx.citation_page_count
                                    + random.randint(SESSION_REFRESH_MIN, SESSION_REFRESH_MAX))
 
         ctx.current_attempt_url = (
