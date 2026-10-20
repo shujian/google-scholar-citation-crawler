@@ -145,13 +145,6 @@ class RunLog:
     def clear_entry(self) -> None:
         self.entry_label = ""
 
-    def set_paper(self, label: str) -> None:
-        """Attach *label* to every line until `clear_paper()`."""
-        self.paper_label = label or ""
-
-    def clear_paper(self) -> None:
-        self.paper_label = ""
-
     def set_threshold(self, level: int) -> None:
         self.threshold = level
 
