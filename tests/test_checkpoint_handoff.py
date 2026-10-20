@@ -26,6 +26,7 @@ import tests.conftest  # noqa: E402,F401
 
 import code.scholar_citation as SC  # noqa: E402
 from code.config import papers_root  # noqa: E402
+from code.profile_io import AuthorProfile  # noqa: E402
 from code.shared.papers_layout import target_dir_name  # noqa: E402
 
 
@@ -82,6 +83,35 @@ class TestCheckpointHandoff(unittest.TestCase):
         partial = self._partial()
         self.assertEqual(len(partial["papers"]), 2)
         self.assertEqual(sorted(partial["completed_papers"]), [1, 2])
+
+    def test_paper_order_changes_are_reported(self):
+        old = AuthorProfile(publications=[
+            {"no": 1, "title": "Paper One", "url": "https://a/1"},
+            {"no": 2, "title": "Paper Two", "url": "https://a/2"},
+        ])
+        new = AuthorProfile(publications=[
+            {"no": 1, "title": "Paper Two", "url": "https://a/2"},
+            {"no": 2, "title": "Paper One", "url": "https://a/1"},
+            {"no": 3, "title": "Paper Three", "url": "https://a/3"},
+        ])
+        changed, added, removed = SC.paper_order_changes(old, new)
+        self.assertEqual([(o, n, t) for o, n, t in changed],
+                         [(2, 1, "Paper Two"), (1, 2, "Paper One")])
+        self.assertEqual(added, ["Paper Three"])
+        self.assertEqual(removed, [])
+
+    def test_order_change_matches_by_url_when_title_changed(self):
+        old = AuthorProfile(publications=[
+            {"no": 7, "title": "Old Title", "url": "https://a/7"},
+        ])
+        new = AuthorProfile(publications=[
+            {"no": 9, "title": "New Title", "url": "https://a/7"},
+        ])
+        changed, added, removed = SC.paper_order_changes(old, new)
+        self.assertEqual(len(changed), 1)
+        self.assertEqual(changed[0][:2], (7, 9))
+        self.assertEqual(added, [])
+        self.assertEqual(removed, [])
 
     def test_baseline_writes_all_papers_and_preserves_fetch_state(self):
         with open(self.fetcher.out_json, "w", encoding="utf-8") as f:

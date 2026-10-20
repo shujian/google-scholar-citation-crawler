@@ -2910,3 +2910,11 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
 - 结果：A wolf 只在它自己完成时打一次 `Deduplicated 9 ... (419 kept)`；
   Deep matrix 在它自己的 cached 处理时（若确有旧重复）打一次，不再出现在别人的 checkpoint 块里。
   新增单测断言 `_dedup` 调用次数 = 1。
+
+### 2026-10-20 阶段 1 论文顺序变化日志
+
+- 新增 `paper_order_changes()`（URL 优先、标题归一化兜底）与 `log_paper_order_changes()`；
+- `main()` 在 `run_papers_maintenance()` 之前打印
+  `── Paper order check ──`，逐条 `002 -> 001  Paper Two`，并汇总 changed / new / removed；
+- 维护模式不是 `apply` 时警告“编号变化不会全部落到目录名”；
+- 新增 2 个单测（换位、标题变了但 URL 相同仍按 URL 对齐）。

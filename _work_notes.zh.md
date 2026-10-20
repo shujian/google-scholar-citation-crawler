@@ -2596,3 +2596,11 @@ Google 对被打的请求不是直接回 429，而是 `302 → www.google.com/so
   只消费，不再调用 `_dedup`。`_save_output()` 的 `_build_entry()` 保留兜底，但正常路径零改动。
 - 语义不变：只合并真实 `cites_id` 相同（或 id-less 时 title+venue/title+authors 完全相等）的行；
   同标题不同 cluster 仍保留（K123）；`seen_total` 仍是抓取事实，不因输出折叠而改变。
+
+## 2026-10-20 论文顺序变化日志
+
+- `no` 是派生值，不能拿旧 `no` 当匹配键；`paper_order_changes()` 用 **URL 优先、标题归一化兜底**
+  匹配前后两版 profile 的同一篇论文，再比较 `no`。
+- 日志在**目录维护之前**打印（此时 old -> new 还是计划，随后 `run_papers_maintenance` 落实）；
+  若 `renumber_mode` 不是 `apply`，明确告警，避免“日志说变了、目录没变”的误解。
+- 只读、纯函数 `paper_order_changes()` 便于单测；日志函数只负责格式。

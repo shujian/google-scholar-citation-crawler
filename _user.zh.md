@@ -3706,3 +3706,10 @@ TeeStream 镜像，各一份不重复）。`-v` 只降低屏幕。屏幕上"活�
 > 其次 deep 不是当前论文，其本身下载的时候应该进行过去重，也不应该在这里去重。
 
 已修：去重只在 `_store_result()` 写 `results` 时做一次；checkpoint / partial / baseline 不再去重。
+
+## 2026-10-20 论文顺序变化必须写日志
+
+> 阶段一如果要改变论文顺序，一定要在日志里写明。
+
+已实现：`main()` 在目录维护之前调用 `log_paper_order_changes()`，逐条打印 old no -> new no；
+同时报告新增/移除论文；维护模式不是 `apply` 时额外告警。

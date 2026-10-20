@@ -2238,6 +2238,71 @@ class PaperCitationFetcher:
 from code.cli import parse_args  # noqa: F401
 
 
+def _order_key(pub):
+    """论文在前后两版 profile 之间的匹配键：URL 优先，否则归一化标题。"""
+    pub = pub or {}
+    url = (pub.get("url") or "").strip()
+    if url:
+        return "url:" + url
+    title = "".join(ch.lower() for ch in (pub.get("title") or "") if ch.isalnum())
+    return "title:" + title
+
+
+def paper_order_changes(prev_profile, curr_profile):
+    """返回 `(changed, added, removed)`，不写日志，便于单测。
+
+    `changed` = `[(old_no, new_no, title), …]`；`added` / `removed` 是对应标题。
+    只按 URL/标题匹配，不按旧 `no` —— `no` 本身就是会被重排的派生值。
+    """
+    old_pubs = list(getattr(prev_profile, "publications", None) or [])
+    new_pubs = list(getattr(curr_profile, "publications", None) or [])
+    if not old_pubs or not new_pubs:
+        return [], [p.get("title", "") for p in new_pubs], []
+    old_by_key = {}
+    for pub in old_pubs:
+        old_by_key[_order_key(pub)] = pub
+    used = set()
+    changed, added = [], []
+    for pub in new_pubs:
+        key = _order_key(pub)
+        old = old_by_key.get(key)
+        if old is None:
+            added.append(pub.get("title", ""))
+            continue
+        used.add(key)
+        if old.get("no") != pub.get("no"):
+            changed.append((old.get("no"), pub.get("no"), pub.get("title", "")))
+    removed = [pub.get("title", "") for key, pub in old_by_key.items()
+               if key not in used]
+    return changed, added, removed
+
+
+def log_paper_order_changes(prev_profile, curr_profile, renumber_mode="apply"):
+    """把阶段 1 的论文顺序变化写进日志（用户 2026-10-20 要求）。"""
+    changed, added, removed = paper_order_changes(prev_profile, curr_profile)
+    run_log.section("Paper order check", module="plan")
+    if changed:
+        for old_no, new_no, title in changed:
+            old_s = f"{old_no:03d}" if isinstance(old_no, int) else "???"
+            new_s = f"{new_no:03d}" if isinstance(new_no, int) else "???"
+            run_log.info(f"{old_s} -> {new_s}  {title}", module="plan", indent=1)
+        run_log.info(f"{len(changed)} paper(s) changed directory number "
+                     f"(old -> new)", module="plan", indent=1)
+        if renumber_mode != "apply":
+            run_log.warn(f"目录维护模式={renumber_mode}：上面的编号变化不会全部落到"
+                         f"目录名；需要 apply 才能对齐", module="plan", indent=1)
+    else:
+        run_log.info("No paper position changes", module="plan", indent=1)
+    if added:
+        run_log.info(f"{len(added)} new paper(s): "
+                     + "; ".join(t[:60] for t in added[:10])
+                     + (" …" if len(added) > 10 else ""), module="plan", indent=1)
+    if removed:
+        run_log.info(f"{len(removed)} paper(s) no longer in profile: "
+                     + "; ".join(t[:60] for t in removed[:10])
+                     + (" …" if len(removed) > 10 else ""), module="plan", indent=1)
+
+
 def main():
     """
     CLI entry point.  Defined here (not in code.cli) so that tests can patch
@@ -2342,6 +2407,9 @@ def main():
             sys.exit(1)
 
         curr_profile = fetcher.load_prev_profile()
+
+        # 用户 2026-10-20：只要论文顺序/目录编号变了，必须在日志里写明 old -> new。
+        log_paper_order_changes(prev_profile, curr_profile, renumber_mode)
 
         # 2026-10-19 用户：目录调整必须在**抓取开始前**全部完成；不需要更新的数据先确定落盘。
         # 因此把维护与 baseline 放到“是否要抓”的判断之前：即使本轮无需抓取，目录/产物也已对齐。
