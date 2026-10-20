@@ -2965,3 +2965,15 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
 - **④ 续跑**：新增 `_resume_product_path()` —— 产物与快照取 mtime 较新的那个，用于
   `_paper_states`、索引分配、`has_cite_format_work()`、checkpoint 索引；被中断的运行不再重抓已抓论文。
 - **测试**：`test_checkpoint_handoff` 新增 5 例（先写产物/中断报告/完成报告/新快照优先/旧快照忽略）。
+
+### 2026-10-20（续）：`papers/` 使用锁（阶段 1 ↔ 阶段 2 互斥提醒）
+
+- **背景**：阶段 1 每轮开头改论文目录名（默认 `apply`）；阶段 2 拼路径只认输入快照的 `pub.no` + 标题，
+  写盘前 `makedirs` → 两者同时跑会把旧名字目录重建，数据被拆成两套（"不受控的目录改变"）。
+- **新增共享件** `code/shared/stage_lock.py`（阶段 1 宿主，只用标准库）：`acquire/read/release/is_live/
+  describe`，锁文件 `<papers 根>/.stage2.lock`；同主机看 pid、跨主机看文件年龄（24h）。
+- **阶段 1**：`papers_maintenance.run()` 在 `apply` 前读锁，活锁 → 降级为 dry-run（只报告计划）并提示
+  重跑时机；新增 `--renumber-papers force`（配置键也接受 `force`）可越过。
+- **阶段 2**：通过启动校验后 `acquire()` + `atexit.release()`；共享件不可用只降级告警。
+- **测试**：阶段 1 `tests/test_stage_lock.py`（10 例）；阶段 2 `tests/test_stage_lock_wiring.py`（3 例，
+  含"先过启动校验再写锁、任何写操作之前拿到"的源码级守卫）。

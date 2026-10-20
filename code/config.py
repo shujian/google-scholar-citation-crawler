@@ -254,7 +254,7 @@ RENUMBER_PAPERS = "apply"
 def resolve_renumber_papers(cli_value=None, config_path=None):
     """Resolve the papers-maintenance mode: CLI > config file > default.
 
-    Returns ``(mode, source)`` with *mode* in ``off`` / ``dry-run`` / ``apply`` and
+    Returns ``(mode, source)`` with *mode* in ``off`` / ``dry-run`` / ``apply`` / ``force`` and
     *source* in ``cli`` / ``config`` / ``default``.
     """
     mode = cli_value
@@ -265,6 +265,7 @@ def resolve_renumber_papers(cli_value=None, config_path=None):
     if mode is None:
         mode, source = RENUMBER_PAPERS, "default"
     mode = str(mode).strip().lower()
-    if mode not in ("off", "dry-run", "apply"):
-        raise ValueError("renumber_papers 只能是 off / dry-run / apply，收到 %r" % (mode,))
+    if mode not in ("off", "dry-run", "apply", "force"):
+        raise ValueError(
+            "renumber_papers 只能是 off / dry-run / apply / force，收到 %r" % (mode,))
     return mode, source

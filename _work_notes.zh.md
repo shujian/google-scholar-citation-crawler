@@ -2680,3 +2680,17 @@ cookies** 且仍然失败（有 HTTP 状态）→ `RecordUnavailable`。放在"�
 3. **续跑**：只读正式产物时，"被打断的那一轮"等于白抓（下次重抓）。`_resume_product_path()`
    取 mtime 较新的那份，四处在读（`_paper_states`、索引、`has_cite_format_work`、checkpoint），
    写仍然只有一处（`write_product`），所以不会出现两份真相。
+
+## 2026-10-20（续）：为什么是"提醒锁"而不是"硬锁"
+
+阶段 1 每轮开头按最新排名改目录名，阶段 2 拼路径时只认输入快照（`paper_dir_for()`），写盘前
+`makedirs` —— 同时跑就会把旧名字目录**重建**出来。用户选择：一把**提醒**性质的互斥锁。
+
+- 锁文件 `<papers 根>/.stage2.lock`，由**阶段 2** 写（真正在用树的一方），阶段 1 只读。
+  反向（阶段 1 写、阶段 2 读）不做：阶段 1 的维护只在启动后几秒，风险小；只加一把锁最省事。
+- 判据分两种：同主机看 `pid`（`os.kill(pid, 0)`，`PermissionError` 也算活）；跨主机（SSHFS）
+  看不到 pid，退回**文件年龄**（24h）。陈旧锁直接覆盖，绝不挡路。
+- 阶段 1 看到活锁 → `mode` 降级为 `dry-run`，`result["blocked_by"]` 记录描述串，日志给出两条提示
+  （等阶段 2 结束 / 用 `force`）。`force` 模式照改，并在 `result["forced_past"]` 里记一笔。
+- 共享件的硬约束：**只用标准库**。阶段 2 的 `sys.path` 里 `code` 指向它自己的包，共享件一旦
+  `import code.common` 就会拿到错的模块（这也是 `papers_layout.py` / `citation_key.py` 的同一条规矩）。

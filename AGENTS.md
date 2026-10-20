@@ -106,6 +106,14 @@ google-scholar-citation-crawler/
   本阶段负责**创建**它（`code.config.papers_root()` / `ensure_papers_root()`，`main()` 每次运行都
   幂等确保存在，只建不删）—— 这是"谁拥有物理位置谁负责建"的落点；论文子目录与 `cite` 文件的
   创建/编号按 `KNOWN_ISSUES.md` Y-6 的分步计划**后续**搬过来（当前仍在阶段 2 的 `preflight_repairs`）。
+- **`papers/` 的使用锁（2026-10-20 用户定）**：本阶段每轮都会按最新排名**改论文目录名**，
+  而阶段 2 拼路径只认输入快照的 `pub.no` + 标题、写完还会 `makedirs` —— 两者同时跑会把旧名字的
+  目录**重新建出来**，PDF / 进度 / meta 被拆成两套。所以阶段 2 在通过启动校验后往
+  `<papers 根>/.stage2.lock` 写一把提示锁（`{"stage","pid","host","started_at"}`，退出/中断时删），
+  本阶段的目录维护（`code/papers_maintenance.py`）在 `apply` 之前读它：**活着就不改名、只报告计划**，
+  并提示"等阶段 2 结束后重跑阶段 1；确实要现在改就用 `--renumber-papers force`"。
+  锁判据是同主机看 pid 是否还在、跨主机（SSHFS）看文件年龄（`STALE_AFTER_HOURS`=24），
+  陈旧锁不挡路。共享件是 `code/shared/stage_lock.py`（**只用标准库**，阶段 2 经 `code/_shared.py` 消费）。
 - **日志与运行期中间产物**一律进 `output/`（含 `output/logs/`）。
 - **不依赖任何环境变量**：旋钮走命令行参数，成组配置走项目根 `crawler_config.json`，
   优先级 **命令行参数 > 配置文件 > 代码内默认值**。布尔开关同理，例如 Cite 对话框那一步：

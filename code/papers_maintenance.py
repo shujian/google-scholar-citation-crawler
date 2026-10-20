@@ -29,7 +29,8 @@ import json
 import os
 
 #: 允许的模式（顺序即文档顺序）
-MODES = ("off", "dry-run", "apply")
+#: `force` = 即使阶段 2 的锁还活着也照改（默认行为是"看到活锁就只报告不动盘"）
+MODES = ("off", "dry-run", "apply", "force")
 
 #: 默认模式：只报告不动盘（用户可见地暴露"目录与最新排名不一致"，但零风险）
 DEFAULT_MODE = "dry-run"
@@ -90,6 +91,23 @@ def ensure_paper_dirs(papers_root, papers, log=print):
     return created
 
 
+def stage2_lock_note(papers_root):
+    """阶段 2 的 papers 使用锁是否还活着；活的返回描述串，否则 ``None``。
+
+    2026-10-20 用户：阶段 1 会改论文目录名，阶段 2 拼路径只认输入快照，两者同时跑就会
+    把旧名字的目录**重建**出来（`paper_dir_for()` + `makedirs`），数据被拆成两套。
+    锁是提醒机制：看到活锁就只报告计划、不动盘。
+    """
+    try:
+        from code.shared.stage_lock import describe, is_live, read
+    except Exception:      # noqa: BLE001 —— 锁的可用性绝不该挡住维护
+        return None
+    info = read(papers_root)
+    if info and is_live(info, papers_root):
+        return describe(info)
+    return None
+
+
 def run(papers_root, papers, mode=DEFAULT_MODE, output_dir=None, log=print):
     """按模式跑一次维护。返回结果字典（含 `mode`，出错时含 `error`）。"""
     if mode not in MODES:
@@ -97,6 +115,20 @@ def run(papers_root, papers, mode=DEFAULT_MODE, output_dir=None, log=print):
     result = {"mode": mode, "papers_root": papers_root, "papers": len(papers or [])}
     if mode == "off" or not papers:
         return result
+    if mode in ("apply", "force"):
+        held = stage2_lock_note(papers_root)
+        if held and mode == "apply":
+            log("[papers] 阶段 2 正在使用论文目录（%s）—— 本轮**不改名/不归档**，"
+                "只把计划报告出来（避免与阶段 2 抢目录名）。" % held)
+            log("[papers] 等阶段 2 结束后重跑阶段 1 即可；确实要现在改，用 "
+                "--renumber-papers force。")
+            result["blocked_by"] = held
+            mode = "dry-run"
+        elif held:
+            log("[papers] 注意：阶段 2 的锁还活着（%s），但模式是 force —— 照改不误。"
+                % held)
+            result["forced_past"] = held
+    result["mode"] = mode
     try:
         from code.shared.papers_layout import reconcile
 
