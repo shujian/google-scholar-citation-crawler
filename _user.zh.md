@@ -3713,3 +3713,9 @@ TeeStream 镜像，各一份不重复）。`-v` 只降低屏幕。屏幕上"活�
 
 已实现：`main()` 在目录维护之前调用 `log_paper_order_changes()`，逐条打印 old no -> new no；
 同时报告新增/移除论文；维护模式不是 `apply` 时额外告警。
+
+**你的要求**（贴了一整块 year/http 的 DEBUG 行）："请把这里的DEBUG信息改为INFO，我希望在控制台能关注到这些进度。"
+
+已把"进度"这一类全部升到 INFO：探针/缓存/上下文汇总、每年 skip/fetching/status、页进度、
+`Request URL`、`waiting …`（含重试等待）。仍留 DEBUG 的只有逐条明细（每条引用的 `[n] <title>`、
+`Progress saved`、`[dedup] Skipping`、首屏免等待、重试**原因**、`Fallback year summary`）。

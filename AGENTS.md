@@ -158,9 +158,11 @@ google-scholar-citation-crawler/
   打印出来的行仍由 `TeeStream` 镜像，所以两边各一份、不重复、不丢行。效果：
   **屏幕只留结论**（run/phase/plan/profile/每篇一行/output/summary + 所有 WARN+），
   **`output/logs/<run>.log` 里每一行都在**（含每页进度、每次等待、每个年份的状态与对比、请求 URL）。
-  `-v` 只是把**屏幕**也降到 DEBUG。因此每页/每年/每次请求那些行**一律用 DEBUG**，
-  别再用 INFO 往屏幕上堆 —— 老版本把 `waiting …` 与逐页行定为 INFO，900 行里 970 条是它们。
-  屏幕上的"活着"由 `Mandatory break after N pages …`（INFO，每 8–12 页一次）+ 每篇一行承担。
+  `-v` 只是把**屏幕**也降到 DEBUG。
+  **2026-10-20 用户第二次调整**：屏幕上要看**进度** —— 探针/缓存/上下文汇总、每年"skip / fetching /
+  status"、页进度、`Request URL`、`waiting …` 全部回到 **INFO**（即屏幕上会看到一整篇的推进过程，
+  72 分钟约 300 行）。仍然留在 DEBUG 的只有**逐条明细**：每条引用的 `[n] <title>`、`Progress saved`、
+  `[dedup] Skipping`、首屏免等待提示、重试的**原因**（`Error fetching …`）与 `Fallback year summary`。
 - **行首只标"这一条施引论文"（2026-10-20 用户定）**：`RunLog.set_entry(label)` 是唯一的行首上下文，
   `code/cite_format.py` 在 `get_soup()` 前后 `set_entry()` / `clear_entry()`（`finally` 里清，失败也一样），
   于是逐条抓 Cite 对话框时那一行是
@@ -181,11 +183,11 @@ google-scholar-citation-crawler/
   `cite dialogs: 812/9071 rows now carry formats (584 with all five) | this run downloaded 619, no dialog (404) 167, failed 0, already complete …, no cid …`；
   这一遍的明细（`resolved/fetched/cached/…`）降为 DEBUG 的 `cite pass:`。
   写文件的计数回到它发生的位置：`INFO output  cite files: N written, M unchanged`（`N == 0` 时不打）。
-- **逐页进度行（2026-10-19）**：抓引用列表时每页一行 **DEBUG**
-  `11:40:13 DEBUG year      2025 · page 3 · 10 items`（direct 模式无年份 → `page 2 · 7 items`）。
-  这是"现在抓到哪一年、第几页"的**唯一来源** —— 屏幕上看不到（属于上面那条"屏幕简洁"），
-  但日志文件里有。判据在 `citation_page_progress()` / `citation_page_module()`
-  （`code/scholarly_session.py`），页码取 URL 的 `start=`、年份取 `as_ylo=`。
+- **逐页进度行（2026-10-19，2026-10-20 回到 INFO）**：抓引用列表时每页一行
+  `11:40:13 INFO  year      2025 · page 3 · 10 items`（direct 模式无年份 → `page 2 · 7 items`）。
+  这是"现在抓到哪一年、第几页"的**唯一来源**，屏幕和日志文件里都有。判据在
+  `citation_page_progress()` / `citation_page_module()`（`code/scholarly_session.py`），
+  页码取 URL 的 `start=`、年份取 `as_ylo=`。
 - **迁移已完成（2026-10-19）**：`code/` 下**只有 `interactive.py` 还写 `print()`**（它是交互提示，
   不是日志），其余模块全部经 `run_log`；`log_utils.py` 里那一个 `print()` 是 `RunLog.write` 本身。
   原来 205 处 `print` / 62 处 `run_log` 的并存状态结束。

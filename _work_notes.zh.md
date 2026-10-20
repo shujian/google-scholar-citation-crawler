@@ -2604,3 +2604,17 @@ Google 对被打的请求不是直接回 429，而是 `302 → www.google.com/so
 - 日志在**目录维护之前**打印（此时 old -> new 还是计划，随后 `run_papers_maintenance` 落实）；
   若 `renumber_mode` 不是 `apply`，明确告警，避免“日志说变了、目录没变”的误解。
 - 只读、纯函数 `paper_order_changes()` 便于单测；日志函数只负责格式。
+
+## 2026-10-20（续）：级别调整的最终口径
+
+同一天里这条线来回改了三次（INFO → DEBUG → INFO），最终口径是**按"是否属于进度"分类**，
+而不是按"屏幕还是文件"：
+
+- **INFO（进度）**：探针/缓存/上下文的汇总、每年的 skip/fetching/status/done、年份对比与汇总、
+  逐页行、`Request URL`、`waiting …`（含重试等待）。
+- **DEBUG（明细）**：每条引用的 `[n] <title>`、`Progress saved`、`[dedup] Skipping`、
+  首屏免等待、`Error fetching …`（重试原因）、`Fallback year summary`。
+
+判断依据是用户的实际用法：**他盯控制台看进度**（哪一年、第几页、还要等多久），所以这些必须是 INFO；
+日志文件的阈值是 DEBUG，所以明细仍然一行不少。教训：级别不要按"我现在觉得吵不吵"来调，
+而要按"这条线是给谁的、他多久看一次"来定。

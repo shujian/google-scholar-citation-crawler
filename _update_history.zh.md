@@ -2918,3 +2918,15 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   `── Paper order check ──`，逐条 `002 -> 001  Paper Two`，并汇总 changed / new / removed；
 - 维护模式不是 `apply` 时警告“编号变化不会全部落到目录名”；
 - 新增 2 个单测（换位、标题变了但 URL 相同仍按 URL 对齐）。
+
+### 2026-10-20（续）：进度类日志回到 INFO（控制台可见）
+
+- **用户**：贴了一整块 DEBUG（Probe/Cache 汇总、Year skip/fetching、Request URL、waiting、page 行），
+  要求"改为 INFO，我希望在控制台能关注到这些进度"。
+- **改动**：`citation_fetch` 23 行（探针/缓存/上下文/每年决策/每年完成/对比与汇总）、
+  `scholarly_session` 3 行（`Request URL`、`waiting …`、逐页行）、`page_visit` 1 行（重试等待）→ INFO。
+  仍留 DEBUG 的：`[n] <title>` 逐条、`Progress saved`、`[dedup] Skipping`、首屏免等待、
+  `Error fetching …`（重试原因）、`Fallback year summary`。
+- **代价（已告知用户）**：控制台回到接近全量（72 分钟约 300 行）。若太吵，把 `waiting …` 与
+  `Request URL` 两处改回 DEBUG 即可。
+- **测试**：`test_scholar_patch` 的逐页行守卫改回 INFO。

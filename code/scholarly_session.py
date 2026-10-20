@@ -655,8 +655,8 @@ def patch_scholarly(ctx: SessionContext) -> None:
         if request_url:
             show_referer = referer and referer != ctx.last_scholar_url
             referer_str = f" (referer: {referer})" if show_referer else ""
-            run_log.debug(f"Request URL: {request_url}{referer_str}",
-                          module="http", indent=2)
+            run_log.info(f"Request URL: {request_url}{referer_str}",
+                         module="http", indent=2)
 
         # Wrap original_get_page so that scholarly's internal 60-120 s
         # sleeps are replaced by our rand_delay (45-90 s, or 1/10 of that on the
@@ -723,8 +723,8 @@ def patch_scholarly(ctx: SessionContext) -> None:
                 # still gets a line every 8-12 pages from the mandatory break
                 # below, which is the run's visible pulse.
                 detail = f" · {wait_str}" if wait_str else ""
-                run_log.debug(f"waiting {d:.0f}s{retry_note}{detail}",
-                              module="http", indent=2)
+                run_log.info(f"waiting {d:.0f}s{retry_note}{detail}",
+                             module="http", indent=2)
                 original_sleep(d)
 
             time.sleep = _limited_sleep
@@ -871,8 +871,8 @@ def patch_scholarly(ctx: SessionContext) -> None:
         if page_size:
             # One line per page — the only place that says *where* in the
             # traversal the run is (which year, which page, how many rows).
-            run_log.debug(citation_page_progress(url, page_size),
-                          module=citation_page_module(url), indent=1)
+            run_log.info(citation_page_progress(url, page_size),
+                         module=citation_page_module(url), indent=1)
         elif is_citation_list_url(url):
             # A citation page with zero result rows used to be logged silently,
             # which made a blocked/empty response look like a genuinely empty

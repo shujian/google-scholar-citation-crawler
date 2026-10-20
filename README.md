@@ -164,12 +164,12 @@ grepped like a table:
   profile / venue / http / fetch / year / paper / plan / output / cite / summary`)
   is padded so messages line up, and the indent (2 spaces per level) mirrors the
   structure: run → phase → paper → year/page → detail.
-- **Screen vs log file (2026-10-19)**: the terminal shows **conclusions only**
-  (`run / phase / plan / profile /` one line per paper` / output / summary`, plus
-  every `WARN`+), while `output/logs/<run>.log` gets **every line of the run** —
-  each request, each page, each year's counters, every request URL.  The two sinks
-  have their own thresholds (`INFO` for the screen, `DEBUG` for the file), so
-  nothing is lost and no line is written twice.
+- **Screen vs log file (2026-10-19, revisited 2026-10-20)**: the terminal shows
+  the run's **progress** — the probe/cache summary, each year's `skip` / `fetching`
+  / `status`, the page line, each request URL and wait, plus `WARN`+ — while
+  `output/logs/<run>.log` additionally keeps the per-entry detail (each citing
+  row, `Progress saved`, dedup skips, retry reasons).  Both sinks write every line
+  exactly once (screen `INFO`, file `DEBUG`).
 - **Levels**: `INFO` = state changes and conclusions; `DEBUG` = the per-request /
   per-page / per-year detail (off the screen by default, always in the log file);
   `WARN` = something that needs a human look, e.g. a page that returned zero rows.

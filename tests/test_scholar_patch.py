@@ -1234,16 +1234,16 @@ class CitationPageProgressTests(RunLogDebugCase):
     def test_empty_url_is_still_a_page_one_line(self):
         self.assertEqual(citation_page_progress(None, 3), "page 1 · 3 items")
 
-    def test_page_line_is_detail_and_the_old_debug_lines_are_gone(self):
-        """The progress line is DEBUG: off the screen, but in the log file.
+    def test_page_line_is_info_and_the_old_debug_lines_are_gone(self):
+        """The progress line is INFO: the console is where progress is watched.
 
-        2026-10-19 用户定：屏幕只留结论，日志文件里留全部。这一行因此从 INFO 降到
-        DEBUG —— 它不再刷屏，但仍然写进 `output/logs/*.log`（run_log 的文件阈值是
-        DEBUG）。两条更老的 `Pagination` / `Page items` 行早已不存在。
+        2026-10-20 用户定（第二次调整）：屏幕上要看进度（探针/缓存/每年决策/每页/每次等待），
+        所以这一行回到 INFO；日志文件仍然是全量（它的阈值是 DEBUG）。
+        两条更老的 `Pagination` / `Page items` 行早已不存在。
         """
         import code.scholarly_session as mod
 
         source = open(mod.__file__, encoding='utf-8').read()
-        self.assertIn("run_log.debug(citation_page_progress(url, page_size)", source)
+        self.assertIn("run_log.info(citation_page_progress(url, page_size)", source)
         self.assertNotIn('run_log.debug(f"Pagination (page', source)
         self.assertNotIn('run_log.debug(f"Page items: {page_size}"', source)
