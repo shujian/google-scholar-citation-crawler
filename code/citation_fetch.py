@@ -786,9 +786,19 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
     selective_refresh_years = None if selective_refresh_years is None else set(selective_refresh_years)
     explicit_refresh_years = set(selective_refresh_years or ())
     explicit_refresh_years.update(int(year) for year in year_ctx.partial_year_start.keys())
+    def fresh_probe_counts():
+        """`year_ctx` 里**当前**的探针计数（探针会把结果写回它）。
+
+        函数开头抓到的局部 `probed_year_counts` 是**探针之前**的快照，用它做计划等于退回旧行为
+        （2026-10-20 实测：快照为空 → 计划又变成 1907–2026，每个空年份各发一次请求）。
+        """
+        return (fetcher._normalize_year_count_map(
+                    getattr(year_ctx, 'probed_year_counts', None) or {})
+                or probed_year_counts)
+
     if year_ctx.completed_year_segments and explicit_refresh_years:
         start_year = min(min(year_ctx.completed_year_segments), min(explicit_refresh_years))
-        floor = cache_year_floor(year_count_map, probed_year_counts)
+        floor = cache_year_floor(year_count_map, fresh_probe_counts())
         if floor is not None:
             start_year = min(start_year, floor)
     else:
@@ -809,14 +819,14 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                 if start_year is None:
                     start_year = current_year - 5
         elif year_count_map:
-            cache_min = cache_year_floor(year_count_map, probed_year_counts)
+            cache_min = cache_year_floor(year_count_map, fresh_probe_counts())
             if cache_min is not None and cache_min < start_year:
                 run_log.info(f"Using cache min year {cache_min} "
                              f"(probe returned {start_year})",
                              module="year", indent=2)
                 start_year = cache_min
 
-    stray_years = out_of_range_cache_years(year_count_map, probed_year_counts)
+    stray_years = out_of_range_cache_years(year_count_map, fresh_probe_counts())
     if stray_years:
         run_log.warn(f"Cache has {len(stray_years)} year(s) outside the probe's range "
                      f"({', '.join(str(y) for y in stray_years[:5])}"

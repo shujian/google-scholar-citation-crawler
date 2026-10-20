@@ -3008,3 +3008,13 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   派生字段；随后 `align_citations_meta --apply` 让 13 篇 `citations_meta.json` 的主体跟上产物
   （对拍差异 95 → 4，剩下 4 条是写者"`venue_key` 永不降级"的既有口径）。
 - **测试**：新增 `tests/test_repair_chicago_titles.py`（10 例）；全量 `696` 例通过。
+
+### 2026-10-20（续）：上一版修年份计划时用了探针之前的旧快照
+
+- **用户**：16:35 的日志里仍出现 `Using cache min year 1907` / `Year 1908: fetching`。
+- **根因**：`fetch_by_year()` 开头把 `year_ctx.probed_year_counts` 抓进局部变量（首轮为空），
+  我在计划处用了这个局部变量 → `cache_year_floor()` 判定"没有直方图" → 退回"缓存最早年份"。
+- **修复**：`fresh_probe_counts()` 在**用的时候**从 `year_ctx.probed_year_counts` 现取（探针会把
+  结果写回它）；两处 floor 与 stray-year 告警都用它。
+- **测试**：`PlanUsesTheFreshProbeCountsTests` 2 例，直接驱动 `_fetch_citations_with_progress`，
+  断言计划是 `2017-2026`、没有任何 < 2017 的请求、且告警里点名 1907；修复前两条都失败。

@@ -1213,6 +1213,75 @@ class YearFetchMainTests(FetcherTestCase):
         self.assertFalse(state.is_complete(current_scholar_total=5, pub_year="2024"))
 
 
+class PlanUsesTheFreshProbeCountsTests(FetcherTestCase):
+    """计划必须用**探针刚写回**的计数，而不是函数开头抓到的旧快照（2026-10-20 回归）。
+
+    现场：`_fetch_by_year()` 开头抓一次 `year_ctx.probed_year_counts`（那时是上一轮留下的
+    `{}`），探针把新计数写进同一个 `year_ctx` —— 若计划仍用开头那份空快照，
+    `cache_year_floor()` 就退回"取缓存最早年份"，paper 2 的计划又变成 1907–2026。
+    """
+
+    def _run(self, counts):
+        requests = []
+
+        class FakeIterator:
+            def __init__(self, nav, url):
+                year = int(url.split("as_ylo=")[1].split("&")[0])
+                requests.append(year)
+                self.index = 0
+                self._finished_current_page = False
+                self._items_in_current_page = 0
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                raise StopIteration
+
+        def fake_probe(citedby_url, fetch_ctx=None, num_citations=None, pub_year=None):
+            self.fetcher._probed_year_counts = counts
+            if fetch_ctx is not None:
+                fetch_ctx.probed_year_counts = counts
+                fetch_ctx.probed_year_count_complete = True
+            return 2017
+
+        self.fetcher._probe_citation_start_year = fake_probe
+        self.fetcher._probed_year_counts = None      # 探针之前的旧快照：空的
+        cached = [{"title": f"Old-{y}", "authors": "A", "venue": "V", "year": str(y),
+                   "url": f"u{y}"} for y in (1907,) + tuple(range(2017, 2027))]
+        with patch.object(scholar_citation, "_SearchScholarIterator", FakeIterator), \
+             patch.object(scholar_citation, "datetime") as fake_datetime, \
+             patch("sys.stdout", new_callable=StringIO) as out:
+            fake_datetime.now.return_value = types.SimpleNamespace(year=2026)
+            self.fetcher._fetch_citations_with_progress(
+                citedby_url="/scholar?cites=123",
+                cache_path=None,
+                title="Paper",
+                num_citations=1011,
+                pub_url="https://example.com/paper",
+                pub_year="2017",
+                resume_from=cached,
+                completed_years_in_current_run=[],
+                prev_scholar_count=1011,
+                fetch_policy={"strategy": "year", "pub_year": 2017,
+                              "reason": "at_or_above_year_threshold"},
+            )
+        return requests, out.getvalue()
+
+    def test_a_stray_1907_does_not_pull_the_plan_back(self):
+        requests, log = self._run({2017: 15, 2018: 153, 2019: 173, 2020: 141,
+                                   2021: 140, 2022: 114, 2023: 82, 2024: 78,
+                                   2025: 56, 2026: 49})
+        self.assertIn("Year-based plan: 2017-2026", log)
+        self.assertFalse([y for y in requests if y < 2017],
+                         f"计划里不该出现 1908 之类的年份，实际请求：{sorted(set(requests))}")
+
+    def test_the_stray_year_is_reported(self):
+        _requests, log = self._run({2026: 49})
+        self.assertIn("outside the probe's range", log)
+        self.assertIn("1907", log)
+
+
 class CacheYearFloorTests(unittest.TestCase):
     """计划起点只按**探针覆盖到**的缓存年份放宽（2026-10-20 实测的 1908 事故）。
 

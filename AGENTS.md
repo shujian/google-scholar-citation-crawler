@@ -497,6 +497,10 @@ Papers with `>= YEAR_BASED_THRESHOLD (50)` citations switch to year-by-year fetc
   没有那些年份（probe=0），放宽它们不可能带新数据。现在 `cache_year_floor()` 只在
   `[min(histogram), max(histogram)]` 内放宽，范围外的年份由 `out_of_range_cache_years()` 计数并
   **WARN 出来**（不静默）。探针完全不可用时退回旧行为（缓存最早年份）。
+  **必须用探针刚写回 `year_ctx` 的那份计数**：`fetch_by_year()` 开头抓的局部变量是**探针之前**
+  的快照（首轮是空的），拿它算 floor 等于退回旧行为 —— 第一版修复就栽在这里，实测计划仍是
+  1907–2026。所以计数在**用的时候**从 `year_ctx.probed_year_counts` 现取（`fresh_probe_counts()`），
+  回归用例 `PlanUsesTheFreshProbeCountsTests`。
 - Oldest→newest year order
 - Year range is determined by `probe_citation_start_year()` via the Scholar histogram DOM
 - An interrupted fetch persists the in-run snapshot (citations fetched so far +

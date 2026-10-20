@@ -3773,3 +3773,11 @@ citations/*.json`、`cite_format_cache.json`、`curl.txt`、`logs/*.log`。
 而且"重抓"修不好：身份字段从缓存带过来，截断会原样再来一遍（今天那轮重抓 paper 2 之后仍是截断版）。
 
 **你的选择**："A. 修 bug + 修数据 + 重写 meta（推荐）"
+
+**你的追问**："为什么还出现了这个 log：Year 1907: skip (seen=1, not in histogram) / Year 1908: fetching …"
+
+第一版修复**不完整**：`fetch_by_year()` 开头抓的局部 `probed_year_counts` 是**探针之前**的快照
+（首轮是空的），我把它传给了 `cache_year_floor()`，于是它走了"探针不可用 → 取缓存最早年份"的
+旧分支 → 计划又是 1907–2026。现在计数在**用的时候**从 `year_ctx.probed_year_counts` 现取，
+并补了一个回归用例（`PlanUsesTheFreshProbeCountsTests`，修复前它确实失败，日志里能看到 1908…2016
+每年一次请求）。

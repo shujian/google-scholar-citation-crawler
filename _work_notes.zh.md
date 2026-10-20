@@ -2740,3 +2740,14 @@ venue 自带引号的出版地，这条规则会偏长，届时再按"venue 段�
 `1061-…pdf` 因此暂时不对应任何 meta 行，由**阶段 2** 的 `preflight_repairs`
 （`repair_citation_filenames`，按 meta 声明的 `local_filename` 对齐）改名收口 —— 阶段 1 不动
 `citations/*.pdf`（Y-7：所有者跟着数据产生者走）。
+
+## 2026-10-20（续）：修 bug 时别信函数开头的局部快照
+
+第一版 `cache_year_floor()` 本身是对的，但喂给它的数据是错的：`fetch_by_year()` 在**函数开头**
+把 `year_ctx.probed_year_counts` 复制到局部变量，而探针是在**中途**才把结果写回 `year_ctx` 的。
+于是首轮的计划拿到空字典 → 判定"探针不可用" → 退回"缓存最早年份" → 1907–2026 原样复现。
+
+教训：这类"先抓快照、后面再更新状态"的代码里，新逻辑要**现取**（`fresh_probe_counts()`），
+不要复用开头那个局部名。回归测试直接驱动 `_fetch_citations_with_progress`（假探针 + 假迭代器），
+断言的不是 helper 的返回值，而是"日志里的计划"和"真的发出过哪些年份的请求" —— 前者能抓到
+数据来源错、后者能抓到行为错。
