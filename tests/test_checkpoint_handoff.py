@@ -213,6 +213,23 @@ class TestCheckpointHandoff(unittest.TestCase):
         self.assertIn("saving stopped at 'json'", text)
         self.assertNotIn("written completely", text)
 
+    def test_a_save_interrupted_after_the_product_says_the_product_is_there(self):
+        """产物已经写了、只是没重写成"带本轮对话框"的版本时，不能说"落后一轮"。
+
+        2026-10-20 实测：`_save_output` 先写 JSON，之后跑 Cite 对话框时被打断，报告却写
+        "the product may be one run behind" —— 与磁盘上的事实相反。
+        """
+        from io import StringIO
+        self.fetcher._save_completed = False
+        self.fetcher._save_stage = "json"
+        self.fetcher._save_json_written = True
+        with mock.patch("sys.stdout", new_callable=StringIO) as out:
+            self.fetcher._report_saved_state()
+        text = out.getvalue()
+        self.assertIn("the product was written at", text)
+        self.assertIn("Cite dialogs", text)
+        self.assertNotIn("may be one run behind", text)
+
     def test_a_completed_save_is_reported_as_complete(self):
         from io import StringIO
         self.fetcher._save_completed = True

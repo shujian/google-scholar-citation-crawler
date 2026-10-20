@@ -1252,6 +1252,7 @@ class PaperCitationFetcher:
         interrupted = False
         self._save_completed = False
         self._save_stage = ""
+        self._save_json_written = False
         try:
             # 真实运行才启用阶段性交接；测试直接调 `_run_main_loop()` 不应产生落盘副作用。
             self._checkpoint_enabled = True
@@ -1309,10 +1310,18 @@ class PaperCitationFetcher:
         if self._save_completed:
             run_log.info("this run's product was written completely",
                          module="run", indent=1)
+        elif getattr(self, '_save_json_written', False):
+            # 产物**已经在**（`_save_output` 先写它、再跑 Cite 对话框那一步）：被打断的
+            # 只是"带着本轮新解析的对话框重写一次"。别让一句话把人吓到以为又落后一轮。
+            run_log.info(f"the product was written at {stamp(self.out_json)}; the run stopped "
+                         f"at '{self._save_stage or 'start'}' while rewriting it with this "
+                         f"run's Cite dialogs — those are in the cite cache and land in the "
+                         f"product next run", module="run", indent=1)
         else:
-            run_log.warn(f"saving stopped at '{self._save_stage or 'start'}': the product "
-                         f"may be one run behind — the newer of product/snapshot is the "
-                         f"resume state for the next run", module="run", indent=1)
+            run_log.warn(f"saving stopped at '{self._save_stage or 'start'}' **before** the "
+                         f"product was written — it may be one run behind; the newer of "
+                         f"product/snapshot is the resume state for the next run",
+                         module="run", indent=1)
 
     def _run_main_loop(self, publications, cache_status, url_map, need_fetch, results, fetch_idx):
         """Inner loop extracted so KeyboardInterrupt saves output."""
@@ -2240,6 +2249,7 @@ class PaperCitationFetcher:
             output_payload['fetch_time'] = datetime.now().isoformat()
             write_json_atomic(self.out_json, output_payload,
                               ensure_ascii=False, indent=2)
+            self._save_json_written = True
             note = " (with this run's Cite dialogs)" if with_dialogs else ""
             run_log.info(f"Saved JSON{note}: {self.out_json}",
                          module="output", indent=1)

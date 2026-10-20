@@ -224,6 +224,9 @@ google-scholar-citation-crawler/
   保存进度，中断后调 `_report_saved_state()` 打印**磁盘上实际有什么**（产物/快照/缓存的时间戳、
   快照覆盖几篇、保存停在哪一步）；③二段 Ctrl+C 被 `finally` 捕获，不再让进程死在写 JSON 上；
   ④`__main__` 的兜底文案改为"看上面的清单"。
+  **报告措辞按"产物写没写"分开**（2026-10-20）：`_save_json_written` 为真时说的是
+  "产物已于 HH:MM:SS 写好，停在 Cite 对话框的重写那一步（对话框在缓存里，下一轮进产物）"，
+  只有真的没写才说"可能落后一轮" —— 否则会把"产物是新的"误报成"落后一轮"。
 - **续跑读的是"产物与快照里较新的那个"**：`_resume_product_path()` 比较 `paper_citations.json`
   与 `paper_citations.partial.json` 的 mtime，取新的那份作为续跑状态（`_paper_states`、索引分配、
   `has_cite_format_work()`、checkpoint 索引全用它）。此前只读正式产物，于是"只更新了 partial"

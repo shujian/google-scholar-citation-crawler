@@ -3029,3 +3029,11 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   只重试一次；`no_results` 页面不重试；完成判据（`seen >= histogram`）不变。
 - **测试**：`EmptyPageRetryTests` 5 例（可疑空页重取后取到内容 / 仍为空则接受且只重试一次 /
   `no_results` 不重试 / 有内容不重试 / 判据函数本身）。
+
+### 2026-10-21：中断报告按"产物写没写"分开措辞
+
+- **背景**：10-20 那次中断里产物已于 07:44:41 写好（新顺序：先写 JSON 再跑 Cite 对话框），
+  报告却打 "saving stopped at 'json': the product may be one run behind" —— 与事实相反。
+- **改动**：`write_product()` 记 `_save_json_written`；`_report_saved_state()` 三态：
+  完全写完 / 产物已写但被停在对话框重写（说明对话框在缓存里、下一轮进产物）/ 产物没写。
+- **测试**：`test_checkpoint_handoff` 新增 1 例（产物已写时不得出现 "may be one run behind"）。

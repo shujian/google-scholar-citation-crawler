@@ -3789,3 +3789,10 @@ citations/*.json`、`cite_format_cache.json`、`curl.txt`、`logs/*.log`。
 "did not match any"（`no_results` 标记）→ 同一个 URL 再取一次；第二次有内容就用它，
 仍然 0 行才当成列表结束（并明确记一行）。`no_results` 的页面不重试（否则每个年份的收尾页都要
 白白多一次请求）。`seen`/`histogram` 的完成判据一个字没动。
+
+**你的要求**："修改。另外我们并不使用 partial.json 还需要它吗？"
+
+① 措辞已改：`_save_json_written` 区分"产物已写、只是没重写成带本轮对话框"与"产物没写"，
+前者不再说"可能落后一轮"。
+② partial.json 的用途我核了一遍（见回复）：阶段 2 / 3.x / 阶段 4 都不读它，只有阶段 1 自己当
+"硬崩溃时的续跑日志"用；要不要保留等你定。
