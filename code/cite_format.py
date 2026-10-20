@@ -429,8 +429,15 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
             if not callable(get_soup):
                 stats['failed'] += 1
                 continue
+            # 这一条施引论文的对话框是这次请求的主语：`waiting …` / 请求行都带上它，
+            # 而不是整篇被引论文（用户 2026-10-20）。取标题的规则与下面 404 那行一致。
+            _label_title = ' '.join(str(citation.get('title') or '').split())[:50]
+            run_log.set_entry(f'{cid} "{_label_title or "(no title)"}"')
             try:
-                page = get_soup(cite_path(cid))
+                try:
+                    page = get_soup(cite_path(cid))
+                finally:
+                    run_log.clear_entry()
                 parsed = parse_cite_page(page)
             except RecordUnavailable as e:
                 # The server says this record does not exist (HTTP 404/410) —

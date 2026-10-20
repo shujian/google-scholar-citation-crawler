@@ -3687,3 +3687,9 @@ TeeStream 镜像，各一份不重复）。`-v` 只降低屏幕。屏幕上"活�
 于是改成 `RunLog.set_paper()`：进入抓取分支时设、下一篇开始前清，前缀由日志格式化统一加，
 所以这半小时里的 **每一行**（年份、逐页、等待、长休、cite）都带 `[4/241] A wolf… · `；
 缓存/跳过/停滞的论文不加（它们那一行本来就有标题）。
+
+**你的要求**："正在抓取的论文里不应显示 a wolf 这篇论文的标题，而应该显示引用它的那篇论文"
+
+（已先确认口径：逐条请求时用**施引论文**，翻页/年份行仍用被引论文。）
+已落地：`RunLog.set_entry()` / `clear_entry()`，`code/cite_format.py` 在每条 Cite 对话框请求前后设/清，
+于是请求期间的行是 `HSM_htxRbXcJ "Bi-directional NMT with synthetic parallel data" · waiting 45s …`。

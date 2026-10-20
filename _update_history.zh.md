@@ -2877,3 +2877,15 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   仍然无主语；现在这些都有。相应地删掉了 `_wait_status` 与 `Done:` 里的手写标签，避免重复。
 - **测试**：`PaperContextLogTests` 2 例（有上下文时每行带前缀 / 无上下文时不变）；`conftest` 的
   `RunLogDebugCase.setUp` 顺带 `clear_paper()`，防止测试之间泄漏上下文。
+
+### 2026-10-20（续）：Cite 对话框请求期间标的是**施引论文**
+
+- **用户**："正在抓取的论文里不应显示 a wolf 这篇论文的标题，而应该显示引用它的那篇论文。"
+  确认口径后（用户选"逐条请求时改用施引论文标题"）：翻页/年份等行仍标被引论文（那时没有单条主语），
+  逐条请求的行标该条施引论文。
+- **做法**：`RunLog.set_entry(label)` / `clear_entry()`；`code/cite_format.py` 在
+  `get_soup(cite_path(cid))` 前后设/清（`finally` 里清，失败/404 也一样）。
+  `_format()` 里 `entry_label or paper_label` —— 逐条优先，清掉后自动回到论文前缀。
+- **效果**：`HSM_htxRbXcJ "Bi-directional NMT with synthetic parallel data" · waiting 45s …`；
+  那条 404 判词回到论文前缀，判词自身仍带 `[7/10] cid "title"`（不重复）。
+- **测试**：`DialogRequestLabelTests` 2 例（请求期间/失败后都清）+ `test_log_utils` 1 例（前缀优先级）。

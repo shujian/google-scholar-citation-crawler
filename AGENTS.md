@@ -166,6 +166,10 @@ google-scholar-citation-crawler/
   在**进入抓取分支时**设、**下一篇开始前**清（`clear_paper()`），前缀由 `RunLog._format()` 统一加，
   所以年份行、逐页行、心跳行、长休行、cite 行全都带 `[4/241] A wolf in sheep's clothing · `；
   缓存/跳过/停滞那些论文不进抓取分支，不加前缀（它们的那一行本来就带标题）。
+  **一条施引论文的请求**再用 `RunLog.set_entry(label)` **取代**论文前缀：Cite 对话框是逐条抓的，
+  那一刻真正在下载的是"某一条施引论文"（`HSM_htxRbXcJ "Bi-directional NMT with …" · waiting 45s …`），
+  所以 `code/cite_format.py` 在 `get_soup()` 前后 `set_entry()` / `clear_entry()`（`finally` 里清，
+  失败也一样）。清掉之后的行（例如那条 404 判词）回到论文前缀，且判词本身已带该条的 `[7/10] cid "title"`。
   **不要**在个别消息里再手写一遍标签（会重复），也不要用 `_wait_status()` 之类局部串去做这件事。
 - **模块标签**：`run / phase / identity / profile / venue / http / fetch / year / paper / plan / output / cite / summary`，
   宽度固定，消息列对齐。

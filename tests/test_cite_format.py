@@ -268,6 +268,49 @@ class CidPersistenceTests(unittest.TestCase):
 # 2. Cite-dialog parsing
 # ---------------------------------------------------------------------------
 
+class DialogRequestLabelTests(unittest.TestCase):
+    """一次 Cite 请求的主语是**这一条施引论文**（用户 2026-10-20）。
+
+    抓「A wolf」的引用列表时，真正在下载的是列表里某一条的引用格式：日志里
+    `waiting …` / 请求行要标这一条（cid + 它的标题），而不是被引的那篇论文。
+    请求结束后必须清掉，否则后面的行会张冠李戴。
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.cache_path = os.path.join(self._tmp.name, cf.CACHE_FILENAME)
+
+    def test_the_request_names_the_citing_paper(self):
+        from code.log_utils import run_log
+        seen = []
+
+        def get_soup(path):
+            seen.append(run_log.entry_label)
+            return cite_page(rows=(('Chicago', 'one'),))
+
+        row = citation('cid-one')
+        row['title'] = 'Bi-directional NMT with synthetic par'
+        cf.enrich_citations_with_cite_formats(
+            [row], cache_path=self.cache_path, get_soup=get_soup,
+            print_fn=quiet)
+        self.assertEqual(len(seen), 1)
+        self.assertIn('cid-one', seen[0])
+        self.assertIn('Bi-directional NMT with synthetic par', seen[0])
+        self.assertEqual(run_log.entry_label, '')       # 请求结束就清掉
+
+    def test_a_failed_request_also_clears_it(self):
+        from code.log_utils import run_log
+
+        def get_soup(path):
+            raise RuntimeError('blocked')
+
+        cf.enrich_citations_with_cite_formats(
+            [citation('cid-one')], cache_path=self.cache_path, get_soup=get_soup,
+            print_fn=quiet)
+        self.assertEqual(run_log.entry_label, '')
+
+
 class CitePageParsingTests(unittest.TestCase):
 
     def test_cite_path_matches_the_scholar_url(self):

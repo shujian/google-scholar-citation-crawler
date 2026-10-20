@@ -178,7 +178,9 @@ grepped like a table:
   (~5 min) plus one line per paper. While a paper is being fetched, **every**
   line carries it (`[4/241] A wolf in sheep's clothing · Year 2026: fetching
   (seen=159, probe=186)`), so a 30-minute walk of one paper stays traceable from
-  any line; the prefix is dropped again as soon as the next paper starts.
+  any line; the prefix is dropped again as soon as the next paper starts.  A
+  Cite-dialog request names the **citing entry** instead, because that is what it
+  is downloading (`HSM_htxRbXcJ "Bi-directional NMT with …" · waiting 45s …`).
 - **One fact, one line**: a phase is a single ruled `── title ──` line instead of
   a 70-character banner, the year's counters and the diagnosis they came from are
   one line, and a request URL is printed once (by the session layer) rather than

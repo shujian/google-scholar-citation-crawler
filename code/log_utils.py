@@ -135,6 +135,17 @@ class RunLog:
         #: 当前正在抓的论文（`[4/241] A wolf in sheep's clothing`）。每行都带上它 ——
         #: 一篇论文要抓半小时，日志里那几百行若不知主，出问题时无法定位（用户 2026-10-20）。
         self.paper_label = ""
+        #: 当前正在抓的**这一条施引论文**（Cite 对话框逐条请求时设）。设了就**取代**
+        #: 论文前缀：那一刻真正在下载的是这一条（用户 2026-10-20：日志里要看到"引用它的
+        #: 那篇论文"，而不是被引的那篇）。
+        self.entry_label = ""
+
+    def set_entry(self, label: str) -> None:
+        """Name the citing entry currently being fetched (overrides the paper)."""
+        self.entry_label = label or ""
+
+    def clear_entry(self) -> None:
+        self.entry_label = ""
 
     def set_paper(self, label: str) -> None:
         """Attach *label* to every line until `clear_paper()`."""
@@ -160,7 +171,9 @@ class RunLog:
 
     def _format(self, level: int, message: str, module: str, indent: int) -> str:
         stamp = datetime.now().strftime("%H:%M:%S")
-        who = f"{self.paper_label} · " if self.paper_label else ""
+        # 逐条施引论文优先：那一刻被下载的是它，不是整篇论文。
+        who_label = self.entry_label or self.paper_label
+        who = f"{who_label} · " if who_label else ""
         return (f"{stamp} {_LEVEL_NAMES.get(level, 'INFO ')} {module:<{_MODULE_WIDTH}} "
                 f"{'  ' * max(0, indent)}{who}{message}")
 
