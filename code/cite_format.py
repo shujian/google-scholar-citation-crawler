@@ -432,7 +432,7 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
             # 这一条施引论文的对话框是这次请求的主语：`waiting …` / 请求行都带上它，
             # 而不是整篇被引论文（用户 2026-10-20）。取标题的规则与下面 404 那行一致。
             _label_title = ' '.join(str(citation.get('title') or '').split())[:50]
-            run_log.set_entry(f'{cid} "{_label_title or "(no title)"}"')
+            run_log.set_entry(f'"{_label_title or "(no title)"}"')
             try:
                 try:
                     page = get_soup(cite_path(cid))

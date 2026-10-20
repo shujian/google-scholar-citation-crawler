@@ -2930,3 +2930,14 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
 - **代价（已告知用户）**：控制台回到接近全量（72 分钟约 300 行）。若太吵，把 `waiting …` 与
   `Request URL` 两处改回 DEBUG 即可。
 - **测试**：`test_scholar_patch` 的逐页行守卫改回 INFO。
+
+### 2026-10-20（续）：条目名只出现一次，挂在 Request URL 行尾
+
+- **用户**："这个日志中重复的部分也可以去除"——同一个 Cite 请求的 URL 行与 waiting 行各带一次条目名。
+- **改动**：`RunLog._format()` 不再加行首前缀；`scholarly_session.patched_get_page` 把
+  `run_log.entry_label` 拼在该次请求的 `Request URL: …` 行尾（URL 里只有 `q=info:<cid>`，
+  所以标题补在这里）；`cite_format` 的标签简化为**只有标题**（cid 已在 URL 里）。
+- **效果**：一次请求只出现一次名字；`waiting …` / 逐页 / 年份行干干净净。
+- **测试**：`test_scholar_patch` 新增 2 例（URL 行带名字、waiting 行不带；非条目请求无名字）；
+  `test_cite_format` 的标签断言改为"只有标题"；`test_log_utils` 的用例改为"`_format()` 不加前缀"；
+  删掉 `test_main_loop` 里已失效的前缀用例。

@@ -295,8 +295,8 @@ class DialogRequestLabelTests(unittest.TestCase):
             [row], cache_path=self.cache_path, get_soup=get_soup,
             print_fn=quiet)
         self.assertEqual(len(seen), 1)
-        self.assertIn('cid-one', seen[0])
-        self.assertIn('Bi-directional NMT with synthetic par', seen[0])
+        # 只有标题：cid 已经在请求 URL 的 `q=info:<cid>` 里，重复一遍就是噪声。
+        self.assertEqual(seen[0], '"Bi-directional NMT with synthetic par"')
         self.assertEqual(run_log.entry_label, '')       # 请求结束就清掉
 
     def test_a_failed_request_also_clears_it(self):

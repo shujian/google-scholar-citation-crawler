@@ -655,7 +655,10 @@ def patch_scholarly(ctx: SessionContext) -> None:
         if request_url:
             show_referer = referer and referer != ctx.last_scholar_url
             referer_str = f" (referer: {referer})" if show_referer else ""
-            run_log.info(f"Request URL: {request_url}{referer_str}",
+            # 这条请求是为哪一条施引论文发的 —— 只说一次，挂在这一行上（URL 里只有 cid）。
+            # 后面的 `waiting …` 不再重复它（用户 2026-10-20）。
+            entry = f" · {run_log.entry_label}" if run_log.entry_label else ""
+            run_log.info(f"Request URL: {request_url}{referer_str}{entry}",
                          module="http", indent=2)
 
         # Wrap original_get_page so that scholarly's internal 60-120 s

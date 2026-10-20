@@ -176,10 +176,11 @@ grepped like a table:
   `-v` / `--verbose` lowers the **screen** to `DEBUG` as well.  On the screen, the
   run's pulse is one `Mandatory break after N pages …` line every 8–12 pages
   (~5 min) plus one line per paper. While a paper is being fetched, **every**
-  Cite-dialog request names the **citing entry**, because that is what it is
-  downloading (`HSM_htxRbXcJ "Bi-directional NMT with …" · waiting 45s …`).  The
-  cited paper is **not** repeated on every line: its `[N/241] <title>` line says
-  it once, and reprinting it for 30 minutes of per-page detail is noise.
+  Cite-dialog request names the **citing entry** once, at the end of its
+  `Request URL:` line (`… &hl=en · "SurfDesign: Effective Protein Design …"`),
+  because the URL itself only carries the cid.  No name is repeated: the cited
+  paper appears once in its `[N/241] <title>` line, the citing entry once per
+  request, and the other lines (`waiting …`, page/year) carry no prefix.
 - **One fact, one line**: a phase is a single ruled `── title ──` line instead of
   a 70-character banner, the year's counters and the diagnosis they came from are
   one line, and a request URL is printed once (by the session layer) rather than

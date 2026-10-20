@@ -2618,3 +2618,21 @@ Google 对被打的请求不是直接回 429，而是 `302 → www.google.com/so
 判断依据是用户的实际用法：**他盯控制台看进度**（哪一年、第几页、还要等多久），所以这些必须是 INFO；
 日志文件的阈值是 DEBUG，所以明细仍然一行不少。教训：级别不要按"我现在觉得吵不吵"来调，
 而要按"这条线是给谁的、他多久看一次"来定。
+
+## 2026-10-20（续）：同一条信息，一次请求里只准出现一次
+
+三次调整排成一条线：①被引论文逐行前缀（几百行）→ ②改成施引条目逐行前缀（一次请求 2 行、
+外加 URL 里已有 cid）→ ③**名字只在 `Request URL` 行尾出现一次**。
+
+最终形状：
+
+```
+DEBUG http   Request URL: https://scholar.google.com/scholar?q=info:-esqM_DcmHoJ:…&output=cite&hl=en · "SurfDesign: Effective Protein Design on Molecular"
+DEBUG http   waiting 6s · elapsed 30m57s, 13 new citations, 8 pages / 77 requests (7 this curl), 2 captcha solves
+```
+
+实现要点：`RunLog.entry_label` 保留（它是 `cite_format` 与 session 层之间唯一的通道 ——
+`get_soup` 只是个闭包，拿不到 ctx），但 `_format()` 不读它，由 `patched_get_page` 拼到 URL 行尾。
+标签**只有标题**，因为 cid 已在 URL 的 `q=info:<cid>` 里。
+
+判据（写给以后）：**一次请求 = 一个主语，名字出现一次**；重复的信息不是"更详细"，是噪声。

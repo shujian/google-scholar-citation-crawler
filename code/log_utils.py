@@ -139,7 +139,11 @@ class RunLog:
         self.entry_label = ""
 
     def set_entry(self, label: str) -> None:
-        """Name the citing entry currently being fetched."""
+        """Name the citing entry currently being fetched.
+
+        只由 session 层那一行 `Request URL: …` 输出（见 `patched_get_page`），**不做行首前缀**：
+        同一个条目名出现在每次请求的两三行上就是重复（用户 2026-10-20 第三次要求）。
+        """
         self.entry_label = label or ""
 
     def clear_entry(self) -> None:
@@ -162,9 +166,8 @@ class RunLog:
 
     def _format(self, level: int, message: str, module: str, indent: int) -> str:
         stamp = datetime.now().strftime("%H:%M:%S")
-        who = f"{self.entry_label} · " if self.entry_label else ""
         return (f"{stamp} {_LEVEL_NAMES.get(level, 'INFO ')} {module:<{_MODULE_WIDTH}} "
-                f"{'  ' * max(0, indent)}{who}{message}")
+                f"{'  ' * max(0, indent)}{message}")
 
     def write(self, level: int, message: str, module: str = "run", indent: int = 0) -> bool:
         """Emit one line; returns False when the level is filtered out everywhere."""

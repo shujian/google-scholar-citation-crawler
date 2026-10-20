@@ -87,17 +87,18 @@ class RunLogShapeTests(unittest.TestCase):
         self.assertIn("2025 · page 3 · 10 items", buffer.getvalue())  # ...but in the file
         self.assertIn("DEBUG year", buffer.getvalue())
 
-    def test_a_citing_entry_is_the_only_prefix(self):
-        """逐条请求的行首是那一**条**施引论文；清掉后行首干干净净。"""
+    def test_the_entry_label_is_not_a_line_prefix(self):
+        """条目名由 session 层那行 `Request URL: …` 输出一次，不再挂在每行行首。
+
+        2026-10-20 用户第三次调整：一次请求有两三行（URL / waiting / …），
+        每行都带同一个名字就是重复。`_format()` 因此不读 `entry_label`。
+        """
         log = lu.RunLog()
         self.addCleanup(log.clear_entry)
-        log.set_entry('HSM_htxRbXcJ "Bi-directional NMT with synthetic par"')
+        log.set_entry('"Bi-directional NMT with synthetic par"')
         _, out = captured(log.info, "waiting 45s", module="http")
-        self.assertIn('HSM_htxRbXcJ "Bi-directional NMT with synthetic par" · waiting 45s', out)
-
-        log.clear_entry()
-        _, out = captured(log.info, "waiting 45s", module="http")
-        self.assertNotIn(" · waiting", out)
+        self.assertNotIn("Bi-directional NMT", out)
+        self.assertTrue(out.rstrip().endswith("waiting 45s"))
 
     def test_the_file_threshold_keeps_verbose_console_behaviour(self):
         """`-v` lowers the *console*; the file already had everything."""

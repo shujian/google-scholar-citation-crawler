@@ -163,14 +163,14 @@ google-scholar-citation-crawler/
   status"、页进度、`Request URL`、`waiting …` 全部回到 **INFO**（即屏幕上会看到一整篇的推进过程，
   72 分钟约 300 行）。仍然留在 DEBUG 的只有**逐条明细**：每条引用的 `[n] <title>`、`Progress saved`、
   `[dedup] Skipping`、首屏免等待提示、重试的**原因**（`Error fetching …`）与 `Fallback year summary`。
-- **行首只标"这一条施引论文"（2026-10-20 用户定）**：`RunLog.set_entry(label)` 是唯一的行首上下文，
-  `code/cite_format.py` 在 `get_soup()` 前后 `set_entry()` / `clear_entry()`（`finally` 里清，失败也一样），
-  于是逐条抓 Cite 对话框时那一行是
-  `HSM_htxRbXcJ "Bi-directional NMT with …" · waiting 45s …` —— **那一刻真正在下载的是这一条**。
-  **被引论文（`[4/241] A wolf in sheep's clothing`）不逐行重复**：它 30 分钟不变，每篇开头那行
-  `[N/241] <title>` 已经说了，逐行再写一遍只是噪声（用户两次明确：先要"引用它的那篇"，再要"别大量重复"）。
-  所以年份行 / 逐页行 / 心跳行 / 长休行**没有**前缀；需要"这篇正在抓什么"就看上一篇开头那行，
-  需要"这一条是谁"就看对话框请求那一行。**不要**在个别消息里再手写一遍标签（会重复）。
+- **名字只说一次（2026-10-20 用户三次收紧口径）**：`RunLog.set_entry(label)` 是"这一次请求为哪条
+  施引论文"，但它**不是行首前缀** —— `_format()` 不读它，只有 `scholarly_session.patched_get_page`
+  把它拼在那次请求的 `Request URL: …` 行尾：
+  `… &hl=en · "SurfDesign: Effective Protein Design on Molecular"`。
+  URL 里只有 `q=info:<cid>`，所以标题补在这里；而**同一次请求的其它行（`waiting …`）不再重复**它。
+  `code/cite_format.py` 在 `get_soup()` 前后 `set_entry()` / `clear_entry()`（`finally` 里清，失败也一样）。
+  **被引论文（`[4/241] A wolf in sheep's clothing`）更不逐行重复**：它的 `[N/241] <title>` 那行已经说了。
+  判据：**一次请求里，同一条信息只出现一次**；要往多行加的东西必须逐行变化。
 - **模块标签**：`run / phase / identity / profile / venue / http / fetch / year / paper / plan / output / cite / summary`，
   宽度固定，消息列对齐。
 - **`run_log.section(title, module=…)`** 取代横幅：一个阶段/步骤一行 `── title ────…`。

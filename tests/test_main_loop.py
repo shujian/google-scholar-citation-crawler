@@ -867,29 +867,5 @@ class MainLoopTests(FetcherTestCase):
         self.assertTrue(reloaded.fetch.is_stalled())
 
 
-class EntryContextLogTests(FetcherTestCase):
-    """逐条请求的行首是**施引论文**；被引论文不逐行重复（用户 2026-10-20）。
-
-    被引论文（`[4/241] A wolf…`）每篇只在自己的开头那行出现一次 —— 它 30 分钟不变，
-    逐行重复只是噪声；真正会变的是"这一条施引论文"，它只在 Cite 对话框请求期间出现。
-    """
-
-    def test_a_citing_entry_is_prefixed_while_it_is_fetched(self):
-        from code.log_utils import run_log
-        self.addCleanup(run_log.clear_entry)
-        run_log.set_entry('HSM_htxRbXcJ "Bi-directional NMT"')
-        with patch("sys.stdout", new_callable=StringIO) as out:
-            run_log.debug("waiting 45s", module="http", indent=2)
-        self.assertIn('HSM_htxRbXcJ "Bi-directional NMT" · waiting 45s', out.getvalue())
-
-    def test_other_lines_carry_no_paper_prefix(self):
-        from code.log_utils import run_log
-        run_log.clear_entry()
-        with patch("sys.stdout", new_callable=StringIO) as out:
-            run_log.debug("2026 · page 3 · 10 items", module="year", indent=1)
-        self.assertNotIn("A wolf", out.getvalue())
-        self.assertNotIn(" · 2026", out.getvalue())
-
-
 if __name__ == '__main__':
     unittest.main()

@@ -3719,3 +3719,10 @@ TeeStream 镜像，各一份不重复）。`-v` 只降低屏幕。屏幕上"活�
 已把"进度"这一类全部升到 INFO：探针/缓存/上下文汇总、每年 skip/fetching/status、页进度、
 `Request URL`、`waiting …`（含重试等待）。仍留 DEBUG 的只有逐条明细（每条引用的 `[n] <title>`、
 `Progress saved`、`[dedup] Skipping`、首屏免等待、重试**原因**、`Fallback year summary`）。
+
+**你的要求**（贴了同一个 Cite 请求的两行，`-esqM_DcmHoJ "SurfDesign…"` 在两行上各出现一次）：
+"这个日志中重复的部分也可以去除。"
+
+已落地：条目名不再是行首前缀，只在**那一次请求的 `Request URL:` 行尾**出现一次
+（`…&hl=en · "SurfDesign: Effective Protein Design on Molecular"`），`waiting …` 那行不再重复；
+被引论文仍然只在每篇开头那行出现。

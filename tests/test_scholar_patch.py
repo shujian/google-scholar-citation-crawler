@@ -988,6 +988,31 @@ class CiteDialogRefererTests(FetcherTestCase):
                       output)
         self.assertNotIn("referer:", output)
 
+    def test_the_request_line_names_the_entry_once(self):
+        """条目名只出现在这一次请求的第一行，`waiting …` 不再重复（用户 2026-10-20）。"""
+        from code.log_utils import run_log
+        self.addCleanup(run_log.clear_entry)
+        run_log.set_entry('"SurfDesign: Effective Protein Design on Molecular"')
+        with patch("code.scholarly_session.rand_delay", return_value=0), \
+             patch("code.scholarly_session.time.sleep", return_value=None), \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            self.nav._get_page(self.CITE_DIALOG_URL)
+        output = fake_stdout.getvalue()
+        url_line = [ln for ln in output.splitlines() if "Request URL:" in ln][0]
+        self.assertIn('"SurfDesign: Effective Protein Design on Molecular"', url_line)
+        for line in output.splitlines():
+            if "waiting " in line:
+                self.assertNotIn("SurfDesign", line)
+
+    def test_requests_without_an_entry_carry_no_name(self):
+        from code.log_utils import run_log
+        run_log.clear_entry()
+        with patch("code.scholarly_session.rand_delay", return_value=0), \
+             patch("code.scholarly_session.time.sleep", return_value=None), \
+             patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            self.nav._get_page(self.LIST_URL)
+        self.assertNotIn(" · \"", fake_stdout.getvalue())
+
     def test_cite_dialog_classification_is_one_shared_function(self):
         from code.scholarly_session import is_cite_dialog_url
 
