@@ -3759,3 +3759,17 @@ citations/*.json`、`cite_format_cache.json`、`curl.txt`、`logs/*.log`。
 而计划起点取 `min(cache years)` → 计划变成 **1907–2026（120 年）**，于是 1908、1909… 每年发一次
 `as_ylo=1908&as_yhi=1908` 的请求，全部 `Page items: 0`（约 85 秒一次，白烧 2 小时以上）。
 探针直方图只覆盖 2017–2026，那些年份 probe=0，放宽它们没有任何收益。
+
+## 2026-10-20（续）：阶段 2 报"citations_meta.json 缺本次输入里的 1 条引用"
+
+**你的问题**："我遇到这样的错误：[WARNING] citations_meta.json 由阶段 1 生成，缺本次输入里的
+1 条引用（示例 On “human parity” and “super human perfo）→ 请重抓本篇，主体不由本阶段补 ✗
+这是怎么发生的？可不可以帮阶段一补一下 citations_meta?"
+
+**核对结果**：这条引用**没有丢** —— `002-…` 的 `index 17`、`cites_id 15207774320991617001`、
+`local_filename` 与 `download_status: downloaded` 都在。是阶段 1 的 Chicago 解析把 `title`
+从内嵌引号处切断了（`On “human parity`），后半截被写成了 `venue`；阶段 2 判"缺条目"用的是
+**归一化标题**，于是报成"缺 1 条、请重抓本篇"。同类共 4 条（另有 `1/1215`、`3/641`、`7/204`），
+而且"重抓"修不好：身份字段从缓存带过来，截断会原样再来一遍（今天那轮重抓 paper 2 之后仍是截断版）。
+
+**你的选择**："A. 修 bug + 修数据 + 重写 meta（推荐）"

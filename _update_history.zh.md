@@ -2990,3 +2990,21 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   实测同一份数据：计划 **10 年**（2017–2026），并告警 `Cache has 3 year(s) outside the probe's
   range (1907, 2050, 2090)`。
 - **测试**：`CacheYearFloorTests` 6 例（脏老年份/未来年份/无探针退回/空缓存/范围外报告/事故复现）。
+
+### 2026-10-20（续）：修"标题自带引号"被 Chicago 解析截断（解析规则 + 4 条存量行 + meta 对齐）
+
+- **现象**（阶段 2 的 `output/download.log`）：`citations_meta.json 由阶段 1 生成，缺本次输入里的
+  1 条引用（示例 On “human parity” and “super human perfo）→ 请重抓本篇`。核对后引用并没有丢。
+- **根因**：`cite_format.parse_format_parts()` 的标题边界是 `[“"]([^”"]+)[”"]`（**非贪婪**），
+  标题里自带引号时在第一个内嵌引号处停下 —— `title` 只剩前半截，后半截被当成 `venue`，
+  再由 `apply_chicago_correction()` 写回条目（缓存命中也执行，所以每轮都会重新确认）。
+  阶段 2 判"缺条目"用的是归一化标题，于是把"标题被截断"报成"缺引用"。
+- **修复**：收尾引号改为**最后一个**（`[“"](?P<title>.+)[”"]`）；新增
+  `tests/test_cite_format_parts.py::TitleWithEmbeddedQuotesTests`（5 例：内嵌弯引号 / 以弯引号开头 /
+  内嵌直引号 / 转义引号 / 把写坏的行修回完整标题）。
+- **存量修复**：新增 `code/data_upgrade/repair_chicago_titles.py`（默认 dry-run，`--apply` 才写 +
+  备份 + manifest，幂等）：用对话框缓存里的 Chicago 原文重算，**只修"当前值恰好等于旧规则算出来的
+  那个值"** 的行（4 条），同步 `cite.venue_text` 与派生的 `venue_key`，并刷新缓存条目里过期的
+  派生字段；随后 `align_citations_meta --apply` 让 13 篇 `citations_meta.json` 的主体跟上产物
+  （对拍差异 95 → 4，剩下 4 条是写者"`venue_key` 永不降级"的既有口径）。
+- **测试**：新增 `tests/test_repair_chicago_titles.py`（10 例）；全量 `696` 例通过。

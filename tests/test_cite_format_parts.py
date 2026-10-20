@@ -158,3 +158,78 @@ class ChicagoCorrectionTests(unittest.TestCase):
         before = dict(row)
         self.assertEqual(apply_chicago_correction(row, {'mla': self.CHICAGO}), {})
         self.assertEqual(row, before)
+
+
+class TitleWithEmbeddedQuotesTests(unittest.TestCase):
+    """标题自带引号时，收尾引号必须取**最后一个**（2026-10-20）。
+
+    实测 4 条被非贪婪匹配截断（`title` 只剩前半截、后半截进了 `venue`），
+    再由 `apply_chicago_correction()` 写回条目 —— 下游按标题配对时报成"缺引用"。
+    """
+
+    def test_inner_curly_quotes_do_not_split_the_title(self):
+        parts = parse_format_parts(
+            'Poibeau, Thierry. "On “human parity” and “super human performance” in '
+            'machine translation evaluation." In Proceedings of the Thirteenth '
+            'Language Resources and Evaluation Conference, pp. 6018-6023. 2022.')
+        self.assertEqual(parts['title'],
+                         'On “human parity” and “super human performance” in '
+                         'machine translation evaluation')
+        self.assertEqual(parts['venue'],
+                         'In Proceedings of the Thirteenth Language Resources and '
+                         'Evaluation Conference, pp. 6018-6023')
+        self.assertEqual(parts['authors'], 'Poibeau, Thierry')
+        self.assertEqual(parts['year'], '2022')
+
+    def test_title_starting_with_a_curly_quote(self):
+        parts = parse_format_parts(
+            'Bae, Hong-Kyun, and Sang-Wook Kim. "“How to get consensus with '
+            'neighbors?”: Rating standardization for accurate collaborative '
+            'filtering." Knowledge-Based Systems 234 (2021): 107549.')
+        self.assertEqual(parts['title'],
+                         '“How to get consensus with neighbors?”: Rating '
+                         'standardization for accurate collaborative filtering')
+        self.assertEqual(parts['venue'], 'Knowledge-Based Systems 234 (2021): 107549')
+
+    def test_title_with_inner_straight_quotes(self):
+        parts = parse_format_parts(
+            'Ferstler, Yves. "AI translation of literary texts is" fine", but '
+            'readers still prefer human translations." arXiv preprint '
+            'arXiv:2606.26040 (2026).')
+        self.assertEqual(parts['title'], 'AI translation of literary texts is" fine", '
+                                         'but readers still prefer human translations')
+        self.assertEqual(parts['venue'], 'arXiv preprint arXiv:2606.26040')
+
+    def test_title_with_an_escaped_quote_character(self):
+        parts = parse_format_parts(
+            'Goel, Shrey, and Pranam Chatterjee. "Minimal-Action Discrete Schr\\" '
+            'odinger Bridge Matching for Peptide Sequence Design." arXiv preprint '
+            'arXiv:2601.22408 (2026).')
+        self.assertEqual(parts['title'],
+                         'Minimal-Action Discrete Schr\\" odinger Bridge Matching '
+                         'for Peptide Sequence Design')
+        self.assertEqual(parts['venue'], 'arXiv preprint arXiv:2601.22408')
+
+    def test_the_mangled_row_is_corrected_back_to_the_full_title(self):
+        from code.cite_format import apply_chicago_correction
+        chicago = ('Poibeau, Thierry. "On “human parity” and “super human performance” '
+                   'in machine translation evaluation." In Proceedings of the '
+                   'Thirteenth Language Resources and Evaluation Conference, '
+                   'pp. 6018-6023. 2022.')
+        row = {'title': 'On “human parity',
+               'venue': 'and “super human performance” in machine translation '
+                        'evaluation." In Proceedings of the Thirteenth Language '
+                        'Resources and Evaluation Conference, pp. 6018-6023',
+               'authors': 'Poibeau, Thierry', 'year': '2022',
+               'url': 'https://aclanthology.org/2022.lrec-1.647/',
+               'cites_id': '15207774320991617001', 'cid': '6T8DsyveDNMJ'}
+        changed = apply_chicago_correction(row, {'chicago': chicago})
+        self.assertEqual(row['title'],
+                         'On “human parity” and “super human performance” in '
+                         'machine translation evaluation')
+        self.assertEqual(row['venue'],
+                         'In Proceedings of the Thirteenth Language Resources and '
+                         'Evaluation Conference, pp. 6018-6023')
+        self.assertEqual(changed['title']['from'], 'On “human parity')
+        self.assertEqual(row['url'], 'https://aclanthology.org/2022.lrec-1.647/')
+        self.assertEqual(row['cites_id'], '15207774320991617001')

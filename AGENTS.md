@@ -61,7 +61,11 @@ This file provides guidance to AI coding agents working with code in this reposi
   `python -m code.data_upgrade.compare_citations_meta`（只读对拍）/
   `python -m code.data_upgrade.align_citations_meta [--apply]`
   （Y-9 ③：把存量 `citations_meta.json` 的**主体**对齐到抓取产物 —— 只重写不一致的、
-  走 `write_citations_meta()` 这一个写者、下载字段与退役编号原样保留、默认 dry-run）
+  走 `write_citations_meta()` 这一个写者、下载字段与退役编号原样保留、默认 dry-run）/
+  `python -m code.data_upgrade.repair_chicago_titles [--apply]`
+  （修"标题自带引号"被旧 Chicago 解析规则截断的存量行 —— 用对话框缓存的原文重算、不联网，
+  只修"当前值恰好等于旧规则算出来那个值"的行，同步 `cite.venue_text` / `venue_key` 并刷新缓存
+  条目，默认 dry-run；修完再跑 `align_citations_meta --apply` 让 meta 跟上）
 - Example script: `code/examples/run_example.sh`
 
 ## 论文选择：按作者抓取，没有 `--papers`

@@ -198,8 +198,13 @@ def parse_cite_page(source):
 # 这正是当初"五种格式故意不解析"的理由（避免把标题当 venue），现在只在**能确定边界**时才解析。
 # ---------------------------------------------------------------------------
 
-#: 引号里的标题（兼容直引号与中文/弯引号）
-_QUOTED_TITLE_RE = re.compile(r'[“"](?P<title>[^”"]+)[”"]')
+#: 引号里的标题（兼容直引号与中文/弯引号）。**收尾引号取最后一个，不是第一个**：
+#: 标题本身常带引号（`On “human parity” and “super human performance”…`、
+#: `AI translation of literary texts is" fine", …`、Chicago 里被转义的 `Schr\" odinger`），
+#: 第一个 `[^”"]+` 会在这些内嵌引号处停下，把标题后半截当成 venue，再由
+#: `apply_chicago_correction()` 写回条目（2026-10-20 实测 4 条被这样截断，
+#: 下游按标题配对时就报成"缺引用"）。
+_QUOTED_TITLE_RE = re.compile(r'[“"](?P<title>.+)[”"]')
 #: 尾部的括号年份 `(2024)` / `[2024]`，允许尾随标点
 _TRAILING_PAREN_YEAR_RE = re.compile(r'[\\(\[]\s*((?:19|20)\d{2})\s*[\\)\]]\s*[.,;]?\s*$')
 #: 尾部的裸年份 `… 2024.`
