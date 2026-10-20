@@ -161,6 +161,35 @@ def _iter_direct_citedby(citedby_url, direct_resume_state=None, num_citations=0,
         in_page_skip=in_page_skip,
     )
 
+def cache_year_floor(cached_year_counts, probed_year_counts):
+    """缓存里最早、且**探针覆盖到**的年份（用来放宽计划起点）；没有可比依据时 ``None``。
+
+    2026-10-20 实测：paper 2 的缓存里混着 ``year=1907``（另有 2050 / 2090 这种脏数据），
+    ``min(cache)`` 把年份计划拉成 1907–2026 共 120 年，前面 109 年每年发一次
+    ``as_ylo=1908&as_yhi=1908`` —— 结果全是 ``Page items: 0``。直方图里根本没有那些年份
+    （probe=0），放宽它们不可能带来新数据，所以"放宽"只认探针覆盖到的年份。
+    """
+    cached = {y for y, n in (cached_year_counts or {}).items() if isinstance(y, int)}
+    hist = {y for y, n in (probed_year_counts or {}).items()
+            if isinstance(y, int) and n}
+    if not cached:
+        return None
+    if not hist:
+        return min(cached)          # 探针不可用：保持旧行为（缓存最早年份）
+    covered = [y for y in cached if min(hist) <= y <= max(hist)]
+    return min(covered) if covered else None
+
+
+def out_of_range_cache_years(cached_year_counts, probed_year_counts):
+    """缓存里落在探针范围之外的年份（脏数据），升序返回。"""
+    cached = {y for y, n in (cached_year_counts or {}).items() if isinstance(y, int)}
+    hist = {y for y, n in (probed_year_counts or {}).items()
+            if isinstance(y, int) and n}
+    if not cached or not hist:
+        return []
+    return sorted(y for y in cached if y < min(hist) or y > max(hist))
+
+
 def _build_direct_fetch_diagnostics(scholar_total, cached_total, seen_total, dedup_count, termination_reason):
     try:
         scholar_total = int(scholar_total or 0)
@@ -759,8 +788,9 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
     explicit_refresh_years.update(int(year) for year in year_ctx.partial_year_start.keys())
     if year_ctx.completed_year_segments and explicit_refresh_years:
         start_year = min(min(year_ctx.completed_year_segments), min(explicit_refresh_years))
-        if year_count_map:
-            start_year = min(start_year, min(year_count_map.keys()))
+        floor = cache_year_floor(year_count_map, probed_year_counts)
+        if floor is not None:
+            start_year = min(start_year, floor)
     else:
         start_year = fetcher._probe_citation_start_year(
             citedby_url,
@@ -779,12 +809,20 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                 if start_year is None:
                     start_year = current_year - 5
         elif year_count_map:
-            cache_min = min(year_count_map.keys())
-            if cache_min < start_year:
+            cache_min = cache_year_floor(year_count_map, probed_year_counts)
+            if cache_min is not None and cache_min < start_year:
                 run_log.info(f"Using cache min year {cache_min} "
                              f"(probe returned {start_year})",
                              module="year", indent=2)
                 start_year = cache_min
+
+    stray_years = out_of_range_cache_years(year_count_map, probed_year_counts)
+    if stray_years:
+        run_log.warn(f"Cache has {len(stray_years)} year(s) outside the probe's range "
+                     f"({', '.join(str(y) for y in stray_years[:5])}"
+                     f"{' …' if len(stray_years) > 5 else ''}) — left out of the plan: "
+                     f"the histogram reports nothing there, so they cannot hold new rows",
+                     module="year", indent=2)
 
     total_years = current_year - start_year + 1
     skipped_years = 0

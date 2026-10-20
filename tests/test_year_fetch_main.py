@@ -1213,5 +1213,49 @@ class YearFetchMainTests(FetcherTestCase):
         self.assertFalse(state.is_complete(current_scholar_total=5, pub_year="2024"))
 
 
+class CacheYearFloorTests(unittest.TestCase):
+    """计划起点只按**探针覆盖到**的缓存年份放宽（2026-10-20 实测的 1908 事故）。
+
+    paper 2 的缓存里混着 `1907`（以及 2050 / 2090），`min(cache)` 把计划拉成 1907–2026
+    共 120 年，前面 109 年每年一次 `as_ylo=1908` 请求、全部零行。直方图（2017–2026）里
+    没有那些年份 → probe=0 → 放宽没有收益，只会烧请求。
+    """
+
+    PROBE = {2017: 15, 2018: 153, 2026: 49}
+
+    def test_a_junk_old_year_does_not_widen_the_plan(self):
+        from code.citation_fetch import cache_year_floor
+        cache = {1907: 1, 2019: 172, 2026: 48}
+        self.assertEqual(cache_year_floor(cache, self.PROBE), 2019)
+
+    def test_years_beyond_the_probe_are_ignored_too(self):
+        from code.citation_fetch import cache_year_floor
+        cache = {2050: 1, 2090: 1}
+        self.assertIsNone(cache_year_floor(cache, self.PROBE))
+
+    def test_without_a_probe_the_old_behaviour_stands(self):
+        from code.citation_fetch import cache_year_floor
+        self.assertEqual(cache_year_floor({1907: 1, 2019: 3}, {}), 1907)
+
+    def test_empty_cache_has_no_floor(self):
+        from code.citation_fetch import cache_year_floor
+        self.assertIsNone(cache_year_floor({}, self.PROBE))
+
+    def test_stray_years_are_reported(self):
+        from code.citation_fetch import out_of_range_cache_years
+        cache = {1907: 1, 2019: 5, 2050: 1, 2090: 1}
+        self.assertEqual(out_of_range_cache_years(cache, self.PROBE), [1907, 2050, 2090])
+        self.assertEqual(out_of_range_cache_years({2019: 1}, self.PROBE), [])
+        self.assertEqual(out_of_range_cache_years(cache, {}), [])
+
+    def test_the_plan_range_comes_out_as_the_probe_range(self):
+        """把事故现场拼起来：缓存 1907… 但计划应只剩探针覆盖的 2017–2026。"""
+        from code.citation_fetch import cache_year_floor
+        cache = {1907: 1, 2017: 15, 2018: 151, 2026: 48, 2050: 1, 2090: 1}
+        floor = cache_year_floor(cache, self.PROBE)
+        self.assertEqual(floor, 2017)
+        self.assertEqual(2026 - floor + 1, 10, "10 年，而不是 120 年")
+
+
 if __name__ == '__main__':
     unittest.main()

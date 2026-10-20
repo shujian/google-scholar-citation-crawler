@@ -2977,3 +2977,16 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
 - **阶段 2**：通过启动校验后 `acquire()` + `atexit.release()`；共享件不可用只降级告警。
 - **测试**：阶段 1 `tests/test_stage_lock.py`（10 例）；阶段 2 `tests/test_stage_lock_wiring.py`（3 例，
   含"先过启动校验再写锁、任何写操作之前拿到"的源码级守卫）。
+
+### 2026-10-20（续）：年份计划不再被缓存里的脏年份拖成 120 年
+
+- **现象**（`…_run_20261020_154808.log`）：paper 2 出现 `Year 1908: fetching (seen=None, probe=?)`，
+  随后每年一条 `as_ylo=1908` …，全部 `Page items: 0`（`Year 1908 done: no new citations`）。
+- **根因**：`citation_fetch` 里 `start_year = min(cache_min, probe_start)`，而 paper 2 的缓存带
+  `1907:1`（另有 `2050:1`、`2090:1`）→ 计划 1907–2026（120 年）；那些年份不在直方图里（probe=0），
+  每年注定零行，却各烧一次请求（约 85 s）。探针本身是对的（`conservative start_year = 2017`）。
+- **修复**：新增 `cache_year_floor()`（只在 `[min(hist), max(hist)]` 内放宽；探针不可用时退回旧行为）
+  与 `out_of_range_cache_years()`（把范围外的年份 WARN 出来，不再静默）；两处放宽点都改用它。
+  实测同一份数据：计划 **10 年**（2017–2026），并告警 `Cache has 3 year(s) outside the probe's
+  range (1907, 2050, 2090)`。
+- **测试**：`CacheYearFloorTests` 6 例（脏老年份/未来年份/无探针退回/空缓存/范围外报告/事故复现）。

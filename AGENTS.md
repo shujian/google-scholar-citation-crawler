@@ -487,6 +487,12 @@ Papers with `>= YEAR_BASED_THRESHOLD (50)` citations switch to year-by-year fetc
   also keeps it out of the summary's `histogram_total`, otherwise the paper would stay `partial`
   forever) and it is skipped on later runs — until the probe grows past `stalled_probe` or a
   `--fetch-mode force` retry
+- **The plan's start year only widens to cache years the probe covers**（2026-10-20）：缓存里可能
+  混着脏年份（实测 paper 2 有 `1907` / `2050` / `2090`），过去 `min(cache)` 直接把计划拉成
+  1907–2026（120 年），前 109 年每年发一次 `as_ylo=1908`、全部 `Page items: 0` —— 因为直方图里
+  没有那些年份（probe=0），放宽它们不可能带新数据。现在 `cache_year_floor()` 只在
+  `[min(histogram), max(histogram)]` 内放宽，范围外的年份由 `out_of_range_cache_years()` 计数并
+  **WARN 出来**（不静默）。探针完全不可用时退回旧行为（缓存最早年份）。
 - Oldest→newest year order
 - Year range is determined by `probe_citation_start_year()` via the Scholar histogram DOM
 - An interrupted fetch persists the in-run snapshot (citations fetched so far +
