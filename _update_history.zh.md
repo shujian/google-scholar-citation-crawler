@@ -2941,3 +2941,15 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
 - **测试**：`test_scholar_patch` 新增 2 例（URL 行带名字、waiting 行不带；非条目请求无名字）；
   `test_cite_format` 的标签断言改为"只有标题"；`test_log_utils` 的用例改为"`_format()` 不加前缀"；
   删掉 `test_main_loop` 里已失效的前缀用例。
+
+### 2026-10-20（续）：详情页"注入新 cookies 后仍被拒"不再循环要 cookies
+
+- **用户报告**：某个 Cite 对话框一直 HTTP 403，输入 cookies 后仍反复要求输入；是否为 bug。
+- **诊断**（`output/logs/…_120525.log`）：该 cid（`PN0gWAon6FMJ`）13:39:55 回 429、注入后 15:07 / 15:14
+  两次 403；同一会话里更早的两个兄弟对话框正常返回 → **记录级**拒服务，不是会话被封。
+  旧逻辑：`PageVisit` 只在 404/410 走 `RecordUnavailable`，403 一律进交互提示，注入成功后重置
+  `captcha_attempted` → 无限循环。
+- **修复**：`PageVisit.fetch` 记 `injections`；对 `missing_record_on_404=True`（详情页）在
+  **注入成功之后**仍失败且有 HTTP 状态 → `RecordUnavailable`（WARN 说明"是这条记录，不是会话"）。
+  注入之前的行为不变（429 仍走提示/冷却）。
+- **测试**：`test_page_visit` 新增 2 例（注入后仍拒 → 放弃且只提示一次；别的记录照常提示）。

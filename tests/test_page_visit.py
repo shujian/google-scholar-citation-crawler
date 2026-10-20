@@ -205,6 +205,48 @@ class MissingRecordTests(unittest.TestCase):
         self.assertGreaterEqual(len(prompts), 1)
         self.assertIn("HTTP 429", output)
 
+    def test_a_record_that_refuses_fresh_cookies_is_given_up_on(self):
+        """注入新 cookies 之后**同一个**详情页仍然被拒 → 这是那一条记录的问题。
+
+        2026-10-20 实测：某个 Cite 对话框先 429、注入浏览器 cURL 后连回两次 403，
+        而它的兄弟对话框几十秒前才正常返回 —— 于是操作者被反复要求粘贴 cURL。
+        现在只在**注入成功之后**才判为记录级不可用（在此之前 429 仍是 block）。
+        """
+        prompts = []
+        calls = []
+
+        def fn():
+            calls.append(1)
+            raise RuntimeError("Cannot Fetch from Google Scholar.")
+
+        ctx = _ctx(interactive_captcha=True,
+                   try_interactive_captcha_fn=lambda url: prompts.append(url) or True,
+                   last_response_status=403)
+        result, output, error = self._run(fn, ctx, label="cite",
+                                         missing_record_on_404=True)
+
+        self.assertIsInstance(error, RecordUnavailable)
+        self.assertEqual(error.status, 403)
+        self.assertEqual(len(prompts), 1)      # 只问一次，不再循环
+        self.assertEqual(len(calls), 2)        # 注入后重试的那一次
+        self.assertIn("still refusing after fresh cookies", output)
+        self.assertIn("HTTP 403", output)
+
+    def test_a_second_record_gets_its_own_prompt(self):
+        """放弃的是那一条记录，不是整个会话：下一条照常走 block 流程。"""
+        prompts = []
+
+        def fn():
+            raise RuntimeError("Cannot Fetch from Google Scholar.")
+
+        ctx = _ctx(interactive_captcha=True,
+                   try_interactive_captcha_fn=lambda url: prompts.append(url) or False,
+                   last_response_status=403)
+        result, output, error = self._run(fn, ctx, label="cite",
+                                         missing_record_on_404=True)
+        self.assertIsInstance(error, RuntimeError)
+        self.assertGreaterEqual(len(prompts), 1)
+
     def test_an_unknown_status_is_still_a_block(self):
         """No recorded response (network error) must not become "no record"."""
         prompts = []

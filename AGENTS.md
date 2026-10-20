@@ -249,6 +249,12 @@ google-scholar-citation-crawler/
   `cid` 都是 200 + 5 种格式；`scholar.google.com` 当时还对整条出口做 TLS 级拒绝，**两件事必须分开**），
   `code/page_visit.py::RecordUnavailable` 会**直接放弃这一条**：不重试、不冷却、不弹验证码提示
   （此前它和限流长得一样，每条白烧 20–35 分钟，或把整轮停在等人解一个不存在的验证码）。
+  **第五种：注入新 cookies 之后仍然被拒**（2026-10-20）—— 一次只能服务单条记录的详情页
+  （Cite 对话框 / 出版详情页）在**成功注入浏览器 cookies 之后**仍然报错（实测：某对话框先 429、
+  粘贴浏览器 cURL 后连回 403，而它的兄弟对话框几十秒前刚正常返回），说明是**那一条记录**不服务，
+  不是会话被封：`PageVisit` 于是按 `RecordUnavailable` 交回调用方，**不再循环要求粘贴 cookies**
+  （若真的整会话被封，下一次普通请求会照常触发提示）。判据只在**注入成功之后**生效 ——
+  注入之前 429 仍是 block，照旧走提示/冷却。
   `cite_format` 把它记成**带时间戳的否定条目** `{'unavailable': true, 'status': 404, 'fetched_at': …}`，
   `UNAVAILABLE_RETRY_DAYS`（7 天）内不再问；过期后自动重问一次 —— **刻意不是永久判决**：句柄是
   Scholar 的，它对 cluster 的组织我们**还没有完全理解**（见 `issues.md`）。

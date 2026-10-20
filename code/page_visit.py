@@ -34,7 +34,8 @@ _STATUS_ATTR = 'http_status'
 
 
 class RecordUnavailable(Exception):
-    """The server says this record does not exist (HTTP 404/410).
+    """The server will not serve this record (HTTP 404/410, or a refusal that
+    survives freshly injected cookies).
 
     Raised instead of the retry/captcha path when the caller declared
     ``missing_record_on_404=True``: the one-shot detail pages (a Cite dialog, a
@@ -121,6 +122,7 @@ class PageVisit:
         max_retries = 2
         cooldowns = 0
         max_cooldowns = 3
+        injections = 0
 
         while True:
             try:
@@ -132,6 +134,22 @@ class PageVisit:
                 if missing_record_on_404 and status in MISSING_RECORD_STATUSES:
                     run_log.warn(f"{label}: HTTP {status} — no such record "
                                  f"(not a block); giving up on it",
+                                 module="http", indent=1)
+                    raise RecordUnavailable(url, status) from e
+
+                # A one-shot detail page that still refuses *after* fresh cookies
+                # were injected is no longer "the session is blocked": the rest of
+                # the run kept working around it (measured 2026-10-20: one Cite
+                # dialog answered 429, then 403 twice with a fresh browser cURL,
+                # while its siblings were served seconds earlier).  Asking for
+                # another paste only loops the operator.  Give up on **this
+                # record** and let the caller remember it — if the session itself
+                # is blocked, the next request prompts as usual.
+                if missing_record_on_404 and injections and status is not None:
+                    run_log.warn(f"{label}: still refusing after fresh cookies "
+                                 f"(HTTP {status}) — treating this record as "
+                                 f"unavailable, not the session; the next request "
+                                 f"will ask again if the session really is blocked",
                                  module="http", indent=1)
                     raise RecordUnavailable(url, status) from e
 
@@ -148,6 +166,7 @@ class PageVisit:
                         retries = 0
                         captcha_attempted = False
                         cooldowns = 0
+                        injections += 1
                         continue
 
                 # -- automatic retry (transient errors) -------------------
