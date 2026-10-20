@@ -116,25 +116,57 @@ _SECTION_WIDTH = 76
 
 
 class RunLog:
-    """Writes every run-log line in one shape, gated by a level threshold."""
+    """Writes every run-log line in one shape, gated by a level threshold.
+
+    Two sinks with independent levels (2026-10-19 用户要求：屏幕简洁、日志文件全量)：
+
+    - **屏幕**：`threshold`（默认 INFO）—— 只留结论；
+    - **日志文件**：`file_threshold`（默认 DEBUG）—— 一次 run 的每一行都在里面，
+      包括每条请求、每页进度、每个年份的状态（这些行平时是 DEBUG，屏幕上看不到）。
+
+    打印到 stdout 的行由 `TeeStream` 镜像进日志文件；屏幕过滤掉的行由这里**直接写**
+    日志文件，所以两边各得一份、不会重复。没挂文件（测试）时行为与以前完全一致。
+    """
 
     def __init__(self, threshold: int = INFO):
         self.threshold = threshold
+        self.file_threshold = DEBUG
+        self.file_stream = None
 
     def set_threshold(self, level: int) -> None:
         self.threshold = level
 
+    def attach_file(self, stream, threshold: Optional[int] = None) -> None:
+        """Send every line at *threshold* (default DEBUG) to *stream* as well."""
+        self.file_stream = stream
+        if threshold is not None:
+            self.file_threshold = threshold
+
+    def detach_file(self) -> None:
+        self.file_stream = None
+
     def enabled(self, level: int) -> bool:
         return level >= self.threshold
 
-    def write(self, level: int, message: str, module: str = "run", indent: int = 0) -> bool:
-        """Emit one line; returns False when the level is filtered out."""
-        if not self.enabled(level):
-            return False
+    def _format(self, level: int, message: str, module: str, indent: int) -> str:
         stamp = datetime.now().strftime("%H:%M:%S")
-        print(f"{stamp} {_LEVEL_NAMES.get(level, 'INFO ')} {module:<{_MODULE_WIDTH}} "
-              f"{'  ' * max(0, indent)}{message}", flush=True)
-        return True
+        return (f"{stamp} {_LEVEL_NAMES.get(level, 'INFO ')} {module:<{_MODULE_WIDTH}} "
+                f"{'  ' * max(0, indent)}{message}")
+
+    def write(self, level: int, message: str, module: str = "run", indent: int = 0) -> bool:
+        """Emit one line; returns False when the level is filtered out everywhere."""
+        line = self._format(level, message, module, indent)
+        if self.enabled(level):
+            print(line, flush=True)          # TeeStream mirrors it into the log file
+            return True
+        if self.file_stream is not None and level >= self.file_threshold:
+            try:
+                self.file_stream.write(line + "\n")
+                self.file_stream.flush()
+            except (OSError, ValueError):
+                # A closed/full log file must never break the crawl.
+                pass
+        return False
 
     def section(self, title: str, module: str = "run") -> bool:
         """One line where the run used to print a 70-char ``=`` banner.

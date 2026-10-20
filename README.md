@@ -140,7 +140,7 @@ prints a warning, and the JSON is left untouched.
 | `venue_detail_cache.json` | Publication detail pages already parsed (`citation_for_view` token → full venue). Makes the `venue_full` step resumable; safe to delete to re-read every page |
 | `cite_format_cache.json` | Cite dialogs already parsed (row `cid` → the five formats + `venue_text` / `authors_full`). Makes `--cite-formats` resumable; safe to delete to re-read every dialog |
 | `author_<ID>_papers/` | **The pipeline's shared papers tree** (physical home since 2026-10-15): `<NNN>-<slug>/` per publication with the PDFs, `citations_meta.json`, `enrich_info/`, `analysis_info/`, `analysis_content/`, `.shared/work/`, `progress.json`, `old/`. Created here (idempotently); every later stage reaches it through its own `papers` symlink, never by this path |
-| `output/logs/author_<ID>_run_<ts>.log` | Full log of each run (mirrors stdout). The newest **30** are kept; older ones are **moved** (never deleted) to `output/logs/old/` |
+| `output/logs/author_<ID>_run_<ts>.log` | **Full** log of each run — everything, including the per-page/per-request detail the screen hides (stdout is mirrored, filtered lines are written directly). The newest **30** are kept; older ones are **moved** (never deleted) to `output/logs/old/` |
 
 ## Run Logs
 
@@ -164,22 +164,27 @@ grepped like a table:
   profile / venue / http / fetch / year / paper / plan / output / cite / summary`)
   is padded so messages line up, and the indent (2 spaces per level) mirrors the
   structure: run → phase → paper → year/page → detail.
-- **Levels**: `INFO` is state changes and conclusions; `DEBUG` is the per-request
-  / per-page / per-year detail and is only printed with **`-v` / `--verbose`**
-  (which now really changes what the log contains); `WARN` marks something that
-  needs a human look, e.g. a page that returned zero rows.  The **wait** lines are
-  the one deliberate exception: `waiting 74s · elapsed 20s, 0 new citations,
-  2 pages (3 this curl), 0 captcha solves` prints at `INFO`, because the 45–90 s
-  between two requests is the longest silence in a run and this line is the only
-  heartbeat (it carries the elapsed time and the counters).
+- **Screen vs log file (2026-10-19)**: the terminal shows **conclusions only**
+  (`run / phase / plan / profile /` one line per paper` / output / summary`, plus
+  every `WARN`+), while `output/logs/<run>.log` gets **every line of the run** —
+  each request, each page, each year's counters, every request URL.  The two sinks
+  have their own thresholds (`INFO` for the screen, `DEBUG` for the file), so
+  nothing is lost and no line is written twice.
+- **Levels**: `INFO` = state changes and conclusions; `DEBUG` = the per-request /
+  per-page / per-year detail (off the screen by default, always in the log file);
+  `WARN` = something that needs a human look, e.g. a page that returned zero rows.
+  `-v` / `--verbose` lowers the **screen** to `DEBUG` as well.  On the screen, the
+  run's pulse is one `Mandatory break after N pages …` line every 8–12 pages
+  (~5 min) plus one line per paper.
 - **One fact, one line**: a phase is a single ruled `── title ──` line instead of
   a 70-character banner, the year's counters and the diagnosis they came from are
   one line, and a request URL is printed once (by the session layer) rather than
   twice.
-- **Page progress**: every citation-list page prints one `INFO` line, e.g.
-  `11:40:13 INFO  year      2025 · page 3 · 10 items`, so a run that is 40 minutes
-  into a year still says which year and which page it is on (`page 2 · 7 items`
-  in direct mode, where there is no year filter).
+- **Page progress**: every citation-list page writes one `DEBUG` line, e.g.
+  `11:40:13 DEBUG year      2025 · page 3 · 10 items` — invisible on the screen,
+  fully present in the log file, so a run that is 40 minutes into a year can still
+  be traced page by page (`page 2 · 7 items` in direct mode, where there is no
+  year filter).
 - **Retention**: `output/logs/` keeps the newest 30 run logs; at the start of a run
   the older ones are moved to `output/logs/old/`. Nothing is ever deleted.
 

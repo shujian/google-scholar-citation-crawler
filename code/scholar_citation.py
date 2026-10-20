@@ -1565,8 +1565,8 @@ class PaperCitationFetcher:
                         unyeared = max(0, len(citations) - year_total)
                         year_summary = self._format_year_count_summary(year_counts)
                         unyeared_suffix = f", unyeared={unyeared}" if unyeared else ""
-                        run_log.info(f"Year summary: {year_summary}{unyeared_suffix}",
-                                     module="year", indent=2)
+                        run_log.debug(f"Year summary: {year_summary}{unyeared_suffix}",
+                                      module="year", indent=2)
                     # Read diagnostics from in-memory PaperFetchState (updated above).
                     pst = to_paper_fetch_state(getattr(self, '_paper_states', {}).get(title) if getattr(self, '_paper_states', None) else None)
                     direct_fetch_diagnostics = (pst.direct_fetch_diagnostics or {}) if pst else {}
@@ -2183,6 +2183,10 @@ def main():
                          f"(keeping the newest {kept})", module="output", indent=1)
         log_file = open(log_path, 'w', encoding='utf-8')
         sys.stdout = TeeStream(original_stdout, log_file)
+        # 屏幕只留结论，日志文件里留**全部**（用户 2026-10-19）：屏幕过滤掉的
+        # DEBUG 行（每页进度、每次等待、每个年份的状态、请求 URL）由 run_log
+        # 直接写进同一个文件；打印出来的行仍由 TeeStream 镜像，各写一份、不重复。
+        run_log.attach_file(log_file)
         run_log.info(f"Run log: {log_path}", module='run')
         run_log.info(f"Author ID: {author_id}", module='run')
     except OSError as e:
@@ -2284,6 +2288,7 @@ def main():
             sys.exit(1)
     finally:
         sys.stdout = original_stdout
+        run_log.detach_file()
         if log_file is not None:
             log_file.flush()
             log_file.close()

@@ -64,6 +64,37 @@ class RunLogShapeTests(unittest.TestCase):
         _, out = captured(self.log.write, lu.TRACE, "parse detail", module="page")
         self.assertEqual(out, "")
 
+    def test_the_file_gets_the_detail_the_screen_hides(self):
+        """屏幕简洁、日志文件全量（2026-10-19 用户定）。
+
+        The console stops at INFO while the attached log file starts at DEBUG:
+        the line the screen drops is written straight to the file, so nothing is
+        lost and nothing is written twice.
+        """
+        import io
+        log = lu.RunLog()                 # console: INFO
+        buffer = io.StringIO()
+        log.attach_file(buffer)
+        self.addCleanup(log.detach_file)
+
+        with patch("sys.stdout", new_callable=StringIO) as screen:
+            log.info("citation fetch done", module="summary")
+            self.assertFalse(log.debug("2025 · page 3 · 10 items", module="year"))
+
+        self.assertIn("citation fetch done", screen.getvalue())
+        self.assertNotIn("page 3", screen.getvalue())      # off the screen...
+        self.assertNotIn("citation fetch done", buffer.getvalue())  # ...and not duplicated
+        self.assertIn("2025 · page 3 · 10 items", buffer.getvalue())  # ...but in the file
+        self.assertIn("DEBUG year", buffer.getvalue())
+
+    def test_the_file_threshold_keeps_verbose_console_behaviour(self):
+        """`-v` lowers the *console*; the file already had everything."""
+        log = lu.RunLog()
+        self.assertEqual(log.file_threshold, lu.DEBUG)
+        log.set_threshold(lu.DEBUG)
+        self.assertEqual(log.threshold, lu.DEBUG)
+        self.assertEqual(log.file_threshold, lu.DEBUG)
+
     def test_warnings_are_visible_at_the_default_level(self):
         _, out = captured(self.log.warn, "page returned 0 rows", module="year")
         self.assertIn("WARN  year", out)

@@ -152,12 +152,15 @@ google-scholar-citation-crawler/
 ```
 
 - **级别**：`INFO` = 状态变化与结论；`DEBUG`（`-v`）= 每次请求/每页/每年明细；`TRACE`（预留）。
-  `setup_logging(verbose=True)` 把 `run_log` 的阈值降到 DEBUG，所以 `--verbose` 现在真的改变日志内容。
-  **唯一的例外是"等待"行（2026-10-19 用户定）**：`waiting 74s · elapsed 20s, 0 new citations,
-  2 pages (3 this curl), 0 captcha solves` 是 INFO —— 两次请求之间的 45–90 秒是 run 里最长的静默，
-  这行同时是**心跳**（带 elapsed/新增/页数/验证码次数）。压到 DEBUG 会造成"每次请求静默一分半、
-  5–10 分钟长休反而有字"的错位。重试等待同口径：`waiting 74s (retry 1/2) · …`（INFO），
-  而重试的**原因** `Error fetching … (retry 1/2)` 仍留 DEBUG。URL 也仍是 DEBUG。
+- **屏幕简洁、日志文件全量（2026-10-19 用户定）**：`run_log` 有**两个阈值** ——
+  `threshold`（屏幕，默认 INFO）与 `file_threshold`（日志文件，默认 **DEBUG**）。
+  `main()` 把日志文件 `attach_file()` 给 `run_log`：屏幕过滤掉的行由它**直接写文件**，
+  打印出来的行仍由 `TeeStream` 镜像，所以两边各一份、不重复、不丢行。效果：
+  **屏幕只留结论**（run/phase/plan/profile/每篇一行/output/summary + 所有 WARN+），
+  **`output/logs/<run>.log` 里每一行都在**（含每页进度、每次等待、每个年份的状态与对比、请求 URL）。
+  `-v` 只是把**屏幕**也降到 DEBUG。因此每页/每年/每次请求那些行**一律用 DEBUG**，
+  别再用 INFO 往屏幕上堆 —— 老版本把 `waiting …` 与逐页行定为 INFO，900 行里 970 条是它们。
+  屏幕上的"活着"由 `Mandatory break after N pages …`（INFO，每 8–12 页一次）+ 每篇一行承担。
 - **模块标签**：`run / phase / identity / profile / venue / http / fetch / year / paper / plan / output / cite / summary`，
   宽度固定，消息列对齐。
 - **`run_log.section(title, module=…)`** 取代横幅：一个阶段/步骤一行 `── title ────…`。
@@ -170,11 +173,11 @@ google-scholar-citation-crawler/
   `cite dialogs: 812/9071 rows now carry formats (584 with all five) | this run downloaded 619, no dialog (404) 167, failed 0, already complete …, no cid …`；
   这一遍的明细（`resolved/fetched/cached/…`）降为 DEBUG 的 `cite pass:`。
   写文件的计数回到它发生的位置：`INFO output  cite files: N written, M unchanged`（`N == 0` 时不打）。
-- **逐页进度行（2026-10-19，用户要求）**：抓引用列表时每页一行 INFO
-  `11:40:13 INFO  year      2025 · page 3 · 10 items`（direct 模式无年份 → `page 2 · 7 items`）。
-  这是"现在抓到哪一年、第几页"的唯一来源 —— 上一版把 `Pagination (page N)` / `Page items: N`
-  降到 DEBUG 后，默认级别下**看不到进度**了 ✗。判据在 `citation_page_progress()` /
-  `citation_page_module()`（`code/scholarly_session.py`），页码取 URL 的 `start=`、年份取 `as_ylo=`。
+- **逐页进度行（2026-10-19）**：抓引用列表时每页一行 **DEBUG**
+  `11:40:13 DEBUG year      2025 · page 3 · 10 items`（direct 模式无年份 → `page 2 · 7 items`）。
+  这是"现在抓到哪一年、第几页"的**唯一来源** —— 屏幕上看不到（属于上面那条"屏幕简洁"），
+  但日志文件里有。判据在 `citation_page_progress()` / `citation_page_module()`
+  （`code/scholarly_session.py`），页码取 URL 的 `start=`、年份取 `as_ylo=`。
 - **迁移已完成（2026-10-19）**：`code/` 下**只有 `interactive.py` 还写 `print()`**（它是交互提示，
   不是日志），其余模块全部经 `run_log`；`log_utils.py` 里那一个 `print()` 是 `RunLog.write` 本身。
   原来 205 处 `print` / 62 处 `run_log` 的并存状态结束。

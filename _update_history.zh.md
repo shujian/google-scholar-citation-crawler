@@ -2819,3 +2819,23 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   3. `tests/test_year_fetch_main.py`：假 fetch 补 `write_baseline` / `has_pending_work` /
      `has_cite_format_work` —— `main()` 现在抓取前先落 baseline 并按此判断有没有活。
 - **验证**：阶段 1 **646 例全绿、1.3 秒**（无网络）；根目录 `./run_all_tests.sh` 六套 **2,497 例全绿**。
+
+### 2026-10-19 深夜（续）：屏幕只留结论，日志文件留全量
+
+- **用户要求**："屏幕上显示的简洁一点，但是日志文件里显示全部信息。"
+- **问题**：一次 9 小时的 run 打 1,059 条 INFO，其中 **788 条是 `waiting …` 心跳**、183 条是年份状态 /
+  逐页进度 —— 屏幕（和日志文件）都被它们占满，真正的结论（每篇一行、计划、summary）被冲走。
+- **改动**：
+  1. `code/log_utils.py::RunLog` 拆成两个阈值：`threshold`（屏幕，默认 INFO）与
+     `file_threshold`（文件，默认 **DEBUG**），新增 `attach_file()` / `detach_file()`；
+     屏幕过滤掉的行**直接写**日志文件，打印出来的行仍由 `TeeStream` 镜像 → 各一份、不重复。
+  2. `main()` 打开日志后 `run_log.attach_file(log_file)`，退出前 `detach_file()`。
+  3. 把"过程明细"从 INFO 降到 DEBUG：逐页进度、`waiting …`（含 page_visit 的重试等待）、
+     `Year N status` / `Year N done` / `Year N: skip|fetching|resuming|settled` / `Year fetch
+     comparisons` / `Year summary` / `Current-run completed years` / `Partial resume points`。
+     结论行（每篇一行、阶段标题、计划、profile、output、summary）与所有 WARN+ 仍是 INFO。
+- **效果**：屏幕一次 9 小时 run 只剩 ~100 行（结论 + 每 8–12 页一条 `Mandatory break …` 心跳）；
+  `output/logs/<run>.log` 里一行不少（含全部 DEBUG：每页、每次等待、每个年份、请求 URL）。
+- **测试**：`test_log_utils` 新增"文件拿到屏幕隐藏的明细 / 不重复"与阈值语义 2 例；
+  `test_scholar_patch` 的逐页行守卫改为钉住 DEBUG（并说明为什么它现在不该刷屏）。
+  阶段 1 648 例全绿。

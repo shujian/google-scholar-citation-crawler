@@ -2496,3 +2496,19 @@ Google 对被打的请求不是直接回 429，而是 `302 → www.google.com/so
 - 修法两层：① 违反者补 `import tests.conftest`（根因）；② conftest 装完桩后检查
   `code.scholarly_session` 是否已被真包绑过，是就 `RuntimeError` 并指名模块 —— 以后谁再犯是
   **一条明确的错**，而不是 30 条互不相关的失败。这样"测试是 hermetic 的"才真的成立。
+
+## 2026-10-19 深夜（续）：两个阈值，屏幕与文件各取所需
+
+`run_log` 原来只有一个阈值，而 stdout 被 `TeeStream` 镜像进日志文件 —— 于是"屏幕"和"文件"永远
+是同一份。用户要的是"屏幕简洁 / 文件全量"，那就必须让两个 sink 有自己的级别：
+
+- `threshold` = 屏幕；`file_threshold` = 文件（默认 DEBUG，即"全部"）。
+- **一行只写一次**：能上屏幕的行走 `print()`，由 `TeeStream` 顺手写文件；上不了屏幕但够文件级别的行，
+  由 `RunLog` **直接写**文件。若两边都写就会重复，所以 `write()` 里是 if/elif。
+- 没挂文件时（单元测试）行为与旧版完全一致：屏幕就是唯一出口，`set_threshold(DEBUG)` 仍是"全都看得见"。
+- **分级原则**：INFO 只放"结论/状态变化"——每篇一行、阶段标题、计划、profile、output、summary、WARN+；
+  "过程明细"一律 DEBUG——**每页**、**每次等待**、**每个年份**的数与对比。
+  判断标准：这条线在一个 200 篇的 run 里会出现几次？> 100 次的一律 DEBUG。
+- **屏幕上的心跳**：`waiting …` 降到 DEBUG 后，屏幕靠 `Mandatory break after N pages (x.x min)
+  [elapsed …]` 保持"活着"的感觉 —— 它天然每 8–12 页一次（约 5 分钟），而且带进度计数。
+  这也是为什么没有再加"限流心跳"之类的新机制。

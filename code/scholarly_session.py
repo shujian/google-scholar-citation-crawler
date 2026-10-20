@@ -237,12 +237,12 @@ def format_page_evidence(evidence):
 
 
 def citation_page_progress(url, item_count):
-    """One INFO line per citation-list page: ``2025 · page 2 · 10 items``（模块列已写 `year`）.
+    """One line per citation-list page: ``2025 · page 2 · 10 items``（模块列已写 `year`）.
 
-    The page counter and the year used to survive only in DEBUG lines
-    (``Pagination (page N)`` / ``Page items: N``), so a normal run gave no sign
-    of *where* in the traversal it was (user 2026-10-19).  Direct mode has no
-    year filter, so its pages read ``page 2 · 10 items``.
+    Emitted at DEBUG: the screen stays on conclusions (2026-10-19 用户定), while
+    the run log file — threshold DEBUG — still records *where* in the traversal
+    each page came from.  Direct mode has no year filter, so its pages read
+    ``page 2 · 10 items``.
     """
     text = str(url or '')
     year_m = re.search(r'[?&]as_ylo=(\d{4})', text)
@@ -710,15 +710,13 @@ def patch_scholarly(ctx: SessionContext) -> None:
                 retry_note = (f" (retry {sleep_count[0]})"
                               if sleep_count[0] > 1 else "")
                 wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""
-                # INFO on purpose (user 2026-10-19): the 45-90 s between two
-                # requests is the longest silence in a run, and this line is the
-                # only heartbeat - it also carries elapsed / new citations /
-                # pages / captcha solves.  Hiding it at DEBUG left the log quiet
-                # for a minute and a half per request while the 5-10 min breaks
-                # were announced.
+                # DEBUG (2026-10-19 用户定): the screen keeps only conclusions, so
+                # this per-request heartbeat goes to the log file.  The console
+                # still gets a line every 8-12 pages from the mandatory break
+                # below, which is the run's visible pulse.
                 detail = f" · {wait_str}" if wait_str else ""
-                run_log.info(f"waiting {d:.0f}s{retry_note}{detail}",
-                             module="http", indent=2)
+                run_log.debug(f"waiting {d:.0f}s{retry_note}{detail}",
+                              module="http", indent=2)
                 original_sleep(d)
 
             time.sleep = _limited_sleep
@@ -860,8 +858,8 @@ def patch_scholarly(ctx: SessionContext) -> None:
         if page_size:
             # One line per page — the only place that says *where* in the
             # traversal the run is (which year, which page, how many rows).
-            run_log.info(citation_page_progress(url, page_size),
-                         module=citation_page_module(url), indent=1)
+            run_log.debug(citation_page_progress(url, page_size),
+                          module=citation_page_module(url), indent=1)
         elif is_citation_list_url(url):
             # A citation page with zero result rows used to be logged silently,
             # which made a blocked/empty response look like a genuinely empty

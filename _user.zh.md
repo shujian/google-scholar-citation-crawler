@@ -3653,3 +3653,11 @@ scholar=1376 unchanged; recheck by year; drop unyeared)`。）
 另补两处：conftest 现在检测到这种顺序会直接 `RuntimeError`；`test_year_fetch_main` 的
 `FakePaperFetcher` 补上 `write_baseline` / `has_pending_work` / `has_cite_format_work`
 （你工作区里 `main()` 新调用 `write_baseline` 那次改动）。
+
+**你的要求**："现在crawler显示的信息太少了，能不能屏幕上显示的简洁一点，但是日志文件里显示全部信息？"
+
+已落地：`run_log` 现在有**两个阈值** —— 屏幕 INFO（只留结论）、日志文件 DEBUG（一行不少）。
+每页进度、每次等待、每个年份的状态与对比全部从 INFO 降到 DEBUG；日志文件里照旧有
+（`main()` 把文件 `attach_file()` 给 run_log，屏幕过滤掉的行直接写文件，打印出来的行仍由
+TeeStream 镜像，各一份不重复）。`-v` 只降低屏幕。屏幕上"活着"靠每 8–12 页一条
+`Mandatory break …` + 每篇一行。

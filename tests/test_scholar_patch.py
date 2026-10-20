@@ -1136,11 +1136,13 @@ class BlockRedirectTargetTests(unittest.TestCase):
 
 
 class CitationPageProgressTests(RunLogDebugCase):
-    """One INFO line per citation-list page: where the traversal is (2026-10-19).
+    """One line per citation-list page: where the traversal is (2026-10-19).
 
-    Before this, the year and the page number only appeared in DEBUG lines
-    (``Pagination (page N)`` / ``Page items: N``), so a normal run could not tell
-    which year or which page it was on.
+    The line is DEBUG, so it no longer scrolls the console but still lands in the
+    run log file (whose threshold is DEBUG).  Before the line existed, the year
+    and the page number only appeared in ``Pagination (page N)`` / ``Page items:
+    N`` DEBUG lines that were later removed along with the rest of the old
+    per-page logging.
     """
 
     YEAR_PAGE_1 = ('/scholar?as_ylo=2025&as_yhi=2025&hl=en&as_sdt=2005'
@@ -1174,11 +1176,16 @@ class CitationPageProgressTests(RunLogDebugCase):
     def test_empty_url_is_still_a_page_one_line(self):
         self.assertEqual(citation_page_progress(None, 3), "page 1 · 3 items")
 
-    def test_page_line_is_info_and_the_old_debug_lines_are_gone(self):
-        """The progress line is INFO; it is not left at DEBUG (it was the loss)."""
+    def test_page_line_is_detail_and_the_old_debug_lines_are_gone(self):
+        """The progress line is DEBUG: off the screen, but in the log file.
+
+        2026-10-19 用户定：屏幕只留结论，日志文件里留全部。这一行因此从 INFO 降到
+        DEBUG —— 它不再刷屏，但仍然写进 `output/logs/*.log`（run_log 的文件阈值是
+        DEBUG）。两条更老的 `Pagination` / `Page items` 行早已不存在。
+        """
         import code.scholarly_session as mod
 
         source = open(mod.__file__, encoding='utf-8').read()
-        self.assertIn("run_log.info(citation_page_progress(url, page_size)", source)
+        self.assertIn("run_log.debug(citation_page_progress(url, page_size)", source)
         self.assertNotIn('run_log.debug(f"Pagination (page', source)
         self.assertNotIn('run_log.debug(f"Page items: {page_size}"', source)
