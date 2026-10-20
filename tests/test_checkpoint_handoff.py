@@ -175,6 +175,73 @@ class TestCheckpointHandoff(unittest.TestCase):
         self.assertEqual(len(partial["papers"]), 2)
         self.assertEqual(sorted(partial["completed_papers"]), [1, 2])
 
+    def test_the_product_is_written_before_the_cite_dialog_step(self):
+        """先写产物，再抓 Cite 对话框：对话框那一步被打断不该连引用一起丢。
+
+        2026-10-20 实测：一次二段 Ctrl+C 让 9 MB 产物停在上一轮，而抓到的引用其实都在
+        内存里 —— 因为旧顺序把最长的那一步放在了写 JSON 之前。
+        """
+        self.fetcher.cite_formats = True
+        results = [
+            {"pub": self.p1, "citations": [_cit(1)]},
+            {"pub": self.p2, "citations": [_cit(2)]},
+        ]
+        self.fetcher._save_xlsx = lambda *a, **k: None
+
+        def boom(*a, **k):
+            raise KeyboardInterrupt
+
+        self.fetcher._enrich_cite_formats = boom
+        with mock.patch.object(SC, "write_cite_files", return_value=(0, 0, 0)), \
+             mock.patch.object(SC, "write_citations_meta_for_pub"):
+            self.fetcher._save_output(results)
+        with open(self.fetcher.out_json, encoding="utf-8") as f:
+            payload = json.load(f)
+        self.assertEqual([len(p["citations"]) for p in payload["papers"]], [1, 1])
+
+    def test_an_interrupt_says_what_is_actually_on_disk(self):
+        """中断后的报告只说事实：写到哪一步、产物是哪个时间、快照覆盖几篇。"""
+        from io import StringIO
+        self.fetcher._save_completed = False
+        self.fetcher._save_stage = "json"
+        with mock.patch("sys.stdout", new_callable=StringIO) as out:
+            self.fetcher._report_saved_state()
+        text = out.getvalue()
+        self.assertIn("Interrupted — what is on disk now:", text)
+        self.assertIn(self.fetcher.out_json, text)
+        self.assertIn(self.fetcher.partial_json, text)
+        self.assertIn("saving stopped at 'json'", text)
+        self.assertNotIn("written completely", text)
+
+    def test_a_completed_save_is_reported_as_complete(self):
+        from io import StringIO
+        self.fetcher._save_completed = True
+        self.fetcher._save_stage = "done"
+        with mock.patch("sys.stdout", new_callable=StringIO) as out:
+            self.fetcher._report_saved_state()
+        self.assertIn("written completely", out.getvalue())
+
+    def test_resume_state_prefers_the_newer_snapshot(self):
+        """被中断的那一轮只更新了 partial：下次要以它续跑，否则已抓的论文会被重抓。"""
+        with open(self.fetcher.out_json, "w", encoding="utf-8") as f:
+            json.dump({"author_id": "TEST", "papers": []}, f)
+        os.utime(self.fetcher.out_json, (1000, 1000))
+        with open(self.fetcher.partial_json, "w", encoding="utf-8") as f:
+            json.dump({"author_id": "TEST", "papers": []}, f)
+        os.utime(self.fetcher.partial_json, (2000, 2000))
+        self.assertEqual(self.fetcher._resume_product_path(),
+                         self.fetcher.partial_json)
+
+    def test_an_older_snapshot_is_ignored(self):
+        with open(self.fetcher.partial_json, "w", encoding="utf-8") as f:
+            json.dump({"author_id": "TEST", "papers": []}, f)
+        os.utime(self.fetcher.partial_json, (1000, 1000))
+        with open(self.fetcher.out_json, "w", encoding="utf-8") as f:
+            json.dump({"author_id": "TEST", "papers": []}, f)
+        os.utime(self.fetcher.out_json, (2000, 2000))
+        self.assertEqual(self.fetcher._resume_product_path(),
+                         self.fetcher.out_json)
+
     def test_is_idempotent_and_does_not_drop_previous_entries(self):
         self.fetcher._checkpoint_results[0] = {"pub": self.p1,
                                                "citations": [_cit(1)]}

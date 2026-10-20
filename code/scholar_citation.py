@@ -1002,7 +1002,7 @@ class PaperCitationFetcher:
             # output state.  Without loading it here every paper with citations
             # looks 'missing', so the "no changes → skip the citation phase"
             # shortcut could never fire.
-            self._paper_states = _os_load_paper_states(self.out_json)
+            self._paper_states = _os_load_paper_states(self._resume_product_path())
         with open(self.profile_json, 'r', encoding='utf-8') as f:
             profile = json.load(f)
         publications = profile.get('publications', [])
@@ -1027,10 +1027,10 @@ class PaperCitationFetcher:
         """
         if not getattr(self, 'cite_formats', False):
             return False
-        if not os.path.exists(self.out_json):
+        if not os.path.exists(self._resume_product_path()):
             return True
         try:
-            with open(self.out_json, 'r', encoding='utf-8') as f:
+            with open(self._resume_product_path(), 'r', encoding='utf-8') as f:
                 data = json.load(f)
         except (OSError, ValueError):
             return True
@@ -1249,16 +1249,70 @@ class PaperCitationFetcher:
         results   = []
         fetch_idx = 0
 
+        interrupted = False
+        self._save_completed = False
+        self._save_stage = ""
         try:
             # 真实运行才启用阶段性交接；测试直接调 `_run_main_loop()` 不应产生落盘副作用。
             self._checkpoint_enabled = True
             self._run_main_loop(publications, cache_status, url_map, need_fetch, results, fetch_idx)
         except KeyboardInterrupt:
+            interrupted = True
             run_log.warn("Interrupted by user. Saving results...", module="run")
         finally:
             # Always save output (normal completion, interruption, error, or partial results)
-            self._save_output(results)
+            try:
+                self._save_completed = bool(self._save_output(results))
+            except KeyboardInterrupt:
+                # 二段 Ctrl+C：保存本身被打断。已写到哪一步由 `_save_stage` 说明 ——
+                # 绝不假装"已保存"（2026-10-20 用户）。
+                interrupted = True
+                run_log.warn("Interrupted again while saving — stopped at "
+                             f"'{self._save_stage or 'start'}'; nothing else is written",
+                             module="run")
+        if interrupted:
+            self._report_saved_state()
         return True
+
+    def _report_saved_state(self):
+        """中断之后如实说明磁盘上现在有什么（2026-10-20 用户要求）。
+
+        旧版在日志文件**已经关闭之后**由 `__main__` 无条件打印 "Progress has been
+        saved to cache"：既不进日志文件，也不为真（实测二段 Ctrl+C 让保存停在写 JSON
+        之前，产物还是上一轮的）。
+        """
+        def stamp(path):
+            try:
+                return datetime.fromtimestamp(os.path.getmtime(path)).strftime("%H:%M:%S")
+            except OSError:
+                return "missing"
+
+        done = ""
+        try:
+            with open(self.partial_json, encoding="utf-8") as f:
+                snapshot = json.load(f)
+            count = len(snapshot.get("completed_papers") or [])
+            done = f", {count} paper(s) done" if count else ""
+        except (OSError, ValueError):
+            pass
+        cite_cache = os.path.join(self.output_dir, _cite_format.CACHE_FILENAME)
+        run_log.warn("Interrupted — what is on disk now:", module="run")
+        run_log.info(f"product: {self.out_json} ({stamp(self.out_json)})",
+                     module="run", indent=1)
+        run_log.info(f"snapshot: {self.partial_json} ({stamp(self.partial_json)}{done})",
+                     module="run", indent=1)
+        run_log.info(f"cite cache: {cite_cache} ({stamp(cite_cache)})",
+                     module="run", indent=1)
+        run_log.info("per-paper: <author>_papers/<NNN>-<slug>/ "
+                     "(citations_meta.json + citations/*.json)",
+                     module="run", indent=1)
+        if self._save_completed:
+            run_log.info("this run's product was written completely",
+                         module="run", indent=1)
+        else:
+            run_log.warn(f"saving stopped at '{self._save_stage or 'start'}': the product "
+                         f"may be one run behind — the newer of product/snapshot is the "
+                         f"resume state for the next run", module="run", indent=1)
 
     def _run_main_loop(self, publications, cache_status, url_map, need_fetch, results, fetch_idx):
         """Inner loop extracted so KeyboardInterrupt saves output."""
@@ -1882,14 +1936,40 @@ class PaperCitationFetcher:
             run_log.warn(f"baseline snapshot failed: {type(exc).__name__}: {exc}",
                          module="output", indent=1)
 
+    def _resume_product_path(self):
+        """正式产物与 partial 快照里**较新的那个** —— 续跑状态的真实来源。
+
+        2026-10-20 用户：一次中断可能只更新了 partial（保存阶段被打断），而旧版只读
+        `paper_citations.json`，于是下次运行把已经抓过的论文又抓一遍。
+        """
+        cached = getattr(self, '_resume_path_cache', None)
+        if cached:
+            return cached
+        path = self.out_json
+        if os.path.exists(self.partial_json):
+            try:
+                if os.path.getmtime(self.partial_json) > os.path.getmtime(self.out_json):
+                    path = self.partial_json
+            except OSError:
+                path = self.out_json
+        if path != self.out_json:
+            run_log.warn(f"Resuming from the newer snapshot "
+                         f"{os.path.basename(self.partial_json)} "
+                         f"({os.path.basename(self.out_json)} is older); the "
+                         f"consolidated output is rewritten at the end",
+                         module="run")
+        self._resume_path_cache = path
+        return path
+
     def _checkpoint_previous_by_title(self):
         """上一版产物按标题索引（与 `_save_output` 同一来源），只读一次。"""
         if self._checkpoint_prev is not None:
             return self._checkpoint_prev
         prev = {}
-        if os.path.exists(self.out_json):
+        path = self._resume_product_path()
+        if os.path.exists(path):
             try:
-                with open(self.out_json, "r", encoding="utf-8") as f:
+                with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 for item in data.get("papers", []) or []:
                     title = (item.get("pub") or {}).get("title", "")
@@ -2068,9 +2148,10 @@ class PaperCitationFetcher:
         # 所以先把上一版按标题索引读出来（只读阶段 1 自己的文件 ✓）。
         previous_by_title = {}
         output_json = getattr(self, 'out_json', None)   # 产物路径（__init__ 里定：author_<ID>_paper_citations.json）
-        if output_json and os.path.exists(output_json):
+        previous_path = self._resume_product_path() if output_json else None
+        if previous_path and os.path.exists(previous_path):
             try:
-                with open(output_json, 'r', encoding='utf-8') as f:
+                with open(previous_path, 'r', encoding='utf-8') as f:
                     previous_data = json.load(f)
                 for item in previous_data.get('papers', []) or []:
                     pub_title = (item.get('pub') or {}).get('title', '')
@@ -2143,21 +2224,41 @@ class PaperCitationFetcher:
                          f"{', '.join(sorted(dropped_titles)[:2])[:110]})",
                          module="output", indent=1)
 
-        # Opt-in: resolve every citation's five formats (MLA/APA/Chicago/Harvard/
-        # Vancouver) + BibTeX from Scholar's Cite dialog, keyed by the row's cid.
-        # Before the JSON write so the new fields land in the same save.  This is
-        # the longest step of the save, and Ctrl+C is exactly how a run that hit
-        # Scholar's rate limit is meant to end — so an interrupt (or a failure)
-        # here must never cost the citation data that is already on hand: the
-        # resolved formats are in output/cite_format_cache.json and the JSON is
-        # written without them.
+        # Opt-in: resolve every citation's five formats from the Cite dialog
+        # (keyed by the row's cid) — after the first product write, so an
+        # interrupt here costs only the dialogs, never the citations.
+        output_payload = {
+            'author_id': self.author_id,
+            'fetch_time': datetime.now().isoformat(),
+            'total_papers': len(final_results),
+            'total_citations_collected': total_cites,
+            'papers': final_results,
+        }
+
+        def write_product(*, with_dialogs=False):
+            """Write the consolidated product (called twice: before/after the dialogs)."""
+            output_payload['fetch_time'] = datetime.now().isoformat()
+            write_json_atomic(self.out_json, output_payload,
+                              ensure_ascii=False, indent=2)
+            note = " (with this run's Cite dialogs)" if with_dialogs else ""
+            run_log.info(f"Saved JSON{note}: {self.out_json}",
+                         module="output", indent=1)
+
+        # **先写产物，再去抓 Cite 对话框**（2026-10-20 用户）：对话框那一步逐条重试，
+        # 是整次保存里最长、最容易被 Ctrl+C 打断的一段；它只是给已抓到的引用**补字段**，
+        # 打断它绝不该连引用一起丢（实测一次二段 Ctrl+C 让 9 MB 产物停在上一轮）。
+        write_product()
+        self._save_stage = "json"
+
+        dialogs_completed = False
         if getattr(self, 'cite_formats', False):
             try:
                 self._enrich_cite_formats(final_results)
+                dialogs_completed = True
             except KeyboardInterrupt:
-                run_log.warn("Citation-format step interrupted; writing the output "
-                             "with what was already resolved (the cache keeps the "
-                             "rest)", module="cite", indent=1)
+                run_log.warn("Citation-format step interrupted; the product written "
+                             "above stays (the cache keeps what was resolved)",
+                             module="cite", indent=1)
             except Exception as e:
                 run_log.warn(f"citation-format step failed "
                              f"({type(e).__name__}: {e}); writing the output "
@@ -2174,16 +2275,13 @@ class PaperCitationFetcher:
             run_log.warn(f"could not refresh venue keys: {exc}",
                          module="venue", indent=1)
 
-        output_payload = {
-            'author_id': self.author_id,
-            'fetch_time': datetime.now().isoformat(),
-            'total_papers': len(final_results),
-            'total_citations_collected': total_cites,
-            'papers': final_results,
-        }
-        write_json_atomic(self.out_json, output_payload,
-                          ensure_ascii=False, indent=2)
-        run_log.info(f"Saved JSON: {self.out_json}", module="output", indent=1)
+        if dialogs_completed:
+            try:
+                write_product(with_dialogs=True)
+            except KeyboardInterrupt:
+                run_log.warn("interrupted while rewriting the product with the Cite "
+                             "dialogs; the version without them is already on disk",
+                             module="output", indent=1)
 
         # 整轮结束：把 partial 交接文件也补成“全部完成”，这样阶段 2 用同一个路径
         # 拿到的最后快照不会把已完成的论文误当成 pending。
@@ -2198,6 +2296,7 @@ class PaperCitationFetcher:
                 self._write_partial_product(partial=False, entries=final_results)
                 run_log.info(f"Saved checkpoint: {self.partial_json}",
                              module="output", indent=1)
+                self._save_stage = "partial"
             except Exception as e:   # noqa: BLE001
                 run_log.warn(f"could not write {self.partial_json}: "
                              f"{type(e).__name__}: {e}", module="output", indent=1)
@@ -2207,6 +2306,7 @@ class PaperCitationFetcher:
         try:
             self._save_xlsx(final_results, metadata=output_payload)
             run_log.info(f"Saved Excel: {self.out_xlsx}", module="output", indent=1)
+            self._save_stage = "xlsx"
         except Exception as e:
             run_log.warn(f"could not write {self.out_xlsx}: "
                          f"{type(e).__name__}: {e}", module="output", indent=1)
@@ -2227,6 +2327,7 @@ class PaperCitationFetcher:
                      f" | {self._run_new_citations_total} new citations"
                      f" | output total = collected per-paper citation records",
                      module="summary")
+        self._save_stage = "done"
 
         return True
 
@@ -2456,8 +2557,8 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        run_log.warn("Interrupted by user. Progress has been saved to cache.",
-                     module="run")
+        run_log.warn("Interrupted by user; what was written is listed above "
+                     "(and in the run log).", module="run")
         sys.exit(0)
     except Exception as e:
         run_log.error(f"{e}", module="run")

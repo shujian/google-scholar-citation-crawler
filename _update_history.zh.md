@@ -2953,3 +2953,15 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   **注入成功之后**仍失败且有 HTTP 状态 → `RecordUnavailable`（WARN 说明"是这条记录，不是会话"）。
   注入之前的行为不变（429 仍走提示/冷却）。
 - **测试**：`test_page_visit` 新增 2 例（注入后仍拒 → 放弃且只提示一次；别的记录照常提示）。
+
+### 2026-10-20（续）：中断报告如实化 + 先写产物再抓对话框 + 从快照续跑
+
+- **背景**：一次二段 Ctrl+C 让保存停在写 JSON 之前，而 `__main__` 仍打印"Progress has been saved
+  to cache"；而且那行在日志文件关闭后才打印，日志里根本看不到。
+- **① 消息**：`run()` 记录 `_save_completed` / `_save_stage`，中断后 `_report_saved_state()`
+  打印磁盘实况（产物/快照/缓存的时间戳、快照覆盖篇数、停在哪一步）；`__main__` 兜底改成"看上面清单"。
+- **② 顺序**：`_save_output` **先写 JSON**，再做 Cite 对话框那一步，完成后重写一次带对话框的版本。
+- **③ 二段 Ctrl+C**：`finally` 里捕获，不再让进程死在写 JSON 上（`_save_stage` 说明停在哪）。
+- **④ 续跑**：新增 `_resume_product_path()` —— 产物与快照取 mtime 较新的那个，用于
+  `_paper_states`、索引分配、`has_cite_format_work()`、checkpoint 索引；被中断的运行不再重抓已抓论文。
+- **测试**：`test_checkpoint_handoff` 新增 5 例（先写产物/中断报告/完成报告/新快照优先/旧快照忽略）。

@@ -3735,3 +3735,12 @@ TeeStream 镜像，各一份不重复）。`-v` 只降低屏幕。屏幕上"活�
 旧逻辑把详情页的 403 一律当"会话被封"，注入成功后重置 `captcha_attempted` 又去问，于是无限循环。
 已修：详情页在**注入成功之后**仍被拒 → 按 `RecordUnavailable` 放弃这一条（记住状态，7 天后重试），
 不再要求粘贴；真被封时下一次普通请求仍会提示。
+
+**你的问题**："如果最终程序被中断，save to cache 是哪里？"
+
+核对后发现那句话本身不可靠：它由 `__main__` 在日志文件关闭之后无条件打印，既不入日志、也不为真
+（这次 15:38 的二段 Ctrl+C 让保存停在写 JSON 之前，产物还是 12:05 的）。真实落盘位置是
+`output/author_<ID>_paper_citations.json`、`…partial.json`、`per-paper 的 citations_meta.json /
+citations/*.json`、`cite_format_cache.json`、`curl.txt`、`logs/*.log`。
+
+**你的答复**："好的，就按照这个做吧。"（采纳上述 5 条修法）

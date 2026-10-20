@@ -164,6 +164,12 @@ grepped like a table:
   profile / venue / http / fetch / year / paper / plan / output / cite / summary`)
   is padded so messages line up, and the indent (2 spaces per level) mirrors the
   structure: run → phase → paper → year/page → detail.
+- **Interrupting a run (2026-10-20)**: `Ctrl+C` prints what is actually on disk
+  (product / snapshot / cache with their timestamps, and which save step was
+  reached) and then exits; the next run resumes from the newer of
+  `author_<ID>_paper_citations.json` and its `.partial.json` snapshot, so the
+  papers that were already fetched are not walked again.  The product is written
+  **before** the Cite-dialog step, so an interrupt there costs only the dialogs.
 - **Screen vs log file (2026-10-19, revisited 2026-10-20)**: the terminal shows
   the run's **progress** — the probe/cache summary, each year's `skip` / `fetching`
   / `status`, the page line, each request URL and wait, plus `WARN`+ — while

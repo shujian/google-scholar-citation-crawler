@@ -203,6 +203,20 @@ google-scholar-citation-crawler/
 - **测试**：`tests/conftest.py::RunLogDebugCase` 把阈值降到 DEBUG（测试会断言请求/页级明细），
   `FetcherTestCase` 已继承它；`setup_logging()` 会把阈值改回 INFO，所以**每个测试自己声明**，
   不能只在模块级设一次。
+- **中断时如实报告 + 先写产物再抓对话框（2026-10-20 用户定）**：旧版由 `__main__` 在日志文件
+  **已经关闭之后**无条件打印 `Progress has been saved to cache` —— 既不进日志，也不为真
+  （实测一次二段 Ctrl+C 让保存停在写 JSON 之前，产物还是上一轮的）。现在：
+  ①`_save_output` **先**写 `author_<ID>_paper_citations.json`，**再**跑 Cite 对话框那一步
+  （它是保存里最长、最易被打断的一段，只给已有引用补字段），完成后才重写一次带对话框的版本；
+  ②`run()` 用 `_save_completed` / `_save_stage`（`json` → `partial` → `xlsx` → `done`）记录
+  保存进度，中断后调 `_report_saved_state()` 打印**磁盘上实际有什么**（产物/快照/缓存的时间戳、
+  快照覆盖几篇、保存停在哪一步）；③二段 Ctrl+C 被 `finally` 捕获，不再让进程死在写 JSON 上；
+  ④`__main__` 的兜底文案改为"看上面的清单"。
+- **续跑读的是"产物与快照里较新的那个"**：`_resume_product_path()` 比较 `paper_citations.json`
+  与 `paper_citations.partial.json` 的 mtime，取新的那份作为续跑状态（`_paper_states`、索引分配、
+  `has_cite_format_work()`、checkpoint 索引全用它）。此前只读正式产物，于是"只更新了 partial"
+  的被中断运行会让下次把已经抓过的论文重抓一遍。产物在轮末仍会被重写成正式文件，所以这个切换
+  只影响"从哪儿读"，不产生第二份真相。
 - **日志文件治理**：`output/logs/` 只保留最近 **`LOG_KEEP_RUNS`（30）** 次，更早的由
   `prune_run_logs()` 在 run 开始时**移动**（绝不删除）到 `output/logs/old/`；当前 run 的日志永远保留。
   2026-10-16 首次执行：87 → 30 个（57 个进 `old/`）。
