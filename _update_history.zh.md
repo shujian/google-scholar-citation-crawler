@@ -2900,3 +2900,13 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   被引论文仍由每篇开头 `[N/241] <title>` 一行表明。
 - **测试**：`PaperContextLogTests` 换成 `EntryContextLogTests`（2 例），`test_log_utils` 的前缀用例改为
   "施引条目是唯一前缀，清掉后没有前缀"。
+
+### 2026-10-20 输出级去重只做一次
+
+- `_store_result()` 在每篇论文写入 `results` 时（fetch / cached / skip / stalled 全部路径）调用
+  `_dedup_citations_for_output()`，并把**去重后的列表写回** `results[idx-1]['citations']`。
+- `_checkpoint_paper()` / `_write_partial_product()` / `write_baseline()` 不再调用去重；
+  `_save_output()` 的 `_build_entry()` 仍保留一次兜底（对已去重结果零改动、不打印）。
+- 结果：A wolf 只在它自己完成时打一次 `Deduplicated 9 ... (419 kept)`；
+  Deep matrix 在它自己的 cached 处理时（若确有旧重复）打一次，不再出现在别人的 checkpoint 块里。
+  新增单测断言 `_dedup` 调用次数 = 1。

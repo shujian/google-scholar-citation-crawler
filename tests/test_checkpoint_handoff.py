@@ -13,6 +13,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -81,6 +82,51 @@ class TestCheckpointHandoff(unittest.TestCase):
         partial = self._partial()
         self.assertEqual(len(partial["papers"]), 2)
         self.assertEqual(sorted(partial["completed_papers"]), [1, 2])
+
+    def test_baseline_writes_all_papers_and_preserves_fetch_state(self):
+        with open(self.fetcher.out_json, "w", encoding="utf-8") as f:
+            json.dump({"author_id": "TEST", "papers": [
+                {"pub": self.p1, "citations": [_cit(1)],
+                 "_fetch_state": {"fetch_strategy": "direct"}}]}, f)
+        self.fetcher.write_baseline()
+        with open(self.fetcher.out_json, encoding="utf-8") as f:
+            payload = json.load(f)
+        self.assertTrue(payload["baseline"])
+        self.assertEqual(len(payload["papers"]), 2)
+        self.assertEqual(payload["papers"][0]["_fetch_state"],
+                         {"fetch_strategy": "direct"})
+        self.assertEqual(len(payload["papers"][1]["citations"]), 0)
+
+    def test_dedup_happens_once_at_result_assignment(self):
+        dup = [_cit(1), dict(_cit(1))]          # same cites_id → one row
+        results = [None, None]
+        with mock.patch.object(self.fetcher, "_dedup_citations_for_output",
+                               wraps=self.fetcher._dedup_citations_for_output) as dedup:
+            self.fetcher._store_result(results, 1, self.p1, dup)
+            self.fetcher._checkpoint_paper(self.p1, results[0]["citations"])
+            self.fetcher._checkpoint_results = results
+            self.fetcher._write_partial_product()
+        self.assertEqual(dedup.call_count, 1,
+                         "checkpoint / partial 不应再次去重")
+        self.assertEqual(len(results[0]["citations"]), 1)
+
+    def test_final_save_only_writes_updated_papers(self):
+        self.fetcher._baseline_titles = {"Paper One", "Paper Two"}
+        self.fetcher._updated_titles = {"Paper One"}
+        self.fetcher._dirty_titles = {"Paper One"}
+        self.fetcher._enrich_cite_formats = lambda *a, **k: None
+        self.fetcher._save_xlsx = lambda *a, **k: None
+        results = [
+            {"pub": self.p1, "citations": [_cit(1)]},
+            {"pub": self.p2, "citations": [_cit(2)]},
+        ]
+        with mock.patch.object(SC, "write_cite_files", return_value=(0, 0, 0)) as cite, \
+             mock.patch.object(SC, "write_citations_meta_for_pub") as meta:
+            self.fetcher._save_output(results)
+        self.assertEqual([c.args[1]["title"] for c in cite.call_args_list],
+                         ["Paper One"])
+        self.assertEqual([c.args[1]["title"] for c in meta.call_args_list],
+                         ["Paper One"])
 
     def test_final_save_marks_checkpoint_complete(self):
         self.fetcher._checkpoint_results = [

@@ -204,6 +204,9 @@ class PaperCitationFetcher:
         self._checkpoint_prev = None
         self._checkpoint_publications = []
         self._checkpoint_results = []
+        self._baseline_titles = set()
+        self._updated_titles = set()
+        self._dirty_titles = set()
         self._curl_save_path = os.path.join(output_dir, "curl.txt")
 
         # Session context shared with the scholarly patch layer
@@ -762,6 +765,18 @@ class PaperCitationFetcher:
                      f"'{title[:50]}' ({len(kept)} kept)", module="paper", indent=1)
         return kept
 
+    def _store_result(self, results, idx, pub, citations):
+        """把一篇论文的最终引文写进 `results`，**在这里只做一次输出级去重**。
+
+        之后 checkpoint / partial / final save 都直接使用这份结果，不再重复去重或重复打
+        "Deduplicated" 日志（用户 2026-10-20：同样的事不应发生两次；非当前论文也不应在
+        别人的 checkpoint 里被去重）。
+        """
+        title = (pub or {}).get('title', '')
+        citations = self._dedup_citations_for_output(list(citations or []), title)
+        results[idx - 1] = {'pub': pub, 'citations': citations}
+        return citations
+
     @staticmethod
     def _extract_citation_info(pub, fallback_year=None):
         return _ci_extract_citation_info(pub, fallback_year)
@@ -1258,7 +1273,8 @@ class PaperCitationFetcher:
             # 每个分支里，避免漏掉 continue 路径（最后一篇在循环后统一补）。
             if idx > 1:
                 _prev = results[idx - 2]
-                if _prev is not None:
+                if _prev is not None and (
+                        (_prev.get('pub') or {}).get('title') in self._updated_titles):
                     self._checkpoint_paper(_prev.get('pub') or {},
                                            _prev.get('citations') or [])
             title         = pub['title']
@@ -1276,7 +1292,7 @@ class PaperCitationFetcher:
                 citations = cached['citations'] if cached else []
                 run_log.info(f"[{idx}/{len(publications)}] {title[:55]}... -> skip (--skip {idx}/{self.skip})",
                              module="paper")
-                results[idx - 1] = {'pub': pub, 'citations': citations}
+                citations = self._store_result(results, idx, pub, citations)
                 continue
 
             # --limit: stop after processing N papers past the skip point
@@ -1293,7 +1309,7 @@ class PaperCitationFetcher:
                 else:
                     run_log.info(f"[{idx}/{len(publications)}] {title[:55]}... -> skip (0 citations)",
                                  module="paper")
-                results[idx - 1] = {'pub': pub, 'citations': kept}
+                self._store_result(results, idx, pub, kept)
                 continue
 
             if st == 'complete':
@@ -1302,7 +1318,7 @@ class PaperCitationFetcher:
                 if self.fetch_mode != 'force':
                     run_log.info(PaperCitationFetcher._format_completeness_diag(
                         st, cached, paper_state=paper_state), module="paper", indent=1)
-                results[idx - 1] = {'pub': pub, 'citations': cached['citations']}
+                self._store_result(results, idx, pub, cached['citations'])
                 continue
 
             # Stalled: the fetch outcome has repeated unchanged (e.g. Scholar
@@ -1319,7 +1335,7 @@ class PaperCitationFetcher:
                              module="paper")
                 run_log.info(PaperCitationFetcher._format_completeness_diag(
                     st, cached, paper_state=paper_state), module="paper", indent=1)
-                results[idx - 1] = {'pub': pub, 'citations': cached['citations'] if cached else []}
+                self._store_result(results, idx, pub, cached['citations'] if cached else [])
                 continue
 
             # rough mode: skip only when Scholar count is unchanged AND the last
@@ -1341,10 +1357,11 @@ class PaperCitationFetcher:
                         and complete):
                     run_log.info(f"[{idx}/{len(publications)}] {title[:55]}... -> skip-rough ({num_citations} unchanged, fetch complete)",
                                  module="paper")
-                    results[idx - 1] = {'pub': pub, 'citations': cached.get('citations', [])}
+                    self._store_result(results, idx, pub, cached.get('citations', []))
                     continue
 
             fetch_idx += 1
+            self._dirty_titles.add(title)
             self._new_citations_count = 0  # reset per paper
             urls        = url_map.get(title, {})
             citedby_url = urls.get('citedby_url', '')
@@ -1357,7 +1374,7 @@ class PaperCitationFetcher:
             if not citedby_url:
                 run_log.warn(f"[{idx}/{len(publications)}] {title[:55]}... -> no citedby_url, skip",
                              module="paper")
-                results[idx - 1] = {'pub': pub, 'citations': cached['citations'] if cached else []}
+                self._store_result(results, idx, pub, cached['citations'] if cached else [])
                 continue
 
             prev_scholar_count = 0
@@ -1405,7 +1422,7 @@ class PaperCitationFetcher:
                         run_log.info(f"skip (all {len(all_citations)} cached "
                                      f"citations are unyeared)",
                                      module="paper", indent=2)
-                        results[idx - 1] = {'pub': pub, 'citations': all_citations}
+                        self._store_result(results, idx, pub, all_citations)
                         continue
 
             citations = None
@@ -1639,7 +1656,8 @@ class PaperCitationFetcher:
                     run_log.debug(f"Progress already saved to cache by "
                                   f"PageVisit/batch", module="paper", indent=2)
 
-            results[idx - 1] = {'pub': pub, 'citations': citations or []}
+            citations = self._store_result(results, idx, pub, citations or [])
+            self._updated_titles.add(title)
             self._run_new_citations_total += self._new_citations_count
             self._new_citations_count = 0  # consumed by _run_new_citations_total
             # Clear scholar_changed after a successful fetch (state was already
@@ -1657,7 +1675,8 @@ class PaperCitationFetcher:
 
         # 最后一篇（以及被 --limit 截断后仍未落盘的条目）统一补一次
         for _prev in results:
-            if _prev is not None:
+            if _prev is not None and (
+                    (_prev.get('pub') or {}).get('title') in self._updated_titles):
                 self._checkpoint_paper(_prev.get('pub') or {},
                                        _prev.get('citations') or [])
 
@@ -1809,6 +1828,60 @@ class PaperCitationFetcher:
 
         return stats
 
+    def write_baseline(self):
+        """抓取开始前：把**全部论文**的当前快照写进 `paper_citations.json`。
+
+        用户 2026-10-19：目录调整必须在抓取前全部完成；不需要更新的数据先确定落盘；
+        后续抓取只更新部分目录。这个 baseline 产物让阶段 2 在长抓取开始前就能拿到
+        一份完整、编号已对齐的输入（未更新论文用上一版引文/状态），不必等整轮结束。
+        **不写** `citations_meta.json`：已有目录里的数据不动，只有真正抓取到的论文
+        才会在后续 checkpoint / 最终保存时更新。
+        """
+        try:
+            profile = getattr(self, "_profile_data", None)
+            if not profile:
+                if not os.path.exists(self.profile_json):
+                    return
+                with open(self.profile_json, "r", encoding="utf-8") as f:
+                    profile = json.load(f)
+                self._profile_data = profile
+            publications = profile.get("publications") or []
+            if not publications:
+                return
+            prev = self._checkpoint_previous_by_title()
+            built = []
+            for pub in publications:
+                title = (pub or {}).get("title", "")
+                previous = prev.get(title) or {}
+                citations = list(previous.get("citations") or [])
+                entry = {k: v for k, v in previous.items()
+                         if k not in ("pub", "citations")}
+                entry["pub"] = PubInfo.from_dict(pub).to_dict() if pub else {}
+                entry["citations"] = citations
+                built.append(entry)
+            assign_entry_indices(built, prev)
+            payload = {
+                "author_id": self.author_id,
+                "papers": built,
+                "fetch_time": datetime.now().isoformat(),
+                "baseline": True,
+                "total_papers": len(built),
+                "total_citations": sum(len(e.get("citations") or []) for e in built),
+            }
+            write_json_atomic(self.out_json, payload,
+                              ensure_ascii=False, indent=2)
+            self._baseline_titles = {
+                (e.get("pub") or {}).get("title", "") for e in built
+                if (e.get("pub") or {}).get("title")
+            }
+            run_log.section("Baseline snapshot (before fetch)", module="output")
+            run_log.info(f"wrote {self.out_json} · {len(built)} papers, "
+                         f"{payload['total_citations']} cached citations",
+                         module="output", indent=1)
+        except Exception as exc:   # noqa: BLE001 —— 绝不能挡住抓取
+            run_log.warn(f"baseline snapshot failed: {type(exc).__name__}: {exc}",
+                         module="output", indent=1)
+
     def _checkpoint_previous_by_title(self):
         """上一版产物按标题索引（与 `_save_output` 同一来源），只读一次。"""
         if self._checkpoint_prev is not None:
@@ -1855,7 +1928,7 @@ class PaperCitationFetcher:
                     citations = result.get("citations") or []
                 else:
                     citations = ((prev.get(title) or {}).get("citations") or [])
-                citations = self._dedup_citations_for_output(list(citations), title)
+                citations = list(citations)
                 built.append({
                     "pub": PubInfo.from_dict(pub).to_dict() if pub else {},
                     "citations": citations,
@@ -1894,7 +1967,7 @@ class PaperCitationFetcher:
             title = (pub or {}).get("title", "")
             if not title or title in self._checkpointed:
                 return
-            citations = self._dedup_citations_for_output(list(citations or []), title)
+            citations = list(citations or [])
             entry = {"pub": PubInfo.from_dict(pub).to_dict() if pub else {},
                      "citations": citations}
             assign_entry_indices([entry], self._checkpoint_previous_by_title())
@@ -2033,7 +2106,14 @@ class PaperCitationFetcher:
         try:
             from code.config import papers_root
             _root = papers_root(self.output_dir, self.author_id)
+            # 2026-10-19 用户：抓取前 baseline 已把不需要更新的数据落盘；最终保存**只更新**
+            # 真正抓过（dirty/updated）或 baseline 里没有的论文，不再全树重写。
+            _write_titles = self._updated_titles | self._dirty_titles
             for entry in final_results:
+                _title = (entry.get('pub') or {}).get('title', '')
+                if (self._baseline_titles and _title in self._baseline_titles
+                        and _title not in _write_titles):
+                    continue
                 _written, _unchanged, _missing_dir = write_cite_files(
                     _root, entry.get('pub') or {}, entry.get('citations') or [])
                 self._cite_files_written += _written
@@ -2263,6 +2343,12 @@ def main():
             sys.exit(1)
 
         curr_profile = fetcher.load_prev_profile()
+
+        # 2026-10-19 用户：目录调整必须在**抓取开始前**全部完成；不需要更新的数据先确定落盘。
+        # 因此把维护与 baseline 放到“是否要抓”的判断之前：即使本轮无需抓取，目录/产物也已对齐。
+        run_papers_maintenance(args.output_dir, author_id, renumber_mode, log=print)
+        citation_fetcher.write_baseline()
+
         if prev_profile and curr_profile:
             prev_citations = prev_profile.total_citations if prev_profile else -1
             curr_citations = curr_profile.total_citations if curr_profile else -2
@@ -2287,9 +2373,6 @@ def main():
                 else:
                     run_log.info("No changes in totals, but some citations are "
                                  "incomplete. Continuing fetch...", module="run")
-
-        # Y-6 步骤 3：论文目录的创建/编号/改名/归档由本阶段负责（默认只报告）
-        run_papers_maintenance(args.output_dir, author_id, renumber_mode, log=print)
 
         success = citation_fetcher.run()
         if not success:

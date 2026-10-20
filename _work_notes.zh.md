@@ -2586,3 +2586,13 @@ Google 对被打的请求不是直接回 429，而是 `302 → www.google.com/so
 - 其余行（年份、逐页、等待、长休）无前缀 —— 它们谈的是"这篇论文的进度"，主语从上下文可得。
 
 一个通用判据：**要往每行加的东西，必须逐行变化**；不变的量应该出现在"块的开头"而不是每一行。
+
+## 2026-10-20 去重日志重复的根因
+
+- 旧代码：`_checkpoint_paper()` 对当前论文的局部副本去重（打日志），但没有把结果写回 `results`；
+  随后 `_write_partial_product()` 为**完整快照**又对所有 `results` 去重，于是当前论文第二次打印；
+  其它 cached 论文（Deep matrix）也在此时被去重/打印。
+- 新代码：`_store_result()` 是唯一入口，去重后的列表**写回 results**；后续 checkpoint/partial/baseline
+  只消费，不再调用 `_dedup`。`_save_output()` 的 `_build_entry()` 保留兜底，但正常路径零改动。
+- 语义不变：只合并真实 `cites_id` 相同（或 id-less 时 title+venue/title+authors 完全相等）的行；
+  同标题不同 cluster 仍保留（K123）；`seen_total` 仍是抓取事实，不因输出折叠而改变。
