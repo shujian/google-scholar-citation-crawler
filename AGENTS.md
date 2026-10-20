@@ -161,6 +161,10 @@ google-scholar-citation-crawler/
   `-v` 只是把**屏幕**也降到 DEBUG。因此每页/每年/每次请求那些行**一律用 DEBUG**，
   别再用 INFO 往屏幕上堆 —— 老版本把 `waiting …` 与逐页行定为 INFO，900 行里 970 条是它们。
   屏幕上的"活着"由 `Mandatory break after N pages …`（INFO，每 8–12 页一次）+ 每篇一行承担。
+- **进度行带上是哪一篇（2026-10-20 用户定）**：一篇论文要抓半小时，中间的 `waiting …` / `Mandatory
+  break …` / `Done: …` 若不带论文，出了事根本不知道在说谁。所以 `PaperCitationFetcher` 记
+  `_current_paper_label = "[4/241] A wolf in sheep's clothing"`，由 `_wait_status()` 前置到
+  心跳/长休行，并附在 `Done:` 行尾。`[N/241] <title>` 那一行**仍然**是每篇开头的那一条。
 - **模块标签**：`run / phase / identity / profile / venue / http / fetch / year / paper / plan / output / cite / summary`，
   宽度固定，消息列对齐。
 - **`run_log.section(title, module=…)`** 取代横幅：一个阶段/步骤一行 `── title ────…`。

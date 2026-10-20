@@ -820,8 +820,11 @@ def patch_scholarly(ctx: SessionContext) -> None:
         if ctx.citation_page_count >= ctx.next_break_at:
             d = random.uniform(MANDATORY_BREAK_MIN, MANDATORY_BREAK_MAX) * ctx.delay_scale
             wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""
+            # `wait_str` 现在以"正在抓的论文"开头（`[4/241] A wolf… · elapsed …`），
+            # 所以不再套一层方括号，免得出现 `[[4/241] …]`。
+            tail = f" {wait_str}" if wait_str else ""
             run_log.info(f"Mandatory break after {ctx.citation_page_count} pages "
-                         f"({d/60:.1f} min)... [{wait_str}]", module="http", indent=2)
+                         f"({d/60:.1f} min)...{tail}", module="http", indent=2)
             time.sleep(d)
             ctx.next_break_at = (ctx.citation_page_count
                                  + random.randint(MANDATORY_BREAK_EVERY_MIN, MANDATORY_BREAK_EVERY_MAX))

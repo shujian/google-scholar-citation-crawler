@@ -867,5 +867,24 @@ class MainLoopTests(FetcherTestCase):
         self.assertTrue(reloaded.fetch.is_stalled())
 
 
+class WaitStatusLabelTests(FetcherTestCase):
+    """进度行必须说明"是哪一篇"（用户 2026-10-20）。
+
+    一篇论文要抓半小时，期间的心跳/长休行若不带论文，日志里几百行看不出在说谁；
+    `_current_paper_label` 由抓取分支写入，`_wait_status()` 前置到每一行。
+    """
+
+    def test_the_heartbeat_names_the_paper_being_fetched(self):
+        self.fetcher._current_paper_label = "[4/241] A wolf in sheep’s clothing"
+        status = self.fetcher._wait_status()
+        self.assertTrue(status.startswith("[4/241] A wolf in sheep’s clothing · "))
+        self.assertIn("elapsed ", status)
+        self.assertIn("captcha solves", status)
+
+    def test_without_a_current_paper_the_status_is_unchanged(self):
+        self.assertEqual(self.fetcher._current_paper_label, "")
+        self.assertTrue(self.fetcher._wait_status().startswith("elapsed "))
+
+
 if __name__ == '__main__':
     unittest.main()

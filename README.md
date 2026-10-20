@@ -175,7 +175,10 @@ grepped like a table:
   `WARN` = something that needs a human look, e.g. a page that returned zero rows.
   `-v` / `--verbose` lowers the **screen** to `DEBUG` as well.  On the screen, the
   run's pulse is one `Mandatory break after N pages …` line every 8–12 pages
-  (~5 min) plus one line per paper.
+  (~5 min) plus one line per paper. Both the progress lines and the per-paper
+  `Done:` line name the paper being fetched (`[4/241] A wolf in sheep's
+  clothing · elapsed 1h09m, …`), so a 30-minute walk of one paper is still
+  traceable.
 - **One fact, one line**: a phase is a single ruled `── title ──` line instead of
   a 70-character banner, the year's counters and the diagnosis they came from are
   one line, and a request URL is printed once (by the session layer) rather than

@@ -182,6 +182,9 @@ class PaperCitationFetcher:
         self._run_start_time = time.time()
         self._new_citations_count = 0
         self._run_new_citations_total = 0
+        # 正在抓的论文（`[4/241] A wolf in sheep's clothing`）：心跳、长休、Done 行都带上，
+        # 否则一篇论文要抓半小时，中间那几百行里没有任何"这是哪一篇"的信息（用户 2026-10-20）。
+        self._current_paper_label = ""
         self._papers_fetched_count = 0
         # Cite 对话框的本轮累计：逐页钩子与保存时的兜底段都加进来（用户 2026-10-19：
         # 日志里要看得出"这一轮到底下载了多少 cite"）。
@@ -680,7 +683,9 @@ class PaperCitationFetcher:
         curl_pages = self._session_ctx.curl_page_count
         pages_str = (f"{run_pages} pages / {run_requests} requests "
                      f"({curl_pages} this curl)")
-        return (f"elapsed {self._elapsed_str()}, "
+        label = (self._current_paper_label + " · ") if self._current_paper_label else ""
+        return (f"{label}"
+                f"elapsed {self._elapsed_str()}, "
                 f"{total} new citations, "
                 f"{pages_str}, "
                 f"{self._captcha_solved_count} captcha solves")
@@ -1345,6 +1350,7 @@ class PaperCitationFetcher:
                     continue
 
             fetch_idx += 1
+            self._current_paper_label = f"[{idx}/{len(publications)}] {title[:40]}"
             self._new_citations_count = 0  # reset per paper
             urls        = url_map.get(title, {})
             citedby_url = urls.get('citedby_url', '')
@@ -1557,12 +1563,14 @@ class PaperCitationFetcher:
                     if histogram_total > 0:
                         unyeared = max(0, num_citations - histogram_total)
                         run_log.info(f"Done: {len(citations)} cached, {seen_total} seen{dedup_str}{new_str} "
-                                     f"(scholar={num_citations}, histogram={histogram_total}, unyeared={unyeared})",
+                                     f"(scholar={num_citations}, histogram={histogram_total}, unyeared={unyeared})"
+                                     f" · {self._current_paper_label}",
                                      module="paper", indent=1)
                         run_log.info(diag.strip(), module="paper", indent=1)
                     else:
                         run_log.info(f"Done: {len(citations)} cached, {seen_total} seen{dedup_str}{new_str} "
-                                     f"(scholar_total={num_citations})", module="paper", indent=1)
+                                     f"(scholar_total={num_citations}) · {self._current_paper_label}",
+                                     module="paper", indent=1)
                         run_log.info(diag.strip(), module="paper", indent=1)
                     year_counts = self._year_count_map(citations)
                     if year_counts:

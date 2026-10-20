@@ -3672,3 +3672,11 @@ TeeStream 镜像，各一份不重复）。`-v` 只降低屏幕。屏幕上"活�
 
 已落地：新增 `ctx.citation_page_count`（只数引用列表页），长休与会话刷新按它判；心跳/汇总里
 把两个数分开写（`89 pages / 812 requests`）。
+
+**你的要求**："但是我发现日志里已经不出现下载的论文标题之类的信息了，这个对诊断问题非常不利。"
+
+核对：`output/logs/..._20261020_074203.log` 里**有**每篇开头那行（`[1/241] Deep matrix factorization…`、
+`[2/241] Findings…`）；但一篇论文要抓半小时，中间几百行（心跳、长休、年份状态）**都不带论文名**，
+屏幕又变简洁了，所以看起来"标题没了"。已把论文标签带进这些行：
+`[4/241] A wolf in sheep's clothing · elapsed 1h09m, 9 new citations, 89 pages / 812 requests (56 this curl), 1 captcha solves`，
+并附在 `Done:` 行尾。
