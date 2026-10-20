@@ -87,23 +87,17 @@ class RunLogShapeTests(unittest.TestCase):
         self.assertIn("2025 · page 3 · 10 items", buffer.getvalue())  # ...but in the file
         self.assertIn("DEBUG year", buffer.getvalue())
 
-    def test_a_citing_entry_overrides_the_paper_prefix(self):
-        """逐条请求时，前缀是**这一条施引论文**，不是整篇被引论文。"""
+    def test_a_citing_entry_is_the_only_prefix(self):
+        """逐条请求的行首是那一**条**施引论文；清掉后行首干干净净。"""
         log = lu.RunLog()
-        log.set_paper("[4/241] A wolf in sheep’s clothing")
-        self.addCleanup(log.clear_paper)
         self.addCleanup(log.clear_entry)
-        _, out = captured(log.info, "waiting 45s", module="http")
-        self.assertIn("[4/241] A wolf in sheep’s clothing · waiting 45s", out)
-
         log.set_entry('HSM_htxRbXcJ "Bi-directional NMT with synthetic par"')
         _, out = captured(log.info, "waiting 45s", module="http")
         self.assertIn('HSM_htxRbXcJ "Bi-directional NMT with synthetic par" · waiting 45s', out)
-        self.assertNotIn("A wolf", out)
 
         log.clear_entry()
         _, out = captured(log.info, "waiting 45s", module="http")
-        self.assertIn("A wolf in sheep’s clothing", out)
+        self.assertNotIn(" · waiting", out)
 
     def test_the_file_threshold_keeps_verbose_console_behaviour(self):
         """`-v` lowers the *console*; the file already had everything."""

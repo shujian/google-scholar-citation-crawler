@@ -161,16 +161,14 @@ google-scholar-citation-crawler/
   `-v` 只是把**屏幕**也降到 DEBUG。因此每页/每年/每次请求那些行**一律用 DEBUG**，
   别再用 INFO 往屏幕上堆 —— 老版本把 `waiting …` 与逐页行定为 INFO，900 行里 970 条是它们。
   屏幕上的"活着"由 `Mandatory break after N pages …`（INFO，每 8–12 页一次）+ 每篇一行承担。
-- **抓取期间的每一行都带"这是哪一篇"（2026-10-20 用户定）**：一篇论文要抓半小时，中间几百行
-  （每年、每页、每次等待）若不知道在说哪一篇，出问题只能数行号。`RunLog.set_paper(label)`
-  在**进入抓取分支时**设、**下一篇开始前**清（`clear_paper()`），前缀由 `RunLog._format()` 统一加，
-  所以年份行、逐页行、心跳行、长休行、cite 行全都带 `[4/241] A wolf in sheep's clothing · `；
-  缓存/跳过/停滞那些论文不进抓取分支，不加前缀（它们的那一行本来就带标题）。
-  **一条施引论文的请求**再用 `RunLog.set_entry(label)` **取代**论文前缀：Cite 对话框是逐条抓的，
-  那一刻真正在下载的是"某一条施引论文"（`HSM_htxRbXcJ "Bi-directional NMT with …" · waiting 45s …`），
-  所以 `code/cite_format.py` 在 `get_soup()` 前后 `set_entry()` / `clear_entry()`（`finally` 里清，
-  失败也一样）。清掉之后的行（例如那条 404 判词）回到论文前缀，且判词本身已带该条的 `[7/10] cid "title"`。
-  **不要**在个别消息里再手写一遍标签（会重复），也不要用 `_wait_status()` 之类局部串去做这件事。
+- **行首只标"这一条施引论文"（2026-10-20 用户定）**：`RunLog.set_entry(label)` 是唯一的行首上下文，
+  `code/cite_format.py` 在 `get_soup()` 前后 `set_entry()` / `clear_entry()`（`finally` 里清，失败也一样），
+  于是逐条抓 Cite 对话框时那一行是
+  `HSM_htxRbXcJ "Bi-directional NMT with …" · waiting 45s …` —— **那一刻真正在下载的是这一条**。
+  **被引论文（`[4/241] A wolf in sheep's clothing`）不逐行重复**：它 30 分钟不变，每篇开头那行
+  `[N/241] <title>` 已经说了，逐行再写一遍只是噪声（用户两次明确：先要"引用它的那篇"，再要"别大量重复"）。
+  所以年份行 / 逐页行 / 心跳行 / 长休行**没有**前缀；需要"这篇正在抓什么"就看上一篇开头那行，
+  需要"这一条是谁"就看对话框请求那一行。**不要**在个别消息里再手写一遍标签（会重复）。
 - **模块标签**：`run / phase / identity / profile / venue / http / fetch / year / paper / plan / output / cite / summary`，
   宽度固定，消息列对齐。
 - **`run_log.section(title, module=…)`** 取代横幅：一个阶段/步骤一行 `── title ────…`。

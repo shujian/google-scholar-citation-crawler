@@ -867,29 +867,28 @@ class MainLoopTests(FetcherTestCase):
         self.assertTrue(reloaded.fetch.is_stalled())
 
 
-class PaperContextLogTests(FetcherTestCase):
-    """抓取期间的每一行都带"这是哪一篇"（用户 2026-10-20）。
+class EntryContextLogTests(FetcherTestCase):
+    """逐条请求的行首是**施引论文**；被引论文不逐行重复（用户 2026-10-20）。
 
-    一篇论文要抓半小时，中间几百行（每年、每页、每次等待）若不知道在说哪一篇，
-    出问题时就只能靠数行号。`run_log.set_paper()` 在进入抓取分支时设、下一篇前清，
-    前缀由 `RunLog._format()` 统一加 —— 所以年份行、心跳行、长休行、cite 行都有。
+    被引论文（`[4/241] A wolf…`）每篇只在自己的开头那行出现一次 —— 它 30 分钟不变，
+    逐行重复只是噪声；真正会变的是"这一条施引论文"，它只在 Cite 对话框请求期间出现。
     """
 
-    def test_every_line_during_a_fetch_names_the_paper(self):
+    def test_a_citing_entry_is_prefixed_while_it_is_fetched(self):
         from code.log_utils import run_log
-        self.addCleanup(run_log.clear_paper)
-        run_log.set_paper("[4/241] A wolf in sheep’s clothing")
+        self.addCleanup(run_log.clear_entry)
+        run_log.set_entry('HSM_htxRbXcJ "Bi-directional NMT"')
         with patch("sys.stdout", new_callable=StringIO) as out:
-            run_log.info("Year 2021: fetching (seen=220, probe=222)", module="year", indent=2)
-        self.assertIn("[4/241] A wolf in sheep’s clothing · Year 2021: fetching",
-                      out.getvalue())
+            run_log.debug("waiting 45s", module="http", indent=2)
+        self.assertIn('HSM_htxRbXcJ "Bi-directional NMT" · waiting 45s', out.getvalue())
 
-    def test_without_a_context_lines_are_unchanged(self):
+    def test_other_lines_carry_no_paper_prefix(self):
         from code.log_utils import run_log
-        run_log.clear_paper()
+        run_log.clear_entry()
         with patch("sys.stdout", new_callable=StringIO) as out:
-            run_log.info("Run summary", module="summary")
-        self.assertNotIn(" · Run summary", out.getvalue())
+            run_log.debug("2026 · page 3 · 10 items", module="year", indent=1)
+        self.assertNotIn("A wolf", out.getvalue())
+        self.assertNotIn(" · 2026", out.getvalue())
 
 
 if __name__ == '__main__':

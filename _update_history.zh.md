@@ -2889,3 +2889,14 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
 - **效果**：`HSM_htxRbXcJ "Bi-directional NMT with synthetic parallel data" · waiting 45s …`；
   那条 404 判词回到论文前缀，判词自身仍带 `[7/10] cid "title"`（不重复）。
 - **测试**：`DialogRequestLabelTests` 2 例（请求期间/失败后都清）+ `test_log_utils` 1 例（前缀优先级）。
+
+### 2026-10-20（续）：去掉被引论文的逐行前缀，只留"施引条目"
+
+- **用户**："不需要大量重复的 4/241 A wolf in ..."——被引论文 30 分钟不变，逐行重复是噪声。
+- **改动**：删掉 `RunLog.set_paper()` / `clear_paper()` 与 `_current_paper_label` 的整套接线
+  （`_run_main_loop` 的设/清、`tests/conftest` 的清理）；行首上下文只剩 `entry_label`
+  （Cite 对话框逐条请求期间由 `code/cite_format.py` 设/清）。
+- **效果**：逐条请求 `HSM_htxRbXcJ "…" · waiting 45s …`；年份/逐页/心跳/长休行无前缀；
+  被引论文仍由每篇开头 `[N/241] <title>` 一行表明。
+- **测试**：`PaperContextLogTests` 换成 `EntryContextLogTests`（2 例），`test_log_utils` 的前缀用例改为
+  "施引条目是唯一前缀，清掉后没有前缀"。

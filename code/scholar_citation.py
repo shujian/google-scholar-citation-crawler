@@ -182,9 +182,6 @@ class PaperCitationFetcher:
         self._run_start_time = time.time()
         self._new_citations_count = 0
         self._run_new_citations_total = 0
-        # 正在抓的论文（`[4/241] A wolf in sheep's clothing`）：心跳、长休、Done 行都带上，
-        # 否则一篇论文要抓半小时，中间那几百行里没有任何"这是哪一篇"的信息（用户 2026-10-20）。
-        self._current_paper_label = ""
         self._papers_fetched_count = 0
         # Cite 对话框的本轮累计：逐页钩子与保存时的兜底段都加进来（用户 2026-10-19：
         # 日志里要看得出"这一轮到底下载了多少 cite"）。
@@ -1266,9 +1263,6 @@ class PaperCitationFetcher:
                                            _prev.get('citations') or [])
             title         = pub['title']
             num_citations = pub['num_citations']
-            # 上一篇已经处理完：从这一行起，所有日志不再冠以前一篇的名字。
-            run_log.clear_paper()
-            self._current_paper_label = ""
             cache_result = cache_status(pub)
             if len(cache_result) >= 3:
                 st, cached, paper_state = cache_result[:3]
@@ -1351,8 +1345,6 @@ class PaperCitationFetcher:
                     continue
 
             fetch_idx += 1
-            self._current_paper_label = f"[{idx}/{len(publications)}] {title[:40]}"
-            run_log.set_paper(self._current_paper_label)
             self._new_citations_count = 0  # reset per paper
             urls        = url_map.get(title, {})
             citedby_url = urls.get('citedby_url', '')
@@ -1662,8 +1654,6 @@ class PaperCitationFetcher:
             if fetch_idx < (self.limit or len(need_fetch)):
                 run_log.info(f"Next paper... [{self._wait_status()}]",
                              module="paper", indent=1)
-
-        run_log.clear_paper()
 
         # 最后一篇（以及被 --limit 截断后仍未落盘的条目）统一补一次
         for _prev in results:

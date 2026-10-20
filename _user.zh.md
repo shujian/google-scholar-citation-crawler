@@ -3693,3 +3693,9 @@ TeeStream 镜像，各一份不重复）。`-v` 只降低屏幕。屏幕上"活�
 （已先确认口径：逐条请求时用**施引论文**，翻页/年份行仍用被引论文。）
 已落地：`RunLog.set_entry()` / `clear_entry()`，`code/cite_format.py` 在每条 Cite 对话框请求前后设/清，
 于是请求期间的行是 `HSM_htxRbXcJ "Bi-directional NMT with synthetic parallel data" · waiting 45s …`。
+
+**你的要求**："不需要大量重复的 4/241 A wolf in ..."
+
+已落地：去掉逐行的被引论文前缀（`set_paper`/`clear_paper` 整套删掉）。行首现在只有一种上下文
+—— **逐条请求时的施引论文**（`HSM_htxRbXcJ "…" · waiting 45s …`），其余行（年份/逐页/心跳/长休）
+干干净净；被引论文仍由每篇开头那行 `[N/241] <title>` 表明一次。
