@@ -3018,3 +3018,14 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   结果写回它）；两处 floor 与 stray-year 告警都用它。
 - **测试**：`PlanUsesTheFreshProbeCountsTests` 2 例，直接驱动 `_fetch_citations_with_progress`，
   断言计划是 `2017-2026`、没有任何 < 2017 的请求、且告警里点名 1907；修复前两条都失败。
+
+### 2026-10-20（续）：可疑的空列表页重取一次
+
+- **背景**：18:51 那次 2019 的第 9 页（`start=80`）返回 0 行、`markers` 为空，却不是
+  `no_results`；直方图说 173 条、缓存 174 条 —— 更像被挡/截断。
+- **改动**：`citation_page_evidence()` 之上新增纯判据 `empty_page_worth_retrying()`（有结果外壳、
+  0 行、无 `no_results` 标记）；`patched_load_url` 对该类页面**重取一次**同一个 URL：第二次有
+  内容就用第二次，仍为空则记录 "taking it as the end of this citation list" 并结束。
+  只重试一次；`no_results` 页面不重试；完成判据（`seen >= histogram`）不变。
+- **测试**：`EmptyPageRetryTests` 5 例（可疑空页重取后取到内容 / 仍为空则接受且只重试一次 /
+  `no_results` 不重试 / 有内容不重试 / 判据函数本身）。

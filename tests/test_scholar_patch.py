@@ -1218,6 +1218,94 @@ class BlockRedirectTargetTests(unittest.TestCase):
                 self.assertEqual(block_redirect_target(url), '')
 
 
+class EmptyPageRetryTests(FetcherTestCase):
+    """0 行且没有 "no results" 的列表页，先重取一次再当成列表结束（2026-10-20 用户要求）。
+
+    现场：2019 年第 9 页（`start=80`）返回 0 行、`markers` 为空，而直方图说这一年有 173 条、
+    缓存有 174 条 —— 那一页更像被挡/截断。重取一次往往就有内容；Google 明说 "did not match any"
+    的时候不重试。
+    """
+
+    EMPTY_SHELL = ('<html><body><div id="gs_res_ccl_mid"></div>'
+                   '<div class="gs_ab_mdw">Articles Scholar</div></body></html>')
+    NO_RESULTS = ('<html><body><div id="gs_res_ccl_mid"></div>'
+                  '<div class="gs_ab_mdw">Your search did not match any articles.'
+                  '</div></body></html>')
+    WITH_ROW = ('<html><body><div id="gs_res_ccl_mid">'
+                '<div class="gs_r gs_or gs_scl"><div class="gs_ri">'
+                '<h3 class="gs_rt">A citing paper</h3></div></div>'
+                '</div><div class="gs_ab_mdw">Articles Scholar</div></body></html>')
+
+    def _load(self, html_pages, url='/scholar?start=80&as_ylo=2019&as_yhi=2019&cites=1'):
+        """跑一次真的 `patched_load_url`，返回 (rows, 请求到的 url 列表, 日志)。
+
+        测试里的 `_SearchScholarIterator` 是桩（`_DummyIterator`），所以先给它装一个
+        **与 scholarly 同形**的 `_load_url`（拉页面 → 存 `_soup` → 解析 `_rows`），
+        再 `_patch_scholarly()` —— patched 版本捕获的"原始函数"就是它。
+        """
+        from bs4 import BeautifulSoup
+        from tests.conftest import _DummyIterator
+        nav = scholarly_mod.scholarly._Scholarly__nav
+        calls = []
+
+        def fake_get_soup(target, *a, **k):
+            calls.append(target)
+            page = html_pages[min(len(calls) - 1, len(html_pages) - 1)]
+            return BeautifulSoup(page, 'html.parser')
+
+        def scholarly_like_load(self_iter, target):
+            self_iter._soup = fake_get_soup(target)
+            self_iter._pos = 0
+            self_iter._rows = (self_iter._soup.find_all('div', class_='gs_r gs_or gs_scl')
+                               + self_iter._soup.find_all('div', class_='gsc_mpat_ttl'))
+
+        nav._get_soup = fake_get_soup
+        saved = _DummyIterator._load_url
+        _DummyIterator._load_url = scholarly_like_load
+        self.addCleanup(setattr, _DummyIterator, '_load_url', saved)
+        with patch("code.scholarly_session.time.sleep", return_value=None), \
+             patch("code.scholarly_session.rand_delay", return_value=0):
+            self.fetcher._patch_scholarly()
+            self.fetcher._session_ctx.last_scholar_url = ''
+            it = _DummyIterator(nav, url)
+            with patch("sys.stdout", new_callable=StringIO) as out:
+                it._load_url(url)
+            rows = list(getattr(it, '_rows', []) or [])
+        return rows, calls, out.getvalue()
+
+    def test_a_suspicious_empty_page_is_fetched_once_more(self):
+        rows, calls, log = self._load([self.EMPTY_SHELL, self.WITH_ROW])
+        self.assertEqual(len(calls), 2, "空页应再取一次")
+        self.assertEqual(len(rows), 1, "第二次有内容就用第二次")
+        self.assertIn("fetching it once more", log)
+        self.assertIn("page 9 · 1 items", log)
+
+    def test_an_empty_page_that_stays_empty_is_accepted(self):
+        rows, calls, log = self._load([self.EMPTY_SHELL, self.EMPTY_SHELL])
+        self.assertEqual(len(calls), 2, "只重试一次，不无限循环")
+        self.assertEqual(rows, [])
+        self.assertIn("taking it as the end of this citation list", log)
+
+    def test_a_no_results_page_is_not_retried(self):
+        rows, calls, log = self._load([self.NO_RESULTS, self.WITH_ROW])
+        self.assertEqual(len(calls), 1, "Google 说没有结果时重试没有意义")
+        self.assertIn("Page items: 0", log)
+        self.assertNotIn("fetching it once more", log)
+
+    def test_a_page_with_rows_is_never_retried(self):
+        rows, calls, _log = self._load([self.WITH_ROW, self.EMPTY_SHELL])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(rows), 1)
+
+    def test_the_helper_reads_the_markers(self):
+        from code.scholarly_session import empty_page_worth_retrying
+        self.assertTrue(empty_page_worth_retrying({'rows': 0, 'markers': []}))
+        self.assertFalse(empty_page_worth_retrying(
+            {'rows': 0, 'markers': ['no_results']}))
+        self.assertFalse(empty_page_worth_retrying({'rows': 3, 'markers': []}))
+        self.assertFalse(empty_page_worth_retrying(None))
+
+
 class CitationPageProgressTests(RunLogDebugCase):
     """One line per citation-list page: where the traversal is (2026-10-19).
 

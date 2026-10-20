@@ -265,6 +265,21 @@ def citation_page_module(url):
     return "year" if 'as_ylo=' in str(url or '') else "fetch"
 
 
+def empty_page_worth_retrying(evidence):
+    """一个 0 行的引用列表页，值不值得**再取一次**（2026-10-20 用户要求）。
+
+    判据只有一条：Google 有没有明说"没有结果"（`did not match any` / `no results found`）。
+    明说了就重试无意义；没说、却返回一个没有结果行的正常外壳页 —— 更像被挡/被截断
+    （实测 2026-10-20：2019 年第 9 页 `start=80` 返回 0 行、`markers` 为空，而直方图说这一年
+    有 173 条、缓存已有 174 条），这种页面再取一次往往就有内容了。
+    """
+    if not isinstance(evidence, dict):
+        return False
+    if evidence.get('rows'):
+        return False
+    return 'no_results' not in (evidence.get('markers') or [])
+
+
 def record_zero_row_citation_page(ctx, soup):
     """Store and log the evidence for a citation page that returned no rows.
 
@@ -847,40 +862,56 @@ def patch_scholarly(ctx: SessionContext) -> None:
         ctx.current_attempt_url = (
             f'https://scholar.google.com{url}' if url.startswith('/') else url)
 
-        result = original_load_url(self_iter, url)
+        result = None
+        for attempt in (1, 2):
+            result = original_load_url(self_iter, url)
 
-        # scholarly's _load_url only captures 'gs_r gs_or gs_scl' and
-        # 'gsc_mpat_ttl'.  Some results use 'gs_r gs_or' without the
-        # 'gs_scl' suffix and are silently dropped.  Expand to 'gs_r gs_or'
-        # (which also matches gs_r gs_or gs_scl) + 'gsc_mpat_ttl'.
-        # Keep it narrower than plain 'div.gs_r' so error-page elements
-        # are not mistaken for result rows.
-        try:
-            soup = getattr(self_iter, '_soup', None)
-            if soup:
-                self_iter._rows = (
-                    soup.select('div.gs_r.gs_or')
-                    + soup.find_all('div', class_='gsc_mpat_ttl')
-                )
-        except Exception:
-            pass
+            # scholarly's _load_url only captures 'gs_r gs_or gs_scl' and
+            # 'gsc_mpat_ttl'.  Some results use 'gs_r gs_or' without the
+            # 'gs_scl' suffix and are silently dropped.  Expand to 'gs_r gs_or'
+            # (which also matches gs_r gs_or gs_scl) + 'gsc_mpat_ttl'.
+            # Keep it narrower than plain 'div.gs_r' so error-page elements
+            # are not mistaken for result rows.
+            try:
+                soup = getattr(self_iter, '_soup', None)
+                if soup:
+                    self_iter._rows = (
+                        soup.select('div.gs_r.gs_or')
+                        + soup.find_all('div', class_='gsc_mpat_ttl')
+                    )
+            except Exception:
+                pass
 
-        page_size = None
-        try:
-            page_size = len(getattr(self_iter, '_rows', []) or [])
-        except Exception:
             page_size = None
-        self_iter._page_size = page_size if page_size and page_size > 0 else None
-        if page_size:
-            # One line per page — the only place that says *where* in the
-            # traversal the run is (which year, which page, how many rows).
-            run_log.info(citation_page_progress(url, page_size),
-                         module=citation_page_module(url), indent=1)
-        elif is_citation_list_url(url):
+            try:
+                page_size = len(getattr(self_iter, '_rows', []) or [])
+            except Exception:
+                page_size = None
+            self_iter._page_size = page_size if page_size and page_size > 0 else None
+            if page_size:
+                # One line per page — the only place that says *where* in the
+                # traversal the run is (which year, which page, how many rows).
+                run_log.info(citation_page_progress(url, page_size),
+                             module=citation_page_module(url), indent=1)
+                break
+            if not is_citation_list_url(url):
+                break
             # A citation page with zero result rows used to be logged silently,
             # which made a blocked/empty response look like a genuinely empty
             # citation list.
-            record_zero_row_citation_page(ctx, soup)
+            evidence = record_zero_row_citation_page(ctx, soup)
+            if attempt == 2:
+                run_log.warn("Empty page again after one retry — taking it as the "
+                             "end of this citation list", module="http", indent=2)
+                break
+            if not empty_page_worth_retrying(evidence):
+                break
+            # Not a "no results" page, yet no rows: most likely a blocked or
+            # truncated response rather than the end of the list.  Fetch the
+            # same page once more before giving up (2026-10-20 用户要求).
+            run_log.warn("Page returned no rows and is not a 'no results' page — "
+                         "fetching it once more", module="http", indent=2)
+            ctx.last_page_evidence = evidence
 
         ctx.last_scholar_url = ctx.current_attempt_url
         return result

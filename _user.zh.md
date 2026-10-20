@@ -3781,3 +3781,11 @@ citations/*.json`、`cite_format_cache.json`、`curl.txt`、`logs/*.log`。
 旧分支 → 计划又是 1907–2026。现在计数在**用的时候**从 `year_ctx.probed_year_counts` 现取，
 并补了一个回归用例（`PlanUsesTheFreshProbeCountsTests`，修复前它确实失败，日志里能看到 1908…2016
 每年一次请求）。
+
+**你的要求**："要处理，这对什么时候算扫完的口径没有影响。但是我希望确认这里是第九页没有取到内容，
+如果遇到类似的情况建议再取一次试试。"
+
+按"**只重取一次，不改完成口径**"实现：列表页 0 行、有结果外壳、且 Google 没明说
+"did not match any"（`no_results` 标记）→ 同一个 URL 再取一次；第二次有内容就用它，
+仍然 0 行才当成列表结束（并明确记一行）。`no_results` 的页面不重试（否则每个年份的收尾页都要
+白白多一次请求）。`seen`/`histogram` 的完成判据一个字没动。

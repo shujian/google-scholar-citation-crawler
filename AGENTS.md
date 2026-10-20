@@ -507,6 +507,14 @@ Papers with `>= YEAR_BASED_THRESHOLD (50)` citations switch to year-by-year fetc
   the live probe) when the output is written, so a short year stays visible on
   the next run instead of the paper looking complete
 
+- **0 行且没有 "no results" 的列表页先重取一次（2026-10-20 用户要求）**：实测 2019 年第 9 页
+  （`start=80`）返回 0 行、`markers` 为空（不是 `did not match any`），而直方图说这一年有 173 条、
+  缓存已有 174 条 —— 那一页更像被挡/被截断，而不是列表走完了。`patched_load_url` 现在对
+  `empty_page_worth_retrying()` 为真的页面（有结果外壳、0 行、没有 `no_results` 标记）
+  **再取一次同一个 URL**：第二次有内容就用它，仍然 0 行才当作列表结束（并明确记录一行
+  "taking it as the end of this citation list"）。只重试一次，不会循环；Google 明说没有结果的
+  页面不重试（否则每个年份的收尾页都要白白多一次请求）。
+
 ### scholarly patch layer (`code/scholarly_session.py`)
 
 Patches `scholarly` internals rather than treating it as a black box:
