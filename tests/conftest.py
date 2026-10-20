@@ -35,6 +35,8 @@ class RunLogDebugCase(unittest.TestCase):
 
     def setUp(self):
         _run_log.set_threshold(_DEBUG)
+        _run_log.clear_paper()          # 论文上下文是 run 状态的，别在测试之间泄漏
+        self.addCleanup(_run_log.clear_paper)
         self.addCleanup(_run_log.set_threshold, _INFO)
 
 

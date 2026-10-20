@@ -2866,3 +2866,14 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   `_wait_status()` 前置它 → `waiting …` 与 `Mandatory break …` 都带上了；
   两种 `Done:` 行尾也附上。长休行原来把 `wait_str` 套在方括号里，现在改成直接接在后面（避免 `[[4/241] …]`）。
 - **测试**：`WaitStatusLabelTests` 2 例（有标签/无标签两种形状）。
+
+### 2026-10-20（续）：抓取期间的每一行都冠上论文
+
+- **用户更正**：不是 `[N/241]` 那行没显示，是"具体在下载哪篇论文"没有显式说明。
+- **做法**：`RunLog.set_paper(label)` / `clear_paper()`，前缀由 `RunLog._format()` 统一加（一个地方，
+  所有模块的行都自动带上）。调用点两个：`_run_main_loop` 每篇开头 `clear_paper()`（上一篇结束）、
+  进入抓取分支时 `set_paper(f"[idx/total] {title[:40]}")`；循环结束后再清一次，避免串到 summary。
+- **与上一版的区别**：上一版只把标签塞进 `_wait_status()`（心跳/长休）和 `Done:` 行，年份行、逐页行
+  仍然无主语；现在这些都有。相应地删掉了 `_wait_status` 与 `Done:` 里的手写标签，避免重复。
+- **测试**：`PaperContextLogTests` 2 例（有上下文时每行带前缀 / 无上下文时不变）；`conftest` 的
+  `RunLogDebugCase.setUp` 顺带 `clear_paper()`，防止测试之间泄漏上下文。

@@ -161,10 +161,12 @@ google-scholar-citation-crawler/
   `-v` 只是把**屏幕**也降到 DEBUG。因此每页/每年/每次请求那些行**一律用 DEBUG**，
   别再用 INFO 往屏幕上堆 —— 老版本把 `waiting …` 与逐页行定为 INFO，900 行里 970 条是它们。
   屏幕上的"活着"由 `Mandatory break after N pages …`（INFO，每 8–12 页一次）+ 每篇一行承担。
-- **进度行带上是哪一篇（2026-10-20 用户定）**：一篇论文要抓半小时，中间的 `waiting …` / `Mandatory
-  break …` / `Done: …` 若不带论文，出了事根本不知道在说谁。所以 `PaperCitationFetcher` 记
-  `_current_paper_label = "[4/241] A wolf in sheep's clothing"`，由 `_wait_status()` 前置到
-  心跳/长休行，并附在 `Done:` 行尾。`[N/241] <title>` 那一行**仍然**是每篇开头的那一条。
+- **抓取期间的每一行都带"这是哪一篇"（2026-10-20 用户定）**：一篇论文要抓半小时，中间几百行
+  （每年、每页、每次等待）若不知道在说哪一篇，出问题只能数行号。`RunLog.set_paper(label)`
+  在**进入抓取分支时**设、**下一篇开始前**清（`clear_paper()`），前缀由 `RunLog._format()` 统一加，
+  所以年份行、逐页行、心跳行、长休行、cite 行全都带 `[4/241] A wolf in sheep's clothing · `；
+  缓存/跳过/停滞那些论文不进抓取分支，不加前缀（它们的那一行本来就带标题）。
+  **不要**在个别消息里再手写一遍标签（会重复），也不要用 `_wait_status()` 之类局部串去做这件事。
 - **模块标签**：`run / phase / identity / profile / venue / http / fetch / year / paper / plan / output / cite / summary`，
   宽度固定，消息列对齐。
 - **`run_log.section(title, module=…)`** 取代横幅：一个阶段/步骤一行 `── title ────…`。

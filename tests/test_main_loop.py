@@ -867,23 +867,29 @@ class MainLoopTests(FetcherTestCase):
         self.assertTrue(reloaded.fetch.is_stalled())
 
 
-class WaitStatusLabelTests(FetcherTestCase):
-    """进度行必须说明"是哪一篇"（用户 2026-10-20）。
+class PaperContextLogTests(FetcherTestCase):
+    """抓取期间的每一行都带"这是哪一篇"（用户 2026-10-20）。
 
-    一篇论文要抓半小时，期间的心跳/长休行若不带论文，日志里几百行看不出在说谁；
-    `_current_paper_label` 由抓取分支写入，`_wait_status()` 前置到每一行。
+    一篇论文要抓半小时，中间几百行（每年、每页、每次等待）若不知道在说哪一篇，
+    出问题时就只能靠数行号。`run_log.set_paper()` 在进入抓取分支时设、下一篇前清，
+    前缀由 `RunLog._format()` 统一加 —— 所以年份行、心跳行、长休行、cite 行都有。
     """
 
-    def test_the_heartbeat_names_the_paper_being_fetched(self):
-        self.fetcher._current_paper_label = "[4/241] A wolf in sheep’s clothing"
-        status = self.fetcher._wait_status()
-        self.assertTrue(status.startswith("[4/241] A wolf in sheep’s clothing · "))
-        self.assertIn("elapsed ", status)
-        self.assertIn("captcha solves", status)
+    def test_every_line_during_a_fetch_names_the_paper(self):
+        from code.log_utils import run_log
+        self.addCleanup(run_log.clear_paper)
+        run_log.set_paper("[4/241] A wolf in sheep’s clothing")
+        with patch("sys.stdout", new_callable=StringIO) as out:
+            run_log.info("Year 2021: fetching (seen=220, probe=222)", module="year", indent=2)
+        self.assertIn("[4/241] A wolf in sheep’s clothing · Year 2021: fetching",
+                      out.getvalue())
 
-    def test_without_a_current_paper_the_status_is_unchanged(self):
-        self.assertEqual(self.fetcher._current_paper_label, "")
-        self.assertTrue(self.fetcher._wait_status().startswith("elapsed "))
+    def test_without_a_context_lines_are_unchanged(self):
+        from code.log_utils import run_log
+        run_log.clear_paper()
+        with patch("sys.stdout", new_callable=StringIO) as out:
+            run_log.info("Run summary", module="summary")
+        self.assertNotIn(" · Run summary", out.getvalue())
 
 
 if __name__ == '__main__':

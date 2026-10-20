@@ -132,6 +132,16 @@ class RunLog:
         self.threshold = threshold
         self.file_threshold = DEBUG
         self.file_stream = None
+        #: 当前正在抓的论文（`[4/241] A wolf in sheep's clothing`）。每行都带上它 ——
+        #: 一篇论文要抓半小时，日志里那几百行若不知主，出问题时无法定位（用户 2026-10-20）。
+        self.paper_label = ""
+
+    def set_paper(self, label: str) -> None:
+        """Attach *label* to every line until `clear_paper()`."""
+        self.paper_label = label or ""
+
+    def clear_paper(self) -> None:
+        self.paper_label = ""
 
     def set_threshold(self, level: int) -> None:
         self.threshold = level
@@ -150,8 +160,9 @@ class RunLog:
 
     def _format(self, level: int, message: str, module: str, indent: int) -> str:
         stamp = datetime.now().strftime("%H:%M:%S")
+        who = f"{self.paper_label} · " if self.paper_label else ""
         return (f"{stamp} {_LEVEL_NAMES.get(level, 'INFO ')} {module:<{_MODULE_WIDTH}} "
-                f"{'  ' * max(0, indent)}{message}")
+                f"{'  ' * max(0, indent)}{who}{message}")
 
     def write(self, level: int, message: str, module: str = "run", indent: int = 0) -> bool:
         """Emit one line; returns False when the level is filtered out everywhere."""

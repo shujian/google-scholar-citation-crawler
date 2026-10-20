@@ -683,9 +683,7 @@ class PaperCitationFetcher:
         curl_pages = self._session_ctx.curl_page_count
         pages_str = (f"{run_pages} pages / {run_requests} requests "
                      f"({curl_pages} this curl)")
-        label = (self._current_paper_label + " · ") if self._current_paper_label else ""
-        return (f"{label}"
-                f"elapsed {self._elapsed_str()}, "
+        return (f"elapsed {self._elapsed_str()}, "
                 f"{total} new citations, "
                 f"{pages_str}, "
                 f"{self._captcha_solved_count} captcha solves")
@@ -1268,6 +1266,9 @@ class PaperCitationFetcher:
                                            _prev.get('citations') or [])
             title         = pub['title']
             num_citations = pub['num_citations']
+            # 上一篇已经处理完：从这一行起，所有日志不再冠以前一篇的名字。
+            run_log.clear_paper()
+            self._current_paper_label = ""
             cache_result = cache_status(pub)
             if len(cache_result) >= 3:
                 st, cached, paper_state = cache_result[:3]
@@ -1351,6 +1352,7 @@ class PaperCitationFetcher:
 
             fetch_idx += 1
             self._current_paper_label = f"[{idx}/{len(publications)}] {title[:40]}"
+            run_log.set_paper(self._current_paper_label)
             self._new_citations_count = 0  # reset per paper
             urls        = url_map.get(title, {})
             citedby_url = urls.get('citedby_url', '')
@@ -1563,13 +1565,12 @@ class PaperCitationFetcher:
                     if histogram_total > 0:
                         unyeared = max(0, num_citations - histogram_total)
                         run_log.info(f"Done: {len(citations)} cached, {seen_total} seen{dedup_str}{new_str} "
-                                     f"(scholar={num_citations}, histogram={histogram_total}, unyeared={unyeared})"
-                                     f" · {self._current_paper_label}",
+                                     f"(scholar={num_citations}, histogram={histogram_total}, unyeared={unyeared})",
                                      module="paper", indent=1)
                         run_log.info(diag.strip(), module="paper", indent=1)
                     else:
                         run_log.info(f"Done: {len(citations)} cached, {seen_total} seen{dedup_str}{new_str} "
-                                     f"(scholar_total={num_citations}) · {self._current_paper_label}",
+                                     f"(scholar_total={num_citations})",
                                      module="paper", indent=1)
                         run_log.info(diag.strip(), module="paper", indent=1)
                     year_counts = self._year_count_map(citations)
@@ -1661,6 +1662,8 @@ class PaperCitationFetcher:
             if fetch_idx < (self.limit or len(need_fetch)):
                 run_log.info(f"Next paper... [{self._wait_status()}]",
                              module="paper", indent=1)
+
+        run_log.clear_paper()
 
         # 最后一篇（以及被 --limit 截断后仍未落盘的条目）统一补一次
         for _prev in results:
