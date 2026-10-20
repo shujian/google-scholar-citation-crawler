@@ -183,8 +183,8 @@ class PaperCitationFetcher:
         self._new_citations_count = 0
         self._run_new_citations_total = 0
         self._papers_fetched_count = 0
-        # Cite 对话框的本轮累计：逐页钩子与保存时的兜底段都加进来（用户 2026-10-19：
-        # 日志里要看得出"这一轮到底下载了多少 cite"）。
+        # Cite 对话框的本轮累计：逐页钩子与保存时的兜底段都加进来，Run summary 里报
+        # "这一轮到底下载了多少 cite"（用户 2026-10-19 要求）。
         self._cite_stats = {key: 0 for key in _CITE_STAT_KEYS}
         self._cite_files_written = 0
         self._cite_files_unchanged = 0
@@ -2123,9 +2123,8 @@ class PaperCitationFetcher:
                 write_citations_meta_for_pub(_root, entry.get('pub') or {},
                                              entry.get('citations') or [])
             if self._cite_files_written:
-                _note = (f", {self._cite_files_unchanged} unchanged"
-                         if self._cite_files_unchanged else "")
-                run_log.info(f"cite files: {self._cite_files_written} written{_note}",
+                run_log.info(f"cite files: {self._cite_files_written} written"
+                             f"{'' if not self._cite_files_unchanged else ', ' + str(self._cite_files_unchanged) + ' unchanged'}",
                              module="output", indent=1)
         except Exception as exc:   # noqa: BLE001 —— 落盘失败绝不影响抓取主流程
             run_log.warn(f"could not write cite files: {exc}",
