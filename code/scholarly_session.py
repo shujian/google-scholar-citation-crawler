@@ -190,8 +190,40 @@ _PAGE_CAPTCHA_CLASSES = ('rc-doscaptcha-body',)
 _PAGE_TEXT_MARKERS = (
     ('consent', ('before you continue', 'consent.google.com')),
     ('unusual_traffic', ('unusual traffic', 'our systems have detected')),
+    # Google's JavaScript robot check: a 200 page with a reCAPTCHA form and no
+    # results at all.  It is a block, not "this list ended".
+    ('robot_check', ("please show you're not a robot",
+                     "can't verify that you're not a robot")),
     ('no_results', ('did not match any', 'no results found')),
 )
+
+
+def is_js_robot_check(page):
+    """True when *page* is Google's JavaScript robot check (reCAPTCHA, no rows).
+
+    Accepts a soup or raw HTML.  The DOM anchor (`#gs_captcha_ccl` wrapping
+    `#gs_captcha_f`) is what Scholar serves today; the text phrases are a
+    fallback for other renderings.  Never raises: a diagnostic must not decide
+    whether a fetch succeeds.
+    """
+    try:
+        if page is None:
+            return False
+        if isinstance(page, str):
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(page, 'html.parser')
+        else:
+            soup = page
+        if (soup.find(id='gs_captcha_ccl') is not None
+                or soup.find(id='gs_captcha_f') is not None):
+            return True
+        text = soup.get_text(' ', strip=True).lower()
+        if ("please show you're not a robot" in text
+                or "can't verify that you're not a robot" in text):
+            return True
+        return 'not a robot' in text and 'javascript' in text
+    except Exception:          # noqa: BLE001
+        return False
 
 
 def is_citation_list_url(url):
@@ -316,12 +348,12 @@ class ScholarBlockedRedirect(Exception):
     PageVisit already has (fresh cookies, retries, cooldowns).
     """
 
-    def __init__(self, url, target):
+    def __init__(self, url, target, reason=None):
         self.url = url
         #: Scheme + host + path only — the query carries a per-challenge token
         #: that has no business in the run log.
         self.target = target
-        super().__init__(f"redirected to Google's block page ({target})")
+        super().__init__(reason or f"redirected to Google's block page ({target})")
 
 
 def block_redirect_target(url):
@@ -766,6 +798,17 @@ def patch_scholarly(ctx: SessionContext) -> None:
             if target:
                 ctx.block_redirect_url = ''
                 raise ScholarBlockedRedirect(request_url, target)
+            # A 200 page carrying Google's JavaScript robot check looks exactly
+            # like a citation list with no rows — the parser sees an empty list
+            # and the year/paper quietly "ends".  It is a block: hand it to
+            # PageVisit so the run cools down (and, in interactive mode, asks for
+            # cookies from a browser that passed the check).
+            if is_js_robot_check(result):
+                raise ScholarBlockedRedirect(
+                    request_url, 'google.com (JavaScript robot check)',
+                    reason="Google answered with its JavaScript robot check "
+                           "(reCAPTCHA, no results) — paste cookies from a "
+                           "browser that passed it")
             return result
 
         page_visit = PageVisit(ctx)

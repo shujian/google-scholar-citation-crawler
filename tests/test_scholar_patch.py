@@ -1178,6 +1178,46 @@ class BlockRedirectTests(FetcherTestCase):
         self.assertEqual(self._request(), '<html></html>')
         self.assertEqual(self.ctx.block_redirect_url, '')
 
+    ROBOT_PAGE = (
+        '<html><body><div id="gs_bdy_ccl"><div id="gs_captcha_ccl">'
+        '<form method="GET" id="gs_captcha_f"><h1>Please show you&#39;re not a robot'
+        '</h1><div id="gs_captcha_c"></div></form></div></div></body></html>')
+
+    def test_the_js_robot_check_is_raised_as_a_block(self):
+        """A 200 page with the reCAPTCHA form is a block, not an empty list.
+
+        2026-10-21 实测：`/scholar?cites=…` 返回 78 KB 的 "Please show you're not
+        a robot" 页面（0 行、无 /sorry/ 跳转）。旧逻辑把它记成
+        `Page items: 0 (no citation rows)`，年份被当成"走完了"，
+        而 PageVisit 收不到异常、连粘 cookies 的提示都不会出现。
+        """
+        from code.scholarly_session import ScholarBlockedRedirect
+        self.blocked = False
+        robot = self.ROBOT_PAGE
+
+        def _robot_get_page(pagerequest, premium=False):
+            return robot
+
+        self.nav._get_page = _robot_get_page
+        with patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._patch_scholarly()
+        with self.assertRaises(ScholarBlockedRedirect) as caught:
+            self._request()
+        self.assertIn('robot check', str(caught.exception))
+
+    def test_a_page_without_the_captcha_form_is_not_a_block(self):
+        from code.scholarly_session import is_js_robot_check
+        self.assertFalse(is_js_robot_check('<html><body><h1>Google Scholar</h1></body></html>'))
+        self.assertTrue(is_js_robot_check(self.ROBOT_PAGE))
+        self.assertTrue(is_js_robot_check(
+            "<html><body><p>Sorry, we can't verify that you\'re not a robot</p></body></html>"))
+
+    def test_the_page_evidence_marks_the_robot_check(self):
+        from code.scholarly_session import citation_page_evidence
+        evidence = citation_page_evidence(
+            __import__('bs4').BeautifulSoup(self.ROBOT_PAGE, 'html.parser'))
+        self.assertIn('robot_check', evidence['markers'])
+
     def test_the_response_hook_records_the_block_redirect(self):
         sessions = [s for s in (self.nav._session1, self.nav._session2) if s]
         self.assertTrue(sessions)

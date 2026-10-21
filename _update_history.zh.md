@@ -3074,3 +3074,17 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   锁提示（apply 被降级 / force 照改不误），空计划时不打印；被锁降级时也不再补那句
   `dry-run：{…}`（那是用户显式 `--renumber-papers dry-run` 才需要的信息）。
 - **测试**：`test_stage_lock` 增 1 例（活锁 + 无动作 → 一行都不打）。
+
+### 2026-10-21：JavaScript 机器人校验页识别为 block（不再是"空页"）
+
+- **现场**：`/scholar?cites=…` 返回 200、78 KB、0 行，正文是 "Please show you're not a robot"
+  / "we can't verify that you're not a robot when JavaScript is turned off"，没有 `/sorry/` 跳转。
+  旧逻辑只认 consent / unusual_traffic / no_results，于是它被记成 `Page items: 0 (no citation rows)`，
+  年份按"走完了"处理，`PageVisit` 收不到异常 —— 既不冷却也不提示粘 cookies。
+- **改动**：新增 `is_js_robot_check()`（DOM 锚点 `#gs_captcha_ccl` / `#gs_captcha_f` 优先，
+  文本短语兜底）；`_PAGE_TEXT_MARKERS` 增加 `robot_check`（`page shape: … markers=robot_check`）；
+  `patched_get_page` 命中时抛 `ScholarBlockedRedirect`（带说明文字），交给 `PageVisit` 冷却/提示。
+  `ScholarBlockedRedirect` 新增可选 `reason`，默认文案不变。
+- **坑**：`scholarly_session.py` 本身不 import bs4，字符串分支第一次写成了裸 `BeautifulSoup(...)`，
+  被 `except Exception` 吞掉 → 永远返回 False。改成函数内惰性 import，并用真实拦截页验证（True）。
+- **测试**：`BlockRedirectTests` 增 3 例（机器人页抛 block、普通页不算、evidence 带 `robot_check`）。

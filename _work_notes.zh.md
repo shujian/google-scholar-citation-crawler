@@ -2811,3 +2811,16 @@ venue 自带引号的出版地，这条规则会偏长，届时再按"venue 段�
 
 顺带把"被锁降级"与"用户显式 dry-run"分开：**只有用户自己要的 dry-run** 才需要那行
 `dry-run: {…}` 汇总；被锁降级时要么已经说了锁、要么根本没有活（什么都不说）。
+
+## 2026-10-21：200 的"机器人校验页"必须当 block
+
+`/scholar?cites=` 被限流时有两种外形：(a) 302 到 `/sorry/`（已有 `block_redirect_target` 兜住）；
+(b) **200 + 78 KB + 0 行**，正文是一张 reCAPTCHA 表单。第二种没有任何异常，解析器只看到"空列表"，
+于是年份被当成走完、`PageItems: 0` 记一条 WARN 就算，谁也不知道该粘 cookies。
+
+判据用 DOM 锚点（`#gs_captcha_ccl` / `#gs_captcha_f`）而不是文本：文本在 `<noscript>` 里也可能出现
+"enable JavaScript"，容易误报。文本短语只作兜底。
+
+顺带一个教训：`scholarly_session.py` 不 import bs4（它只接收 soup），所以字符串分支必须惰性导入；
+写在 `try/except` 里时 NameError 会被静默吞掉——"诊断函数永远返回 False"这种失败最难发现，
+所以先用真实拦截页验证一次。

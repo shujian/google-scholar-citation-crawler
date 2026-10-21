@@ -469,6 +469,14 @@ Patches `scholarly` internals rather than treating it as a black box:
   45–90s. `--accelerate` multiplies on top; neither `venue_detail.py` nor `cite_format.py` may define
   a delay of its own (guarded by `tests/test_scholar_patch.py`).
 - Performs soft session refresh every 10–20 pages (preserves cookies, clears the `got_403` flag).
+- **Google's JavaScript robot check counts as a block, not an empty list**: the page
+  answers **200** with no result rows at all — it carries `#gs_captcha_ccl` /
+  `#gs_captcha_f` (a reCAPTCHA form) and the text "Please show you're not a robot".
+  `is_js_robot_check()` detects it (DOM anchor first, text phrases as fallback) and
+  `patched_get_page` raises `ScholarBlockedRedirect` with an explanatory message, so
+  `PageVisit` cools down — and in interactive mode asks for cookies from a browser
+  that passed the check. Without this the parser saw "a citation list with zero
+  rows", the year was taken as finished, and no prompt was ever shown.
 - Records the **HTTP status** of every response (`SessionContext.last_response_status`, from an
   httpx `response` event hook; cleared before each request). scholarly throws the status away — it
   treats 404 as "retry with the same session" and ends in the same `MaxTriesExceededException` as a

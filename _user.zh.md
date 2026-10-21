@@ -3815,3 +3815,10 @@ citations/*.json`、`cite_format_cache.json`、`curl.txt`、`logs/*.log`。
 
 对。`[papers]` 的锁提示原来无条件打印（只要阶段 2 的锁活着），哪怕本轮没有任何目录要动。
 现在先算计划，只有计划里真有 `moves/merges/orphans/conflicts` 才提示；空计划时一个字都不打。
+
+**你的判断**："带过滤是3条，不带是2条但是有第2页，我感觉google开始随机给一些结果了。"
+以及："要加，这不是空页"。
+
+对：`/scholar?cites=` 现在对同一出口随机减量（满页 10 行的比例从早上 17 次降到 12h 的 0 次），
+你的浏览器同账号也只拿到 3/2 条。所以那不是空页，是 **Google 的 JavaScript 机器人校验**
+（200、78 KB、带 `#gs_captcha_f` reCAPTCHA 表单、0 行）。已按你的要求把它识别成 block。
