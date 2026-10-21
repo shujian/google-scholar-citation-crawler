@@ -63,6 +63,12 @@ def summarize(plan):
     }
 
 
+def _plan_has_work(plan_summary):
+    """计划里是否真有会改动磁盘的动作（改名 / 合并 / 归档 / 冲突）。"""
+    return any((plan_summary or {}).get(k) for k in
+               ("moves", "merges", "orphans", "conflicts"))
+
+
 def ensure_paper_dirs(papers_root, papers, log=print):
     """给每篇论文建目标目录**并写 `paper_meta.json`**（只建不删；已存在就跳过）。
 
@@ -116,19 +122,15 @@ def run(papers_root, papers, mode=DEFAULT_MODE, output_dir=None, log=print):
     result = {"mode": mode, "papers_root": papers_root, "papers": len(papers or [])}
     if mode == "off" or not papers:
         return result
+    # 锁只在与阶段 2 抢目录名时才有意义，所以**先算计划再提示**（2026-10-21 用户：
+    # "如果没有 paper position changes，就不存在改不改名的问题吧"）—— 空计划下提示
+    # 一句"本轮不改名"只会让人误以为哪里出了问题。
+    held = None
+    was_apply = mode == "apply"
     if mode in ("apply", "force"):
         held = stage2_lock_note(papers_root)
-        if held and mode == "apply":
-            log("[papers] 阶段 2 正在使用论文目录（%s）—— 本轮**不改名/不归档**，"
-                "只把计划报告出来（避免与阶段 2 抢目录名）。" % held)
-            log("[papers] 等阶段 2 结束后重跑阶段 1 即可；确实要现在改，用 "
-                "--renumber-papers force。")
-            result["blocked_by"] = held
-            mode = "dry-run"
-        elif held:
-            log("[papers] 注意：阶段 2 的锁还活着（%s），但模式是 force —— 照改不误。"
-                % held)
-            result["forced_past"] = held
+        if held and was_apply:
+            mode = "dry-run"       # 先按只算不改走；看到计划后再决定要不要提示
     result["mode"] = mode
     try:
         from code.shared.papers_layout import reconcile
@@ -144,8 +146,24 @@ def run(papers_root, papers, mode=DEFAULT_MODE, output_dir=None, log=print):
                          manifest_dir=(os.path.join(output_dir, "renumber_%s" % stamp)
                                        if output_dir else None))
         result["plan"] = summarize(plan)
+        work = _plan_has_work(result["plan"])
+        if work and held:
+            if was_apply:
+                log("[papers] 阶段 2 正在使用论文目录（%s）—— 本轮**不改名/不归档**，"
+                    "只把计划报告出来（避免与阶段 2 抢目录名）。" % held)
+                log("[papers] 等阶段 2 结束后重跑阶段 1 即可；确实要现在改，用 "
+                    "--renumber-papers force。")
+                result["blocked_by"] = held
+            else:
+                log("[papers] 注意：阶段 2 的锁还活着（%s），但模式是 force —— 照改不误。"
+                    % held)
+                result["forced_past"] = held
         if mode == "dry-run":
-            log("[papers] dry-run：%s（用 --renumber-papers apply 落盘）" % result["plan"])
+            # 只有**用户显式要的** dry-run 才报这一行；被锁降级的情况要么已经说了锁，
+            # 要么根本没有活（那就什么都不用说）。
+            if not (held and was_apply):
+                log("[papers] dry-run：%s（用 --renumber-papers apply 落盘）"
+                    % result["plan"])
             return result
         result["created"] = ensure_paper_dirs(papers_root, papers, log=log)
         # `progress.json` / `download_summary.json` 是阶段 2 的数据，本阶段不碰；

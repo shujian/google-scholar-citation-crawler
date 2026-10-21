@@ -3810,3 +3810,8 @@ citations/*.json`、`cite_format_cache.json`、`curl.txt`、`logs/*.log`。
 （用来区分"响应被截断 / 被限流 / Scholar 真给短列表"）；
 ②年份模式"走完却明显少于 probe"时**整段重走一次**（`short_walk_retried`），两次一样就到头，
 之后仍由既有的 `short_attempts → 重扫 → stalled` 机制决定停车。
+
+**你指出的问题**："如果没有 paper position changes，就不存在改不改名的问题吧？"
+
+对。`[papers]` 的锁提示原来无条件打印（只要阶段 2 的锁活着），哪怕本轮没有任何目录要动。
+现在先算计划，只有计划里真有 `moves/merges/orphans/conflicts` 才提示；空计划时一个字都不打。

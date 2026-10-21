@@ -133,7 +133,9 @@ google-scholar-citation-crawler/
   （`{"stage","pid","host","started_at"}`，退出/中断时删），本阶段的目录维护在 `apply` 之前读它：
   **活着就不改名、只报告计划**，并提示"等阶段 2 结束后重跑阶段 1；确实要现在改就用
   `--renumber-papers force`"。锁判据是同主机看 pid 是否还在、跨主机（SSHFS）看文件年龄
-  （`STALE_AFTER_HOURS`=24），陈旧锁不挡路。共享件是 `code/shared/stage_lock.py`（**只用标准库**，
+  （`STALE_AFTER_HOURS`=24），陈旧锁不挡路。**提示只看"有没有活"**：先按只算不改算出计划，
+  计划里真有条目（`moves` / `merges` / `orphans` / `conflicts`）才提示"阶段 2 正在使用、
+  本轮不改名"；计划为空时一个字都不打 —— 没有编号变化就没有可争的目录名。共享件是 `code/shared/stage_lock.py`（**只用标准库**，
   阶段 2 经 `code/_shared.py` 消费）。
 - **日志与运行期中间产物**一律进 `output/`（含 `output/logs/`）。日志文件只保留最近
   `LOG_KEEP_RUNS`（30）次，更早的由 `prune_run_logs()` 在 run 开始时**移动**（绝不删除）到

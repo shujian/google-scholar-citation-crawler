@@ -3064,3 +3064,13 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   停车交给既有 `short_attempts → 重扫 → stalled`。直接模式不传 min_rows。
 - **测试**：`ShortWalkRetryTests` 4 例（短则重走一次/第二次更好就用它/够数不重走/直接模式不重走）；
   `EmptyPageRetryTests` 增 1 例（page shape 行）；4 个旧用例按新行为更新。706 例全绿。
+
+### 2026-10-21：阶段 2 锁的提示只在"真有活"时出现
+
+- **现象**：日志里 `No paper position changes` 之后紧跟
+  `[papers] 阶段 2 正在使用论文目录…本轮**不改名/不归档**` —— 没有编号变化就没有可争的目录名，
+  这条提示只会让人以为出了问题。
+- **改动**：`papers_maintenance.run()` 先按"只算不改"得出计划，`_plan_has_work()` 为真时才打印
+  锁提示（apply 被降级 / force 照改不误），空计划时不打印；被锁降级时也不再补那句
+  `dry-run：{…}`（那是用户显式 `--renumber-papers dry-run` 才需要的信息）。
+- **测试**：`test_stage_lock` 增 1 例（活锁 + 无动作 → 一行都不打）。

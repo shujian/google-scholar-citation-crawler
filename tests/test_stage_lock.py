@@ -119,6 +119,27 @@ class MaintenanceRespectsTheLockTests(unittest.TestCase):
             self.assertNotIn("blocked_by", result)
             self.assertTrue(os.path.isdir(os.path.join(root, "001-B")))
 
+    def test_a_live_lock_with_nothing_to_do_says_nothing(self):
+        """没有要改名/归档的论文时，锁与本轮无关 —— 不该弹那段提示。
+
+        2026-10-21 用户：日志里先出现 `No paper position changes`，紧接着却是
+        "阶段 2 正在使用论文目录…本轮不改名/不归档" —— 既然没有变化，就没有冲突。
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "papers")
+            os.makedirs(os.path.join(root, "001-B"))
+            with open(os.path.join(root, "001-B", "paper_meta.json"), "w",
+                      encoding="utf-8") as f:
+                json.dump({"no": 1, "title": "B", "url": "https://example.org/1"}, f)
+            SL.acquire(root)
+            self.addCleanup(SL.release, root)
+            lines, log = self._lines()
+            result = PM.run(root, [{"pub": _pub(1, "B")}], mode="apply",
+                           output_dir=tmp, log=log)
+            self.assertEqual(result["plan"]["moves"], 0)
+            self.assertNotIn("blocked_by", result)
+            self.assertEqual(lines, [], "没有动作就不提示锁，也不提示 dry-run")
+
     def test_a_stale_lock_does_not_block(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self._root(tmp)
