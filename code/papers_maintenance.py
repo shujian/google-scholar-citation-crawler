@@ -122,9 +122,8 @@ def run(papers_root, papers, mode=DEFAULT_MODE, output_dir=None, log=print):
     result = {"mode": mode, "papers_root": papers_root, "papers": len(papers or [])}
     if mode == "off" or not papers:
         return result
-    # 锁只在与阶段 2 抢目录名时才有意义，所以**先算计划再提示**（2026-10-21 用户：
-    # "如果没有 paper position changes，就不存在改不改名的问题吧"）—— 空计划下提示
-    # 一句"本轮不改名"只会让人误以为哪里出了问题。
+    # 锁只在与阶段 2 抢目录名时才有意义，所以先算计划再提示：空计划下说
+    # "本轮不改名"只会让人误以为哪里出了问题。
     held = None
     was_apply = mode == "apply"
     if mode in ("apply", "force"):
