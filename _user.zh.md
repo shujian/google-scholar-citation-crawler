@@ -3832,3 +3832,9 @@ citations/*.json`、`cite_format_cache.json`、`curl.txt`、`logs/*.log`。
 ②`LONG_REST_EVERY_REQUESTS = 100` + `LONG_REST_SECONDS = 2h`，按**请求总数**计（含对话框），
 `long_rest_due()` 判定，日志一行 `Long rest after N requests (2.0 h)...`；
 ③`_checkpoint_paper` 每篇抓完就把该篇写进**正式产物**（原子写、其余论文不动），硬中断也不丢进度。
+
+**你的要求**："请在日志最后说明上述结果中有多少论文是有cid信息的，其中有多少是有cite信息的。"
+
+已加：Run summary 最后一行 `cite coverage: X/Y rows carry a cid (and Z of those carry a Cite
+dialog) | papers: A/241 fully cid'd, B/241 fully cid'd + dialogued`。当前数据会是
+1903/9197 行有 cid、其中 1526 行有对话框；241 篇里只有 1 篇是"每条都有 cid"。

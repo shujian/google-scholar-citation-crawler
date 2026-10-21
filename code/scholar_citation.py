@@ -2293,6 +2293,13 @@ class PaperCitationFetcher:
                      f" | {self._run_new_citations_total} new citations"
                      f" | output total = collected per-paper citation records",
                      module="summary")
+        totals = citation_id_totals(final_results)
+        run_log.info(
+            f"cite coverage: {totals['rows_with_cid']}/{totals['rows']} rows carry a cid "
+            f"(and {totals['rows_with_cid_and_cite']} of those carry a Cite dialog) "
+            f"| papers: {totals['papers_all_cid']}/{totals['papers']} fully cid'd, "
+            f"{totals['papers_all_cid_and_cite']}/{totals['papers']} fully cid'd + dialogued",
+            module="summary")
         self._save_stage = "done"
 
         return True
@@ -2303,6 +2310,42 @@ class PaperCitationFetcher:
 # ============================================================
 
 from code.cli import parse_args  # noqa: F401
+
+
+def citation_id_totals(results):
+    """数一遍"有多少条目带 cid / 带 cite"，以及"有多少篇论文全都有"。
+
+    入口与测试共用同一份判据：**行**（施引条目）看 `cid` 与 `cite`；**篇**（论文）只有在
+    它**每一条**引用都带 cid（或 cid + cite）时才算"全有"。缺 cid 的行意味着对话档次轮
+    根本寻址不到 —— 那是要靠重走列表页才能补的数据。
+    """
+    rows = with_cid = with_cite = papers = full_cid = full_cite = 0
+    for entry in results or []:
+        citations = (entry or {}).get('citations') or []
+        papers += 1
+        missing_cid = missing_cite = 0
+        for citation in citations:
+            rows += 1
+            has_cid = bool((citation or {}).get('cid'))
+            has_cite = bool((citation or {}).get('cite'))
+            if has_cid:
+                with_cid += 1
+            else:
+                missing_cid += 1
+            if has_cid and has_cite:
+                with_cite += 1
+            else:
+                missing_cite += 1
+        # 没有引用行的论文谈不上"全都有 cid"：不计入分子（否则空论文会虚增比例）。
+        if citations and not missing_cid:
+            full_cid += 1
+        if citations and not missing_cite:
+            full_cite += 1
+    return {
+        'papers': papers, 'rows': rows,
+        'rows_with_cid': with_cid, 'rows_with_cid_and_cite': with_cite,
+        'papers_all_cid': full_cid, 'papers_all_cid_and_cite': full_cite,
+    }
 
 
 def _order_key(pub):

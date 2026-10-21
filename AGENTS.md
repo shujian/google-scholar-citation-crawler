@@ -270,6 +270,11 @@ google-scholar-citation-crawler/
   一条 INFO `cite dialogs: X/Y rows now carry formats (Z with all five) | …`；这一遍的明细
   （`resolved/fetched/cached/…`）降为 DEBUG 的 `cite pass:`。写文件的计数回到发生的位置：
   `INFO output  cite files: N written, M unchanged`（`N == 0` 时不打）。
+- **Run summary 收尾必报"cite 覆盖率"**：最后一行固定为
+  `cite coverage: 1903/9197 rows carry a cid (and 1526 of those carry a Cite dialog) | papers: 1/241
+  fully cid'd, 1/241 fully cid'd + dialogued`。口径写在 `citation_id_totals(results)` 一处：
+  **行**看 `cid` / `cite`；**篇**只有在它**每一条**引用都带 cid（或 cid + cite）时才算"全有"，
+  没有引用行的论文不计入分子。缺 cid 的行就是"这轮寻址不到对话框"的行 —— 要补只能重走列表页。
 - **逐页进度行**：抓引用列表时每页一行 `2025 · page 3 · 10 items`（direct 模式无年份 →
   `page 2 · 7 items`）。这是"现在抓到哪一年、第几页"的唯一来源。判据在
   `citation_page_progress()` / `citation_page_module()`（`code/scholarly_session.py`），页码取

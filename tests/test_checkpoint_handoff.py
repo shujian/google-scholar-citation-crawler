@@ -115,6 +115,22 @@ class TestCheckpointHandoff(unittest.TestCase):
         counts = {p["pub"].get("title"): len(p["citations"]) for p in payload["papers"]}
         self.assertEqual(counts, {"Paper One": 1, "Paper Two": 0})
 
+    def test_the_summary_counts_cid_and_cite_coverage(self):
+        """日志最后一行必须能直接回答"多少条目有 cid、其中多少有 cite"。"""
+        totals = SC.citation_id_totals([
+            {"pub": {"title": "A"}, "citations": [
+                {"title": "x", "cid": "c1", "cite": {"chicago": "…"}},
+                {"title": "y", "cid": "c2"}]},                 # 2 行：都有 cid，只有 1 行有 cite
+            {"pub": {"title": "B"}, "citations": [{"title": "z"}]},   # 缺 cid
+            {"pub": {"title": "C"}, "citations": []},                 # 没有引用
+        ])
+        self.assertEqual(totals["rows"], 3)
+        self.assertEqual(totals["rows_with_cid"], 2)
+        self.assertEqual(totals["rows_with_cid_and_cite"], 1)
+        self.assertEqual(totals["papers"], 3)
+        self.assertEqual(totals["papers_all_cid"], 1, "只有 A 每一条都有 cid")
+        self.assertEqual(totals["papers_all_cid_and_cite"], 0, "A 还有一条没有 cite")
+
     def test_paper_order_changes_are_reported(self):
         old = AuthorProfile(publications=[
             {"no": 1, "title": "Paper One", "url": "https://a/1"},

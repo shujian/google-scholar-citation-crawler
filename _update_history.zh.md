@@ -3105,3 +3105,13 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
 - **测试**：`LongRestTests` 3 例（每 100 次 2 h / `--accelerate` 缩放 / 0 关闭）；
   `test_checkpoint_handoff` 增 2 例（每篇进产物、同篇重复调用幂等）；延时断言改为 13.5–27 s。
   阶段 1 715 例、六套 2,617 例全绿。
+
+### 2026-10-21：Run summary 报"cite 覆盖率"
+
+- **用户要求**：日志最后要能直接看出"多少条目有 cid、其中多少有 cite"。
+- **实现**：`citation_id_totals(results)`（纯函数）数行级（`cid` / `cid + cite`）与篇级
+  （每条引用都带 cid / 都带 cid+cite；没有引用行的论文不计入分子），`_save_output` 的
+  Run summary 输出一行：
+  `cite coverage: 1903/9197 rows carry a cid (and 1526 of those carry a Cite dialog) |
+   papers: 1/241 fully cid'd, 1/241 fully cid'd + dialogued`。
+- **测试**：`test_checkpoint_handoff` 增 1 例（行/篇两级计数，含"缺 cite"与"零引用"两种边界）。
