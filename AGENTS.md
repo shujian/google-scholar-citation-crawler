@@ -510,6 +510,17 @@ Papers with `>= YEAR_BASED_THRESHOLD (50)` citations switch to year-by-year fetc
   the live probe) when the output is written, so a short year stays visible on
   the next run instead of the paper looking complete
 
+- **每页记"响应形状"（2026-10-21）**：每个引用列表页多一行 DEBUG
+  `page shape: status=200 bytes=195.6 KB tail_ok=yes next=yes rows=10 markers=none`。
+  判据：`bytes` 明显偏小 / `tail_ok=no` → **响应被截断**（网络/代理，值得重取）；
+  `markers` 里有 `captcha`/`unusual_traffic` → **Scholar 限流/反爬**（该冷却，不是重取）；
+  一切正常但行数就是少 → Scholar 真的给了短列表。实测 2026-10-21：某页只 3 行且无 next，
+  同一 URL 事后取是 10 行 + next —— 之前没有任何字段能区分这三种情况。
+- **走完却明显不够 → 整段重走一次，只一次（2026-10-21 用户定）**：年份模式下
+  `BatchFetchSession.run(min_rows=probe - start)`；走完 `walked < min_rows` 就重置状态、
+  **再走一遍**（`short_walk_retried=True`）。两次结果一样就到头（不会第三次），后续由既有的
+  `short_attempts → 从第 1 页重扫 → stalled` 机制决定什么时候停车。直接模式不传 `min_rows`
+  （那里的短页是正常的列表结束）。
 - **0 行且没有 "no results" 的列表页先重取一次（2026-10-20 用户要求）**：实测 2019 年第 9 页
   （`start=80`）返回 0 行、`markers` 为空（不是 `did not match any`），而直方图说这一年有 173 条、
   缓存已有 174 条 —— 那一页更像被挡/被截断，而不是列表走完了。`patched_load_url` 现在对

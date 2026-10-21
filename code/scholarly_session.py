@@ -141,6 +141,10 @@ class SessionContext:
     # "no response seen for the current request" (network error).
     last_response_status: Optional[int] = None
     last_response_url: str = ""
+    # 响应体大小与"是否以 </html> 收尾"（2026-10-21 用户要求）：一页只返回 3 行、且翻页链接
+    # 消失时，要能判断是**响应被截断**（body 明显偏小 / 没有收尾标签）还是 Scholar 真给了短列表。
+    last_response_bytes: Optional[int] = None
+    last_response_tail_ok: Optional[bool] = None
     # The /sorry/ interstitial behind the current request, or "".  Recorded by
     # the response hook and raised as a block by patched_get_page: a redirect to
     # Google's block page is a block even when the interstitial answers 200, and
@@ -541,6 +545,13 @@ def patch_scholarly(ctx: SessionContext) -> None:
         # hook is the only place the status survives for PageVisit.
         ctx.last_response_status = response.status_code
         ctx.last_response_url = str(response.url)
+        try:
+            ctx.last_response_bytes = len(response.content)
+            tail = response.text.rstrip()[-16:].lower()
+            ctx.last_response_tail_ok = tail.endswith('</html>')
+        except Exception:          # noqa: BLE001 —— 诊断字段绝不该影响抓取
+            ctx.last_response_bytes = None
+            ctx.last_response_tail_ok = None
         # ...and the only place the *redirect destination* survives: httpx
         # follows `302 → www.google.com/sorry/`, so the blocked request ends up
         # looking like a page we asked for.
@@ -708,6 +719,8 @@ def patch_scholarly(ctx: SessionContext) -> None:
             # response at all (the response hook records the new one).
             ctx.last_response_status = None
             ctx.last_response_url = ''
+            ctx.last_response_bytes = None
+            ctx.last_response_tail_ok = None
             ctx.block_redirect_url = ''
             original_sleep = time.sleep
             sleep_count = [0]
@@ -888,6 +901,19 @@ def patch_scholarly(ctx: SessionContext) -> None:
             except Exception:
                 page_size = None
             self_iter._page_size = page_size if page_size and page_size > 0 else None
+            if is_citation_list_url(url):
+                run_log.debug(
+                    "page shape: status=%s bytes=%s tail_ok=%s next=%s rows=%s markers=%s"
+                    % (ctx.last_response_status if ctx.last_response_status is not None else '?',
+                       ('%.1f KB' % (ctx.last_response_bytes / 1024.0)
+                        if ctx.last_response_bytes else '?'),
+                       ('yes' if ctx.last_response_tail_ok else
+                        ('no' if ctx.last_response_tail_ok is not None else '?')),
+                       ('yes' if (soup and soup.find(class_='gs_ico gs_ico_nav_next'))
+                        else 'no'),
+                       page_size if page_size is not None else '?',
+                       ','.join((citation_page_evidence(soup) or {}).get('markers') or []) or 'none'),
+                    module="http", indent=2)
             if page_size:
                 # One line per page — the only place that says *where* in the
                 # traversal the run is (which year, which page, how many rows).

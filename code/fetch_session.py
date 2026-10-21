@@ -14,6 +14,7 @@ from typing import Optional
 from code.citation_models import ResumeState, FetchPolicy, YearRecord
 from code.output_state import PaperFetchState
 from code.common import SCHOLAR_PAGE_SIZE
+from code.log_utils import run_log
 
 
 # ---------------------------------------------------------------------------
@@ -36,6 +37,9 @@ class BatchFetchSession:
     _start_index: int = 0
     _finished: bool = False
     _termination_reason: str = ""
+    # 走完却明显少于应有条数时，本轮**再走一次**（2026-10-21 用户定）；这里记下是否已经重走过，
+    # 让调用方在"两次结果一样"时按 stall 处理，而不是继续重走。
+    _short_walk_retried: bool = False
 
     # -- properties ----------------------------------------------------------
 
@@ -62,6 +66,9 @@ class BatchFetchSession:
 
     @property
     def termination_reason(self): return self._termination_reason
+
+    @property
+    def short_walk_retried(self): return self._short_walk_retried
 
     # -- pagination helpers --------------------------------------------------
 
@@ -103,7 +110,7 @@ class BatchFetchSession:
 
     def run(self, fetcher, fallback_year=None, seen_keys=None,
             old_cache_identity_keys=None, on_page_complete=None,
-            on_citation=None, iterator=None, max_retries=0):
+            on_citation=None, iterator=None, max_retries=0, min_rows=None):
         """Execute paginated fetch.
 
         Callbacks:
@@ -112,9 +119,16 @@ class BatchFetchSession:
 
         *iterator* is for initial fetch only; retries create their own.
         *max_retries* controls automatic retries (captcha + transient errors).
+        *min_rows* (year mode): rows this walk is expected to touch.  A walk that
+        ends "exhausted" well below it looks like a truncated response (measured
+        2026-10-21: a page came back with 3 rows and no next link while the year
+        held 220), so it is re-walked **once**; the caller turns two identical
+        results into the usual `stalled` verdict.
         Returns self (for chaining).
         """
         attempt = 0
+        initial = (list(self._citations), self._start_index,
+                   self._dedup_count, self._new_count)
 
         while True:
             attempt += 1
@@ -123,6 +137,19 @@ class BatchFetchSession:
                 self._run_once(fetcher, cur_iter, fallback_year, seen_keys,
                               old_cache_identity_keys, on_page_complete,
                               on_citation)
+                walked = self._start_index - initial[1]
+                if (min_rows and walked < min_rows and not self._short_walk_retried):
+                    # 页面被截断（短页且没有翻页链接）：整段再走一次，只一次。
+                    self._short_walk_retried = True
+                    self._citations = list(initial[0])
+                    self._start_index = initial[1]
+                    self._dedup_count = initial[2]
+                    self._new_count = initial[3]
+                    self._termination_reason = ""
+                    self._items_on_page = 0
+                    run_log.warn(f"walk ended after {walked} row(s) but {min_rows} "
+                                 f"expected — re-walking it once", module="year", indent=2)
+                    continue
                 break
             except KeyboardInterrupt:
                 if on_page_complete:

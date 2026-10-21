@@ -610,8 +610,10 @@ class DirectFetchTests(FetcherTestCase):
                 allow_incremental_early_stop=False,
             )
 
-        # 2024 probed=0 == cached=0 → skip; 2025 probed=2 != cached=0 → fetch
-        self.assertEqual(requests, [(2025, 0)])
+        # 2024 probed=0 == cached=0 → skip；2025 probed=2 != cached=0 → fetch。
+        # 假迭代器每页只给 1 条（年内应有 2 条），于是"走完却不够"会再走一次
+        # （2026-10-21 用户定的重走机制）—— 两次一样就到此为止，不会第三次。
+        self.assertEqual(requests, [(2025, 0), (2025, 0)])
         self.assertEqual([c["title"] for c in citations], ["Y2025"])
 
     def test_incomplete_probe_uses_histogram_as_authority(self):
@@ -666,8 +668,8 @@ class DirectFetchTests(FetcherTestCase):
             )
 
         output = fake_stdout.getvalue()
-        # 2024: 1==1 skip; 2025: 1!=3 fetch; 2026: 2==2 skip
-        self.assertEqual(requests, [(2025, 0)])
+        # 2024: 1==1 skip; 2025: 1!=3 fetch（走完只 1 条 → 再走一次）; 2026: 2==2 skip
+        self.assertEqual(requests, [(2025, 0), (2025, 0)])
         self.assertIn("Year 2024: skip (seen=1 >= probe=1)", output)  # per-year check, no global selective refresh
 
     def test_no_deficit_years_skips_all_years(self):

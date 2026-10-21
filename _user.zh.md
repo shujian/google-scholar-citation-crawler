@@ -3801,3 +3801,12 @@ citations/*.json`、`cite_format_cache.json`、`curl.txt`、`logs/*.log`。
 
 已实现：删掉 `partial_json` / `_write_partial_product()` / `_checkpoint_generation()`；每篇只写该篇的
 `citations_meta.json` 与 cite 文件；中断报告与续跑都只认 `paper_citations.json`。
+
+**你的问题**："所以返回一些异常的比较少元素的列表有可能是网络访问问题？还是由 scholar 限流或者故意导致的？"
+以及："好的记录一下，可以使用重走机制，但是如果两次重走结果一样，就不要再重走了。这个似乎是 stall 机制？"
+
+已做两件事：
+①每个列表页多一行 DEBUG `page shape: status=… bytes=… tail_ok=… next=… rows=… markers=…`
+（用来区分"响应被截断 / 被限流 / Scholar 真给短列表"）；
+②年份模式"走完却明显少于 probe"时**整段重走一次**（`short_walk_retried`），两次一样就到头，
+之后仍由既有的 `short_attempts → 重扫 → stalled` 机制决定停车。

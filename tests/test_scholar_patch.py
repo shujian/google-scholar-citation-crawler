@@ -1297,6 +1297,18 @@ class EmptyPageRetryTests(FetcherTestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(len(rows), 1)
 
+    def test_every_page_logs_its_response_shape(self):
+        """每个列表页一行 DEBUG：status / bytes / tail_ok / next / rows / markers。
+
+        2026-10-21 现场：某页只解析到 3 行且没有翻页链接，而同一 URL 现在取是 10 行 + next ——
+        判断"响应被截断"还是"Scholar 真的给了短列表"需要的就是这几个字段。
+        """
+        _rows, _calls, log = self._load([self.WITH_ROW])
+        self.assertIn("page shape:", log)
+        self.assertIn("rows=1", log)
+        self.assertIn("next=no", log)
+        self.assertIn("markers=none", log)
+
     def test_the_helper_reads_the_markers(self):
         from code.scholarly_session import empty_page_worth_retrying
         self.assertTrue(empty_page_worth_retrying({'rows': 0, 'markers': []}))

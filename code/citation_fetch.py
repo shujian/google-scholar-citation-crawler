@@ -1132,6 +1132,10 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                 on_citation=_on_year_citation,
                 on_page_complete=_on_year_page_complete,
                 max_retries=1,
+                # 这一趟从当前起点算应当走过的条数。走完却明显不够 → 页面被截断，
+                # 由 BatchFetchSession 再走一次（只一次）；两次一样就按 stall 处理。
+                min_rows=(max(0, live_count - start_index)
+                          if live_count is not None else None),
             )
             year_dedup_count = year_batch.dedup_count
             year_termination_reason = year_batch.termination_reason

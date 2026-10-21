@@ -3052,3 +3052,15 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
 - **测试**：`test_checkpoint_handoff` 改为断言"每篇只写 meta、不再产生 partial"、"收尾只有产物"；
   删掉两个从快照续跑的用例。701 例全绿。
 - **文档**：AGENTS / README / 阶段 2 的 AGENTS / TO_RUN / KNOWN_ISSUES(K154 ③) 同步。
+
+### 2026-10-21：列表页响应形状诊断 + 短走重走一次
+
+- **背景**：`2021 · page 1 · 3 items` 后紧接 `3 < 220 cached`；同一 URL 事后直接取是 10 行 + 有 next，
+  说明当时那份响应被截断，但日志里没有任何字段能证明（只有 0 行时才记 markers）。
+- **① 诊断**：`SessionContext.last_response_bytes` / `last_response_tail_ok` 由响应钩子记录；
+  `patched_load_url` 每个列表页加一行 DEBUG `page shape: …`（status/bytes/tail_ok/next/rows/markers）。
+- **② 重走**：`BatchFetchSession.run(min_rows=…)`——年份模式传 `probe - start`，走完不够就重置
+  （citations/start_index/dedup/new）**再走一次**，`short_walk_retried` 标记；两次一样不再重走，
+  停车交给既有 `short_attempts → 重扫 → stalled`。直接模式不传 min_rows。
+- **测试**：`ShortWalkRetryTests` 4 例（短则重走一次/第二次更好就用它/够数不重走/直接模式不重走）；
+  `EmptyPageRetryTests` 增 1 例（page shape 行）；4 个旧用例按新行为更新。706 例全绿。

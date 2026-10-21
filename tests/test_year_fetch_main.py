@@ -374,9 +374,13 @@ class YearFetchMainTests(FetcherTestCase):
             )
 
         output = fake_stdout.getvalue()
-        # With automatic pagination only one iterator is created per year.
-        self.assertEqual(requests, [(2018, 0)])
-        self.assertEqual(save_calls, [False, False, True])
+        # 自动翻页时每年只建一个迭代器；但假数据里 2018 只给 10 条而 probe 是 10 条——
+        # 这里 probe=10、走完 10 条，够数 → 不触发重走。（若把假数据改短，会看到两次。）
+        self.assertEqual(requests, [(2018, 0), (2018, 0)])
+        # 2018 的假数据只走 10 条而 probe=37 → 触发"重走一次"，于是多一次页面保存；
+        # 这里只钉"中间都是 False、收尾是 True"，不依赖具体次数。
+        self.assertTrue(save_calls[-1])
+        self.assertFalse(any(save_calls[:-1]))
         self.assertEqual(len(citations), 37)
         self.assertIn("Year 2018 status: year_total=10", output)
         self.assertIn("Year 2019: skip (seen=27 >= probe=27)", output)
@@ -1280,6 +1284,72 @@ class PlanUsesTheFreshProbeCountsTests(FetcherTestCase):
         _requests, log = self._run({2026: 49})
         self.assertIn("outside the probe's range", log)
         self.assertIn("1907", log)
+
+
+class ShortWalkRetryTests(FetcherTestCase):
+    """走完却明显少于应有条数 → 整段重走一次，只一次（2026-10-21 用户定）。
+
+    现场：2021 年第 1 页只返回 3 行、且没有翻页链接，而这一年缓存 220 条、probe 222 ——
+    同一 URL 现在取是 10 行 + 有 next，说明那次拿到的是一份被截断的响应。
+    """
+
+    def _walk(self, rows_per_attempt, min_rows):
+        from code.fetch_session import BatchFetchSession
+        batch = BatchFetchSession(_url="/scholar?as_ylo=2021&as_yhi=2021&cites=1")
+        calls = []
+
+        class Iter:
+            def __init__(self, rows):
+                self.rows = rows
+                self.index = 0
+                self._finished_current_page = False
+                self._items_in_current_page = len(rows)
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index >= len(self.rows):
+                    raise StopIteration
+                item = self.rows[self.index]
+                self.index += 1
+                return item
+
+        iters = [Iter(rows) for rows in rows_per_attempt]
+
+        def make_iterator(fetcher=None):
+            calls.append(1)
+            return iters[min(len(calls) - 1, len(iters) - 1)]
+
+        batch._make_iterator = make_iterator
+        batch.run(self.fetcher, min_rows=min_rows)
+        return batch, calls
+
+    def _rows(self, n):
+        return [{"bib": {"title": f"T{i}", "author": ["A"], "venue": "V", "pub_year": "2021"},
+                 "pub_url": f"u{i}", "cites_id": f"c{i}"} for i in range(n)]
+
+    def test_a_short_walk_is_retried_once(self):
+        batch, calls = self._walk([self._rows(3), self._rows(3)], min_rows=220)
+        self.assertEqual(len(calls), 2, "走完只 3 行（应有 220）→ 再走一次")
+        self.assertTrue(batch.short_walk_retried)
+        self.assertEqual(len(batch.citations), 3, "两次一样 → 到此为止，不叠加")
+
+    def test_the_retry_uses_the_better_result(self):
+        batch, calls = self._walk([self._rows(3), self._rows(10)], min_rows=220)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(batch.citations), 10, "第二次有内容就用第二次")
+
+    def test_a_complete_walk_is_not_retried(self):
+        batch, calls = self._walk([self._rows(10)], min_rows=10)
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(batch.short_walk_retried)
+        self.assertEqual(len(batch.citations), 10)
+
+    def test_without_min_rows_nothing_is_retried(self):
+        batch, calls = self._walk([self._rows(3)], min_rows=None)
+        self.assertEqual(len(calls), 1, "直接模式不传 min_rows（短页是正常结束）")
+        self.assertFalse(batch.short_walk_retried)
 
 
 class CacheYearFloorTests(unittest.TestCase):
