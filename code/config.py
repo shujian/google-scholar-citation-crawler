@@ -64,11 +64,10 @@ DELAY_MAX = 90
 # still stacks on top (the two factors multiply); citation-list pagination keeps
 # the full delay and its mandatory 3-6 min breaks.
 #
-# Honest trade-off: Scholar rate-limits these paths by volume, so a shorter delay
-# reaches the block sooner in wall-clock terms (see issues.md).  The cache +
-# resume path is what makes that acceptable: stop on the first blocked page, come
-# back later, and the total wall-clock spent waiting is lower.
-DETAIL_PAGE_DELAY_FACTOR = 0.1
+# 用户定的比例是 **30%**：列表页等 45–90 s，那么 Cite 对话框 / 出版详情页等 13.5–27 s。
+# 这些路径一次抓取要打几千次（每条施引条目一个对话框），是 Scholar 眼里最像机器人的部分，
+# 拉长到 30% 是拿时间换"别被拉黑"。--accelerate 仍在其上相乘。
+DETAIL_PAGE_DELAY_FACTOR = 0.3
 
 # Soft session refresh every N pages to avoid session-based blocking.
 SESSION_REFRESH_MIN = 10
@@ -84,6 +83,12 @@ MANDATORY_BREAK_EVERY_MIN = 8
 MANDATORY_BREAK_EVERY_MAX = 12
 MANDATORY_BREAK_MIN = 180   # 3 minutes
 MANDATORY_BREAK_MAX = 360   # 6 minutes
+
+# 每 **100 次请求**（任何类型：列表页 / Cite 对话框 / 详情页）强制休息 2 小时。
+# 与上面"每 8–12 个列表页休 3–6 分钟"是两个不同的口径：那个按页、这个按请求总数，
+# 用来把"一天打几千次"摊平。0 或 None = 关闭。
+LONG_REST_EVERY_REQUESTS = 100
+LONG_REST_SECONDS = 2 * 60 * 60
 
 # ============================================================
 # Fetch thresholds

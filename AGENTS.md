@@ -285,11 +285,11 @@ google-scholar-citation-crawler/
   `_report_saved_state()` 打印**磁盘上实际有什么**（产物与缓存的时间戳、保存停在哪一步）。
   报告措辞按"产物写没写"分开：`_save_json_written` 为真时说"产物已写好，停在 Cite 对话框的
   重写那一步"，只有真的没写才说"可能落后一轮"。
-- **续跑只读正式产物**：`author_<ID>_paper_citations.json` 是唯一的续跑状态来源
+- **续跑只读正式产物**（而且它每篇都更新）：`author_<ID>_paper_citations.json` 是唯一的续跑状态来源
   （`_paper_states`、索引分配、`has_cite_format_work()`、checkpoint 索引全用它）。没有
   `*.partial.json` 全量快照：它不带 `_fetch_state`，当不了续跑账本，而每篇重写代价很大。
-  硬中断（`kill -9` / 断电）之后本轮已抓的论文会在下一轮重走一遍 —— 引用行仍在各篇
-  `citations_meta.json` 与产物里，只是 crawler 的抓取状态丢了。
+  硬中断（`kill -9` / 断电）也不会丢进度：每篇抓完都把该篇写进产物（含 `_fetch_state`），
+  所以下一轮读到的是"每篇都最新"的状态。
 
 ## Architecture overview
 
@@ -328,6 +328,11 @@ The program always runs in two sequential phases from `main()`:
   `--no-cite-formats` skips it; an entry without a `cid` cannot be addressed, so rows
   written before that field existed stay untouched until their paper is re-fetched
 - Writes consolidated citation outputs to `author_<ID>_paper_citations.json` and `.xlsx`
+- **Writes the product per paper**（用户定"按论文条目写入"）：每篇抓完，`_checkpoint_paper`
+  就把这一篇的 `pub` / `citations` / `_fetch_state`（以及 `citation_index`）写进
+  `author_<ID>_paper_citations.json` 本身（原子写，其余论文的条目一个字节不动）。所以中断
+  （含 `kill -9` / 断电）之后产物里每篇都是最新的，下一轮直接续跑，不必重抓。
+  它与被删除的 `*.partial.json` 不同：**写的是下游真正读的那份产物**，不是第二份副本。
 - Writes each paper's `papers/<NNN>-<slug>/citations_meta.json` **main body**
   (`code/citation_index.py::write_citations_meta_for_pub`, called from checkpoint and
   `_save_output`): stage-1 fields only, index-ascending, idempotent, stage-2 download fields and
@@ -453,14 +458,21 @@ Patches `scholarly` internals rather than treating it as a black box:
   first page after fresh cookies are injected** (`total_page_count == 1` / `curl_page_count <= 1`):
   no earlier request with those credentials exists to space apart from, so waiting there only wastes
   time.
-- Takes mandatory long breaks every 8–12 **citation-list pages** to reset Scholar's rate-limit
+- **Every 100 requests it rests for 2 hours**（用户定）：口径是**请求总数**
+  （列表页 + Cite 对话框 + 详情页），不是页数 —— 对话框占一次抓取 60–80% 的请求量，按页算
+  等于放过它们。`long_rest_due()` 判 `total_page_count % LONG_REST_EVERY_REQUESTS == 0`，
+  按 `delay_scale` 缩放（`--accelerate` 照样生效），日志一行
+  `Long rest after N requests (2.0 h)...`。`LONG_REST_EVERY_REQUESTS = 0` 可关。
+- Takes mandatory short breaks every 8–12 **citation-list pages** to reset Scholar's rate-limit
   window. The counter is `ctx.citation_page_count`: `total_page_count` counts **every request** (a
   list page is followed by 0–10 Cite-dialog / detail-page requests), so using it for breaks would
   collapse to "a break every 1–2 list pages". The no-wait-after-injection rule still uses
   `total_page_count` (there the raw request count is what matters). A successfully solved captcha
   resets the break counter (`reset_break_counter()`); only the break window moves, the
   session-refresh counter is left alone.
-- Charges **1/10 of the normal delay on the detail-style paths**:
+- **Charges 30% of the normal delay on the detail-style paths**（用户定：45–90 s 的列表页等待
+  对应 13.5–27 s 的 Cite 对话框 / 详情页等待）。这些路径一次抓取要打几千次，是"被拉黑"的
+  主要来源，所以比例从 10% 提到 30%。
   `patched_get_page()` sleeps `rand_delay(ctx.delay_scale * detail_path_delay_factor(url))`, where
   the factor is `code.config.DETAIL_PAGE_DELAY_FACTOR` and `detail_path_delay_factor()`
   (`code/scholarly_session.py`) is the **single** classifier deciding which URLs are "detail-style" —

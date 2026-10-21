@@ -42,6 +42,7 @@ from code.common import (
     rand_delay,
 )
 from code.config import DETAIL_PAGE_DELAY_FACTOR
+from code.config import LONG_REST_EVERY_REQUESTS, LONG_REST_SECONDS
 from code.page_visit import PageVisit
 
 
@@ -517,6 +518,21 @@ def assert_scholarly_patches_active(checks):
         )
 
 
+def long_rest_due(ctx):
+    """每 `LONG_REST_EVERY_REQUESTS` 次请求要睡多久（秒）；0 = 不用睡。
+
+    口径是**请求总数**（列表页 + Cite 对话框 + 详情页），不是页数：一次抓取里
+    对话框占 60–80% 的请求量，按页算等于放过它们。按 `delay_scale` 缩放，
+    与其它等待一致（`--accelerate` 也照样生效）。
+    """
+    every = int(LONG_REST_EVERY_REQUESTS or 0)
+    if every <= 0 or not getattr(ctx, 'total_page_count', 0):
+        return 0.0
+    if ctx.total_page_count % every:
+        return 0.0
+    return float(LONG_REST_SECONDS) * getattr(ctx, 'delay_scale', 1.0)
+
+
 def reset_break_counter(ctx):
     """解完验证码之后把 mandatory-break 的计时**清零**。
 
@@ -702,6 +718,13 @@ def patch_scholarly(ctx: SessionContext) -> None:
                 break
         ctx.total_page_count += 1
         ctx.curl_page_count += 1
+        rest = long_rest_due(ctx)
+        if rest:
+            wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""
+            tail = f" {wait_str}" if wait_str else ""
+            run_log.info(f"Long rest after {ctx.total_page_count} requests "
+                         f"({rest/3600:.1f} h)...{tail}", module="http", indent=1)
+            time.sleep(rest)
         if ctx.total_page_count == 1 and ctx.first_page_prompt_fn:
             fn = ctx.first_page_prompt_fn
             ctx.first_page_prompt_fn = None

@@ -3822,3 +3822,13 @@ citations/*.json`、`cite_format_cache.json`、`curl.txt`、`logs/*.log`。
 对：`/scholar?cites=` 现在对同一出口随机减量（满页 10 行的比例从早上 17 次降到 12h 的 0 次），
 你的浏览器同账号也只拿到 3/2 条。所以那不是空页，是 **Google 的 JavaScript 机器人校验**
 （200、78 KB、带 `#gs_captcha_f` reCAPTCHA 表单、0 行）。已按你的要求把它识别成 block。
+
+**你的要求**："我觉得这些策略都不好。如果确实容易被封闭，那就增加等待时间，把获取cite的时间
+变成page等待的30%。每过100次访问，强制休息2h。但是注意，按论文条目进行写入，这样即使后续
+程序中断，结果仍然应该是正常的。"
+
+已按这三条实现：
+①`DETAIL_PAGE_DELAY_FACTOR` 0.1 → **0.3**（45–90 s 的页等待 → 13.5–27 s 的对话框等待）；
+②`LONG_REST_EVERY_REQUESTS = 100` + `LONG_REST_SECONDS = 2h`，按**请求总数**计（含对话框），
+`long_rest_due()` 判定，日志一行 `Long rest after N requests (2.0 h)...`；
+③`_checkpoint_paper` 每篇抓完就把该篇写进**正式产物**（原子写、其余论文不动），硬中断也不丢进度。

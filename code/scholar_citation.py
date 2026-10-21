@@ -201,6 +201,7 @@ class PaperCitationFetcher:
         # 只在**真实主循环**里启用：直接调 `_save_output()` 的测试不应在仓库根留下产物文件
         self._checkpoint_enabled = False
         self._checkpoint_prev = None
+        self._product_entries = None
         self._checkpoint_publications = []
         self._checkpoint_results = []
         self._baseline_titles = set()
@@ -1951,6 +1952,70 @@ class PaperCitationFetcher:
         self._checkpoint_prev = prev
         return prev
 
+    def _current_fetch_state(self, title):
+        """这篇论文此刻的抓取状态（写进增量产物，供下一轮直接续跑）。"""
+        pst = to_paper_fetch_state((getattr(self, '_paper_states', None) or {}).get(title))
+        if pst is None:
+            snap = (getattr(self, '_mid_paper_state', None) or {}).get(title)
+            if snap and snap.get('fetch_strategy'):
+                pst = to_paper_fetch_state(snap)
+        return pst.to_dict() if pst is not None else {}
+
+    def _product_entries_by_title(self):
+        """正式产物里现有的 entries（按标题索引），只读一次。"""
+        if self._product_entries is not None:
+            return self._product_entries
+        entries = {}
+        try:
+            with open(self.out_json, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            for item in data.get('papers', []) or []:
+                title = (item.get('pub') or {}).get('title', '')
+                if title:
+                    entries[title] = item
+        except (OSError, ValueError):
+            entries = {}
+        self._product_entries = entries
+        return entries
+
+    def _write_product_progress(self):
+        """把已完成论文的结果写进**正式产物**（每篇一次，原子写）。
+
+        「按论文条目写入」：一篇抓完，产物里那篇就是最新的；中断（含 kill -9 / 断电）
+        之后磁盘上的产物仍然是"每篇都是最新的"，下一轮从它续跑即可，不必重抓。
+        写的就是 `author_<ID>_paper_citations.json` 本身 —— 不是另一份快照，
+        所以不存在"两份真相"。
+        """
+        if not self._checkpoint_enabled:
+            return
+        try:
+            known = self._product_entries_by_title()
+            entries = []
+            for publication in self._checkpoint_publications or []:
+                pub = publication or {}
+                title = pub.get('title', '')
+                entry = self._checkpoint_entries.get(title)
+                if entry is None:
+                    entry = known.get(title) or {
+                        'pub': PubInfo.from_dict(pub).to_dict() if pub else {},
+                        'citations': [],
+                    }
+                entries.append(entry)
+            payload = {
+                'author_id': self.author_id,
+                'papers': entries,
+                'total_papers': len(entries),
+                'total_citations': sum(len(e.get('citations') or []) for e in entries),
+                'fetch_time': datetime.now().isoformat(),
+                # 仍在抓取中：沿用 baseline 标记（真正的完成态由收尾的 `_save_output` 写）
+                'baseline': True,
+            }
+            write_json_atomic(self.out_json, payload, ensure_ascii=False, indent=2)
+            self._save_json_written = True
+        except Exception as exc:   # noqa: BLE001 —— 增量落盘绝不能挡住抓取
+            run_log.warn(f"product progress write failed: {exc}",
+                         module="output", indent=1)
+
     def _checkpoint_paper(self, pub, citations):
         """每篇处理完后的阶段性落盘：meta + cite 文件 + partial 产物。
 
@@ -1971,8 +2036,12 @@ class PaperCitationFetcher:
             root = papers_root(self.output_dir, self.author_id)
             write_cite_files(root, entry.get("pub") or {}, citations)
             write_citations_meta_for_pub(root, entry.get("pub") or {}, citations)
+            state = self._current_fetch_state(title)
+            if state:
+                entry['_fetch_state'] = state
             self._checkpoint_entries[title] = entry
             self._checkpointed.add(title)
+            self._write_product_progress()
         except Exception as exc:   # noqa: BLE001 —— 阶段性落盘绝不能挡住抓取
             run_log.warn(f"checkpoint write failed for "
                          f"{(pub or {}).get('title', '?')[:60]}: {exc}",

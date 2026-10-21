@@ -77,6 +77,44 @@ class TestCheckpointHandoff(unittest.TestCase):
             [n for n in os.listdir(self.tmp) if n.endswith(".partial.json")],
             "每篇落盘不再产生 partial 快照")
 
+    def test_each_paper_lands_in_the_product_immediately(self):
+        """「按论文条目写入」：一篇抓完，正式产物里那篇就是最新的。
+
+        这样中断（含 kill -9 / 断电）之后磁盘上的产物仍然可用，下一轮直接续跑，
+        不会把已经抓过的论文再走一遍。
+        """
+        with open(self.fetcher.out_json, "w", encoding="utf-8") as f:
+            json.dump({"author_id": "TEST", "baseline": True, "papers": [
+                {"pub": self.p1, "citations": []},
+                {"pub": self.p2, "citations": []}]}, f)
+
+        self.fetcher._paper_states = {"Paper One": {
+            "fetch_strategy": "direct", "complete_fetch_attempt": True}}
+        self.fetcher._checkpoint_paper(self.p1, [_cit(1), _cit(2)])
+
+        with open(self.fetcher.out_json, encoding="utf-8") as f:
+            payload = json.load(f)
+        by_title = {p["pub"].get("title"): p for p in payload["papers"]}
+        self.assertEqual(len(by_title), 2, "产物里仍然有全部论文")
+        self.assertEqual(len(by_title["Paper One"]["citations"]), 2)
+        self.assertEqual(len(by_title["Paper Two"]["citations"]), 0, "别的论文一个字节都不动")
+        self.assertEqual(by_title["Paper One"]["_fetch_state"]["fetch_strategy"], "direct")
+        self.assertTrue(payload["baseline"], "抓取期间仍是 baseline 标记")
+        self.assertEqual(payload["total_citations"], 2)
+
+    def test_the_product_write_is_idempotent_per_paper(self):
+        with open(self.fetcher.out_json, "w", encoding="utf-8") as f:
+            json.dump({"author_id": "TEST", "papers": [
+                {"pub": self.p1, "citations": []},
+                {"pub": self.p2, "citations": []}]}, f)
+        self.fetcher._paper_states = {}
+        self.fetcher._checkpoint_paper(self.p1, [_cit(1)])
+        self.fetcher._checkpoint_paper(self.p1, [_cit(1)])   # 同一篇再调一次
+        with open(self.fetcher.out_json, encoding="utf-8") as f:
+            payload = json.load(f)
+        counts = {p["pub"].get("title"): len(p["citations"]) for p in payload["papers"]}
+        self.assertEqual(counts, {"Paper One": 1, "Paper Two": 0})
+
     def test_paper_order_changes_are_reported(self):
         old = AuthorProfile(publications=[
             {"no": 1, "title": "Paper One", "url": "https://a/1"},

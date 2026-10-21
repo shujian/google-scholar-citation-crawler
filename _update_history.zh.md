@@ -3088,3 +3088,20 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
 - **坑**：`scholarly_session.py` 本身不 import bs4，字符串分支第一次写成了裸 `BeautifulSoup(...)`，
   被 `except Exception` 吞掉 → 永远返回 False。改成函数内惰性 import，并用真实拦截页验证（True）。
 - **测试**：`BlockRedirectTests` 增 3 例（机器人页抛 block、普通页不算、evidence 带 `robot_check`）。
+
+### 2026-10-21：放慢节奏（30% 等待 + 每 100 请求休 2 h）+ 每篇写入产物
+
+- **背景**：换代理前 Scholar 对 `/scholar?cites=` 减量发放（满页比例 08h 17 次 → 12h 0 次），
+  而一次抓取的请求 60–83% 是 Cite 对话框。用户定的方案是"拿时间换安全"。
+- **① 等待比例**：`DETAIL_PAGE_DELAY_FACTOR` 0.1 → **0.3**，即 45–90 s 的页面等待对应
+  13.5–27 s 的对话框 / 详情页等待。`--accelerate` 仍相乘。
+- **② 长休**：新增 `LONG_REST_EVERY_REQUESTS = 100` / `LONG_REST_SECONDS = 2h`；
+  `long_rest_due(ctx)` 按 `total_page_count`（所有请求，不只列表页）判定，命中就睡并打一行
+  `Long rest after N requests (2.0 h)...`；0 可关。原有的"每 8–12 页休 3–6 分钟"保留。
+- **③ 按论文写入**：`_checkpoint_paper` 现在把该篇的 `pub` / `citations` / `_fetch_state` 写进
+  `author_<ID>_paper_citations.json` 本身（复用 `citation_index`，其余论文原样），原子写、
+  失败只告警。产物每篇都最新 → 硬中断后可直接续跑；与已删除的 `*.partial.json` 不同，
+  写的是下游真正读的那份文件。
+- **测试**：`LongRestTests` 3 例（每 100 次 2 h / `--accelerate` 缩放 / 0 关闭）；
+  `test_checkpoint_handoff` 增 2 例（每篇进产物、同篇重复调用幂等）；延时断言改为 13.5–27 s。
+  阶段 1 715 例、六套 2,617 例全绿。

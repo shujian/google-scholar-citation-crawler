@@ -864,12 +864,16 @@ class DetailPathDelayTests(FetcherTestCase):
             self._recorded_scale(self.DETAIL_PAGE_URL),
             0.5 * DETAIL_PAGE_DELAY_FACTOR)
 
-    def test_effective_seconds_are_a_tenth_of_the_normal_range(self):
-        """4.5-9 s/request for the detail paths, 45-90 s for the rest."""
+    def test_effective_seconds_are_thirty_percent_of_the_normal_range(self):
+        """13.5-27 s/request for the detail paths, 45-90 s for the rest.
+
+        用户定的是 30%：Cite 对话框一次抓取要打几千次，间隔太短是"被拉黑"的主因。
+        """
         from code.config import DELAY_MAX, DELAY_MIN
 
-        self.assertAlmostEqual(DELAY_MIN * DETAIL_PAGE_DELAY_FACTOR, 4.5)
-        self.assertAlmostEqual(DELAY_MAX * DETAIL_PAGE_DELAY_FACTOR, 9.0)
+        self.assertAlmostEqual(DETAIL_PAGE_DELAY_FACTOR, 0.3)
+        self.assertAlmostEqual(DELAY_MIN * DETAIL_PAGE_DELAY_FACTOR, 13.5)
+        self.assertAlmostEqual(DELAY_MAX * DETAIL_PAGE_DELAY_FACTOR, 27.0)
         self.assertAlmostEqual(
             self._recorded_scale(self.CITE_DIALOG_URL),
             self._recorded_scale('/scholar?cites=123') * DETAIL_PAGE_DELAY_FACTOR)
@@ -908,6 +912,43 @@ class DetailPathDelayTests(FetcherTestCase):
         # Imported, never re-declared: one definition in code.config.
         self.assertIsNone(
             re.search(r'^DETAIL_PAGE_DELAY_FACTOR\s*=', session_source, re.M))
+
+
+class LongRestTests(FetcherTestCase):
+    """每 100 次请求强制休息 2 小时（用户定），口径是请求总数而不是页数。"""
+
+    def test_every_hundredth_request_rests_two_hours(self):
+        from code.config import LONG_REST_EVERY_REQUESTS, LONG_REST_SECONDS
+        from code.scholarly_session import long_rest_due
+
+        ctx = self.fetcher._session_ctx
+        ctx.delay_scale = 1.0
+        for count, expected in (
+                (LONG_REST_EVERY_REQUESTS - 1, 0.0),
+                (LONG_REST_EVERY_REQUESTS, float(LONG_REST_SECONDS)),
+                (LONG_REST_EVERY_REQUESTS + 1, 0.0),
+                (LONG_REST_EVERY_REQUESTS * 3, float(LONG_REST_SECONDS))):
+            ctx.total_page_count = count
+            self.assertAlmostEqual(long_rest_due(ctx), expected,
+                                   msg="total_page_count=%d" % count)
+
+    def test_accelerate_scales_the_rest(self):
+        from code.config import LONG_REST_EVERY_REQUESTS, LONG_REST_SECONDS
+        from code.scholarly_session import long_rest_due
+
+        ctx = self.fetcher._session_ctx
+        ctx.total_page_count = LONG_REST_EVERY_REQUESTS
+        ctx.delay_scale = 0.1
+        self.assertAlmostEqual(long_rest_due(ctx), LONG_REST_SECONDS * 0.1)
+
+    def test_zero_turns_it_off(self):
+        from unittest import mock
+        from code.scholarly_session import long_rest_due
+
+        ctx = self.fetcher._session_ctx
+        ctx.total_page_count = 100
+        with mock.patch('code.scholarly_session.LONG_REST_EVERY_REQUESTS', 0):
+            self.assertEqual(long_rest_due(ctx), 0.0)
 
 
 class CiteDialogRefererTests(FetcherTestCase):
