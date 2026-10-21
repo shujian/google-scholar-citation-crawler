@@ -3037,3 +3037,18 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
 - **改动**：`write_product()` 记 `_save_json_written`；`_report_saved_state()` 三态：
   完全写完 / 产物已写但被停在对话框重写（说明对话框在缓存里、下一轮进产物）/ 产物没写。
 - **测试**：`test_checkpoint_handoff` 新增 1 例（产物已写时不得出现 "may be one run behind"）。
+
+### 2026-10-21：删除 `author_<ID>_paper_citations.partial.json`
+
+- **用户决定**（B 方案）：去掉全量快照。理由核对：全仓无人读它（阶段 2 只看 baseline），
+  且它**不带 `_fetch_state`**（`load_paper_states()` 缺它就给空状态）→ 当不了续跑账本，
+  却每篇重写 ~10 MB（241 篇 ≈ 2.4 GB/轮）。
+- **改动**：删 `partial_json` / `_write_partial_product()` / `_checkpoint_generation()`；
+  `_checkpoint_paper()` 只写该篇 meta + cite 文件；`_save_output()` 不再写快照；
+  `_report_saved_state()` 不再列 snapshot；`_resume_product_path()` 删除，续跑/索引/
+  `has_cite_format_work()` 一律读 `paper_citations.json`。
+- **代价**：硬中断（kill -9/断电）后本轮已抓的论文下一轮重走一遍 —— 引用行仍在各篇
+  `citations_meta.json` 与产物里，丢的是 crawler 的抓取状态。
+- **测试**：`test_checkpoint_handoff` 改为断言"每篇只写 meta、不再产生 partial"、"收尾只有产物"；
+  删掉两个从快照续跑的用例。701 例全绿。
+- **文档**：AGENTS / README / 阶段 2 的 AGENTS / TO_RUN / KNOWN_ISSUES(K154 ③) 同步。

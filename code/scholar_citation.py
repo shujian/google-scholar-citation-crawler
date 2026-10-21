@@ -193,10 +193,9 @@ class PaperCitationFetcher:
         self.profile_json = os.path.join(output_dir, f"author_{author_id}_profile.json")
         self.out_json = os.path.join(output_dir, f"author_{author_id}_paper_citations.json")
         self.out_xlsx = os.path.join(output_dir, f"author_{author_id}_paper_citations.xlsx")
-        # 阶段性交接（2026-10-19 用户要求）：每处理完一篇就把该篇的 meta/cite 与一份
-        # partial 产物落盘；阶段 2 可只消费已完成论文，不必等整轮 8 小时。
-        self.partial_json = os.path.join(
-            output_dir, f"author_{author_id}_paper_citations.partial.json")
+        # 阶段性交接（2026-10-19 用户要求）：每处理完一篇就把**该篇**的 meta / cite 文件落盘。
+        # 曾经还在这一步写一份 `*.partial.json` 全量快照；2026-10-21 用户决定去掉（见 AGENTS.md）：
+        # 下游没有人读它，而它不带 `_fetch_state`，当不了续跑账本，代价却是每篇重写 ~10 MB。
         self._checkpoint_entries = {}
         self._checkpointed = set()
         # 只在**真实主循环**里启用：直接调 `_save_output()` 的测试不应在仓库根留下 partial 文件
@@ -1002,7 +1001,7 @@ class PaperCitationFetcher:
             # output state.  Without loading it here every paper with citations
             # looks 'missing', so the "no changes → skip the citation phase"
             # shortcut could never fire.
-            self._paper_states = _os_load_paper_states(self._resume_product_path())
+            self._paper_states = _os_load_paper_states(self.out_json)
         with open(self.profile_json, 'r', encoding='utf-8') as f:
             profile = json.load(f)
         publications = profile.get('publications', [])
@@ -1027,10 +1026,10 @@ class PaperCitationFetcher:
         """
         if not getattr(self, 'cite_formats', False):
             return False
-        if not os.path.exists(self._resume_product_path()):
+        if not os.path.exists(self.out_json):
             return True
         try:
-            with open(self._resume_product_path(), 'r', encoding='utf-8') as f:
+            with open(self.out_json, 'r', encoding='utf-8') as f:
                 data = json.load(f)
         except (OSError, ValueError):
             return True
@@ -1288,19 +1287,9 @@ class PaperCitationFetcher:
             except OSError:
                 return "missing"
 
-        done = ""
-        try:
-            with open(self.partial_json, encoding="utf-8") as f:
-                snapshot = json.load(f)
-            count = len(snapshot.get("completed_papers") or [])
-            done = f", {count} paper(s) done" if count else ""
-        except (OSError, ValueError):
-            pass
         cite_cache = os.path.join(self.output_dir, _cite_format.CACHE_FILENAME)
         run_log.warn("Interrupted — what is on disk now:", module="run")
         run_log.info(f"product: {self.out_json} ({stamp(self.out_json)})",
-                     module="run", indent=1)
-        run_log.info(f"snapshot: {self.partial_json} ({stamp(self.partial_json)}{done})",
                      module="run", indent=1)
         run_log.info(f"cite cache: {cite_cache} ({stamp(cite_cache)})",
                      module="run", indent=1)
@@ -1319,8 +1308,8 @@ class PaperCitationFetcher:
                          f"product next run", module="run", indent=1)
         else:
             run_log.warn(f"saving stopped at '{self._save_stage or 'start'}' **before** the "
-                         f"product was written — it may be one run behind; the newer of "
-                         f"product/snapshot is the resume state for the next run",
+                         f"product was written — it may be one run behind; the per-paper "
+                         f"citations_meta.json files are the only record of this run",
                          module="run", indent=1)
 
     def _run_main_loop(self, publications, cache_status, url_map, need_fetch, results, fetch_idx):
@@ -1945,37 +1934,12 @@ class PaperCitationFetcher:
             run_log.warn(f"baseline snapshot failed: {type(exc).__name__}: {exc}",
                          module="output", indent=1)
 
-    def _resume_product_path(self):
-        """正式产物与 partial 快照里**较新的那个** —— 续跑状态的真实来源。
-
-        2026-10-20 用户：一次中断可能只更新了 partial（保存阶段被打断），而旧版只读
-        `paper_citations.json`，于是下次运行把已经抓过的论文又抓一遍。
-        """
-        cached = getattr(self, '_resume_path_cache', None)
-        if cached:
-            return cached
-        path = self.out_json
-        if os.path.exists(self.partial_json):
-            try:
-                if os.path.getmtime(self.partial_json) > os.path.getmtime(self.out_json):
-                    path = self.partial_json
-            except OSError:
-                path = self.out_json
-        if path != self.out_json:
-            run_log.warn(f"Resuming from the newer snapshot "
-                         f"{os.path.basename(self.partial_json)} "
-                         f"({os.path.basename(self.out_json)} is older); the "
-                         f"consolidated output is rewritten at the end",
-                         module="run")
-        self._resume_path_cache = path
-        return path
-
     def _checkpoint_previous_by_title(self):
         """上一版产物按标题索引（与 `_save_output` 同一来源），只读一次。"""
         if self._checkpoint_prev is not None:
             return self._checkpoint_prev
         prev = {}
-        path = self._resume_product_path()
+        path = self.out_json
         if os.path.exists(path):
             try:
                 with open(path, "r", encoding="utf-8") as f:
@@ -1988,61 +1952,6 @@ class PaperCitationFetcher:
                 prev = {}
         self._checkpoint_prev = prev
         return prev
-
-    def _checkpoint_generation(self):
-        profile = getattr(self, "_profile_data", None) or {}
-        return profile.get("fetch_time") or ""
-
-    def _write_partial_product(self, partial=True, entries=None):
-        """把**完整 schema** 的当前快照写成阶段 2 可直接读取的产物（无需改阶段 2）。
-
-        每篇处理完后调用一次：已完成论文用本轮结果，未处理的论文沿用上一版产物里的
-        引文（第一次运行则暂时为空），所以 `papers` 始终是全部 241 篇 —— 阶段 2 的
-        启动校验（输入每篇都要有目录）可以照常通过，不需要 `pending` 之类的新协议。
-        另外带 `partial` / `generation` / `completed_papers` 供人判断进度。
-        """
-        publications = self._checkpoint_publications or []
-        if not publications:
-            return
-        prev = self._checkpoint_previous_by_title()
-        built = []
-        if entries is not None:
-            built = list(entries)
-        else:
-            results = self._checkpoint_results or []
-            for i, pub in enumerate(publications):
-                result = results[i] if i < len(results) else None
-                title = (pub or {}).get("title", "")
-                if result is not None:
-                    citations = result.get("citations") or []
-                else:
-                    citations = ((prev.get(title) or {}).get("citations") or [])
-                citations = list(citations)
-                built.append({
-                    "pub": PubInfo.from_dict(pub).to_dict() if pub else {},
-                    "citations": citations,
-                })
-            assign_entry_indices(built, prev)
-        payload = {
-            "author_id": self.author_id,
-            "papers": built,
-            "fetch_time": datetime.now().isoformat(),
-            "partial": bool(partial),
-            "generation": self._checkpoint_generation(),
-            "completed_papers": [
-                (entry.get("pub") or {}).get("no")
-                for entry in built
-                if isinstance((entry.get("pub") or {}).get("no"), int)
-            ] if entries is not None else [
-                (pub or {}).get("no")
-                for i, pub in enumerate(publications)
-                if i < len(self._checkpoint_results or [])
-                and (self._checkpoint_results or [])[i] is not None
-                and isinstance((pub or {}).get("no"), int)
-            ],
-        }
-        write_json_atomic(self.partial_json, payload,
-                          ensure_ascii=False, indent=2)
 
     def _checkpoint_paper(self, pub, citations):
         """每篇处理完后的阶段性落盘：meta + cite 文件 + partial 产物。
@@ -2066,7 +1975,6 @@ class PaperCitationFetcher:
             write_citations_meta_for_pub(root, entry.get("pub") or {}, citations)
             self._checkpoint_entries[title] = entry
             self._checkpointed.add(title)
-            self._write_partial_product(partial=True)
         except Exception as exc:   # noqa: BLE001 —— 阶段性落盘绝不能挡住抓取
             run_log.warn(f"checkpoint write failed for "
                          f"{(pub or {}).get('title', '?')[:60]}: {exc}",
@@ -2157,7 +2065,7 @@ class PaperCitationFetcher:
         # 所以先把上一版按标题索引读出来（只读阶段 1 自己的文件 ✓）。
         previous_by_title = {}
         output_json = getattr(self, 'out_json', None)   # 产物路径（__init__ 里定：author_<ID>_paper_citations.json）
-        previous_path = self._resume_product_path() if output_json else None
+        previous_path = output_json if output_json else None
         if previous_path and os.path.exists(previous_path):
             try:
                 with open(previous_path, 'r', encoding='utf-8') as f:
@@ -2292,24 +2200,6 @@ class PaperCitationFetcher:
                 run_log.warn("interrupted while rewriting the product with the Cite "
                              "dialogs; the version without them is already on disk",
                              module="output", indent=1)
-
-        # 整轮结束：把 partial 交接文件也补成“全部完成”，这样阶段 2 用同一个路径
-        # 拿到的最后快照不会把已完成的论文误当成 pending。
-        if self._checkpoint_enabled:
-            try:
-                self._checkpoint_entries = {
-                    (entry.get("pub") or {}).get("title", ""): entry
-                    for entry in final_results
-                    if (entry.get("pub") or {}).get("title")
-                }
-                self._checkpoint_publications = publications
-                self._write_partial_product(partial=False, entries=final_results)
-                run_log.info(f"Saved checkpoint: {self.partial_json}",
-                             module="output", indent=1)
-                self._save_stage = "partial"
-            except Exception as e:   # noqa: BLE001
-                run_log.warn(f"could not write {self.partial_json}: "
-                             f"{type(e).__name__}: {e}", module="output", indent=1)
 
         # The Excel file is a convenience view; a failure there must not abort a
         # run whose data is already on disk.

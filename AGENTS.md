@@ -220,18 +220,18 @@ google-scholar-citation-crawler/
   （实测一次二段 Ctrl+C 让保存停在写 JSON 之前，产物还是上一轮的）。现在：
   ①`_save_output` **先**写 `author_<ID>_paper_citations.json`，**再**跑 Cite 对话框那一步
   （它是保存里最长、最易被打断的一段，只给已有引用补字段），完成后才重写一次带对话框的版本；
-  ②`run()` 用 `_save_completed` / `_save_stage`（`json` → `partial` → `xlsx` → `done`）记录
-  保存进度，中断后调 `_report_saved_state()` 打印**磁盘上实际有什么**（产物/快照/缓存的时间戳、
-  快照覆盖几篇、保存停在哪一步）；③二段 Ctrl+C 被 `finally` 捕获，不再让进程死在写 JSON 上；
+  ②`run()` 用 `_save_completed` / `_save_stage`（`json` → `xlsx` → `done`）记录保存进度，
+  中断后调 `_report_saved_state()` 打印**磁盘上实际有什么**（产物与缓存的时间戳、保存停在哪一步）；③二段 Ctrl+C 被 `finally` 捕获，不再让进程死在写 JSON 上；
   ④`__main__` 的兜底文案改为"看上面的清单"。
   **报告措辞按"产物写没写"分开**（2026-10-20）：`_save_json_written` 为真时说的是
   "产物已于 HH:MM:SS 写好，停在 Cite 对话框的重写那一步（对话框在缓存里，下一轮进产物）"，
   只有真的没写才说"可能落后一轮" —— 否则会把"产物是新的"误报成"落后一轮"。
-- **续跑读的是"产物与快照里较新的那个"**：`_resume_product_path()` 比较 `paper_citations.json`
-  与 `paper_citations.partial.json` 的 mtime，取新的那份作为续跑状态（`_paper_states`、索引分配、
-  `has_cite_format_work()`、checkpoint 索引全用它）。此前只读正式产物，于是"只更新了 partial"
-  的被中断运行会让下次把已经抓过的论文重抓一遍。产物在轮末仍会被重写成正式文件，所以这个切换
-  只影响"从哪儿读"，不产生第二份真相。
+- **续跑只读正式产物（2026-10-21 简化）**：`paper_citations.json` 是唯一的续跑状态来源
+  （`_paper_states`、索引分配、`has_cite_format_work()`、checkpoint 索引全用它）。
+  曾经的 `*.partial.json` 全量快照已**删除**：下游没有任何阶段读它，而它不带 `_fetch_state`，
+  当不了续跑账本，代价却是每篇重写 ~10 MB（241 篇 ≈ 2.4 GB/轮）。硬中断（`kill -9`/断电）
+  之后本轮已抓的论文会在下一轮重走一遍 —— 引用行仍在各篇 `citations_meta.json` 与产物里，
+  只是 crawler 的抓取状态丢了。
 - **日志文件治理**：`output/logs/` 只保留最近 **`LOG_KEEP_RUNS`（30）** 次，更早的由
   `prune_run_logs()` 在 run 开始时**移动**（绝不删除）到 `output/logs/old/`；当前 run 的日志永远保留。
   2026-10-16 首次执行：87 → 30 个（57 个进 `old/`）。

@@ -3796,3 +3796,8 @@ citations/*.json`、`cite_format_cache.json`、`curl.txt`、`logs/*.log`。
 前者不再说"可能落后一轮"。
 ② partial.json 的用途我核了一遍（见回复）：阶段 2 / 3.x / 阶段 4 都不读它，只有阶段 1 自己当
 "硬崩溃时的续跑日志"用；要不要保留等你定。
+
+**你的决定**："去掉，选 B"（删除 `*.partial.json`，`_resume_product_path` 退回只认产物）。
+
+已实现：删掉 `partial_json` / `_write_partial_product()` / `_checkpoint_generation()`；每篇只写该篇的
+`citations_meta.json` 与 cite 文件；中断报告与续跑都只认 `paper_citations.json`。
