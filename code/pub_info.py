@@ -5,7 +5,7 @@ PubInfo wraps the publication dict that appears as "pub" in the output JSON
 papers array.  It enforces a fixed set of keys and a stable field order on
 serialisation.
 
-The fields after ``citedby_url`` are additive (2026-10-14/15):
+The fields after ``citedby_url`` are additive:
 ``citation_for_view`` is the token of the publication's Scholar detail page,
 ``venue_full`` is the untruncated venue read from that page (with
 ``venue_full_source`` recording where it came from) and ``venue_key`` /

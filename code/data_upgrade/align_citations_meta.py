@@ -1,14 +1,14 @@
-"""把存量 `papers/<NNN>-<slug>/citations_meta.json` 的**主体**对齐到阶段 1（Y-9 ③）。
+"""把存量 `papers/<NNN>-<slug>/citations_meta.json` 的**主体**对齐到阶段 1。
 
-**背景**（用户 2026-10-15 定，见 `KNOWN_ISSUES.md` Y-9）：`citations_meta.json` 的**主体**
+**背景**：`citations_meta.json` 的**主体**
 （`index` / `cites_id` / 书目字段 / `venue_key*`）归**阶段 1**（抓取侧）产生，阶段 2 只读。
 写主体那半已经落地（`code/citation_index.py::write_citations_meta_for_pub`，接在 `_save_output`
-的 `write_cite_files()` 旁边）；**存量** 241 篇里的主体还是旧世代的，本工具是那一次性迁移。
+的 `write_cite_files()` 旁边）；已写好的存量主体由本工具逐篇对齐。
 
 **它做什么**：拿阶段 1 当前的抓取产物（`output/author_<ID>_paper_citations.json`）逐篇重建
 目标主体，**只重写与盘上不一致的**（内容一致时 `write_citations_meta()` 自己返回 0、不落盘 ✓）。
 
-**它不做什么**（与 Y-9 的契约一致，逐条有测试）：
+**它不做什么**（与阶段 1 写者的契约一致，逐条有测试）：
 
 * **不动下载字段**：`download_status` / `local_filename` / `fail_reason` / `size_bytes` / `_source` /
   `_page_authors` / `_discovered_pdf_url` / `_reconciled_from` 等**非主体字段原样带回** ✓
@@ -28,7 +28,7 @@
     python -m code.data_upgrade.align_citations_meta --apply         # 写 + 备份 + manifest
 
 **没有 `-p`**：这是一次**整库**迁移，而且 `-p` 的解析器 `shared/spec.py` 宿主在**阶段 2**
-（阶段 1 引它就是**向后依赖** ✗，Y-7 禁止），本工具不为了一个便利开关去引它 ✗。
+（阶段 1 引它就是**向后依赖** ✗，违反依赖方向），本工具不为了一个便利开关去引它 ✗。
 """
 
 from __future__ import annotations
@@ -104,7 +104,7 @@ def plan_papers(entries, papers_root):
                 "existed": os.path.isfile(os.path.join(paper_dir, META_NAME)),
                 "empty": not citations, "changed": 0}
         if not citations:
-            # 产物里这篇 **0 条引文**（Google 侧 0/N 的空页论文，实测 36 篇）→ 没什么可写 ✓
+            # 产物里这篇 **0 条引文**（Google 侧 0/N 的空页论文）→ 没什么可写 ✓
             plans.append(plan)
             continue
         if not rows:

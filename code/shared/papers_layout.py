@@ -1,18 +1,17 @@
 """论文目录的布局与编号（`papers_layout`）—— **跨仓库共享件，宿主 = 阶段 1**。
 
-**为什么宿主在阶段 1**（2026-10-15 用户定，见 `KNOWN_ISSUES.md` Y-6）：`papers/` 的物理位置
-已搬到阶段 1 的 `output/author_<ID>_papers/`，"论文目录的创建 / 编号 / 改名 / 归档"随之前移。
-按根 `AGENTS.md`「跨仓库共享代码」，唯一实体放**最早需要它的阶段**，阶段 2 经 `code/_shared.py`
-注入后消费同一份（`python -m code.renumber_papers` 的 CLI 仍留在阶段 2，见那边的薄模块）。
+**为什么宿主在阶段 1**：`papers/` 的物理位置在阶段 1 的 `output/author_<ID>_papers/`，
+"论文目录的创建 / 编号 / 改名 / 归档"因此归本阶段。按根 `AGENTS.md`「跨仓库共享代码」，唯一
+实体放**最早需要它的阶段**，阶段 2 经 `code/_shared.py` 注入后消费同一份
+（`python -m code.renumber_papers` 的 CLI 仍留在阶段 2）。
 
-**内容 = 原阶段 2 `code/renumber_papers.py` 的库部分，逐字搬移、语义未改**：
-`plan()` 算编号重排计划（纯函数、不碰磁盘）、`apply_plan()` 两阶段改名 + `manifest.json`、
-`merge_into()` 同作品两目录合并、
-`reconcile()` 串起来，以及 `target_dir_name()` / `norm_title()` / `dir_titles()` 等助手。
+**本模块的 API**：`plan()` 算编号重排计划（纯函数、不碰磁盘）、`apply_plan()` 两阶段改名 +
+`manifest.json`、`merge_into()` 同作品两目录合并、`reconcile()` 串起来，以及
+`target_dir_name()` / `norm_title()` / `dir_titles()` 等助手。**语义与消费方约定保持一致**。
 
 **为什么需要重排**：`papers/<NNN>-<slug>/` 里的 `NNN` 不是稳定标识 —— 阶段 1 每次抓取按
-**引用总量重新排名**，同一篇论文的 `no` 会变（实测 2026-10-08：245 个目录里 213 个的编号与
-当前输入不一致，且是互相占位的置换，如 `7<->8`、`11<->12`）。编号不跟着变会造成：`-p N` 解析到
+**引用总量重新排名**，同一篇论文的 `no` 会变（常见互占位的置换，如 `7<->8`、`11<->12`）。
+编号不跟着变会造成：`-p N` 解析到
 **另一篇论文**；阶段 2 为"新编号"新建空目录、把已下载的 PDF 白下一遍；孤儿目录越积越多。
 **身份用标题**（编号既然是排名派生就不能当身份）：归一化标题 -> 当前输入的 `no`；标题重复时用
 目录 `citations_meta.json` 的 `cites_id` 集合与候选的重叠度定夺，定不下来报歧义、不动。
@@ -53,11 +52,10 @@ def paper_meta_from_pub(pub: dict, total_collected=None) -> dict:
     """`paper_meta.json` 的**唯一构造器**（阶段 1 建目录时写、阶段 2 收集完再写一次）。
 
     字段来源全部是阶段 1 抓到的 pub（`paper_citations.json` 的 `pub`），所以两个阶段写出来的
-    形状天然一致 —— 这是 2026-10-15 用户把"创建论文目录"移到阶段 1 时定的：
-    **阶段 1 负责创建 + 写全字段**，阶段 2 只补自己才知道的 `total_collected_citations`
-    （因此两个阶段都不会覆盖对方的字段，也不再需要"读-改-写"）。
+    形状天然一致：**阶段 1 负责创建 + 写全字段**，阶段 2 只补自己才知道的
+    `total_collected_citations`（因此两个阶段都不会覆盖对方的字段，也不再需要"读-改-写"）。
 
-    2026-10-15 用户要求顺带补上两个 venue 字段（阶段 1 已经有）：
+    构造器同时写入两个 venue 字段（阶段 1 已经有）：
     `venue_full`（详情页读到的**未截断**发表地，见 `code/venue_detail.py`）与
     `venue_key` / `venue_key_source`（归一化身份键，会议=名+年份 / 期刊=缩写 / 预印本=服务器名）。
     """
@@ -137,7 +135,7 @@ ARCHIVE_DIRNAME = "old"
 def _metadata_score(paper_dir: str, pub: dict, input_citations: list) -> int:
     """同名论文的定夺打分：年份 3、发表地 2、作者 2、引用总数 1、引用条数 1。
 
-    同名不同篇最常见的情形是**同一标题的不同版本/年份**（实测：`一种适用于机器翻译的汉语分词方法`
+    同名不同篇最常见的情形是**同一标题的不同版本/年份**（例如 `一种适用于机器翻译的汉语分词方法`
     在输入里既是 2012 中文信息学报那篇、又是 2011 前沿进展那篇）。年份是这里最强的判别信号，
     发表地/作者次之；引用总数与引用条数用于打破同年的僵局。
     """
@@ -161,7 +159,7 @@ def _metadata_score(paper_dir: str, pub: dict, input_citations: list) -> int:
 def _candidate_match(paper_dir: str, title: str, papers: list) -> dict:
     """这条孤儿目录是否其实还在当前输入里（只是标题被改了）。
 
-    先比 **URL**（Google Scholar 的 citation_for_view 链接，实测有时跨世代不变，是很硬的证据），
+    先比 **URL**（Google Scholar 的 citation_for_view 链接有时跨世代不变，是很硬的证据），
     再比标题相似度：需 ≥ 0.90 且**唯一**（与次优差 ≥ 0.05），否则不猜。
     """
     import difflib
@@ -540,8 +538,8 @@ def apply_plan(plan_dict: dict, manifest_dir: str = None, log=print) -> dict:
                                         "reason": o["reason"]})
             log(f"  📦 {o['dir'][:56]} → {ARCHIVE_DIRNAME}/（当前输入里已不存在，归档保存）")
 
-        # **不再改 `progress.json`**（2026-10-15，Y-7）：那份是**阶段 2 产生的数据**，
-        # 前阶段不得回写后阶段的文件 ✗。新结构下也不需要：逐引用状态在每篇
+        # **不改 `progress.json`**：那份是**阶段 2 产生的数据**，前阶段不得回写后阶段的
+        # 文件 ✗。新结构下也不需要：逐引用状态在每篇
         # `download_progress.json`（按 `cites_id` ✓），目录改名时整棵子树跟着搬 ✓；
         # 引用编号不可变 → 没有漂移要追 ✓。阶段 2 若要按 manifest 校正自己的记录，
         # 由它自己读 manifest 处理 ✓（向前读 ✓）。
@@ -575,8 +573,8 @@ def reconcile(papers: list, base_dir: str = None, apply: bool = False, log=print
     """流程入口：算计划（+可选执行）。返回计划字典（含 applied 字段）。
 
     `manifest_dir` 一路交给 `apply_plan()` ✓ —— 调用方给了自定义 output 目录时，manifest
-    必须落在**那里**，不能默默回到默认的 `code.config.OUTPUT_DIR`（2026-10-16：测试因此把
-    `renumber_<stamp>/` 写进了仓库的 `output/`）。
+    必须落在**那里**，不能默默回到默认的 `code.config.OUTPUT_DIR`（否则测试会把
+    `renumber_<stamp>/` 写进仓库的 `output/`）。
     """
     base_dir = base_dir or _default_papers_base_dir()
     if not os.path.isdir(base_dir):

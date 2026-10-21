@@ -1,5 +1,5 @@
 """
-code/cite_format.py — All five citation formats (and BibTeX) for one citing entry.
+code/cite_format.py — All five citation formats for one citing entry.
 
 Why this module exists
 ----------------------
@@ -11,8 +11,8 @@ the row's **Cite dialog**::
     /scholar?q=info:<cid>:scholar.google.com/&output=cite&scirp=0&hl=en
 
 One request returns **all five** formatted citations — MLA, APA, Chicago, Harvard,
-Vancouver — and, in the same HTML, a *signed* link to the BibTeX download.  Two of
-those five carry what the list page cannot:
+Vancouver.  Two of those five carry what the list page cannot (Chicago gives the
+full author list and venue, Vancouver the venue plus volume/issue/pages):
 
 * **Chicago** spells every author out in full
   (``Zhang, Jie, Haoyu Bu, …, and Dan Meng.``);
@@ -32,24 +32,24 @@ What is written where
   identifies one *citing* row.
 * ``citation['cite']`` — the formats themselves, **strictly additive**:
   ``{'mla': …, 'apa': …, 'chicago': …, 'harvard': …, 'vancouver': …,
-  ``}``（BibTeX 已弃用）。  ``title``/``authors``/``venue``/``year``/``url``/``cites_id``
+  'venue_text': …, 'authors_full': …}``.  ``title``/``authors``/``venue``/``year``/
+  ``url``/``cites_id``
   are never touched (``venue`` and ``cites_id`` take part in the identity keys —
-  the same K123/K125 lesson as ``code/venue_detail.py``).
+  the same rule as ``code/venue_detail.py``).
 
 Cost and etiquette
 ------------------
-This is **one request per citing entry** (thousands for a real profile, plus one
-more per entry for BibTeX), so it is opt-in: ``--cite-formats``.  A normal run must
-not silently start paying for it.
+This is **one request per citing entry** (thousands for a real profile).  It is
+on by default because the Cite dialog is the only source of a citing paper's full
+author names and untruncated venue; ``--no-cite-formats`` opts out.
 
 Requests go through the crawler's existing patched scholarly session
-(``scholarly._Scholarly__nav._get_soup`` for the Cite dialog and
-``_get_page`` for the signed BibTeX URL — the same entry points ``scholarly``
-itself uses), so the 45–90 s waits, ``--accelerate`` scaling, captcha recovery and
-proxy prompts all keep applying.  Note that this path takes the per-request delay
-but **not** the mandatory 3–6 min break that
+(``scholarly._Scholarly__nav._get_soup`` for the Cite dialog — the same entry
+point ``scholarly`` itself uses), so the 45–90 s waits, ``--accelerate`` scaling,
+captcha recovery and proxy prompts all keep applying.  Note that this path takes
+the per-request delay but **not** the mandatory 3–6 min break that
 ``scholarly_session.patched_load_url`` applies to citation-list pagination, which
-is exactly what got the detail-page pass rate-limited on 2026-10-14 (see
+makes it the first path to hit the rate limit when run continuously (see
 ``issues.md``); the caller is expected to watch for the first blocked page and
 stop rather than push through it.
 
@@ -57,9 +57,7 @@ Resume/caching: every parsed Cite dialog is stored in
 ``output/cite_format_cache.json`` keyed by cid, so an interrupted run continues
 where it stopped and a later run re-requests nothing it already has.  A page that
 failed (request error, captcha/consent page, no format table) is **not** cached
-and is retried next run.  A page that parsed but whose BibTeX download failed is
-cached *with* its signed ``bib_url``, so the next run retries only that one
-request instead of re-fetching the page.
+and is retried next run.
 
 Skipping: a citing entry whose venue is already complete **and** whose authors are
 already spelled out in full (``code/venue_quality.citation_needs_cite_dialog``) is
@@ -95,8 +93,8 @@ FORMAT_LABELS = ('mla', 'apa', 'chicago', 'harvard', 'vancouver')
 #: `code.page_visit.RecordUnavailable`) is believed before asking again.
 #: Deliberately finite: the handle belongs to Scholar, and how it (re)builds
 #: clusters is not fully understood yet — a handle that 404s today can answer
-#: after a rebuild (measured 2026-10-16: one entry 404s reproducibly while its
-#: sibling rows answer 200 in the same minute).
+#: after a rebuild, just as one entry can 404 reproducibly while its sibling
+#: rows answer 200 in the same minute.
 UNAVAILABLE_RETRY_DAYS = 7
 
 #: Key added to a citation dict; the formats live inside it.
@@ -189,21 +187,20 @@ def parse_cite_page(source):
 
 
 # ---------------------------------------------------------------------------
-# 从格式化串里取 venue 与作者全名（用户 2026-10-15 定）
+# 从格式化串里取 venue 与作者全名
 #
-# 弃用 BibTeX 之后，未截断的 venue 与作者全名改从对话框的**带引号格式**里取：
+# 未截断的 venue 与作者全名从对话框的**带引号格式**里取：
 #   `Yi, Sibo, …, and Qi Li. "Jailbreak …: A survey." arXiv preprint arXiv:2407.04295 (2024).`
 #   ① 引号里 = 标题；② 引号之前（去掉尾部句点）= 作者；③ 收尾引号之后 = venue（剥掉尾部 `(2024).`）。
-# 没有引号的格式（APA 用斜体、Vancouver 不用引号）**不猜**：返回空，调用方保持旧行为 ——
-# 这正是当初"五种格式故意不解析"的理由（避免把标题当 venue），现在只在**能确定边界**时才解析。
+# 没有引号的格式（APA 用斜体、Vancouver 不用引号）**不猜**：返回空，调用方行为不变 ——
+# 五种格式之间没有一致的边界，只有能确定边界时才解析（避免把标题当 venue）。
 # ---------------------------------------------------------------------------
 
 #: 引号里的标题（兼容直引号与中文/弯引号）。**收尾引号取最后一个，不是第一个**：
 #: 标题本身常带引号（`On “human parity” and “super human performance”…`、
 #: `AI translation of literary texts is" fine", …`、Chicago 里被转义的 `Schr\" odinger`），
 #: 第一个 `[^”"]+` 会在这些内嵌引号处停下，把标题后半截当成 venue，再由
-#: `apply_chicago_correction()` 写回条目（2026-10-20 实测 4 条被这样截断，
-#: 下游按标题配对时就报成"缺引用"）。
+#: `apply_chicago_correction()` 写回条目，下游按标题配对时就会报成"缺引用"。
 _QUOTED_TITLE_RE = re.compile(r'[“"](?P<title>.+)[”"]')
 #: 尾部的括号年份 `(2024)` / `[2024]`，允许尾随标点
 _TRAILING_PAREN_YEAR_RE = re.compile(r'[\\(\[]\s*((?:19|20)\d{2})\s*[\\)\]]\s*[.,;]?\s*$')
@@ -235,7 +232,7 @@ def parse_format_parts(text):
 def format_extras(formats):
     """从 **Chicago** 里取 `venue_text` / `authors_full`（+ `*_source`）。
 
-    **只解析 Chicago**（用户 2026-10-15 定）：MLA / APA / Harvard / Vancouver 只是**同一份信息
+    **只解析 Chicago**：MLA / APA / Harvard / Vancouver 只是**同一份信息
     的不同显示**（作者、标题、venue、年份都在里面，顺序与标点不同而已），Chicago 已经同时给出
     作者全名与未截断的 venue，重复解析没有增量价值 —— 少一处解析就少一处把标题当 venue 的风险。
     """
@@ -258,14 +255,14 @@ _CHICAGO_CORRECTIONS = ('title', 'authors', 'venue', 'year')
 
 
 def apply_chicago_correction(citation, formats):
-    """用 Chicago 串里的信息**修正当前条目的字段**（用户 2026-10-15 定）。
+    """用 Chicago 串里的信息**修正当前条目的字段**。
 
     为什么不是"只记一笔"：Chicago 是**权威来源**，而列表页的 `title` / `authors` / `venue` /
     `year` 会被 Scholar 截断或改写；两者不一致说明**这条引用的信息已经变了**，
     所以用 Chicago 的值**更新当前条目**（返回改动字典供审计，写进 `cite['corrected']`）。
 
     边界（必须守住）：
-    * **只改这四个字段** —— `url` / `cites_id` / `cid` 一律不动（身份键，K109/K123/K128）；
+    * **只改这四个字段** —— `url` / `cites_id` / `cid` 一律不动（身份键）；
     * 标题比对复用共享件 `identity_norm_title()`，避免把大小写/标点差异当成不一致；
     * Chicago 没给的那一项**不覆盖**（保持原值）；
     * 只解析 Chicago（见 `format_extras()`），别的格式不参与。
@@ -316,7 +313,7 @@ def load_cite_cache(path):
 def save_cite_cache(path, cache):
     """Write the Cite-dialog cache atomically (a crash cannot truncate it)."""
     if isinstance(cache, dict):
-        # 2026-10-15 用户定：**弃用 BibTeX** —— 存量缓存里的 `bibtex` / `bib_url` 一并清除
+        # **BibTeX 不抓** —— 存量缓存里的 `bibtex` / `bib_url` 一并清除
         # （本模块是这两个字段唯一的写者，所以在这里拦一次就等于把旧数据清理干净；
         #  下次保存时缓存文件里就不会再出现它们）。
         for _entry in cache.values():
@@ -358,24 +355,23 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
     """Fill ``citation['cite']`` for every citation that carries a ``cid``.
 
     *get_soup* takes the relative Cite-dialog path and returns the page (soup or
-    HTML); *get_page* takes the absolute signed BibTeX URL and returns its text.
-    In production both are the patched scholarly navigator's methods, i.e. the
-    crawler's own waits/retry/captcha handling.  Without *get_page* the five
-    formats are still collected and BibTeX is simply skipped.
+    HTML); in production it is the patched scholarly navigator's method, i.e. the
+    crawler's own waits/retry/captcha handling.  *get_page* is accepted for
+    backward compatibility and is no longer used (BibTeX is not fetched).
 
     Every per-citation failure is caught and counted: a citation that cannot be
     resolved keeps whatever it had and the run continues.  Only successfully
     parsed pages are cached (failed requests are retried next run); a page whose
 
     Writing ``citation['cite']`` also refreshes the derived ``venue_key`` /
-    ``venue_key_source`` from the BibTeX venue (``journal`` / ``booktitle`` /
-    ``series``): that string is untruncated, unlike the citation-list page's
-    ``venue``.  A dialog without a venue field leaves the existing key alone.
+    ``venue_key_source`` from the dialog's venue (``cite.venue_text``, a legacy
+    ``bibtex`` field for old data): that string is untruncated, unlike the
+    citation-list page's ``venue``.  A dialog without a venue field leaves the
+    existing key alone.
 
     Returns a stats dict: ``total``, ``with_cid``, ``missing_cid``,
     ``skipped_complete``, ``cache_hits``, ``fetched``, ``unavailable``,
-    ``failed``, ``resolved``,
-    （BibTeX 已于 2026-10-15 弃用：不再有 ``bib_*`` 统计。）
+    ``failed``, ``resolved``.
     """
     citations = list(citations or [])
     stats = {
@@ -435,7 +431,7 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
                 stats['failed'] += 1
                 continue
             # 这一条施引论文的对话框是这次请求的主语：`waiting …` / 请求行都带上它，
-            # 而不是整篇被引论文（用户 2026-10-20）。取标题的规则与下面 404 那行一致。
+            # 而不是整篇被引论文。取标题的规则与下面 404 那行一致。
             _label_title = ' '.join(str(citation.get('title') or '').split())[:50]
             run_log.set_entry(f'"{_label_title or "(no title)"}"')
             try:
@@ -446,10 +442,10 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
                 parsed = parse_cite_page(page)
             except RecordUnavailable as e:
                 # The server says this record does not exist (HTTP 404/410) —
-                # not a block: remember it with a timestamp and move on.  Before
-                # 2026-10-16 this looked like a rate limit, so every run paid the
-                # full cooldown budget (20-35 min) for it, or parked the whole
-                # run on a captcha prompt, forever.
+                # not a block: remember it with a timestamp and move on.
+                # Otherwise it is indistinguishable from a rate limit, so every
+                # run would pay the full cooldown budget (20-35 min) for it, or
+                # park the whole run on a captcha prompt.
                 cache[cid] = {
                     'unavailable': True,
                     'status': getattr(e, 'status', None),
@@ -460,9 +456,8 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
                 stats['unavailable'] += 1
                 # The row's title belongs in this line: the request-level
                 # warning in page_visit only knows the URL, and the cid alone
-                # cannot be looked up once the run has not saved yet (user
-                # 2026-10-19 asked "which papers 404'd" and the log could not
-                # answer it).
+                # cannot be looked up once the run has not saved yet, so the
+                # log could not answer "which papers 404'd".
                 title = ' '.join(str(citation.get('title') or '').split())[:60]
                 print_fn(f"    [{index}/{len(citations)}] {cid} "
                          f"\"{title or '(no title)'}\" -> no Cite dialog "
@@ -514,7 +509,7 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
         if corrections:
             payload['corrected'] = corrections
         citation[CITE_FIELD] = payload
-        # The dialog's BibTeX venue is untruncated, so refresh the derived key now
+        # The dialog's venue is untruncated, so refresh the derived key now
         # that it is available; without a venue field in the dialog this falls
         # back to citation['venue'], i.e. exactly the previous behaviour.
         key, key_source = citation_venue_key(citation)

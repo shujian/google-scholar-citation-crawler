@@ -420,7 +420,7 @@ class FetchStallTests(unittest.TestCase):
         self.assertEqual((fs.stall_signature, fs.stall_count), (None, 0))
 
     def test_one_full_walk_is_enough_by_default(self):
-        """STALL_AFTER_ATTEMPTS == 1 (2026-10-19 用户定：抓过一遍还不够就判死)."""
+        """STALL_AFTER_ATTEMPTS == 1（抓过一遍还不够就判死）."""
         fs = self._direct_state()
         fs.record_fetch_outcome()
         self.assertTrue(fs.is_stalled())

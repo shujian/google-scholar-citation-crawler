@@ -254,7 +254,7 @@ class PaperFetchState:
         return is_data_complete(strategy, summary)
 
     def _has_year_probe(self):
-        """有没有**真实 probe 的年证据**（K78 残留的收口，2026-10-16）。
+        """有没有**真实 probe 的年证据**。
 
         判据：某年的 `histogram_count > 0`，或汇总里的 `histogram_total > 0`
         （**只用这两个字段** —— 它们确实存在于持久化形状里；`probed_year_counts` 会被
@@ -262,7 +262,7 @@ class PaperFetchState:
         `year_fetch_diagnostics`（direct 模式由缓存反推、每年 `histogram_count` 均为 0 ✗），
         所以"只要有 year 诊断就推断 year"会把**缺 `fetch_strategy` 的 direct 快照**读成年模式
         → `is_data_complete('year')` 拿 `seen ≥ histogram_total(0)` 判为**完整** ✗
-        → 剩余引用永远不会补抓（K78 的实测机理）。加上这一条之后，那种坏形状退化成
+        → 剩余引用永远不会补抓。加上这一条之后，那种坏形状退化成
         `strategy is None` → `is_complete() == False` → **重新抓**（安全方向 ✓）。
         """
         for record in (self.year_records or []):
@@ -364,8 +364,7 @@ class PaperFetchState:
 
         "Same result" means `stall_after_attempts` **full walks** in a row
         obtained the same number of rows (`visited_every_page()` decides what
-        counts as a full walk).  The default is 1 (2026-10-19 用户定: one full walk
-        that still comes up short is enough), so a paper is parked as soon as
+        counts as a full walk).  The default is 1, so a paper is parked as soon as
         its first completed walk lands short.  Scholar's own counts are not part
         of that comparison, so a paper whose listing simply does not contain the
         citations Scholar claims is parked even though it still looks
@@ -521,10 +520,10 @@ def _normalize_year_records(data):
     `short_attempts` / `stalled` / `stalled_probe` are carried through: they are
     what lets a year that the listing cannot fill stop being re-scanned
     (`citation_fetch._stall_now`, `citation_cache.year_record_effective_histogram`).
-    This rebuild used to keep only the six counting fields, so the K151 year-level
-    rule was write-only — every run reloaded `short_attempts = 0`, never re-scanned
-    from page 1, never marked the year stalled, and the paper was walked again on
-    every run (2026-10-19).
+    The rebuild must carry every field the year-level rule reads: dropping them
+    would make the rule write-only — every run would reload `short_attempts = 0`,
+    never re-scan from page 1, never mark the year stalled, and walk the paper
+    again on every run.
     """
 
     def _record(item, year):
@@ -566,14 +565,14 @@ def _normalize_year_records(data):
 def resync_year_record_counts(year_records, citations):
     """Make each year record's row counts describe *citations* (the stored rows).
 
-    2026-10-19 用户定：去重只改变"行怎么分组"，绝不改变"已经抓了多少" ——
+    去重只改变"行怎么分组"，绝不改变"已经抓了多少" ——
     `seen_total` 是抓取时写下的事实、也是完整性判据唯一看的字段，**保持不动**；
     `cached_total` 改成这个年份**实际存下来的行数**，差额并入 `dedup_count`，让
     `cached_total + dedup_count == seen_total` 对着磁盘上的数据成立。
 
     为什么需要：输出级去重（`_dedup_citations_for_output`）会从 citations 里删掉重复行，
     而 per-year 记录是抓取时的快照 —— 不重算的话，文件里 1,377 行、记录却声称 1,379 行，
-    某一年会比实际"满"一条（实测 2026 记着 71、实际 69）。完整性判据不受影响，因为
+    某一年会比实际"满"一条（例如记录 71、实际 69）。完整性判据不受影响，因为
     `seen_total` 没动；变的只是"这一年到底存了几行"。
 
     Returns *year_records* (mutated in place) so callers can chain.

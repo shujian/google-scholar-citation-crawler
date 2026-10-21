@@ -1,18 +1,17 @@
 """引用**身份键**的唯一实体（跨仓库共享，宿主＝阶段 1）。
 
-**为什么宿主在阶段 1**（`KNOWN_ISSUES.md` Y-7 + K144）：`citations_meta.json` 的**主体**
-（含 `cites_id`）自 2026-10-16 起由阶段 1 产出（Y-9）—— 而"没有真实 `cites_id` 的条目该用什么键"
-正是这份文件里的规则，所以它必须跟着数据产生者走 ✓。此前它只存在于阶段 2 的 `code/utils.py`
-（键的**最早**使用者），阶段 2 的 `build_index_map()` / `progress` / 一次性迁移工具都依赖它。
+**为什么宿主在阶段 1**：`citations_meta.json` 的**主体**（含 `cites_id`）由阶段 1 产出，
+而"没有真实 `cites_id` 的条目该用什么键"正是这份文件里的规则，所以它必须跟着数据产生者走 ✓。
+阶段 2 的 `build_index_map()` / `progress` / 一次性迁移工具也消费同一份实现。
 
-**内容 = 阶段 2 `code/utils.py` 里那一簇逐字搬移**（`normalize_url_for_key` / `url_fingerprint` /
-`normalize_title_for_key` / `first_author_surname` / `is_real_cites_id` / `citation_disambiguator` /
-`paper_dir_slug` / `_paper_meta_fields` / `paper_identity_key` / `synthetic_cites_id` /
-`synthetic_keys_for` / `resolve_cites_id` / `extract_doi` / `extract_arxiv_id`），
-**一个字符都没改** ✗ —— 键的每个字节都被写进了 `download_progress.json` 与下游产物，改语义等于
-让存量漂移。阶段 2 的 `code/utils.py` 现在是"再导出 + 其余工具函数"的薄壳 ✓。
+本模块实现（`normalize_url_for_key` / `url_fingerprint` / `normalize_title_for_key` /
+`first_author_surname` / `is_real_cites_id` / `citation_disambiguator` / `paper_dir_slug` /
+`_paper_meta_fields` / `paper_identity_key` / `synthetic_cites_id` / `synthetic_keys_for` /
+`resolve_cites_id` / `extract_doi` / `extract_arxiv_id`）**不能改语义** ✗ —— 键的每个字节都被
+写进了 `download_progress.json` 与下游产物，改语义等于让存量漂移。阶段 2 的 `code/utils.py`
+只做"再导出 + 其余工具函数"。
 
-键的形态（用户 2026-10-13 / 2026-10-15 定的口径，见根 `AGENTS.md`）：
+键的形态（见根 `AGENTS.md`）：
 `no_id:<归一化被引标题>|<年份>|<首作者姓>`，同基础键多条再追加
 `#doi:…` / `#arxiv:…` / `#url:<sha8>`，全缺才退 `#pos<组内序号>`（并告警）。
 **键里不含输入下标、不含源论文段** —— 论文重排 / 引文倒序 / 上游增删都不改键 ✓。
@@ -72,7 +71,7 @@ def normalize_title_for_key(text):
     """归一化标题（**Unicode 安全**）：只留字母/数字/CJK 等 word 字符并小写。
 
     `re.UNICODE` 下 `\\W` 保留中文/日文/韩文等字母，所以 `相似度增强` 不会被清空
-    （过去用 `[^a-z0-9]` 会把中文标题清成空串 —— 那种"所有中文标题彼此相等"的坑见
+    （用 `[^a-z0-9]` 会把中文标题清成空串 —— 那种"所有中文标题彼此相等"的坑见
     `repair_citation_filenames` 的注释）。
     """
     return re.sub(r"[\W_]+", "", str(text or "").lower(), flags=re.UNICODE)
@@ -163,7 +162,7 @@ def _paper_meta_fields(paper_dir):
 def paper_identity_key(paper_data=None, paper_dir=None, paper_index=None):
     """源论文的**稳定标识**（合成键的第一段）—— **绝不用它在输入里的下标**。
 
-    回退链（用户 2026-10-13 定的口径）：
+    回退链：
       ① 该论文在输入里的 URL（`normalize_url_for_key()`：去 scheme/末尾斜杠/跟踪参数）→ `url:…`
       ② 该论文自身的 `cites_id` → `cites:…`
       ③ 归一化论文标题（`normalize_title_for_key()`）→ `title:…`
@@ -196,7 +195,7 @@ def paper_identity_key(paper_data=None, paper_dir=None, paper_index=None):
 
 
 def synthetic_cites_id(cit, paper_key=None):
-    """合成键的**基础形态**（2026-10-15 用户定：**不带源论文标识**）。
+    """合成键的**基础形态**（**不带源论文标识**）。
 
     `no_id:<归一化标题>|<年份>|<首作者姓>`
 
@@ -225,7 +224,7 @@ def synthetic_keys_for(entries, paper_key, on_fallback=None):
     这是"与列表位置无关"的落点，**下载器与一次性迁移工具共用同一份实现**，保证两边算出的键
     逐字相同：
 
-    * 基础键相同的多条（同标题 + 同作者 + 同年 —— 实测"出版社页 vs arXiv 预印本"就是这种）
+    * 基础键相同的多条（同标题 + 同作者 + 同年 —— 例如"出版社页 vs arXiv 预印本"）
       一律追加**与位置无关**的消歧项：DOI → arXiv id → 归一化 URL 短哈希；
     * 消歧项缺失或**彼此相同**（连 URL 都相同/缺失）时才退到 `#pos<组内序号>`（0 起），
       并通过 `on_fallback(i, entry)` 告警 —— 这是最后手段，位置一变键就变。

@@ -1,6 +1,6 @@
-"""从对话框的**带引号格式**里取 venue 与作者全名（用户 2026-10-15 定）。
+"""从对话框的**带引号格式**里取 venue 与作者全名。
 
-弃用 BibTeX 之后，这两样东西改从 Chicago（缺则 MLA）里解析：
+BibTeX 不抓；这两样东西从 Chicago（缺则 MLA）里解析：
 
     Yi, Sibo, … , and Qi Li. "Jailbreak …: A survey." arXiv preprint arXiv:2407.04295 (2024).
     └──── 作者（引号之前）────┘ └── 标题 ──┘ └──────── venue（收尾引号之后）───────┘
@@ -55,7 +55,7 @@ class ParseFormatPartsTests(unittest.TestCase):
         self.assertEqual(parse_format_parts(''), {})
 
     def test_only_chicago_is_parsed(self):
-        """MLA / APA / Vancouver 是同一份信息的别的显示，不重复解析（用户 2026-10-15）。"""
+        """MLA / APA / Vancouver 是同一份信息的别的显示，不重复解析。"""
         extras = format_extras({'chicago': EXAMPLE,
                                 'mla': 'Yi, Sibo. "Something else." Other 2020.'})
         self.assertEqual(extras['venue_source'], 'chicago')
@@ -98,7 +98,7 @@ if __name__ == '__main__':
 
 
 class ChicagoCorrectionTests(unittest.TestCase):
-    """Chicago 是权威来源：不一致就用它**修正**当前条目的四个字段（用户 2026-10-15）。
+    """Chicago 是权威来源：不一致就用它**修正**当前条目的四个字段。
 
     身份字段（`url` / `cites_id` / `cid`）一律不动；标题只差大小写/标点不算不一致。
     """
@@ -161,9 +161,9 @@ class ChicagoCorrectionTests(unittest.TestCase):
 
 
 class TitleWithEmbeddedQuotesTests(unittest.TestCase):
-    """标题自带引号时，收尾引号必须取**最后一个**（2026-10-20）。
+    """标题自带引号时，收尾引号必须取**最后一个**。
 
-    实测 4 条被非贪婪匹配截断（`title` 只剩前半截、后半截进了 `venue`），
+    非贪婪匹配会在内嵌引号处截断（`title` 只剩前半截、后半截进了 `venue`），
     再由 `apply_chicago_correction()` 写回条目 —— 下游按标题配对时报成"缺引用"。
     """
 

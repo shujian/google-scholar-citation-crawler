@@ -65,7 +65,7 @@ class CanonicalNameTests(unittest.TestCase):
             'Findings of EMNLP2024')
 
     def test_a_findings_volume_without_a_host_is_findings_of_acl(self):
-        """There is no bare "Findings" venue (2026-10-15 user)."""
+        """There is no bare "Findings" venue."""
         self.assertNotIn('Findings', VENUE_CANONICAL)
         self.assertEqual(
             venue_key('Findings of the Association for Computational Linguistics 2023'),
@@ -124,7 +124,7 @@ class CanonicalNameTests(unittest.TestCase):
             'TACL')
 
     def test_journals_have_no_year_in_their_key(self):
-        """A journal is a continuous venue, not a yearly edition (2026-10-15)."""
+        """A journal is a continuous venue, not a yearly edition."""
         self.assertEqual(
             venue_key('IEEE/ACM Transactions on Audio, Speech, and Language Processing 28, '
                       '1707-1716, 2020'),
@@ -231,7 +231,7 @@ class KeyShapeTests(unittest.TestCase):
 
 
 class CiteDialogVenueTests(unittest.TestCase):
-    """A citing entry prefers the Cite dialog's BibTeX venue over the list page."""
+    """A citing entry prefers the Cite dialog's venue over the list page."""
 
     def test_bibtex_journal_wins_over_the_list_page_venue(self):
         citation = {'venue': 'Proceedings of the 2025 …', 'year': '2025',
@@ -268,19 +268,19 @@ class CiteDialogVenueTests(unittest.TestCase):
                 self.assertEqual(citation_venue_key(citation), ('ACL2024', SOURCE_NORMALIZED))
 
     def test_the_formatted_strings_are_deliberately_not_parsed(self):
-        """Only BibTeX names the venue unambiguously; the rest embed the title."""
+        """The explicit venue field is unambiguous; the formatted strings embed the title."""
         citation = {'venue': 'Proceedings of the 2025 …', 'year': '2025',
                     'cite': {'mla': 'Zhang, Jie, et al. "T." Cybersecurity 8.1 (2025): 55.',
                              'apa': 'Zhang, J. (2025). T. Cybersecurity, 8(1), 55.',
                              'chicago': 'Zhang, Jie. "T." Cybersecurity 8 (2025): 55.',
                              'vancouver': 'Zhang J. T. Cybersecurity. 2025;8(1):55.'}}
         self.assertEqual(cite_dialog_venue(citation), (None, None))
-        # 列表页那个串被 Scholar 截断 → **不给 key** ✓（用户 2026-10-15：截断串不能当去重键）
+        # 列表页那个串被 Scholar 截断 → **不给 key** ✓（截断串不能当去重键）
         self.assertEqual(citation_venue_key(citation), (None, None))
 
     def test_a_truncated_venue_only_resolves_through_the_explicit_table(self):
-        """① 截断一律不给 key，③ 只有显式登记的"唯一可判定前缀"才还原（用户 2026-10-15）。"""
-        # 同一个截断前缀在现实里指向多个发表地 → 没有 key（这是 564 条 `Proceedings of the …` 的处境）
+        """① 截断一律不给 key，③ 只有显式登记的"唯一可判定前缀"才还原。"""
+        # 同一个截断前缀在现实里指向多个发表地 → 没有 key（这是大量 `Proceedings of the …` 的处境）
         for ambiguous in ('Proceedings of the …', 'Findings of the …',
                           'IEEE Transactions on …', 'International Conference on …'):
             with self.subTest(venue=ambiguous):
@@ -302,10 +302,10 @@ class CiteDialogVenueTests(unittest.TestCase):
                          ('Journal of Obscure Studies 1 (2), 2019', SOURCE_RAW))
 
     def test_refresh_venue_keys_recomputes_cached_rows(self):
-        """序列化前统一重算派生键（`refresh_venue_keys`，2026-10-15）。
+        """序列化前统一重算派生键（`refresh_venue_keys`）。
 
         缓存恢复的行不带这两个字段，照抄会让上一轮从 Cite 对话框拿到的键在一次重抓后
-        静默消失（实测 meta 侧被抹掉 7,901 条）。
+        静默消失。
         """
         from code.citation_identity import refresh_venue_keys
         rows = [
@@ -408,9 +408,9 @@ class WiringTests(unittest.TestCase):
 
 
 class AmpersandFoldingTest(unittest.TestCase):
-    """`&` 与 `and` 同义（2026-10-16）。
+    """`&` 与 `and` 同义。
 
-    真库里 `IEEE Transactions on Knowledge & Data Engineering 35, no. 10 (2023): 1`
+    `IEEE Transactions on Knowledge & Data Engineering 35, no. 10 (2023): 1`
     本该命中 `TKDE`，却因为 `&` 落到 `raw` ✗ —— 只在**匹配**时折叠，原串一字不改 ✓。
     """
 

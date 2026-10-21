@@ -129,10 +129,10 @@ class NoEnvConfigTests(unittest.TestCase):
 class SubdirectoryCoverageTests(unittest.TestCase):
     """守卫必须真的**报出**子目录里的违规，而不只是把它们枚举出来。
 
-    回归（2026-10-14）：`code/` 下新增了 `data_upgrade/`（一次性数据修复/升级工具）。
-    守卫原先只 `os.listdir(CODE_DIR)` 顶层，模块一搬进子目录就**不再被扫描** ——
-    覆盖面静默缩小，正是"禁止读环境变量"这条边界最不该出现的情况。
-    这里在**临时目录**上钉住递归行为（不留长期夹具文件）。
+    `code/` 下有 `data_upgrade/`（一次性数据修复/升级工具）等子目录。守卫若只
+    `os.listdir(CODE_DIR)` 顶层，模块一搬进子目录就**不再被扫描** —— 覆盖面静默缩小，
+    正是"禁止读环境变量"这条边界最不该出现的情况。这里在**临时目录**上钉住递归行为
+    （不留长期夹具文件）。
     """
 
     def setUp(self):

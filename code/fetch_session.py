@@ -37,7 +37,7 @@ class BatchFetchSession:
     _start_index: int = 0
     _finished: bool = False
     _termination_reason: str = ""
-    # 走完却明显少于应有条数时，本轮**再走一次**（2026-10-21 用户定）；这里记下是否已经重走过，
+    # 走完却明显少于应有条数时，本轮**再走一次**；这里记下是否已经重走过，
     # 让调用方在"两次结果一样"时按 stall 处理，而不是继续重走。
     _short_walk_retried: bool = False
 
@@ -120,10 +120,10 @@ class BatchFetchSession:
         *iterator* is for initial fetch only; retries create their own.
         *max_retries* controls automatic retries (captcha + transient errors).
         *min_rows* (year mode): rows this walk is expected to touch.  A walk that
-        ends "exhausted" well below it looks like a truncated response (measured
-        2026-10-21: a page came back with 3 rows and no next link while the year
-        held 220), so it is re-walked **once**; the caller turns two identical
-        results into the usual `stalled` verdict.
+        ends "exhausted" well below it looks like a truncated response (a page can
+        come back with 3 rows and no next link while the year holds 220), so it is
+        re-walked **once**; the caller turns two identical results into the usual
+        `stalled` verdict.
         Returns self (for chaining).
         """
         attempt = 0

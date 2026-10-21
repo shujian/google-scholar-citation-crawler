@@ -21,10 +21,9 @@ from code.log_utils import run_log
 
 #: HTTP statuses that mean "this record does not exist", as opposed to
 #: "you are blocked / rate-limited".  404 is what Scholar answers for a Cite
-#: dialog whose cluster handle it does not serve (measured 2026-10-16:
-#: ``info:44BcOmzPt1MJ:scholar.google.com/&output=cite`` returned Google's own
-#: 404 page, while two sibling handles answered 200 with five formats each in
-#: the same minute); 410 is the same class of answer.
+#: dialog whose cluster handle it does not serve (Google's own 404 page, while
+#: sibling handles can answer 200 with five formats each in the same minute);
+#: 410 is the same class of answer.
 MISSING_RECORD_STATUSES = (404, 410)
 
 #: Status of the response that produced the failure, when the caller could not
@@ -138,10 +137,9 @@ class PageVisit:
                     raise RecordUnavailable(url, status) from e
 
                 # A one-shot detail page that still refuses *after* fresh cookies
-                # were injected is no longer "the session is blocked": the rest of
-                # the run kept working around it (measured 2026-10-20: one Cite
-                # dialog answered 429, then 403 twice with a fresh browser cURL,
-                # while its siblings were served seconds earlier).  Asking for
+                # were injected is no longer "the session is blocked": a Cite
+                # dialog can answer 429, then 403 twice with a fresh browser cURL,
+                # while its siblings are served seconds earlier.  Asking for
                 # another paste only loops the operator.  Give up on **this
                 # record** and let the caller remember it — if the session itself
                 # is blocked, the next request prompts as usual.

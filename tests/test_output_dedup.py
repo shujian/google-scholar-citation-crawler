@@ -1,10 +1,10 @@
 """Output-stage dedup must only collapse rows Scholar itself calls the same.
 
-K123: when Scholar lists one title under two clusters (typically the arXiv
-preprint and the published version, with different ``cites_id``), the pipeline
-records two entries and every stage keeps them apart.  The output-stage dedup
-used to add an unconditional normalised-title key, which merged exactly those
-rows and silently dropped the extra entry.  These tests pin the stricter rule:
+When Scholar lists one title under two clusters (typically the arXiv preprint
+and the published version, with different ``cites_id``), the pipeline records two
+entries and every stage keeps them apart.  An unconditional normalised-title key
+would merge exactly those rows and silently drop the extra entry.  These tests
+pin the stricter rule:
 
 * real ``cites_id`` equal  -> one row;
 * real ``cites_id`` different, or missing on either side -> both rows;

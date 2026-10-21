@@ -1,7 +1,7 @@
 """
-tests/test_cite_format.py — five citation formats + BibTeX from Scholar's Cite dialog.
+tests/test_cite_format.py — five citation formats from Scholar's Cite dialog.
 
-Hermetic: the page / BibTeX fixtures are inline, ``get_soup`` / ``get_page`` are
+Hermetic: the page fixtures are inline, ``get_soup`` / ``get_page`` are
 fake callables and every cache path lives in a temporary directory.  No network is
 touched.
 """
@@ -269,7 +269,7 @@ class CidPersistenceTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class DialogRequestLabelTests(unittest.TestCase):
-    """一次 Cite 请求的主语是**这一条施引论文**（用户 2026-10-20）。
+    """一次 Cite 请求的主语是**这一条施引论文**。
 
     抓「A wolf」的引用列表时，真正在下载的是列表里某一条的引用格式：日志里
     `waiting …` / 请求行要标这一条（cid + 它的标题），而不是被引的那篇论文。
@@ -389,7 +389,7 @@ class CitePageParsingTests(unittest.TestCase):
         self.assertEqual(parsed['formats']['chicago'], CHICAGO)
 
 # ---------------------------------------------------------------------------
-# 3. BibTeX parsing
+# 3. Legacy BibTeX fields
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
@@ -433,10 +433,10 @@ class EnrichmentTests(unittest.TestCase):
     def test_identity_fields_stay_byte_identical(self):
         """身份字段（url / cites_id / cid）一字不动 ✓；元数据字段**允许**被 Chicago 修正 ✗→✓。
 
-        2026-10-15 用户定：Chicago 是权威来源，不一致就用它更新 `title` / `authors` /
-        `venue` / `year`（列表页那三个会被 Scholar 截断或改写）。`citation['venue']`
-        参与身份键，但身份判据读的是 `cites_id`/标题/年份/(URL/DOI/arXiv)，**URL 不动**；
-        改写带来的下游重算是用户明确接受的取舍。
+        Chicago 是权威来源，不一致就用它更新 `title` / `authors` / `venue` / `year`
+        （列表页那三个会被 Scholar 截断或改写）。`citation['venue']` 参与身份键，但身份
+        判据读的是 `cites_id`/标题/年份/(URL/DOI/arXiv)，**URL 不动**；改写带来的下游
+        重算是明确接受的取舍。
         """
         row = citation()
         identity_before = {key: row[key] for key in ('url', 'cites_id', 'cid')}
@@ -479,11 +479,11 @@ class EnrichmentTests(unittest.TestCase):
 class UnavailableCiteDialogTests(unittest.TestCase):
     """HTTP 404 on a Cite dialog = "no such record", not "we are blocked".
 
-    Measured 2026-10-16: `info:44BcOmzPt1MJ:scholar.google.com/&output=cite`
-    answered Google's own 404 page while sibling handles answered 200 with five
-    formats in the same minute.  Before this, such an entry looked like a rate
-    limit, so every run paid the full cooldown budget (20-35 min) for it or
-    parked the whole run on a captcha prompt.
+    `info:44BcOmzPt1MJ:scholar.google.com/&output=cite` can answer Google's own
+    404 page while sibling handles answer 200 with five formats in the same minute.
+    Without the distinction such an entry looks like a rate limit, so every run
+    would pay the full cooldown budget (20-35 min) for it or park the whole run on
+    a captcha prompt.
     """
 
     def setUp(self):
@@ -798,7 +798,7 @@ class SaveOutputWiringTests(unittest.TestCase):
         row = saved['papers'][0]['citations'][0]
         self.assertEqual(row['cid'], CID, "cid 不参与修正")
         self.assertEqual(row['cites_id'], '1234', "cites_id 是身份键，一字不动")
-        # 2026-10-15 用户定：Chicago 是权威来源 → 列表页的缩写作者被**修正**成全名，
+        # Chicago 是权威来源 → 列表页的缩写作者被**修正**成全名，
         # 改动记在 cite.corrected 里供审计（原值 from / 新值 to）。
         corrected = (row.get('cite') or {}).get('corrected') or {}
         self.assertIn('authors', corrected)

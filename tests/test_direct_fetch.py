@@ -179,7 +179,7 @@ class DirectFetchTests(FetcherTestCase):
         })
 
     def test_partial_save_records_direct_diagnostics_so_it_never_reads_as_complete(self):
-        """K78 — a mid-scan snapshot must not reload as a finished 'year' fetch.
+        """A mid-scan snapshot must not reload as a finished 'year' fetch.
 
         Without the direct diagnostics the reloaded state inferred 'year' from the
         year_fetch_diagnostics every paper carries (histogram_total 0 in direct
@@ -236,13 +236,13 @@ class DirectFetchTests(FetcherTestCase):
         self.assertTrue(state.need_fetch(25))
 
     def test_zero_histogram_year_diagnostics_no_longer_mean_year_mode(self):
-        """K78 残留的收口（2026-10-16）：**只有零 probe 的 year 诊断**时不许推断 year。
+        """**只有零 probe 的 year 诊断**时不许推断 year。
 
         每篇论文都带一份 `year_fetch_diagnostics`（direct 模式由缓存反推、`histogram_count`
-        全为 0）—— 旧规则"只要有 year 诊断就 year"会让**缺 `fetch_strategy` 的 direct 快照**
+        全为 0）—— 若"只要有 year 诊断就 year"，**缺 `fetch_strategy` 的 direct 快照**会被
         读成年模式，而 `is_data_complete('year')` 拿 `seen ≥ histogram_total(0)` 判为完整 ✗。
         现在退化成 `strategy is None` → `is_complete() == False` → 重新抓（安全方向 ✓）；
-        有真实 probe（`histogram_count > 0` / `histogram_total > 0`）时仍照旧推断 year ✓。
+        有真实 probe（`histogram_count > 0` / `histogram_total > 0`）时仍推断 year ✓。
         """
         from code.output_state import PaperFetchState
 
@@ -612,7 +612,7 @@ class DirectFetchTests(FetcherTestCase):
 
         # 2024 probed=0 == cached=0 → skip；2025 probed=2 != cached=0 → fetch。
         # 假迭代器每页只给 1 条（年内应有 2 条），于是"走完却不够"会再走一次
-        # （2026-10-21 用户定的重走机制）—— 两次一样就到此为止，不会第三次。
+        # （重走机制）—— 两次一样就到此为止，不会第三次。
         self.assertEqual(requests, [(2025, 0), (2025, 0)])
         self.assertEqual([c["title"] for c in citations], ["Y2025"])
 

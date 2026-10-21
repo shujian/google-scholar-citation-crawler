@@ -28,18 +28,17 @@ Association for Computational Linguistics``), the journal form, and truncations
 ``venue_key`` reduces all of that to **canonical name + year** so it can take part
 in identity/dedup checks.
 
-Rules (as decided 2026-10-15):
+Rules:
 
 * a *known* **conference** becomes ``<canonical name><year>`` — ``ACL2026``,
   ``EMNLP2025``, ``NeurIPS2024``, ``ICASSP2025``.
 * a *known* **journal** is a continuous venue, not a yearly edition, so its key is
   the short name **without** a year — ``TACL``, ``TASLP``,
-  ``Nature Machine Intelligence`` (decided 2026-10-15).
-* the table started out as the vocabulary stage 3.a.2 already uses
+  ``Nature Machine Intelligence``.
+* the table follows the vocabulary stage 3.a.2 uses
   (``citation_analysis_info/code/config.py``: ``VENUE_PRESTIGE`` +
-  ``VENUE_ALIASES``) and was extended on 2026-10-15 with the venues that the real
-  data left unrecognised (speech / MT / NLP / ML conferences and journals).  See
-  "Relationship to 3.a.2" below.
+  ``VENUE_ALIASES``) and covers the speech / MT / NLP / ML conferences and
+  journals found in the real data.  See "Relationship to 3.a.2" below.
 * **Findings is its own venue**: ``Findings of the Association for Computational
   Linguistics: ACL 2026`` → ``Findings of ACL2026``, which is deliberately
   different from ``ACL2026``.  A Findings volume that does not name its host is
@@ -49,9 +48,10 @@ Rules (as decided 2026-10-15):
   ``SSRN``, ``TechRxiv``, ``Research Square``, ``preprints.org`` (no year) —
   matched as a substring so every spelling, including a truncated one, lands on
   the same key.  A venue that only says "Preprint" names no server and stays raw.
-* for a **citing entry** the Cite dialog's BibTeX venue (``journal`` /
-  ``booktitle`` / ``series``) is preferred over the citation-list page's
-  ``venue``, which Scholar truncates — see :func:`citation_venue_key`.
+* for a **citing entry** the Cite dialog's venue (``cite.venue_text``, or the
+  legacy ``bibtex`` fields for narrow old data) is preferred over the
+  citation-list page's ``venue``, which Scholar truncates — see
+  :func:`citation_venue_key`.
 * a venue we cannot identify keeps its own text: ``venue_key`` = the venue string
   (``venue_key_source`` = ``'raw'``).  A journal without a widely used
   abbreviation keeps its own short name (``Neurocomputing``, ``IEEE Access``).  That is a temporary, reviewable state — the
@@ -83,8 +83,8 @@ import re
 #: canonical name -> (full name, type, extra alias texts)
 #:
 #: Mirrors ``citation_analysis_info/code/config.py: VENUE_PRESTIGE`` +
-#: ``VENUE_ALIASES`` (2026-10-15), with the two synonym merges described above
-#: applied: ``NIPS`` folded into ``NeurIPS`` and ``ACMMM`` into ``ACM MM``.
+#: ``VENUE_ALIASES``, with the two synonym merges described above applied:
+#: ``NIPS`` folded into ``NeurIPS`` and ``ACMMM`` into ``ACM MM``.
 VENUE_CANONICAL = {
     'NeurIPS': ('Neural Information Processing Systems', 'conference',
                 ['NIPS', 'Neural Information Processing Systems',
@@ -165,9 +165,9 @@ VENUE_CANONICAL = {
     'Findings of ACL': ('Findings of the Association for Computational Linguistics: ACL',
                         'conference',
                         # A Findings volume that does not name its host conference is
-                        # treated as Findings of ACL (2026-10-15 user: the bare
+                        # treated as Findings of ACL: a bare
                         # "Findings of the Association for Computational Linguistics"
-                        # is not a venue of its own).
+                        # is not a venue of its own.
                         ['Findings of the Association for Computational Linguistics']),
     'Findings of EMNLP': ('Findings of the Association for Computational Linguistics: EMNLP',
                           'conference',
@@ -216,9 +216,8 @@ VENUE_CANONICAL = {
     'Nature Human Behaviour': ('Nature Human Behaviour', 'journal', []),
     'Nature Reviews Psychology': ('Nature Reviews Psychology', 'journal', []),
 
-    # -- speech / machine translation / NLP / ML venues (2026-10-15) ---------
-    # The user asked to extend this beyond the first seven names ("EACL、ICASSP 等，
-    # 同理类推"): conferences keep "acronym + year", journals use their short name.
+    # -- speech / machine translation / NLP / ML venues ----------------------
+    # Conferences keep "acronym + year"; journals use their short name.
     'ICASSP': ('IEEE International Conference on Acoustics, Speech and Signal Processing',
                'conference',
                ['International Conference on Acoustics, Speech and Signal Processing']),
@@ -341,16 +340,15 @@ VENUE_CANONICAL = {
 #: ``venue_key_source`` values.  ``normalized`` means the key came from the venue
 #: table (or the preprint-server list) — i.e. the venue was recognised and replaced
 #: by its standard name; ``raw`` means the original text was kept as the key.
-#: (Named 2026-10-15 by user request: the *value* says "normalized"; the table and
-#: ``canonical_venue()`` keep the word "canonical" for the standard *name* itself,
-#: matching stage 3.a.2's vocabulary.)
+#: (The *value* says "normalized"; the table and ``canonical_venue()`` keep the
+#: word "canonical" for the standard *name* itself, matching stage 3.a.2's
+#: vocabulary.)
 SOURCE_NORMALIZED = 'normalized'
 SOURCE_RAW = 'raw'
 
 #: Preprint servers: a preprint's venue *is* the server, so the key is the
-#: server's own name and carries no year (2026-10-15 user: "arxiv 的 venue 就写做
-#: arXiv，作为 venue key 没问题", extended the same day to "其他预印版服务器也按照
-#: 一样逻辑命名").  Matched as a case-insensitive substring, so
+#: server's own name and carries no year (``arXiv`` is the venue key, and the
+#: other servers follow the same rule).  Matched as a case-insensitive substring, so
 #: "arXiv preprint arXiv:2402.18567", "arxiv.org/abs/2402.18567", the truncated
 #: "arXiv preprint arXiv …" and a bare URL that points at arXiv all become
 #: ``arXiv``; likewise every bioRxiv / medRxiv / SSRN / TechRxiv / Research Square /
@@ -398,9 +396,9 @@ _MATCH_TABLE = _build_match_table()
 
 
 def _fold_ampersand(text):
-    """`&` 与 `and` 视为同一写法（2026-10-16）。
+    """`&` 与 `and` 视为同一写法。
 
-    真库里 `IEEE Transactions on Knowledge & Data Engineering 35, no. 10 (2023): 1`
+    否则 `IEEE Transactions on Knowledge & Data Engineering 35, no. 10 (2023): 1`
     本该命中 `TKDE`（词表里就是 `… Knowledge and Data Engineering`），却因为写成 `&`
     落到 `raw` ✗。**只在匹配时折叠** ✓ —— 调用方拿到的原串、`raw` 键里的文本一字不改 ✗。
     """
@@ -434,16 +432,15 @@ def is_truncated_venue(venue):
     """True when Scholar cut the venue short (``…`` / ``...``).
 
     The citing-side list page truncates at ~25 characters, so most citing rows
-    arrive as ``Proceedings of the …`` — unusable as an identity because 564
-    different conferences share that exact string (measured 2026-10-15: 5,690 of
-    9,244 citing rows are truncated, spread over 1,781 distinct strings).
+    arrive as ``Proceedings of the …`` — unusable as an identity because many
+    different conferences share that exact string.
     """
     text = normalize_venue_text(venue)
     return '…' in text or '...' in text
 
 
-#: **显式**的截断还原规则：前缀 → `VENUE_CANONICAL` 的键（用户 2026-10-15 定：截断的 venue
-#: 一律不给 key，只有"这个前缀在现实中只可能指向一个发表地"的才登记）。键必须真实存在于
+#: **显式**的截断还原规则：前缀 → `VENUE_CANONICAL` 的键（截断的 venue 一律不给 key，
+#: 只有"这个前缀在现实中只可能指向一个发表地"的才登记）。键必须真实存在于
 #: `VENUE_CANONICAL`（有测试守卫）。没登记的截断串 → **不给 key** ✓，绝不用截断串本身当去重键 ✗。
 TRUNCATED_VENUE_PREFIXES = (
     # 只有 NeurIPS 的全称以它开头（`Advances in Neural Information Processing Systems`）
@@ -552,7 +549,7 @@ def resolve_venue_key(venue, year=None):
     if is_truncated_venue(venue):
         name = truncated_venue_key(venue)
         if not name:
-            return None, None          # 截断且无显式规则 → 不给 key ✗（用户 2026-10-15）
+            return None, None          # 截断且无显式规则 → 不给 key ✗
         if VENUE_CANONICAL[name][1] == 'journal':
             return name, SOURCE_NORMALIZED
         return f"{name}{pick_venue_year(venue, year) or ''}", SOURCE_NORMALIZED
@@ -564,14 +561,16 @@ _BIBTEX_VENUE_FIELDS = ('journal', 'booktitle', 'series')
 
 
 def cite_dialog_venue(citation):
-    """Return ``(venue text, bibtex field)`` from a citing entry's Cite dialog.
+    """Return ``(venue text, bibtex field)`` from a citing entry's legacy data.
 
-    Only the BibTeX record is used.  ``journal`` (article) / ``booktitle``
-    (inproceedings) / ``series`` are plain venue names, whereas the five
-    *formatted* strings embed the venue between the authors, the title and the
-    volume/date — parsing those would risk reading the title as the venue and
-    mis-normalizing the key, so they are deliberately ignored.  Returns
-    ``(None, None)`` when there is no usable field.
+    Only the legacy ``cite.bibtex`` record is used here.  ``journal`` (article) /
+    ``booktitle`` (inproceedings) / ``series`` are plain venue names, whereas the
+    five *formatted* strings embed the venue between the authors, the title and
+    the volume/date — parsing those would risk reading the title as the venue and
+    mis-normalizing the key, so they are deliberately ignored.
+    :func:`citation_venue_key` additionally consults ``cite.venue_text`` (the
+    parsed Chicago venue).  Returns ``(None, None)`` when there is no usable
+    field.
     """
     if not isinstance(citation, dict):
         return None, None
@@ -589,19 +588,19 @@ def cite_dialog_venue(citation):
 def citation_venue_key(citation):
     """Return ``(venue_key, source)`` for a citing entry.
 
-    The Cite dialog's BibTeX venue is preferred over the citation-list page's
-    ``venue``, which Scholar truncates at ~25 characters ("Proceedings of the …");
-    when the dialog carries no venue the behaviour is exactly as before
-    (``citation['venue']``).  ``citation_venue_key`` is what the crawler and the
-    data-upgrade tool both call, so a row that gains its ``cite`` later gets the
-    better key on the next pass.
+    The Cite dialog's venue (``cite.venue_text`` or legacy ``cite.bibtex``) is
+    preferred over the citation-list page's ``venue``, which Scholar truncates at
+    ~25 characters ("Proceedings of the …"); when the dialog carries no venue the
+    fallback is ``citation['venue']``.  ``citation_venue_key`` is what the crawler
+    and the data-upgrade tool both call, so a row that gains its ``cite`` later
+    gets the better key on the next pass.
     """
     if not isinstance(citation, dict):
         return None, None
-    # 优先级（用户 2026-10-15 定）：① 历史缓存里的 BibTeX venue 字段（未截断）
+    # 优先级：① 存量缓存里的 BibTeX venue 字段（未截断）
     # ② 对话框**带引号格式**里解析出的 venue（`cite.venue_text`，同样是未截断的）
     # ③ 引文列表页的 venue（被 Scholar 截到 ~25 字符）。
-    # 弃用 BibTeX 后 ② 是主力；① 只服务存量数据，读不到就往下走。
+    # ② 是主力；① 只服务存量数据，读不到就往下走。
     text, _field = cite_dialog_venue(citation)
     if not text:
         cite = citation.get('cite')

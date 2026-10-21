@@ -1,4 +1,4 @@
-"""阶段 1 的**存量主体对齐**（`code/data_upgrade/align_citations_meta.py`，Y-9 ③）。
+"""阶段 1 的**存量主体对齐**（`code/data_upgrade/align_citations_meta.py`）。
 
 判据四条：dry-run 零写入、只重写不一致的（其余字节不变）、**下载字段与退役条目原样保留**、
 幂等；另加 `--papers` 选择与"产物里 0 条引文的论文跳过"。

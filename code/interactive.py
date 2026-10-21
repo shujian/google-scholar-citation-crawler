@@ -29,7 +29,7 @@ def save_curl_to_file(curl_str, path):
     browser-identity headers), so it must not be world-readable — same rule the
     downloader applies to its cookies.txt.
 
-    **内容没变就不写**（2026-10-15 用户定）：注入函数在"启动时自动加载"这条路径上也会被调用，
+    **内容没变就不写**：注入函数在"启动时自动加载"这条路径上也会被调用，
     那时 *curl_str* 就是刚从**同一个文件**读出来的串 —— 无条件回写只会白改 mtime，并让日志出现
     自相矛盾的 `Loading …` / `Saved …` 两行。返回**是否真的写了盘**，调用方据此决定要不要打印。
     """

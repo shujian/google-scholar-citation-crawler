@@ -69,12 +69,12 @@ examples:
     parser.add_argument('--cite-formats', dest='cite_formats', action='store_true',
                         default=None,
                         help='Resolve each citing entry\'s five citation formats '
-                             '(MLA/APA/Chicago/Harvard/Vancouver) plus BibTeX from Scholar\'s '
-                             'Cite dialog and store them in citation["cite"]. This is ON by '
+                             '(MLA/APA/Chicago/Harvard/Vancouver) from Scholar\'s Cite '
+                             'dialog and store them in citation["cite"]. This is ON by '
                              'default (it is the only source of full author names and the '
                              'untruncated venue for a citing paper); pass --no-cite-formats '
-                             'to skip it. Costs one request per citing entry (plus one for '
-                             'BibTeX), cached in output/cite_format_cache.json across runs')
+                             'to skip it. Costs one request per citing entry, cached in '
+                             'output/cite_format_cache.json across runs')
     parser.add_argument('--renumber-papers', dest='renumber_papers', default=None,
                         choices=['off', 'dry-run', 'apply', 'force'],
                         help='Papers-directory maintenance (the stage-1 side of the papers '

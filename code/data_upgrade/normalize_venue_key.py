@@ -93,8 +93,8 @@ def _scan_pub(pub, stats, unknown):
 
 
 def _scan_citation(citation, stats, unknown):
-    # citation_venue_key() prefers the Cite dialog's BibTeX venue when the row has
-    # one (it is untruncated), and otherwise behaves like the old call.
+    # citation_venue_key() prefers the Cite dialog's venue when the row has one
+    # (it is untruncated), and otherwise falls back to the list-page venue.
     key, source = citation_venue_key(citation)
     stats['total'] += 1
     if key is None:

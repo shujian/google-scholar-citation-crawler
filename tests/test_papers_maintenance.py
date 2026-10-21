@@ -1,4 +1,4 @@
-"""阶段 1 侧的论文目录维护（Y-6 步骤 3）：创建 + `paper_meta.json`、编号改名、三种模式、失败隔离。"""
+"""阶段 1 侧的论文目录维护：创建 + `paper_meta.json`、编号改名、三种模式、失败隔离。"""
 
 import json
 import os
@@ -102,11 +102,11 @@ class RunModeTests(unittest.TestCase):
             self.assertEqual(len(again.get("plan") or {}), 5)
 
     def test_the_manifest_lands_in_the_callers_output_dir(self):
-        """`output_dir` 必须一路传到 manifest（2026-10-16）。
+        """`output_dir` 必须一路传到 manifest。
 
-        它过去被 `run()` 默默忽略 → `apply_plan()` 回落到默认的 `code.config.OUTPUT_DIR`，
-        于是**每次跑测试**都往仓库 `output/` 里塞一个 `renumber_<stamp>/`（实测积累 80+ 个，
-        还让"真 renumber"与"测试产生的"难以分辨 ✗）。
+        如果 `run()` 忽略它，`apply_plan()` 会回落到默认的 `code.config.OUTPUT_DIR`，
+        于是**每次跑测试**都往仓库 `output/` 里塞一个 `renumber_<stamp>/`，还会让
+        "真 renumber"与"测试产生的"难以分辨 ✗。
         """
         with tempfile.TemporaryDirectory() as tmp, \
                 tempfile.TemporaryDirectory() as default_out:

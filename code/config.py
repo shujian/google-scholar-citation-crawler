@@ -33,7 +33,7 @@ LOGS_DIR = os.path.join(OUTPUT_DIR, "logs")
 
 #: How many run logs stay in ``output/logs/``; older ones are **moved** (never
 #: deleted) into ``output/logs/<LOG_ARCHIVE_DIRNAME>/`` at the start of a run.
-#: 87 runs accumulated 6 MB with no policy at all (2026-10-16).
+#: Unbounded growth used to reach several MB with no policy at all.
 LOG_KEEP_RUNS = 30
 LOG_ARCHIVE_DIRNAME = "old"
 
@@ -54,10 +54,9 @@ DELAY_MIN = 45
 DELAY_MAX = 90
 
 # Pre-request delay for the **detail-style paths**, as a fraction of the normal
-# delay: the publication detail page (`view_op=view_citation`), a citing entry's
-# Cite dialog (`output=cite`) and its signed BibTeX download (`scholar.bib` /
-# `output=citation`).  Those are one-shot, non-paginated pages, so 45-90 s each is
-# mostly dead time; 1/10 puts them at ~4.5-9 s per request.
+# delay: the publication detail page (`view_op=view_citation`) and a citing
+# entry's Cite dialog (`output=cite`).  Those are one-shot, non-paginated pages,
+# so 45-90 s each is mostly dead time; 1/10 puts them at ~4.5-9 s per request.
 #
 # This is the *single* definition of that pacing: `code/scholarly_session.py`
 # applies it inside the one place that sleeps, and no other module may define a
@@ -66,10 +65,9 @@ DELAY_MAX = 90
 # the full delay and its mandatory 3-6 min breaks.
 #
 # Honest trade-off: Scholar rate-limits these paths by volume, so a shorter delay
-# reaches the block sooner in wall-clock terms (the 2026-10-14 venue pass was
-# blocked after ~75-88 pages, see issues.md).  The cache + resume path is what
-# makes that acceptable: stop on the first blocked page, come back later, and the
-# total wall-clock spent waiting is lower.
+# reaches the block sooner in wall-clock terms (see issues.md).  The cache +
+# resume path is what makes that acceptable: stop on the first blocked page, come
+# back later, and the total wall-clock spent waiting is lower.
 DETAIL_PAGE_DELAY_FACTOR = 0.1
 
 # Soft session refresh every N pages to avoid session-based blocking.
@@ -79,7 +77,7 @@ SESSION_REFRESH_MAX = 20
 # Mandatory long break after every N pages to let Scholar's rate-limit
 # window reset.
 # 某一年连续这么多次都没抓全（`seen < probe`）→ **下一次从第 1 页重扫**该年
-# （2026-10-19 用户定：偏移续跑可能因为列表变动而永久漏行，重扫一次兜住 ✓）。
+# （偏移续跑可能因为列表变动而永久漏行，重扫一次兜住 ✓）。
 RESCAN_AFTER_SHORT_ATTEMPTS = 3
 
 MANDATORY_BREAK_EVERY_MIN = 8
@@ -110,11 +108,10 @@ MAX_RETRIES = 3
 # Scholar count grows (scholar_changed) — the one event that can add rows — and
 # `--fetch-mode force` clears the whole state for a manual retry.
 #
-# 2026-10-19 用户定：**1** —— 完整走完一遍、结果仍比 Scholar 声称的少，就判 stalled、
-# 不再重抓。此前是 2（连续两遍条数相同才判死），而"刚抓过的那篇又从第 1 篇开始抓一遍"
-# 正是第二遍的开销（实测一篇 1,377 条的论文，仅短的那一年就要 23 页、半小时级）。
-# 代价（已知并接受）：列表只因一次短页而早停时不再有第二遍兜底 —— 靠 `--fetch-mode force`
-# 或 Scholar 计数上涨（scholar_changed）恢复。
+# **1** —— 完整走完一遍、结果仍比 Scholar 声称的少，就判 stalled、不再重抓。
+# 这样"刚抓过的那篇"不会又从第 1 页开始走一遍（那正是第二遍的开销）。
+# 代价（已知并接受）：列表只因一次短页而早停时不再有第二遍兜底 —— 靠
+# `--fetch-mode force` 或 Scholar 计数上涨（scholar_changed）恢复。
 STALL_AFTER_ATTEMPTS = 1
 
 # ============================================================
@@ -127,7 +124,7 @@ SCHOLAR_BASE_URL = "https://scholar.google.com"
 def papers_root(output_dir, author_id):
     """论文数据树（`papers/`）在本仓库里的**物理位置**。
 
-    2026-10-15 起，整条流水线共用的论文数据树放在阶段 1 的 output 下：
+    整条流水线共用的论文数据树放在阶段 1 的 output 下：
     ``<output_dir>/author_<ID>_papers/``。阶段 2 / 3.a.1 / 3.a.2 / 3.b / 阶段 4 **都不直接
     使用这个路径**，而是经各自的 ``papers`` 符号链接访问（链见根 AGENTS.md「仓库地图」）——
     这里只负责**创建**它（谁拥有物理位置谁负责建），以及在文档/日志里报出真实路径。
@@ -141,12 +138,12 @@ def ensure_papers_root(output_dir, author_id):
     os.makedirs(path, exist_ok=True)
     return path
 
-#: Resolve every citing entry's Cite dialog (five formats + BibTeX) by default
-#: whenever citations are crawled: that dialog is the only place the crawler can
-#: read a citing paper's *full* author list (Chicago / BibTeX) and its complete
-#: venue (Vancouver), which the citation-list page truncates.  Knobs, in the
-#: usual priority order: ``--cite-formats`` / ``--no-cite-formats`` > the
-#: ``cite_formats`` key in ``crawler_config.json`` > this default.
+#: Resolve every citing entry's Cite dialog (five formats) by default whenever
+#: citations are crawled: that dialog is the only place the crawler can read a
+#: citing paper's *full* author list and its complete venue (Chicago), which the
+#: citation-list page truncates.  Knobs, in the usual priority order:
+#: ``--cite-formats`` / ``--no-cite-formats`` > the ``cite_formats`` key in
+#: ``crawler_config.json`` > this default.
 CITE_FORMATS = True
 
 # ============================================================
@@ -246,7 +243,7 @@ def resolve_cite_formats(cli_value=None, config_path=None):
 
 
 #: 论文目录维护（阶段 1 负责"创建 / 编号 / 改名 / 归档"）的默认模式，见 code/papers_maintenance.py。
-#: **默认 apply**（用户 2026-10-15：阶段 2 已交回这一步 → 若这里还只是 dry-run，就没有人真正对齐目录 ✗）；
+#: **默认 apply**（阶段 2 已交回目录维护 → 若这里还只是 dry-run，就没有人真正对齐目录 ✗）；
 #: 可用 `--renumber-papers dry-run` 或配置 `renumber_papers: "off"` 关掉。
 RENUMBER_PAPERS = "apply"
 

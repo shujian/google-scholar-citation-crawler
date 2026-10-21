@@ -60,8 +60,8 @@ def extract_cid_from_scholarbib(url_scholarbib):
     """Public accessor for the row's ``data-cid`` (scholarly: url_scholarbib).
 
     The cid addresses Scholar's **Cite dialog** for that result row — one page
-    carrying all five citation formats plus the signed BibTeX link
-    (``code/cite_format.py``).  It is deliberately a *separate* value from
+    carrying all five citation formats (``code/cite_format.py``).  It is
+    deliberately a *separate* value from
     ``cites_id``: ``cites_id`` identifies the cited work's cluster list and takes
     part in the identity keys, the cid identifies one citing row.
     """
@@ -129,8 +129,8 @@ def citation_output_identity_keys(info):
     Stricter than :func:`citation_identity_keys`, which always appends a
     title-based fallback key: that extra key merged rows Scholar itself reports
     as different clusters (same title, different ``cites_id``) and silently
-    dropped entries the downstream stages must keep apart (K123: "Google says
-    they differ, so they differ").
+    dropped entries the downstream stages must keep apart ("Google says they
+    differ, so they differ").
 
     A row therefore only ever matches on Scholar's own identity:
 
@@ -197,8 +197,8 @@ def refresh_venue_keys(citations):
     recomputed at serialisation time — a row restored from the previous output
     (``citation_fetch`` reuses the cached dicts verbatim) carries no key at all,
     and copying "whatever the row has" would silently drop the keys a previous
-    run had already resolved from a Cite dialog (measured 2026-10-15: 7,901
-    rows vanished from ``citations_meta.json`` on one re-crawl).
+    run had already resolved from a Cite dialog: copying the stored row would
+    silently wipe those keys on the next re-crawl.
 
     Pure and idempotent; ``citation_venue_key()`` is the single entry point, the
     same one ``citation_index.meta_entry()`` and the data-upgrade tools use.

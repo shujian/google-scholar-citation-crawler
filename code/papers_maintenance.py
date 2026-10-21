@@ -1,6 +1,6 @@
-"""论文目录的维护（创建 / 编号 / 改名 / 归档）—— **阶段 1 是唯一负责方**（Y-6 步骤 3）。
+"""论文目录的维护（创建 / 编号 / 改名 / 归档）—— **阶段 1 是唯一负责方**。
 
-`papers/` 的物理位置在本仓库的 `output/author_<ID>_papers/` 下（2026-10-15 用户搬入），
+`papers/` 的物理位置在本仓库的 `output/author_<ID>_papers/` 下，
 所以"按最新 JSON 的排名创建目录、写 `paper_meta.json`、把已有目录改名对齐、把已消失的论文归档"
 也归本阶段 —— 判据与构造器是跨仓库共享件 `code/shared/papers_layout.py`
 （阶段 2 的 `code/renumber_papers.py` 现在只是它的薄壳）。
@@ -8,12 +8,13 @@
 **三种模式**（`crawler_config.json` 的 `renumber_papers` 或 `--renumber-papers`）：
 
 * `off` —— 什么都不做；
-* `dry-run`（默认）—— **只报告**会做什么（不动任何文件）；
-* `apply` —— 真正建目录（+ 写 `paper_meta.json`）、改名/归档，并同步 `progress.json` 的派生编号。
+* `dry-run` —— **只报告**会做什么（不动任何文件）；
+* `apply` —— 真正建目录（+ 写 `paper_meta.json`）、改名/归档；入口默认 `apply`，见
+  `code.config.RENUMBER_PAPERS`。
 
-**为什么建目录时必须同时写 `paper_meta.json`**（2026-10-15 用户定：创建交给阶段 1）：
+**为什么建目录时必须同时写 `paper_meta.json`**：
 共享件的认领逻辑靠目录内的 meta（url / 标题），空目录认领不上 → 下一轮 `plan()` 会把它当成
-"当前输入里已消失的论文"归档进 `papers/old/`，紧接着又被建回来（**每轮归档+重建一次**，实测过）。
+"当前输入里已消失的论文"归档进 `papers/old/`，紧接着又被建回来（**每轮归档+重建一次**）。
 写上 meta 之后目录即可被认领，整条链幂等。
 
 **只建不删、绝不覆盖**：`mkdir` 只对"目标目录不存在"的论文做；meta 只在**新建**时写
@@ -94,7 +95,7 @@ def ensure_paper_dirs(papers_root, papers, log=print):
 def stage2_lock_note(papers_root):
     """阶段 2 的 papers 使用锁是否还活着；活的返回描述串，否则 ``None``。
 
-    2026-10-20 用户：阶段 1 会改论文目录名，阶段 2 拼路径只认输入快照，两者同时跑就会
+    阶段 1 会改论文目录名，阶段 2 拼路径只认输入快照，两者同时跑就会
     把旧名字的目录**重建**出来（`paper_dir_for()` + `makedirs`），数据被拆成两套。
     锁是提醒机制：看到活锁就只报告计划、不动盘。
     """
@@ -137,8 +138,8 @@ def run(papers_root, papers, mode=DEFAULT_MODE, output_dir=None, log=print):
         # 顺序很重要：**先**改名对齐，**再**建缺的目录。
         # 反过来的话，新建的目标目录会与"待改名"的旧目录同时存在，共享件会把它们看成
         # "同一篇作品的两个目录"（合并/歧义），于是这一次改名反而做不成。
-        # `manifest_dir` 必须跟着调用方给的 output 目录走 ✓（2026-10-16：过去它被默默忽略，
-        # 于是"给了 output_dir 的调用方"（测试、独立工具）把 manifest 写进了默认 output/）。
+        # `manifest_dir` 必须跟着调用方给的 output 目录走 ✓；否则"给了 output_dir 的
+        # 调用方"（测试、独立工具）会把 manifest 写进默认 output/。
         plan = reconcile(papers, base_dir=papers_root, apply=(mode == "apply"), log=log,
                          manifest_dir=(os.path.join(output_dir, "renumber_%s" % stamp)
                                        if output_dir else None))
@@ -147,7 +148,7 @@ def run(papers_root, papers, mode=DEFAULT_MODE, output_dir=None, log=print):
             log("[papers] dry-run：%s（用 --renumber-papers apply 落盘）" % result["plan"])
             return result
         result["created"] = ensure_paper_dirs(papers_root, papers, log=log)
-        # Y-7：`progress.json` / `download_summary.json` 是阶段 2 的数据，本阶段不碰；
+        # `progress.json` / `download_summary.json` 是阶段 2 的数据，本阶段不碰；
         # 阶段 2 读本阶段写的 manifest（向前读 ✓）后自行改它自己的进度文件。
         return result
     except Exception as exc:  # noqa: BLE001 —— 维护失败绝不能影响抓取

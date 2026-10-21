@@ -167,7 +167,7 @@ class PaperCitationFetcher:
         self.save_every = save_every
         self.fetch_mode = fetch_mode
         self.interactive_captcha = interactive_captcha
-        # Opt-in: one Cite-dialog request per citing entry (plus one for BibTeX)
+        # One Cite-dialog request per citing entry
         # is thousands of requests on a real profile, so a normal run must not
         # start paying for it.  See code/cite_format.py.
         # On by default (see code.config.CITE_FORMATS): the Cite dialog is the only
@@ -184,7 +184,7 @@ class PaperCitationFetcher:
         self._run_new_citations_total = 0
         self._papers_fetched_count = 0
         # Cite 对话框的本轮累计：逐页钩子与保存时的兜底段都加进来，Run summary 里报
-        # "这一轮到底下载了多少 cite"（用户 2026-10-19 要求）。
+        # "这一轮到底下载了多少 cite"。
         self._cite_stats = {key: 0 for key in _CITE_STAT_KEYS}
         self._cite_files_written = 0
         self._cite_files_unchanged = 0
@@ -193,12 +193,12 @@ class PaperCitationFetcher:
         self.profile_json = os.path.join(output_dir, f"author_{author_id}_profile.json")
         self.out_json = os.path.join(output_dir, f"author_{author_id}_paper_citations.json")
         self.out_xlsx = os.path.join(output_dir, f"author_{author_id}_paper_citations.xlsx")
-        # 阶段性交接（2026-10-19 用户要求）：每处理完一篇就把**该篇**的 meta / cite 文件落盘。
-        # 曾经还在这一步写一份 `*.partial.json` 全量快照；2026-10-21 用户决定去掉（见 AGENTS.md）：
-        # 下游没有人读它，而它不带 `_fetch_state`，当不了续跑账本，代价却是每篇重写 ~10 MB。
+        # 阶段性交接：每处理完一篇就把**该篇**的 meta / cite 文件落盘。
+        # 不写 `*.partial.json` 全量快照：下游没有人读它，而它不带 `_fetch_state`，当不了
+        # 续跑账本，代价却是每篇重写 ~10 MB。
         self._checkpoint_entries = {}
         self._checkpointed = set()
-        # 只在**真实主循环**里启用：直接调 `_save_output()` 的测试不应在仓库根留下 partial 文件
+        # 只在**真实主循环**里启用：直接调 `_save_output()` 的测试不应在仓库根留下产物文件
         self._checkpoint_enabled = False
         self._checkpoint_prev = None
         self._checkpoint_publications = []
@@ -237,7 +237,7 @@ class PaperCitationFetcher:
         # fetch engine overwrites this per paper.
         self._completed_year_segments = set()
         self._session_patched = True
-        self._install_page_cite_hook()      # 逐页取 cite/BibTeX（用户 2026-10-15）
+        self._install_page_cite_hook()      # 逐页取 Cite 对话框
         self._run_start_time = time.time()
 
         # Auto-load saved cookies from previous session
@@ -255,7 +255,7 @@ class PaperCitationFetcher:
 
 
     def _install_page_cite_hook(self):
-        """挂上"逐页取 cite/BibTeX"的钩子（用户 2026-10-15 定，逐页粒度）。
+        """挂上"逐页取 Cite 对话框"的钩子（逐页粒度）。
 
         `citation_fetch` 每抓完一页就调它一次（direct 与 year 两种模式都有 `on_page_complete`），
         这里只挑**本页里还没取过、且判据说值得取**的行去问 Cite 对话框 —— 已取过的行会被
@@ -675,8 +675,8 @@ class PaperCitationFetcher:
         """Return a status string for wait messages."""
         total = self._run_new_citations_total + max(0, self._new_citations_count)
         # `total_page_count` 是**请求数**（引用页 + Cite 对话框 + 详情页），
-        # `citation_page_count` 是**引用列表页数** —— 两个数都不是一个意思，别只写 "pages"
-        # （2026-10-19：以前把请求数当页数，长休看起来"每 10 页一次"其实是每 10 次请求）。
+        # `citation_page_count` 是**引用列表页数** —— 两个数不是一个意思，别只写 "pages"；
+        # 长休按引用列表页计数，用请求数会让它变成"每 1–2 页长休一次"。
         run_pages = getattr(self._session_ctx, 'citation_page_count', 0)
         run_requests = self._session_ctx.total_page_count
         curl_pages = self._session_ctx.curl_page_count
@@ -722,8 +722,8 @@ class PaperCitationFetcher:
         only a real ``cites_id`` (or, for rows without one, a fully equal
         ``title + venue`` / ``title + authors``) collapses rows.  Scholar
         listing one title under two different clusters means two entries, and
-        both are kept (K123) — the unconditional normalised-title key that used
-        to live here merged exactly those rows.
+        both are kept — an unconditional normalised-title key would merge exactly
+        those rows.
         """
         return _ci_citation_output_identity_keys(citation)
 
@@ -739,7 +739,7 @@ class PaperCitationFetcher:
         (see :meth:`_citation_output_identity_keys`): a shared normalised title
         is **not** enough, because Scholar reports the preprint and the
         published version of one work as two clusters and the pipeline keeps
-        them apart (K123).
+        them apart.
         """
         rows = list(citations or [])
         if len(rows) < 2:
@@ -767,9 +767,8 @@ class PaperCitationFetcher:
     def _store_result(self, results, idx, pub, citations):
         """把一篇论文的最终引文写进 `results`，**在这里只做一次输出级去重**。
 
-        之后 checkpoint / partial / final save 都直接使用这份结果，不再重复去重或重复打
-        "Deduplicated" 日志（用户 2026-10-20：同样的事不应发生两次；非当前论文也不应在
-        别人的 checkpoint 里被去重）。
+        之后 checkpoint / final save 都直接使用这份结果，不再重复去重或重复打
+        "Deduplicated" 日志（同样的事不应发生两次；非当前论文也不应在别人的 checkpoint 里被去重）。
         """
         title = (pub or {}).get('title', '')
         citations = self._dedup_citations_for_output(list(citations or []), title)
@@ -1265,7 +1264,7 @@ class PaperCitationFetcher:
                 self._save_completed = bool(self._save_output(results))
             except KeyboardInterrupt:
                 # 二段 Ctrl+C：保存本身被打断。已写到哪一步由 `_save_stage` 说明 ——
-                # 绝不假装"已保存"（2026-10-20 用户）。
+                # 绝不假装"已保存"。
                 interrupted = True
                 run_log.warn("Interrupted again while saving — stopped at "
                              f"'{self._save_stage or 'start'}'; nothing else is written",
@@ -1275,11 +1274,10 @@ class PaperCitationFetcher:
         return True
 
     def _report_saved_state(self):
-        """中断之后如实说明磁盘上现在有什么（2026-10-20 用户要求）。
+        """中断之后如实说明磁盘上现在有什么。
 
-        旧版在日志文件**已经关闭之后**由 `__main__` 无条件打印 "Progress has been
-        saved to cache"：既不进日志文件，也不为真（实测二段 Ctrl+C 让保存停在写 JSON
-        之前，产物还是上一轮的）。
+        这份报告必须说磁盘上的事实，而不是一句笼统的 "Progress has been saved to
+        cache"：二段 Ctrl+C 可能让保存停在写 JSON 之前，那时产物还是上一轮的。
         """
         def stamp(path):
             try:
@@ -1766,7 +1764,7 @@ class PaperCitationFetcher:
         if result:
             self._captcha_solved_count += 1
             # 解完验证码 = 一次不短的中断：把 mandatory-break 的计时**清零** ✓
-            # （用户 2026-10-19：否则刚解完验证码又会紧接着撞上 3–6 分钟长休 ✗）
+            # （否则刚解完验证码又会紧接着撞上 3–6 分钟长休 ✗）
             ctx = getattr(self, '_session_ctx', None)
             if ctx is not None:
                 _ss_reset_break_counter(ctx)
@@ -1827,8 +1825,8 @@ class PaperCitationFetcher:
     def _enrich_cite_formats(self, final_results):
         """Fill ``citation['cite']`` from Scholar's Cite dialog (on by default).
 
-        One request per citation that carries a ``cid``, plus one for the signed
-        BibTeX download.  Requests reuse the patched scholarly session that
+        One request per citation that carries a ``cid``.  Requests reuse the
+        patched scholarly session that
         ``_patch_scholarly()`` installed, so the usual waits, captcha recovery and
         proxy prompts apply; anything already parsed is served from
         ``output/cite_format_cache.json`` without a request.  Returns the stats
@@ -1847,7 +1845,7 @@ class PaperCitationFetcher:
                      if isinstance(c, dict)]
         cache_path = os.path.join(self.output_dir, _cite_format.CACHE_FILENAME)
         # 先数"这一段会真正改动多少行"（纯函数、零请求）：0 就不打段标题 —— 一段
-        # 什么都没做的 section 只会让人以为又要抓一遍（用户 2026-10-19）。
+        # 什么都没做的 section 只会让人以为又要抓一遍。
         work = self._cite_work(citations, cache_path)
         if work:
             run_log.section(f"Cite dialogs · {work} row(s) to resolve", module="cite")
@@ -1883,9 +1881,9 @@ class PaperCitationFetcher:
     def write_baseline(self):
         """抓取开始前：把**全部论文**的当前快照写进 `paper_citations.json`。
 
-        用户 2026-10-19：目录调整必须在抓取前全部完成；不需要更新的数据先确定落盘；
-        后续抓取只更新部分目录。这个 baseline 产物让阶段 2 在长抓取开始前就能拿到
-        一份完整、编号已对齐的输入（未更新论文用上一版引文/状态），不必等整轮结束。
+        目录调整必须在抓取前全部完成；不需要更新的数据先确定落盘；后续抓取只更新部分
+        目录。这个 baseline 产物让阶段 2 在长抓取开始前就能拿到一份完整、编号已对齐的
+        输入（未更新论文用上一版引文/状态），不必等整轮结束。
         **不写** `citations_meta.json`：已有目录里的数据不动，只有真正抓取到的论文
         才会在后续 checkpoint / 最终保存时更新。
         """
@@ -2039,17 +2037,16 @@ class PaperCitationFetcher:
                         diag['scholar_total'] = current_total
                         diag['cached_total'] = len(citations)
                         if dropped:
-                            # 去重只改变"行怎么分组"，绝不改变"已经抓了多少"（用户 2026-10-15）：
+                            # 去重只改变"行怎么分组"，绝不改变"已经抓了多少"：
                             # `seen_total` 是抓取时写下的、也是完整性判据唯一看的字段，保持不动；
                             # 把丢掉的行数补进 `dedup_count`，让恒等式
                             # `cached_total + dedup_count == seen_total` 在**任何时刻**都成立
                             # （否则统计口径自相矛盾：直接模式的 `dedup_count` 不会被读侧重算）。
                             diag['dedup_count'] = int(diag.get('dedup_count') or 0) + dropped
             if fetch_state:
-                # 逐年记录同样要对着落盘结果收口（2026-10-19）：`cached_total` 是这一年
-                # **实际存下来的行数**，`seen_total` 仍是抓取时的事实。此前它只是抓取
-                # 快照、去重后不重算，于是文件里 1,377 行、记录却声称 1,379 行
-                # （某一年比实际"满"一条，日志里看不出来）。
+                # 逐年记录同样要对着落盘结果收口：`cached_total` 是这一年**实际存下来的
+                # 行数**，`seen_total` 仍是抓取时的事实。不重算的话，文件里 1,377 行、
+                # 记录却声称 1,379 行（某一年比实际"满"一条，日志里看不出来）。
                 _os_resync_year_record_counts(fetch_state.get('year_records'), citations)
             state_obj = PaperFetchState.from_dict(fetch_state)
             fetch_state = state_obj.to_dict()
@@ -2061,7 +2058,7 @@ class PaperCitationFetcher:
                 **({'_fetch_state': fetch_state} if fetch_state else {}),
             }
 
-        # 引用编号（2026-10-15 用户定：阶段 1 产生、**不可变**）：分配要对照**上一版产物**，
+        # 引用编号（阶段 1 产生、**不可变**）：分配要对照**上一版产物**，
         # 所以先把上一版按标题索引读出来（只读阶段 1 自己的文件 ✓）。
         previous_by_title = {}
         output_json = getattr(self, 'out_json', None)   # 产物路径（__init__ 里定：author_<ID>_paper_citations.json）
@@ -2104,8 +2101,8 @@ class PaperCitationFetcher:
         try:
             from code.config import papers_root
             _root = papers_root(self.output_dir, self.author_id)
-            # 2026-10-19 用户：抓取前 baseline 已把不需要更新的数据落盘；最终保存**只更新**
-            # 真正抓过（dirty/updated）或 baseline 里没有的论文，不再全树重写。
+            # 抓取前 baseline 已把不需要更新的数据落盘；最终保存**只更新**真正抓过
+            # （dirty/updated）或 baseline 里没有的论文，不再全树重写。
             _write_titles = self._updated_titles | self._dirty_titles
             for entry in final_results:
                 _title = (entry.get('pub') or {}).get('title', '')
@@ -2116,8 +2113,8 @@ class PaperCitationFetcher:
                     _root, entry.get('pub') or {}, entry.get('citations') or [])
                 self._cite_files_written += _written
                 self._cite_files_unchanged += _unchanged
-                # `citations_meta.json` 的**主体**也归阶段 1（Y-9 ✓）：只写自己的字段 ✓，
-                # 阶段 2 的下载字段与退役编号的旧条目**原样保留** ✓（Y-7：只动自己的数据 ✓）。
+                # `citations_meta.json` 的**主体**也归阶段 1：只写自己的字段 ✓，
+                # 阶段 2 的下载字段与退役编号的旧条目**原样保留** ✓（只动自己的数据 ✓）。
                 write_citations_meta_for_pub(_root, entry.get('pub') or {},
                                              entry.get('citations') or [])
             if self._cite_files_written:
@@ -2162,9 +2159,9 @@ class PaperCitationFetcher:
             run_log.info(f"Saved JSON{note}: {self.out_json}",
                          module="output", indent=1)
 
-        # **先写产物，再去抓 Cite 对话框**（2026-10-20 用户）：对话框那一步逐条重试，
-        # 是整次保存里最长、最容易被 Ctrl+C 打断的一段；它只是给已抓到的引用**补字段**，
-        # 打断它绝不该连引用一起丢（实测一次二段 Ctrl+C 让 9 MB 产物停在上一轮）。
+        # **先写产物，再去抓 Cite 对话框**：对话框那一步逐条重试，是整次保存里最长、
+        # 最容易被 Ctrl+C 打断的一段；它只是给已抓到的引用**补字段**，打断它绝不该连引用
+        # 一起丢。
         write_product()
         self._save_stage = "json"
 
@@ -2182,9 +2179,9 @@ class PaperCitationFetcher:
                              f"({type(e).__name__}: {e}); writing the output "
                              f"without it", module="cite", indent=1)
 
-        # `venue_key` / `venue_key_source` 是**派生字段**：序列化前统一重算 ✓（2026-10-15）。
+        # `venue_key` / `venue_key_source` 是**派生字段**：序列化前统一重算 ✓。
         # 缓存恢复的行（`citation_fetch` 直接复用上一轮的 dict）不带这两个字段，照抄会让
-        # "上一轮抓到过 Cite 对话框"的键在一次重抓后静默消失 ✗（实测 meta 侧被抹掉 7,901 条）。
+        # "上一轮抓到过 Cite 对话框"的键在一次重抓后静默消失 ✗。
         # 重算是纯函数、幂等，与 `citation_index.meta_entry()` / 各数据修复工具**同一入口** ✓。
         try:
             _ci_refresh_venue_keys([c for entry in final_results
@@ -2279,7 +2276,7 @@ def paper_order_changes(prev_profile, curr_profile):
 
 
 def log_paper_order_changes(prev_profile, curr_profile, renumber_mode="apply"):
-    """把阶段 1 的论文顺序变化写进日志（用户 2026-10-20 要求）。"""
+    """把阶段 1 的论文顺序变化写进日志。"""
     changed, added, removed = paper_order_changes(prev_profile, curr_profile)
     run_log.section("Paper order check", module="plan")
     if changed:
@@ -2314,7 +2311,7 @@ def main():
     author_id = extract_author_id(args.author)
 
     os.makedirs(args.output_dir, exist_ok=True)
-    # 论文数据树的物理位置在本仓库的 output 下（2026-10-15 起）：由本阶段负责**创建**，
+    # 论文数据树的物理位置在本仓库的 output 下：由本阶段负责**创建**，
     # 消费方（阶段 2 / 3.x / 阶段 4）一律经各自的 `papers` 符号链接读写。只建不删、幂等。
     papers_dir = ensure_papers_root(args.output_dir, author_id)
     logger.debug("Papers root: %s", papers_dir)
@@ -2336,7 +2333,7 @@ def main():
                          f"(keeping the newest {kept})", module="output", indent=1)
         log_file = open(log_path, 'w', encoding='utf-8')
         sys.stdout = TeeStream(original_stdout, log_file)
-        # 屏幕只留结论，日志文件里留**全部**（用户 2026-10-19）：屏幕过滤掉的
+        # 屏幕只留结论，日志文件里留**全部**：屏幕过滤掉的
         # DEBUG 行（每页进度、每次等待、每个年份的状态、请求 URL）由 run_log
         # 直接写进同一个文件；打印出来的行仍由 TeeStream 镜像，各写一份、不重复。
         run_log.attach_file(log_file)
@@ -2409,10 +2406,10 @@ def main():
 
         curr_profile = fetcher.load_prev_profile()
 
-        # 用户 2026-10-20：只要论文顺序/目录编号变了，必须在日志里写明 old -> new。
+        # 只要论文顺序/目录编号变了，必须在日志里写明 old -> new。
         log_paper_order_changes(prev_profile, curr_profile, renumber_mode)
 
-        # 2026-10-19 用户：目录调整必须在**抓取开始前**全部完成；不需要更新的数据先确定落盘。
+        # 目录调整必须在**抓取开始前**全部完成；不需要更新的数据先确定落盘。
         # 因此把维护与 baseline 放到“是否要抓”的判断之前：即使本轮无需抓取，目录/产物也已对齐。
         run_papers_maintenance(args.output_dir, author_id, renumber_mode, log=print)
         citation_fetcher.write_baseline()

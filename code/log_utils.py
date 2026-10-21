@@ -28,8 +28,8 @@ LOG_DATEFMT_FILE = "%Y-%m-%d %H:%M:%S"
 
 #: Third-party loggers that must not speak for themselves on the console.
 #: `httpx` logs every request at INFO (and every redirect hop with it, full URL
-#: included — seen 2026-10-19: `HTTP Request: GET https://www.google.com/sorry/
-#: index?…&q=<token> "HTTP/2 429 Too Many Requests"`) and `scholarly` logs
+#: included, e.g. `HTTP Request: GET https://www.google.com/sorry/index?…&q=<token>
+#: "HTTP/2 429 Too Many Requests"`) and `scholarly` logs
 #: `Getting <url>`; both bypass `run_log`, and because the root handler writes
 #: **stderr** (stdout is the TeeStream that mirrors into the run log) such lines
 #: never reached the archived log at all.  At WARNING they only surface when
@@ -87,14 +87,14 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
 
 
 # ===========================================================================
-# Run-log facade — one shape for every line of a run (2026-10-16)
+# Run-log facade — one shape for every line of a run
 # ===========================================================================
 #
 # The run log *is* the stdout stream (``TeeStream`` mirrors it into
-# ``output/logs/``), and most of the code still writes with plain ``print()``.
-# That produced a flat log: no levels, no module tags, hand-written 2/4/6/8
-# space indents, timestamps on only some lines, and the same fact printed by two
-# layers in a row (``URL:`` followed by ``Request URL:``, 26 times in one run).
+# ``output/logs/``), while much of the code still writes with plain ``print()``.
+# Without one facade a line has no level, no module tag, hand-written 2/4/6/8
+# space indents, a timestamp on only some lines, and the same fact printed by
+# two layers in a row (``URL:`` followed by ``Request URL:``).
 #
 # This facade is the single place that gives a line the run's shape::
 #
@@ -118,14 +118,14 @@ _SECTION_WIDTH = 76
 class RunLog:
     """Writes every run-log line in one shape, gated by a level threshold.
 
-    Two sinks with independent levels (2026-10-19 用户要求：屏幕简洁、日志文件全量)：
+    Two sinks with independent levels (屏幕简洁、日志文件全量)：
 
     - **屏幕**：`threshold`（默认 INFO）—— 只留结论；
     - **日志文件**：`file_threshold`（默认 DEBUG）—— 一次 run 的每一行都在里面，
       包括每条请求、每页进度、每个年份的状态（这些行平时是 DEBUG，屏幕上看不到）。
 
     打印到 stdout 的行由 `TeeStream` 镜像进日志文件；屏幕过滤掉的行由这里**直接写**
-    日志文件，所以两边各得一份、不会重复。没挂文件（测试）时行为与以前完全一致。
+    日志文件，所以两边各得一份、不会重复。没挂文件（测试）时行为保持不变。
     """
 
     def __init__(self, threshold: int = INFO):
@@ -133,16 +133,16 @@ class RunLog:
         self.file_threshold = DEBUG
         self.file_stream = None
         #: 当前正在抓的**这一条施引论文**（Cite 对话框逐条请求时设）。那一刻真正在下载的是
-        #: 它，所以行首标这一条（用户 2026-10-20："应该显示引用它的那篇论文"）。
+        #: 它，所以这次请求的 `Request URL:` 行尾标这一条（"应该显示引用它的那篇论文"）。
         #: 被引论文（`[4/241] A wolf…`）**不**逐行重复 —— 每篇开头那行已经说了，重复几十遍
-        #: 只是噪声（用户 2026-10-20 第二次要求）。
+        #: 只是噪声。
         self.entry_label = ""
 
     def set_entry(self, label: str) -> None:
         """Name the citing entry currently being fetched.
 
         只由 session 层那一行 `Request URL: …` 输出（见 `patched_get_page`），**不做行首前缀**：
-        同一个条目名出现在每次请求的两三行上就是重复（用户 2026-10-20 第三次要求）。
+        同一个条目名出现在每次请求的两三行上就是重复（一次请求里同一条信息只出现一次）。
         """
         self.entry_label = label or ""
 

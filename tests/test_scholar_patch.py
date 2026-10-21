@@ -21,7 +21,7 @@ class ScholarPatchAndIdentityTests(FetcherTestCase):
             self.assertEqual(fetcher._curl_save_path, os.path.join(d, "curl.txt"))
 
     def test_solving_a_captcha_resets_the_mandatory_break_counter(self):
-        """解完验证码之后长休计时清零（用户 2026-10-19）。
+        """解完验证码之后长休计时清零。
 
         长休判据是"**引用列表页**够了没"（`citation_page_count >= next_break_at`）。人工解验证码
         本身就是一次不短的中断，但计数器不动 → 解完常常紧接着又撞一次 3–6 分钟长休 ✗。
@@ -48,7 +48,7 @@ class ScholarPatchAndIdentityTests(FetcherTestCase):
         from code.scholarly_session import SessionContext
 
         ctx = SessionContext(author_id="X")
-        ctx.citation_page_count = 30      # 长休按引用列表页计数（2026-10-19）
+        ctx.citation_page_count = 30      # 长休按引用列表页计数
         ctx.next_break_at = 31
         self.fetcher._session_ctx = ctx
         self.fetcher._captcha_solved_count = 0
@@ -742,12 +742,11 @@ from code.config import DETAIL_PAGE_DELAY_FACTOR  # noqa: E402
 
 
 class MandatoryBreakPacingTests(FetcherTestCase):
-    """长休按**引用列表页**计数，不按请求数（2026-10-19 修）。
+    """长休按**引用列表页**计数，不按请求数。
 
     `total_page_count` 数的是每一次请求：抓完一页会顺带发 0–10 次 Cite 对话框 / 详情页请求，
-    所以拿它跟 `next_break_at`（8–12）比，等于"每 1–2 个列表页就长休一次"。用户实测
-    "mandatory stop 每 10 个页面就来一次"——那个 10 正是请求数（10 次对话框 + 1 页），
-    不是随机抽签。现在 `citation_page_count` 只数列表页。
+    所以拿它跟 `next_break_at`（8–12）比，等于"每 1–2 个列表页就长休一次"。现在
+    `citation_page_count` 只数列表页。
     """
 
     LIST_URL = '/scholar?as_ylo=2025&as_yhi=2025&hl=en&cites=1,2&scipsc='
@@ -885,7 +884,7 @@ class DetailPathDelayTests(FetcherTestCase):
         for url in ('/scholar?oi=bibs&hl=en&cites=123',
                     '/citations?user=HF3-E9kAAAAJ&hl=en',
                     '/scholar?as_ylo=2024&as_yhi=2024&hl=en&cites=123',
-                    # BibTeX 已弃用（2026-10-15）：这条不再是"detail 风格"，也不该再被请求
+                    # BibTeX 已弃用：这条不再是"detail 风格"，也不该再被请求
                     self.BIBTEX_URL,
                     '', None):
             with self.subTest(url=url):
@@ -916,9 +915,9 @@ class CiteDialogRefererTests(FetcherTestCase):
 
     The dialog is a sub-navigation of a citation-list page but does not go
     through ``_SearchScholarIterator._load_url``, the hook that refreshes the
-    session's Referer while a list is being walked.  It therefore used to carry
-    the page *before* the row's page (logged 2026-10-15: the as_ylo=2023 list
-    while the row came from the as_ylo=2025 one).
+    session's Referer while a list is being walked.  It would therefore carry the
+    page *before* the row's page (e.g. the as_ylo=2023 list while the row came
+    from the as_ylo=2025 one).
     """
 
     CITE_DIALOG_URL = ('/scholar?q=info:nYGTsUfPxnMJ:scholar.google.com/'
@@ -989,7 +988,7 @@ class CiteDialogRefererTests(FetcherTestCase):
         self.assertNotIn("referer:", output)
 
     def test_the_request_line_names_the_entry_once(self):
-        """条目名只出现在这一次请求的第一行，`waiting …` 不再重复（用户 2026-10-20）。"""
+        """条目名只出现在这一次请求的第一行，`waiting …` 不再重复。"""
         from code.log_utils import run_log
         self.addCleanup(run_log.clear_entry)
         run_log.set_entry('"SurfDesign: Effective Protein Design on Molecular"')
@@ -1113,12 +1112,12 @@ class MissingCiteDialogWiringTests(FetcherTestCase):
 class BlockRedirectTests(FetcherTestCase):
     """A redirect to Google's /sorry/ interstitial is a block, not a page.
 
-    Measured 2026-10-19: ``/scholar?oi=bibs&cites=…`` answered ``302 Found``,
-    httpx followed it to ``www.google.com/sorry/index?…`` and that answered 429.
-    The status code alone covered that run, but the same interstitial serves its
-    CAPTCHA page with **200** — then nothing raises, the page reaches the parser
-    as "a citation list with no rows" (or as "no such record" on a detail page),
-    and the run keeps pacing requests at a session that is already flagged.
+    ``/scholar?oi=bibs&cites=…`` can answer ``302 Found``; httpx follows it to
+    ``www.google.com/sorry/index?…``, which answers 429.  The status code alone
+    covers that case, but the same interstitial serves its CAPTCHA page with
+    **200** — then nothing raises, the page reaches the parser as "a citation
+    list with no rows" (or as "no such record" on a detail page), and the run
+    keeps pacing requests at a session that is already flagged.
     """
 
     LIST_URL = ('/scholar?as_ylo=2025&as_yhi=2025&hl=en&as_sdt=2005&sciodt=0,5'
@@ -1219,11 +1218,11 @@ class BlockRedirectTargetTests(unittest.TestCase):
 
 
 class EmptyPageRetryTests(FetcherTestCase):
-    """0 行且没有 "no results" 的列表页，先重取一次再当成列表结束（2026-10-20 用户要求）。
+    """0 行且没有 "no results" 的列表页，先重取一次再当成列表结束。
 
-    现场：2019 年第 9 页（`start=80`）返回 0 行、`markers` 为空，而直方图说这一年有 173 条、
-    缓存有 174 条 —— 那一页更像被挡/截断。重取一次往往就有内容；Google 明说 "did not match any"
-    的时候不重试。
+    例如某年第 9 页（`start=80`）返回 0 行、`markers` 为空，而直方图说这一年有 173 条、
+    缓存有 174 条 —— 那一页更像被挡/截断。重取一次往往就有内容；Google 明说
+    "did not match any" 的时候不重试。
     """
 
     EMPTY_SHELL = ('<html><body><div id="gs_res_ccl_mid"></div>'
@@ -1300,7 +1299,7 @@ class EmptyPageRetryTests(FetcherTestCase):
     def test_every_page_logs_its_response_shape(self):
         """每个列表页一行 DEBUG：status / bytes / tail_ok / next / rows / markers。
 
-        2026-10-21 现场：某页只解析到 3 行且没有翻页链接，而同一 URL 现在取是 10 行 + next ——
+        某页可能只解析到 3 行且没有翻页链接，而同一 URL 稍后取是 10 行 + next ——
         判断"响应被截断"还是"Scholar 真的给了短列表"需要的就是这几个字段。
         """
         _rows, _calls, log = self._load([self.WITH_ROW])
@@ -1319,11 +1318,11 @@ class EmptyPageRetryTests(FetcherTestCase):
 
 
 class CitationPageProgressTests(RunLogDebugCase):
-    """One line per citation-list page: where the traversal is (2026-10-19).
+    """One line per citation-list page: where the traversal is.
 
-    The line is DEBUG, so it no longer scrolls the console but still lands in the
-    run log file (whose threshold is DEBUG).  Before the line existed, the year
-    and the page number only appeared in ``Pagination (page N)`` / ``Page items:
+    The line is INFO: the console shows the traversal's progress, and the run log
+    file keeps it as well.  Without it, the year and the page number only appear
+    in ``Pagination (page N)`` / ``Page items:
     N`` DEBUG lines that were later removed along with the rest of the old
     per-page logging.
     """
@@ -1362,9 +1361,8 @@ class CitationPageProgressTests(RunLogDebugCase):
     def test_page_line_is_info_and_the_old_debug_lines_are_gone(self):
         """The progress line is INFO: the console is where progress is watched.
 
-        2026-10-20 用户定（第二次调整）：屏幕上要看进度（探针/缓存/每年决策/每页/每次等待），
-        所以这一行回到 INFO；日志文件仍然是全量（它的阈值是 DEBUG）。
-        两条更老的 `Pagination` / `Page items` 行早已不存在。
+        屏幕上要看进度（探针/缓存/每年决策/每页/每次等待），所以这一行是 INFO；日志文件
+        仍然是全量（它的阈值是 DEBUG）。
         """
         import code.scholarly_session as mod
 

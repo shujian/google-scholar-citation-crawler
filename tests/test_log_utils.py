@@ -4,11 +4,10 @@ tests/test_log_utils.py — the run-log facade and the run-log archive policy.
 The run log is the stdout stream (``TeeStream`` mirrors it), so these tests
 capture ``sys.stdout``: no file handler, no network, no crawl.
 
-Why the facade exists (2026-10-16): one run printed 21 ``=`` banners, the same
-URL twice in a row on every year (``URL:`` then ``Request URL:``), one fact as
-three lines (``Year N done`` / ``compare`` / ``status``), hand-written 2/4/6/8
-space indents and timestamps on only some lines — and ``--verbose`` changed
-nothing, because the logger it configured was never called by the crawl.
+Why the facade exists: without it a run prints ``=`` banners, the same URL
+twice in a row on every year (``URL:`` then ``Request URL:``), one fact as three
+lines (``Year N done`` / ``compare`` / ``status``), hand-written 2/4/6/8 space
+indents and timestamps on only some lines.
 """
 
 import os
@@ -65,7 +64,7 @@ class RunLogShapeTests(unittest.TestCase):
         self.assertEqual(out, "")
 
     def test_the_file_gets_the_detail_the_screen_hides(self):
-        """屏幕简洁、日志文件全量（2026-10-19 用户定）。
+        """屏幕简洁、日志文件全量。
 
         The console stops at INFO while the attached log file starts at DEBUG:
         the line the screen drops is written straight to the file, so nothing is
@@ -90,8 +89,8 @@ class RunLogShapeTests(unittest.TestCase):
     def test_the_entry_label_is_not_a_line_prefix(self):
         """条目名由 session 层那行 `Request URL: …` 输出一次，不再挂在每行行首。
 
-        2026-10-20 用户第三次调整：一次请求有两三行（URL / waiting / …），
-        每行都带同一个名字就是重复。`_format()` 因此不读 `entry_label`。
+        一次请求有两三行（URL / waiting / …），每行都带同一个名字就是重复。
+        `_format()` 因此不读 `entry_label`。
         """
         log = lu.RunLog()
         self.addCleanup(log.clear_entry)
@@ -142,11 +141,11 @@ class RunLogShapeTests(unittest.TestCase):
     def test_third_party_loggers_are_muted_unless_verbose(self):
         """httpx/scholarly must not print their own copy of every request.
 
-        Seen 2026-10-19 in the terminal: the bracketed root-logger lines
+        The bracketed root-logger lines
         ``21:52:04 [INFO] HTTP Request: GET https://www.google.com/sorry/index?…``
-        and ``21:51:04 [INFO] Getting https://scholar.google.com/scholar?…`` — a
+        and ``21:51:04 [INFO] Getting https://scholar.google.com/scholar?…`` are a
         second, differently formatted copy of each request (redirect hops
-        included, challenge token in the URL) that never reached the run log,
+        included, challenge token in the URL) that never reaches the run log,
         because the root handler writes stderr while the log is stdout.
         """
         import logging

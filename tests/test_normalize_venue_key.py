@@ -107,7 +107,7 @@ class ToolTests(unittest.TestCase):
 
         citations = self._read(self.citations_path)['papers'][0]['citations']
         self.assertEqual(citations[0]['venue_key'], 'Findings of EMNLP2024')
-        # 截断的列表页串**不给 key** ✓（用户 2026-10-15：截断串不能当去重键；见 test_venue_key）
+        # 截断的列表页串**不给 key** ✓（截断串不能当去重键；见 test_venue_key）
         self.assertIsNone(citations[1]['venue_key'])
         self.assertIsNone(citations[1]['venue_key_source'])
 

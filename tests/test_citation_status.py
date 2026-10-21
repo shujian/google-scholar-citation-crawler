@@ -808,9 +808,8 @@ class FetchOutcomeSignatureTests(unittest.TestCase):
     def test_a_moving_scholar_target_does_not_change_the_signature(self):
         """Scholar's own numbers drift; the rows it lists do not.
 
-        2026-10-15: one paper's 2026 bucket alternated 190/200 ↔ 194/201
-        between runs.  Signing the expectation made every run look new, so a
-        paper that can never converge never accumulated a stall count.
+        Signing the expectation would make every run look new, so a paper that
+        can never converge would never accumulate a stall count.
         """
         before = [{"year": 2026, "histogram_count": 95, "seen_total": 83}]
         after = [{"year": 2026, "histogram_count": 96, "seen_total": 83}]

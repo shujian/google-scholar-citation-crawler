@@ -358,10 +358,10 @@ if __name__ == '__main__':
 
 
 class SavedBibSkipsTheDialogTests(unittest.TestCase):
-    """已保存的 bib 与本次线上 venue 一致时，**cite 与 bib 两个请求都省掉**（用户 2026-10-15）。
+    """已保存的 Cite venue 与本次线上 venue 一致时，**Cite 对话框请求可以省掉**。
 
-    crawler 下载 cite/bib 的访问量很大：只要这条引文已经下载过 bib，就先拿线上 venue 与
-    已保存 bib 里的 venue 比一比 —— 一致 → 不访问；**不一致才更新 bib**。
+    Cite 对话框的访问量很大：只要这条引文已有保存的 venue，就先拿线上 venue 与它比一比
+    —— 一致 → 不访问；**不一致才更新**。
     """
 
     FULL = ('Proceedings of the 2025 Conference on Empirical Methods in Natural '

@@ -1,6 +1,6 @@
 """`papers/` 论文目录树的**使用锁** —— 谁在用这棵树，谁把它写下来。
 
-2026-10-20 用户：阶段 1 会按最新排名**改论文目录名**，而阶段 2 拼路径时只认输入快照里的
+阶段 1 会按最新排名**改论文目录名**，而阶段 2 拼路径时只认输入快照里的
 `pub.no` + 标题（`paper_dir_for()`），写完还会 `os.makedirs(..., exist_ok=True)`。两者同时跑
 就会出现"不受控的目录改变"：阶段 1 把 `083-旧标题` 改成 `083-新标题`（或换号），阶段 2 又把
 **旧名字重新建出来**，PDF / `download_progress.json` / `citations_meta.json` 被拆到两套目录里。
@@ -9,7 +9,7 @@
 
 ```
 <papers 根>/.stage2.lock
-{"stage": "stage2", "pid": 12345, "host": "mac.local", "started_at": "2026-10-20T15:00:00"}
+{"stage": "stage2", "pid": 12345, "host": "mac.local", "started_at": "<ISO timestamp>"}
 ```
 
 * 阶段 2 在**通过启动校验之后** `acquire()`，正常结束 / `sys.exit` / 中断都 `release()`

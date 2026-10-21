@@ -1,4 +1,4 @@
-"""阶段 1 写 `citations_meta.json` **主体**（Y-9）：字段筛选、排序、幂等、不写下载字段。"""
+"""阶段 1 写 `citations_meta.json` **主体**：字段筛选、排序、幂等、不写下载字段。"""
 
 import json
 import os
@@ -27,10 +27,9 @@ class MetaEntryTests(unittest.TestCase):
         self.assertNotIn("index", meta_entry({"title": "T"}))
 
     def test_venue_key_is_recomputed_not_copied(self):
-        """**派生字段重算** ✓：条目里那份（可能来自旧一代缓存）不作数。
+        """**派生字段重算** ✓：条目里那份（可能来自上一代缓存）不作数。
 
-        代价实证（2026-10-15）：照抄会让"补过 key 的存量"被重抓静默抹掉
-        （阶段 2 `backfill_venue_key --apply` 补的 7,901 条就这么没的）。
+        照抄会让"补过 key 的存量"被重抓静默抹掉。
         """
         entry = meta_entry({"index": 1, "cites_id": "c1", "title": "T", "venue": "ACL 2024",
                             "year": "2024", "venue_key": "STALE", "venue_key_source": "raw"})
@@ -85,7 +84,7 @@ if __name__ == "__main__":
 
 
 class VenueKeyIsDerivedAndNeverDowngradedTests(unittest.TestCase):
-    """`venue_key*` 是派生字段：**重算 + 永不降级**（2026-10-15）。"""
+    """`venue_key*` 是派生字段：**重算 + 永不降级**。"""
 
     def _read(self, paper_dir):
         with open(os.path.join(paper_dir, META_NAME), encoding="utf-8") as handle:
@@ -112,7 +111,7 @@ class VenueKeyIsDerivedAndNeverDowngradedTests(unittest.TestCase):
                              "重算 + 保底之后必须幂等 ✓")
 
     def test_a_different_work_at_the_same_index_inherits_nothing(self):
-        """编号会被复用（K123/K128）：**别的**作品不许继承盘上那条的 key ✗。"""
+        """编号会被复用：**别的**作品不许继承盘上那条的 key ✗。"""
         with tempfile.TemporaryDirectory() as tmp:
             self._seed(tmp, [{"index": 1, "cites_id": "old", "title": "Old work", "year": "2024",
                               "venue": "Journal of Obscure Studies 1, 2019",
@@ -136,7 +135,7 @@ class VenueKeyIsDerivedAndNeverDowngradedTests(unittest.TestCase):
             self.assertEqual(entry["venue_key_source"], "normalized")
 
     def test_the_whole_library_can_be_rewritten_without_losing_keys(self):
-        """回归（2026-10-15 的真实事故）：重抓（=用缓存行重写 meta）**不得**抹掉 key ✓。"""
+        """重抓（=用缓存行重写 meta）**不得**抹掉 key ✓。"""
         with tempfile.TemporaryDirectory() as tmp:
             disk = [{"index": i, "cites_id": "c%d" % i, "title": "T%d" % i, "year": "2024",
                      "venue": "Proceedings of the …",
@@ -153,7 +152,7 @@ class VenueKeyIsDerivedAndNeverDowngradedTests(unittest.TestCase):
 
 
 class PreserveStageTwoFieldsTests(unittest.TestCase):
-    """阶段 1 开始写主体后，**不得让阶段 2 丢状态** ✓（Y-7：只动自己产生的数据 ✓）。"""
+    """阶段 1 开始写主体后，**不得让阶段 2 丢状态** ✓（只动自己产生的数据 ✓）。"""
 
     def test_existing_download_fields_are_carried_over(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -182,7 +181,7 @@ class PreserveStageTwoFieldsTests(unittest.TestCase):
             self.assertEqual(rows[0]["title"], "T")
             for field in ("download_status", "local_filename", "fail_reason", "size_bytes"):
                 self.assertNotIn(field, rows[0], "新文件里不该有下载字段 ✗")
-            # K144（2026-10-16）：没有真实 `cites_id` 的行现在带上**共享件算出的合成键** ✓ ——
+            # 没有真实 `cites_id` 的行带上**共享件算出的合成键** ✓ ——
             # 主体归阶段 1 之后，键也得由它产出（`code/shared/citation_key.py`，键只有那一份 ✓）。
             from code.shared.citation_key import synthetic_cites_id
             self.assertEqual(rows[0]["cites_id"], synthetic_cites_id({"title": "T"}))
@@ -220,7 +219,7 @@ class RetiredEntriesAndPubEntryPointTests(unittest.TestCase):
             self.assertEqual(saved[1]["title"], "Retired", "退役条目原样保留 ✓")
 
     def test_same_work_at_a_new_index_does_not_leave_a_duplicate_row(self):
-        """编号漂移（同一 `cites_id` 换了 index）不许在 meta 里留下两行（2026-10-19）。"""
+        """编号漂移（同一 `cites_id` 换了 index）不许在 meta 里留下两行。"""
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, META_NAME)
             with open(path, "w", encoding="utf-8") as handle:

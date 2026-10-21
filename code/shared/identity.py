@@ -1,21 +1,20 @@
-"""引用身份判定 —— **唯一实体**（宿主：阶段 2）。
+"""引用身份判定 —— **唯一实体**（宿主：阶段 1）。
 
-消费方：3.a.1 / 3.a.2 / 3.b / 阶段 4（各自 `code/_shared.py` 注入路径后导入本模块）。
-2026-10-14 之前这四个仓库各存一份**逐字节相同**的副本（sha256 `b58b45d4…`），靠
-"改一处必须同步四处"的人工约定维持；现在只有这一份 —— **改这里就是改四个消费方的行为**。
+消费方：阶段 2 / 3.a.1 / 3.a.2 / 3.b / 阶段 4（各自 `code/_shared.py` 注入路径后导入本模块）。
+本模块只有这一份 —— **改这里就是改所有消费方的行为**。
 
-判定规则（决策树，与阶段 2 的 `cites_id` / K125 合成键语义配套）：
+判定规则（决策树，与 `cites_id` / 合成键语义配套）：
 
 1. 两侧都有真实 `cites_id` 且相等 → 同一（id 一级定案，其余字段不参与）
 2. 否则 Tier1 强标识（DOI / arXiv id）两侧都给得出：相等 → 同一；不等 → 不同
-   （**DOI 与同一作品的 arXiv 预印本算不同资源** = K123 的场景）
+   （**DOI 与同一作品的 arXiv 预印本算不同资源**）
 3. 否则比归一化标题；两侧都提供年份 / 首作者姓时**互相矛盾即判不同**
 4. 否则 Tier2 弱 URL 资源键（折叠同一资源的已知不同形状后）相等 → 同一
 5. 其余 → 不同（无法判定一律按"不同"，安全侧）
 
 `no_id:*` 只作"没有真实 id"的前缀判断，**绝不解析合成键的形状**（新格式含 `|` 与 `#`，
 连键尾的 `#doi:` / `#url:<sha8>` 也不当 URL 凭据）；标题/年份/作者/URL 一律取条目自身字段
-（作者优先 `authors_raw`，K47）。URL 归一化与阶段 2 `utils.normalize_url_for_key()` 同口径，
+（作者优先 `authors_raw`）。URL 归一化与阶段 2 `utils.normalize_url_for_key()` 同口径，
 但**自带一份**：本模块要能被没有阶段 2 `code` 包在 `sys.path` 上的进程导入。
 """
 
@@ -24,21 +23,21 @@ import unicodedata
 
 # 引用身份：判定"两个条目是不是同一条引用"
 #
-# 本段在四个仓库里**逐字节相同**（3.a.1 / 3.a.2 / 3.b / 阶段 4；改一处必须同步四处，
-# 见根 AGENTS.md「编号必须与身份一致」）。各文件的 `same_citation()` 只是"取身份段 +
-# 调用 `same_citation_identity()`"的薄封装。
+# 本段是唯一实体（宿主阶段 1；消费方 3.a.1 / 3.a.2 / 3.b / 阶段 4 都经 `code/_shared.py`
+# 导入同一份）。各文件的 `same_citation()` 只是"取身份段 + 调用
+# `same_citation_identity()`"的薄封装。
 #
-# 上游阶段 2 的合成键（K125，2026-10-13）已改成**与列表位置无关**：
+# 合成键是**与列表位置无关**的：
 #   no_id:<源论文稳定标识>|<归一化被引标题>|<年份>|<首作者姓>[#doi:…|#arxiv:…|#url:<sha8>|#pos<N>]
-# 旧格式 `no_id:paper_<下标>:<标题>` 仍可能留在历史文件里。因此**绝不解析合成键的形状**
+# 兼容格式 `no_id:paper_<下标>:<标题>` 仍可能留在存量文件里。因此**绝不解析合成键的形状**
 # （`split(':')[-1]` 取标题、假定键里不含 `|` 或 `#` 都会取错）：标题/年份/作者/URL 一律取
 # 条目**自身的字段**（`title` / `year` / `authors` / `authors_raw` / `url`）；连键尾的
 # `#doi:` / `#arxiv:` / `#url:<sha8>` 消歧后缀也**不当作 URL 凭据**，`no_id:*` 只用来判
 # "没有真实 id"。
 #
-# URL / DOI / arXiv 凭据（K128，2026-10-13）分**两级**，只在"两侧都能给出"时参与：
+# URL / DOI / arXiv 凭据分**两级**，只在"两侧都能给出"时参与：
 #   Tier 1 **强标识**（`identity_strong_identifier()`）：DOI 与 arXiv id。两侧都有且不等
-#     → 判**不同**（**DOI 与同一作品的 arXiv 预印本 = 不同资源**，这正是 K123 的场景）。
+#     → 判**不同**（**DOI 与同一作品的 arXiv 预印本 = 不同资源**）。
 #   Tier 2 **弱 URL 资源键**（`identity_url_resource_key()`）：只在两侧拿不到强标识时比；
 #     先把"同一个资源的已知不同形状"折叠成同一个键（IEEE `/abstract/document/` vs
 #     `/document/`、OSF `files.osf.io` vs `osf.io/preprints`、Research Square 的
@@ -62,7 +61,7 @@ def _identity_get(entry, name) -> str:
 def identity_norm_title(text) -> str:
     """身份用的标题归一化（与阶段 2 `normalize_title_for_key()` 同口径）。
 
-    **Unicode 安全**：只留字母/数字/CJK 等 word 字符并小写。过去用 `[^a-z0-9]` 会把中文/日文
+    **Unicode 安全**：只留字母/数字/CJK 等 word 字符并小写。用 `[^a-z0-9]` 会把中文/日文
     标题清成空串 —— 那等于"所有中文标题都判不出身份"，只能无谓重算。
     """
     return re.sub(r"[\W_]+", "", str(text or "").lower(), flags=re.UNICODE)
@@ -160,7 +159,7 @@ def identity_strong_identifier(url) -> str:
     同一个）→ **DOI**。归一：小写、去 `doi:` / `https://doi.org/` 前缀（直接在串里搜 `10.` 即
     天然去掉）、去 `v<N>` 版本后缀与 `/full`、`.pdf`、末尾标点。
 
-    **DOI 与同一作品的 arXiv 预印本前缀不同 ⇒ 永远不相等 = 不同资源**（K123 的落点）。
+    **DOI 与同一作品的 arXiv 预印本前缀不同 ⇒ 永远不相等 = 不同资源**。
     """
     text = str(url or "").strip()
     if not text:
@@ -190,7 +189,7 @@ def identity_url_resource_key(url) -> str:
          `researchsquare:<id>`（`/article/rs-123/latest` 与 `assets-eu…/files/rs-123/…pdf` 同一）；
       ④ **DSpace / 机构仓库**（路径含 `/bitstream(s)/`、`/handle/`、`/items/`、`/server/api/core/`）
          → `repository:<host>`。**刻意只折到"仓库"粒度**：item 页与 bitstream 直链的 uuid 不同
-         （实测 `jscholarship…/items/b69d938e…` vs `…/bitstreams/3fdc2fb3…/content`），URL 层面
+         （例如 `jscholarship…/items/b69d938e…` vs `…/bitstreams/3fdc2fb3…/content`），URL 层面
          拿不到共同 id；
       ⑤ **通用**：`identity_normalize_url()`（去 scheme / `www.` / 末尾斜杠 / fragment / 跟踪参数、
          host 小写）之后，再去掉路径末尾的 `/v<N>`、`/full`、`/abstract`、`/latest` 与 `.pdf`。
@@ -227,7 +226,7 @@ def identity_url_resource_key(url) -> str:
             return "osf:" + cand.lower()
     # ③ Research Square：`rs-<数字>` 是资源号，`/article/.../latest` 与 assets 直链同一
     # （与 ② 同口径：**标签对齐**，不用 `"researchsquare.com" in host` —— 那会误配
-    #   `notresearchsquare.com` 这类别人的域，K118）
+    #   `notresearchsquare.com` 这类别人的域）
     if host_bare == "researchsquare.com" or host_bare.endswith(".researchsquare.com"):
         m = re.search(r"(?:^|[/_\-])rs[-_]?(\d{4,})", path)
         if m:
@@ -250,7 +249,7 @@ def citation_identity_of(entry) -> tuple:
     """条目 → 身份 `(cites_id, 归一化标题, 年份, 首作者姓, 原始标题, 强标识, 弱 URL 键)`。
 
     缺失字段一律 ""。`entry` 可以是 dict，也可以是带属性的对象。作者串两种字段名都认，且
-    **优先 `authors_raw`**：按契约（K47）它始终是 `citations_meta.json` 的原始作者串；而
+    **优先 `authors_raw`**：按契约它始终是 `citations_meta.json` 的原始作者串；而
     `authors` 在 3.a.1 的 resume 路径上可能是**补全后的全名**（派生值，不该拿来当身份）。
     阶段 2 的 `citations_meta.json` 与 3.b 用 `authors`，3.a.1 / 3.a.2 落盘的 `citation` 段用
     `authors_raw`。
@@ -279,15 +278,15 @@ def same_citation_identity(a, b) -> bool:
       1. 两侧都是真实 `cites_id` → **必须相等**（不等即不同作品；有真实 id 时与升级前完全一致）；
       2. 否则比**归一化标题**：任一侧标题为空 → 无法判定 → 判为**不同**（安全侧：宁可重算）；
       3. 标题相同，且**两侧都提供了**年份 / 首作者姓时，这些信息**互相矛盾**才判不同 ——
-         年份都非空且不同，或首作者姓都非空且不同（K123：上游 Google 认为是不同的两条
+         年份都非空且不同，或首作者姓都非空且不同（上游 Google 认为是不同的两条
          （同标题、不同年份/作者/URL）必须当作两条独立引用处理，任何环节都不按标题合并）；
       4. 任一侧缺年份或首作者姓 → 该维度不参与，只按标题判 —— **保持对历史产物的兼容**，
          不因为信息缺失就把大批旧产物判成不符；
-      5. **Tier 1 强标识**（K128）：两侧都有 DOI / arXiv 强标识时，不等即判**不同** ——
+      5. **Tier 1 强标识**：两侧都有 DOI / arXiv 强标识时，不等即判**不同** ——
          **DOI 与同一作品的 arXiv 预印本算不同资源**（"如果 Google 认为是两条，我们就该认为是
          两条"）。相等时它**直接给出"同一"**（同一资源；不再看 Tier 2，否则 `doi.org/10.x` 与
          出版社落地页会被误判为不同）；
-      6. **Tier 2 弱 URL 资源键**（K128，只在两侧拿不到强标识时比）：先把"同一资源的已知不同
+      6. **Tier 2 弱 URL 资源键**（只在两侧拿不到强标识时比）：先把"同一资源的已知不同
          形状"折叠（IEEE `/abstract/document/` vs `/document/`、OSF `files.osf.io` vs
          `osf.io/preprints`、Research Square `rs-<数字>`、DSpace item vs bitstream、`/v1`、`.pdf`、
          `http`/`https`、`www.`、末尾斜杠、fragment、跟踪参数），**折叠后仍不同**才判不同；

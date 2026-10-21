@@ -72,7 +72,7 @@ class AssignTests(unittest.TestCase):
         state, _ = CI.assign_indices([_cite("Same Title", "1", year="2020", authors="A Wang")])
         _, indices = CI.assign_indices(
             [_cite("Same Title", "2", year="2021", authors="B Li")], state)
-        self.assertEqual(indices, [2])                # 年份/首作者矛盾 → 不同（K123）
+        self.assertEqual(indices, [2])                # 年份/首作者矛盾 → 不同
 
     def test_empty_and_broken_state_is_tolerated(self):
         for broken in (None, {}, {"assigned": "junk", "next": "x", "retired": [0, -3, "a"]},

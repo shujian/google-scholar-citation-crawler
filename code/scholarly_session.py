@@ -65,8 +65,7 @@ def detail_path_delay_factor(url):
     The **detail-style** paths are one-shot, non-paginated pages:
 
     * a publication detail page (``view_op=view_citation``),
-    * a citing entry's Cite dialog (``output=cite``) — the signed BibTeX download
-      was dropped from this list on 2026-10-15, when BibTeX itself was abandoned.
+    * a citing entry's Cite dialog (``output=cite``).
 
     They run at ``code.config.DETAIL_PAGE_DELAY_FACTOR`` (1/10) of the normal
     delay.  Every other URL — notably citation-list pagination and the profile
@@ -88,8 +87,8 @@ def is_detail_style_path(url):
     The same single classifier as the pacing (``detail_path_delay_factor``),
     read for a different purpose: on these URLs a 404/410 means "this record
     does not exist" rather than "we are blocked" — Scholar serves the citation
-    list row but may have no Cite dialog for its cluster handle (measured
-    2026-10-16; see ``code/page_visit.py::RecordUnavailable``).
+    list row but may have no Cite dialog for its cluster handle (see
+    ``code/page_visit.py::RecordUnavailable``).
     """
     return detail_path_delay_factor(url) < 1.0
 
@@ -116,13 +115,11 @@ class SessionContext:
     total_page_count: int = 0
     curl_page_count: int = 0       # pages accessed with current curl/cookies
     current_paper_page_count: int = 0  # resets per paper, not per year-segment or retry
-    #: Citation-list pages only (2026-10-19).  `total_page_count` counts **every
-    #: request** — a citation page drags 0-10 Cite-dialog / detail-page requests
-    #: behind it, so pacing the 8-12 page mandatory break with it collapsed to
-    #: "a break every 1-2 citation pages" (measured: 53 breaks over 89 pages,
-    #: counter deltas of +11 = 10 dialogs + 1 page).  Breaks and session
-    #: refreshes pace on this counter; first-page/first-curl checks keep using
-    #: `total_page_count`.
+    #: Citation-list pages only.  `total_page_count` counts **every request** —
+    #: a citation page drags 0-10 Cite-dialog / detail-page requests behind it,
+    #: so pacing the 8-12 page mandatory break with it would collapse to "a break
+    #: every 1-2 citation pages".  Breaks and session refreshes pace on this
+    #: counter; first-page/first-curl checks keep using `total_page_count`.
     citation_page_count: int = 0
     next_break_at: int = 0
     next_refresh_at: int = 0
@@ -141,8 +138,8 @@ class SessionContext:
     # "no response seen for the current request" (network error).
     last_response_status: Optional[int] = None
     last_response_url: str = ""
-    # 响应体大小与"是否以 </html> 收尾"（2026-10-21 用户要求）：一页只返回 3 行、且翻页链接
-    # 消失时，要能判断是**响应被截断**（body 明显偏小 / 没有收尾标签）还是 Scholar 真给了短列表。
+    # 响应体大小与"是否以 </html> 收尾"：一页只返回几行、且翻页链接消失时，要能判断是
+    # **响应被截断**（body 明显偏小 / 没有收尾标签）还是 Scholar 真给了短列表。
     last_response_bytes: Optional[int] = None
     last_response_tail_ok: Optional[bool] = None
     # The /sorry/ interstitial behind the current request, or "".  Recorded by
@@ -251,10 +248,9 @@ def format_page_evidence(evidence):
 def citation_page_progress(url, item_count):
     """One line per citation-list page: ``2025 · page 2 · 10 items``（模块列已写 `year`）.
 
-    Emitted at DEBUG: the screen stays on conclusions (2026-10-19 用户定), while
-    the run log file — threshold DEBUG — still records *where* in the traversal
-    each page came from.  Direct mode has no year filter, so its pages read
-    ``page 2 · 10 items``.
+    Emitted at INFO: the screen shows the traversal's progress, and the run log
+    file records *where* each page came from.  Direct mode has no year filter,
+    so its pages read ``page 2 · 10 items``.
     """
     text = str(url or '')
     year_m = re.search(r'[?&]as_ylo=(\d{4})', text)
@@ -270,12 +266,12 @@ def citation_page_module(url):
 
 
 def empty_page_worth_retrying(evidence):
-    """一个 0 行的引用列表页，值不值得**再取一次**（2026-10-20 用户要求）。
+    """一个 0 行的引用列表页，值不值得**再取一次**。
 
     判据只有一条：Google 有没有明说"没有结果"（`did not match any` / `no results found`）。
     明说了就重试无意义；没说、却返回一个没有结果行的正常外壳页 —— 更像被挡/被截断
-    （实测 2026-10-20：2019 年第 9 页 `start=80` 返回 0 行、`markers` 为空，而直方图说这一年
-    有 173 条、缓存已有 174 条），这种页面再取一次往往就有内容了。
+    （例如某年直方图说有 173 条、缓存已有 174 条，第 9 页却返回 0 行且 `markers` 为空），
+    这种页面再取一次往往就有内容了。
     """
     if not isinstance(evidence, dict):
         return False
@@ -303,9 +299,9 @@ def record_zero_row_citation_page(ctx, soup):
 # ---------------------------------------------------------------------------
 
 #: Path of the interstitial Google bounces a request it has decided to challenge
-#: to (measured 2026-10-19: `/scholar?oi=bibs&cites=…` answered 302 →
+#: to (e.g. `/scholar?oi=bibs&cites=…` answers 302 →
 #: `https://www.google.com/sorry/index?continue=…`, and the interstitial then
-#: answered 429).
+#: answers 429).
 _BLOCK_REDIRECT_PATH = '/sorry'
 
 
@@ -490,12 +486,12 @@ def assert_scholarly_patches_active(checks):
 
 
 def reset_break_counter(ctx):
-    """解完验证码之后把 mandatory-break 的计时**清零**（用户 2026-10-19 定）。
+    """解完验证码之后把 mandatory-break 的计时**清零**。
 
-    **背景**：长休的判据是"页数够了没"（`total_page_count >= next_break_at`）。人工解验证码那几分钟
-    本身就是一次不短的中断 —— 甚至比 3–6 分钟还久 —— 但计数器不动 ✗，于是解完验证码常常**紧接着**
-    又撞上一次长休（用户实测反复遇到 ✗）。判据：把 `next_break_at` 推成"当前页数 + 一个完整窗口" ✓，
-    与"长休之后重排窗口"那一段逻辑**完全一致** ✓。
+    **背景**：长休的判据是"引用列表页数够了没"（`citation_page_count >= next_break_at`）。
+    人工解验证码那几分钟本身就是一次不短的中断 —— 甚至比 3–6 分钟还久 —— 但计数器不动 ✗，
+    于是解完验证码常常**紧接着**又撞上一次长休。判据：把 `next_break_at` 推成"当前页数 +
+    一个完整窗口" ✓，与"长休之后重排窗口"那一段逻辑**完全一致** ✓。
 
     **只清长休计数**：会话刷新（`next_refresh_at`）不动 —— 刚注入的 cookies 正是想马上用 ✓。
     """
@@ -660,9 +656,9 @@ def patch_scholarly(ctx: SessionContext) -> None:
         # was seen on, but it never passes through
         # _SearchScholarIterator._load_url — the hook that refreshes the session's
         # Referer while a citation list is being walked.  Left alone the dialog
-        # therefore carries the page *before* the row's page (observed 2026-10-15:
-        # referer was the as_ylo=2023 list while the row came from the as_ylo=2025
-        # one), whereas a browser sends the page the row is on.  Refresh it before
+        # therefore carries the page *before* the row's page (e.g. the as_ylo=2023
+        # list while the row came from the as_ylo=2025 one), whereas a browser
+        # sends the page the row is on.  Refresh it before
         # the request goes out, so what is sent and what the log line reports agree.
         if is_cite_dialog_url(request_url) and ctx.last_scholar_url:
             for session in (nav._session1, nav._session2):
@@ -682,7 +678,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
             show_referer = referer and referer != ctx.last_scholar_url
             referer_str = f" (referer: {referer})" if show_referer else ""
             # 这条请求是为哪一条施引论文发的 —— 只说一次，挂在这一行上（URL 里只有 cid）。
-            # 后面的 `waiting …` 不再重复它（用户 2026-10-20）。
+            # 后面的 `waiting …` 不再重复它。
             entry = f" · {run_log.entry_label}" if run_log.entry_label else ""
             run_log.info(f"Request URL: {request_url}{referer_str}{entry}",
                          module="http", indent=2)
@@ -704,9 +700,9 @@ def patch_scholarly(ctx: SessionContext) -> None:
         # and triggers captcha recovery immediately instead of waiting.
         MAX_SLEEPS_PER_PAGE = 1
 
-        # Pace of the *detail-style* paths (publication detail page, Cite dialog
-        # and its signed BibTeX download): one-shot, non-paginated pages, so they
-        # run at DETAIL_PAGE_DELAY_FACTOR of the normal delay instead of the full
+        # Pace of the *detail-style* paths (publication detail page, Cite dialog):
+        # one-shot, non-paginated pages, so they run at DETAIL_PAGE_DELAY_FACTOR of
+        # the normal delay instead of the full
         # 45-90 s.  `--accelerate` stacks on top (the factors multiply) and
         # citation-list pagination keeps the full delay.  The factor is defined
         # once, in code.config; detail_path_delay_factor() is the single place
@@ -749,10 +745,8 @@ def patch_scholarly(ctx: SessionContext) -> None:
                 retry_note = (f" (retry {sleep_count[0]})"
                               if sleep_count[0] > 1 else "")
                 wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""
-                # DEBUG (2026-10-19 用户定): the screen keeps only conclusions, so
-                # this per-request heartbeat goes to the log file.  The console
-                # still gets a line every 8-12 pages from the mandatory break
-                # below, which is the run's visible pulse.
+                # This per-request heartbeat stays at INFO so the screen shows the
+                # run's progress; the log file records it as well.
                 detail = f" · {wait_str}" if wait_str else ""
                 run_log.info(f"waiting {d:.0f}s{retry_note}{detail}",
                              module="http", indent=2)
@@ -934,7 +928,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
                 break
             # Not a "no results" page, yet no rows: most likely a blocked or
             # truncated response rather than the end of the list.  Fetch the
-            # same page once more before giving up (2026-10-20 用户要求).
+            # same page once more before giving up.
             run_log.warn("Page returned no rows and is not a 'no results' page — "
                          "fetching it once more", module="http", indent=2)
             ctx.last_page_evidence = evidence

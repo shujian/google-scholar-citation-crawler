@@ -1,11 +1,11 @@
 """`venue_key` 判据的**唯一实体**在阶段 1 的 `code/shared/venue_key.py`（本仓库是宿主）。
 
-用户 2026-10-15 定：**一切 venue 判定以 `venue_key` 为唯一权威**。这一份实现（词表 +
+**一切 venue 判定以 `venue_key` 为唯一权威**。这一份实现（词表 +
 匹配 + `<规范名><年份>` 归一 + 预印本服务器 + `venue_key_name()` 去年份）只有一份实体，
 阶段 2 / 3.a.1 / 3.a.2 / 阶段 4 经各自的 `code/_shared.py` 注入后
 `from shared.venue_key import ...` 消费同一份。
 
-`code/venue_key.py` 只是**薄再导出**（保住历史 import 路径）——**不许再写第二份实现**。
+`code/venue_key.py` 只是**薄再导出**（保住既有 import 路径）——**不许再写第二份实现**。
 见根 `AGENTS.md`「跨仓库共享代码」。
 """
 

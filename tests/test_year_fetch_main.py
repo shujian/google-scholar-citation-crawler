@@ -421,7 +421,7 @@ class YearFetchMainTests(FetcherTestCase):
                 pass
 
             # `main()` 在抓取前先落 baseline、并据此判断"这一轮有没有活"；
-            # 假 fetch 只需如实回应，别让缺方法把 main 打断（2026-10-19）。
+            # 假 fetch 只需如实回应，别让缺方法把 main 打断。
             def write_baseline(self):
                 pass
 
@@ -999,7 +999,7 @@ class YearFetchMainTests(FetcherTestCase):
 
 
     def test_a_cached_row_absorbs_the_cite_data_of_its_fresh_twin(self):
-        """同身份的新行不丢弃：把它的 `cite` / `cid` 并进**缓存行**（用户 2026-10-19）。
+        """同身份的新行不丢弃：把它的 `cite` / `cid` 并进**缓存行**。
 
         逐页抓 Cite 对话框是按"这一页的行"付钱的 —— 年份重扫回来条数比缓存少时，缓存行留下 ✓，
         但同一身份那一行的 `cite` 必须补进去 ✓；缓存已有更全的 `cite` 时**不降级** ✗；
@@ -1050,7 +1050,7 @@ class YearFetchMainTests(FetcherTestCase):
         self.assertEqual(cached, snapshot)
 
     def test_a_year_that_stayed_short_is_rescanned_from_page_one(self):
-        """连续 `RESCAN_AFTER_SHORT_ATTEMPTS` 次没收全 → 下一次从第 1 页重扫（用户 2026-10-19）。
+        """连续 `RESCAN_AFTER_SHORT_ATTEMPTS` 次没收全 → 下一次从第 1 页重扫。
 
         偏移续跑是"可变列表里的位置" ✗：列表上方插入条目后从旧偏移续会掠过被挤下去的行，
         而那一年永远"差几条"、每次都从同一个偏移续 ✗。连续几次都没收全 = 偏移不再可信 →
@@ -1087,7 +1087,7 @@ class YearFetchMainTests(FetcherTestCase):
         self.assertEqual(normalized[2025]["short_attempts"], 4)
 
     def test_a_year_settles_when_the_rescan_returns_the_same_count(self):
-        """重扫一遍结果没变 → 认作"网页信息与 probe 不符"，不再算"差几条"、也不再重扫（用户 2026-10-19）。
+        """重扫一遍结果没变 → 认作"网页信息与 probe 不符"，不再算"差几条"、也不再重扫。
 
         判据落在 `year_record_gap()`：`stalled` 且 `stalled_probe >= histogram_count`（Scholar 的
         声称没继续涨）→ gap 记 0 ✓；probe 一涨 → 恢复成普通年份、gap 照算 ✓（自愈）。
@@ -1218,9 +1218,9 @@ class YearFetchMainTests(FetcherTestCase):
 
 
 class PlanUsesTheFreshProbeCountsTests(FetcherTestCase):
-    """计划必须用**探针刚写回**的计数，而不是函数开头抓到的旧快照（2026-10-20 回归）。
+    """计划必须用**探针刚写回**的计数，而不是函数开头抓到的旧快照。
 
-    现场：`_fetch_by_year()` 开头抓一次 `year_ctx.probed_year_counts`（那时是上一轮留下的
+    `_fetch_by_year()` 开头抓一次 `year_ctx.probed_year_counts`（那时可能还是上一轮留下的
     `{}`），探针把新计数写进同一个 `year_ctx` —— 若计划仍用开头那份空快照，
     `cache_year_floor()` 就退回"取缓存最早年份"，paper 2 的计划又变成 1907–2026。
     """
@@ -1287,10 +1287,10 @@ class PlanUsesTheFreshProbeCountsTests(FetcherTestCase):
 
 
 class ShortWalkRetryTests(FetcherTestCase):
-    """走完却明显少于应有条数 → 整段重走一次，只一次（2026-10-21 用户定）。
+    """走完却明显少于应有条数 → 整段重走一次，只一次。
 
-    现场：2021 年第 1 页只返回 3 行、且没有翻页链接，而这一年缓存 220 条、probe 222 ——
-    同一 URL 现在取是 10 行 + 有 next，说明那次拿到的是一份被截断的响应。
+    例如 2021 年第 1 页只返回 3 行、且没有翻页链接，而这一年缓存 220 条、probe 222 ——
+    同一 URL 稍后取是 10 行 + 有 next，说明那次拿到的是一份被截断的响应。
     """
 
     def _walk(self, rows_per_attempt, min_rows):
@@ -1353,9 +1353,9 @@ class ShortWalkRetryTests(FetcherTestCase):
 
 
 class CacheYearFloorTests(unittest.TestCase):
-    """计划起点只按**探针覆盖到**的缓存年份放宽（2026-10-20 实测的 1908 事故）。
+    """计划起点只按**探针覆盖到**的缓存年份放宽。
 
-    paper 2 的缓存里混着 `1907`（以及 2050 / 2090），`min(cache)` 把计划拉成 1907–2026
+    paper 2 的缓存里混着 `1907`（以及 2050 / 2090），`min(cache)` 会把计划拉成 1907–2026
     共 120 年，前面 109 年每年一次 `as_ylo=1908` 请求、全部零行。直方图（2017–2026）里
     没有那些年份 → probe=0 → 放宽没有收益，只会烧请求。
     """

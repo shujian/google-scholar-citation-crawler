@@ -11,14 +11,14 @@ page that spells the venue out in full::
     /citations?hl=en&view_op=view_citation&citation_for_view=<author_id>:<token>
 
 That page is fetched once per *publication* (hundreds — one per source paper),
-not once per citing entry (thousands), and the full venue is stored in a **new**
-field ``pub['venue_full']``.
+not once per citing entry (thousands), and the full venue is stored in the
+additive ``pub['venue_full']`` field.
 
 ``pub['venue']`` is deliberately **never** rewritten
 (``venue_full`` is strictly additive): ``venue`` takes part in the metadata
 identity key ``meta\\t{title}\\t{venue}`` (``code/citation_identity.py``) and in
-the downstream stages' identity checks (K123/K125), so rewriting it would drift
-historical identity keys and re-key data that has already been analysed.
+the downstream stages' identity checks, so rewriting it would drift identity keys
+and re-key data that has already been analysed.
 Downstream 3.a.1 may *prefer* ``venue_full`` when it repairs venues; that is a
 later, separate decision.
 

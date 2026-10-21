@@ -110,9 +110,9 @@ def build_year_fetch_diagnostics(year, histogram_count, cached_total, dedup_coun
         'seen_total': seen_total,
         'dedup_count': dedup_count,
         'termination_reason': termination_reason or 'iterator_exhausted',
-        # 连续多少次"见到的比 Scholar 声称的少"（2026-10-19）：连续 N 次 → 下一次从第 1 页重扫。
+        # 连续多少次"见到的比 Scholar 声称的少"：连续 N 次 → 下一次从第 1 页重扫。
         'short_attempts': max(0, short_attempts),
-        # 重扫一遍后结果**没变** → 认作"网页信息与 probe 不符"（2026-10-19 用户定），
+        # 重扫一遍后结果**没变** → 认作"网页信息与 probe 不符"，
         # 记下当时的 probe，之后 probe 不涨就不要再抓这一年 ✗。
         'stalled': bool(stalled),
         'stalled_probe': max(0, stalled_probe),
@@ -248,7 +248,7 @@ def iter_year_records(year_records):
 def year_record_effective_histogram(record):
     """某一年"应该拿来比"的声称条数：已判死且 probe 没涨 → 用我们实际见到的条数 ✓。
 
-    2026-10-19 用户定："重扫第二遍结果还一样 → 网页信息与 probe 不符"。这种年份的
+    规则："重扫第二遍结果还一样 → 网页信息与 probe 不符"。这种年份的
     `histogram_count` 是 Scholar 侧的陈旧声称，**不该继续拉高汇总**（否则 `is_data_complete()`
     永远 False ✗、论文永远 partial ✗）。probe 一涨就自动恢复成原声称 ✓。
     """
@@ -266,7 +266,7 @@ def year_record_effective_histogram(record):
 def year_record_gap(record):
     """Return max(0, histogram_count - seen_total) for one per-year record.
 
-    2026-10-19 用户定：**重扫一遍结果没变** → 这是"网页信息与 probe 不符"，不是我们没抓全 ✓。
+    **重扫一遍结果没变** → 这是"网页信息与 probe 不符"，不是我们没抓全 ✓。
     这种年份（`stalled` 且 `stalled_probe >= histogram_count`，即 Scholar 的声称没有继续涨）
     gap 记为 **0** ✓ —— 否则论文会永远"差 N 条"、每个 run 都重扫 ✗。probe 一涨就恢复成普通年份 ✓。
     """
@@ -346,10 +346,9 @@ def fetch_outcome_signature(strategy, summary, year_records=None):
     The signature counts the rows the fetch actually saw, and deliberately
     leaves out Scholar's own expectation (``histogram_total`` /
     ``scholar_total``) as well as the short-year list.  Those move between runs
-    even when the listing does not (2026-10-15: one paper's 2026 bucket
-    alternated 190/200, 193/200, 194/201, 192/201), so every run looked like a
-    new outcome and a paper that cannot converge never accumulated a stall
-    count — it was re-walked in full on every run.  Completeness is still
+    even when the listing does not, so using them would make every run look
+    like a new outcome and a paper that cannot converge would never accumulate
+    a stall count — it would be re-walked in full on every run.  Completeness is still
     judged against those targets (`year_records_data_complete` /
     `is_data_complete`); only the stall comparison ignores them.
     """

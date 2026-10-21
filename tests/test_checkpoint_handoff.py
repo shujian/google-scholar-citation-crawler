@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""阶段 1 的阶段性交接（2026-10-19 用户要求：每处理完一篇就落盘）。
+"""阶段 1 的阶段性交接（每处理完一篇就落盘）。
 
 钉住四件事：
 1. 每篇完成后写该篇的 `citations_meta.json`（带 index）与 cite 文件；
-2. **不再写 `*.partial.json` 全量快照**（2026-10-21 用户决定去掉，见 AGENTS.md）；
+2. **不写 `*.partial.json` 全量快照**（见 AGENTS.md）；
 3. 重复调用幂等，不重复写 / 不丢条目；
 4. 中断报告按"产物写没写"分开措辞。
 """
@@ -59,10 +59,10 @@ class TestCheckpointHandoff(unittest.TestCase):
             os.makedirs(os.path.join(self.root, target_dir_name(p)), exist_ok=True)
 
     def test_writes_meta_after_each_paper(self):
-        """每篇完成就写该篇的 `citations_meta.json`（不再写 *.partial.json 全量快照）。
+        """每篇完成就写该篇的 `citations_meta.json`（不写 *.partial.json 全量快照）。
 
-        2026-10-21 用户决定去掉 partial 快照：下游没有人读它，而它不带 `_fetch_state`
-        当不了续跑账本，代价却是每篇重写 ~10 MB。
+        不写 partial 快照：下游没有人读它，而它不带 `_fetch_state`，当不了续跑账本，
+        代价却是每篇重写 ~10 MB。
         """
         self.fetcher._checkpoint_results[0] = {"pub": self.p1,
                                                "citations": [_cit(1), _cit(2)]}
@@ -167,8 +167,8 @@ class TestCheckpointHandoff(unittest.TestCase):
     def test_the_product_is_written_before_the_cite_dialog_step(self):
         """先写产物，再抓 Cite 对话框：对话框那一步被打断不该连引用一起丢。
 
-        2026-10-20 实测：一次二段 Ctrl+C 让 9 MB 产物停在上一轮，而抓到的引用其实都在
-        内存里 —— 因为旧顺序把最长的那一步放在了写 JSON 之前。
+        二段 Ctrl+C 可能让保存停在写 JSON 之前，而抓到的引用其实都在内存里；因此把
+        最长的那一步放在写 JSON 之后。
         """
         self.fetcher.cite_formats = True
         results = [
@@ -205,8 +205,8 @@ class TestCheckpointHandoff(unittest.TestCase):
     def test_a_save_interrupted_after_the_product_says_the_product_is_there(self):
         """产物已经写了、只是没重写成"带本轮对话框"的版本时，不能说"落后一轮"。
 
-        2026-10-20 实测：`_save_output` 先写 JSON，之后跑 Cite 对话框时被打断，报告却写
-        "the product may be one run behind" —— 与磁盘上的事实相反。
+        `_save_output` 先写 JSON，之后跑 Cite 对话框时被打断；此时报告若写
+        "the product may be one run behind"，就与磁盘上的事实相反。
         """
         from io import StringIO
         self.fetcher._save_completed = False

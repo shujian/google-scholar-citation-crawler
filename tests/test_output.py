@@ -11,7 +11,7 @@ import shutil
 from code import scholar_citation
 from code.output_state import PaperFetchState
 class PapersRootTests(unittest.TestCase):
-    """论文数据树的物理位置（2026-10-15 起在阶段 1 的 output 下）。
+    """论文数据树的物理位置（在阶段 1 的 output 下）。
 
     `papers_root()` / `ensure_papers_root()` 是**唯一**给出这个路径的地方；消费方
     （阶段 2 / 3.x / 阶段 4）一律经各自的 `papers` 符号链接，不直接拼这个路径。
@@ -637,7 +637,7 @@ if __name__ == '__main__':
 
 
 class DedupKeepsSeenTotalTests(FetcherTestCase):
-    """去重只改变"行怎么分组"，不改变"已经抓了多少"（用户 2026-10-15）。
+    """去重只改变"行怎么分组"，不改变"已经抓了多少"。
 
     完整性判据只看 `seen_total`（对比 Scholar 的 `scholar_total` / `histogram_total`），
     所以输出去重**绝不能**把 `seen_total` 拉低 —— 否则"已经抓完"的论文下一轮会被当成

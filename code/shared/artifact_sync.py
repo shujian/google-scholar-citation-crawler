@@ -1,7 +1,7 @@
-"""按编号对账的**唯一判据**（Y-8，2026-10-15 用户定 ✓；宿主 3.a.1 = 最早的消费方 ✓）。
+"""按编号对账的**唯一判据**（宿主 3.a.1 = 最早的消费方 ✓）。
 
-用户原话："每次处理的时候对照阶段 1、2 的输出，如果其目录下有些编号不用了，就移除对应的 json，
-新增的就重新处理。" —— 本模块是这句话的**纯函数**落点 ✓（不碰磁盘 ✗，落盘/归档由调用方做 ✓）：
+规则：每次处理时对照阶段 1/2 的输出，目录下不再使用的编号移除对应 json、新增的重新处理。
+本模块是这条规则的**纯函数**落点 ✓（不碰磁盘 ✗，落盘/归档由调用方做 ✓）：
 
 * **权威编号集合**来自阶段 1/2 的输出 ✓（`citations_meta.json` 主体里的 `index` ✓）；
 * 本阶段目录里每个文件都叫 `output_NNNN.json` ✓（命名见 `shared.papers.output_name()` ✓）；
@@ -169,14 +169,14 @@ def archive_artifacts(stage_dir, indices, stamp=None, log=None, dry_run=False):
         log("  已归档 %d 个产物到 %s/（manifest 已追加 ✓）" % (len(moved), ARCHIVE_DIRNAME))
     return moved
 
-#: 三阶段旧的 per-citation 产物前缀（Y-8 第 2 步的回落用 ✓）
+#: 三阶段旧命名前缀（回落兼容用 ✓）
 LEGACY_PREFIXES = ("enrich_info", "analysis_info", "citation_analysis")
 
 
 def iter_artifact_files(stage_dir, legacy_prefix=None):
     """列出某阶段目录里的 per-citation 产物 ✓：**新名 `output_NNNN.json` 优先** ✓。
 
-    返回按编号升序的 `[(index, 路径)]` ✓。规则（Y-8 第 2 步 ✓）：目录不存在 → 空 ✓；
+    返回按编号升序的 `[(index, 路径)]` ✓。规则：目录不存在 → 空 ✓；
     **同编号两代并存 → 只返回新名** ✓（绝不重复计数 ✗）；只有旧名 → 回落旧名 ✓
     （混合目录不漏读 ✓；同一编号有多个旧名属异常态 ✓，取先见者即可 ✓）；其它文件忽略 ✓。
     """
@@ -216,8 +216,8 @@ def output_name(index):
     """`index` → `output_NNNN.json`（编号必须是正整数 ✓；不合法时抛 `ValueError` ✓）。"""
     number = int(index)
     if number < 0:
-        # `0` 允许 ✓：阶段 2/3 里"没有真实编号"的结果历史上写作 `..._0000.json` ✓，
-        # 改新名后等价于 `output_0000.json` ✓（否则那条写路径会直接抛错 ✗）。
+        # `0` 允许 ✓：存量里"没有真实编号"的产物写作 `..._0000.json`，新命名下等价于
+        # `output_0000.json` ✓（否则那条写路径会直接抛错 ✗）。
         raise ValueError("citation index 必须是非负整数，收到 %r" % (index,))
     return OUTPUT_NAME_TEMPLATE % number
 
@@ -226,7 +226,7 @@ def output_path(paper_dir, index):
     return os.path.join(paper_dir, output_name(index))
 
 def output_path_for_legacy(legacy_path):
-    """把旧的 per-citation 产物路径映射成新的 `output_NNNN.json` 路径 ✓（Y-8 双写期用 ✓）。
+    """把旧命名的 per-citation 产物路径映射成新的 `output_NNNN.json` 路径 ✓。
 
     只从**文件名尾部**取编号 ✓（`..._NNNN.json` ✓），目录原样保留 ✓，名字仍由
     `output_path()` 产出 ✓（**不在别处再拼一次字符串** ✗）。

@@ -144,17 +144,17 @@ def _fold_venue_for_compare(text):
 
 
 def venue_consistent_with_saved_bib(citation):
-    """True = 该条**已经保存过 bib**、且保存的 venue 与**本次线上看到的 venue**一致。
+    """True = 该条**已有保存的 Cite venue**，且它与**本次线上列表页的 venue**一致。
 
-    用户口径（2026-10-15）：crawler 下载 cite / bib 的访问量很大，所以**只要已经下载过 bib，
-    就先拿线上 venue 与已保存 bib 里的 venue 比一比** —— 一致就不必再访问 cite 与 bib；
-    **不一致才更新 bib**（例如 Scholar 改了会议名/年份、或这篇的发表地变了）。
+    口径：Cite 对话框的访问量很大，所以**只要已有保存的 venue，就先拿线上 venue 与它比一比**
+    —— 一致就不必再访问 Cite 对话框；**不一致才更新**（例如 Scholar 改了会议名/年份、或这篇
+    的发表地变了）。
 
     比对规则（刻意保守，宁可多抓一次也不误跳过）：
     * 两侧都折叠（去 `…`/`...` 截断符、压空白、casefold、去首尾标点）后相等 → 一致；
     * 一侧是另一侧的前缀（线上串常被 Scholar 截到 ~25 字符，会是完整串的前缀）→ 一致，
       **但短的一侧至少要有 `SAVED_BIB_VENUE_MIN_PREFIX` 个字符**；
-    * 线上 venue 缺失/占位、或没有已保存的 bib → **不一致**（按原逻辑继续判定）。
+    * 线上 venue 缺失/占位、或没有已保存的 venue → **不一致**（按原逻辑继续判定）。
     """
     if not isinstance(citation, dict):
         return False
@@ -184,8 +184,8 @@ def citation_needs_cite_dialog(citation):
 
     三种"不用抓"的情形，按顺序判：
 
-    1. **已保存的 bib 与本次线上 venue 一致** → 两个请求都省（用户 2026-10-15 口径，
-       见 `venue_consistent_with_saved_bib()`：全名与完整 venue 早就在 bib 里了）；
+    1. **已保存的 Cite venue 与本次线上 venue 一致** → 无需再访问（见
+       `venue_consistent_with_saved_bib()`：全名与完整 venue 已经在保存的数据里）；
     2. venue 已完整（非空、未截断、不是预印本源）**且** authors 已是全名形态 → 对话框没有
        新东西可给；
     3. 其余才抓（本次新数据、或线上 venue 与保存的 bib 不一致需要更新）。

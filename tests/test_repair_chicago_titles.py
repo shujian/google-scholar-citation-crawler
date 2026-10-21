@@ -1,7 +1,7 @@
-"""Chicago 标题截断的存量修复（`code/data_upgrade/repair_chicago_titles.py`，2026-10-20）。
+"""Chicago 标题截断的存量修复（`code/data_upgrade/repair_chicago_titles.py`）。
 
 被测的三件事：
-1. 只修"当前值恰好等于旧（有 bug 的）规则算出来那个值"的行 —— 别的值一律不碰；
+1. 只修"当前值恰好等于截断版本"的行 —— 别的值一律不碰；
 2. 顺带刷新 `cite.venue_text` 与派生的 `venue_key`，但**不动** `url` / `cites_id` / `cid`；
 3. 默认 dry-run 什么都不写；`--apply` 才写、写前备份 + manifest、复跑幂等。
 """

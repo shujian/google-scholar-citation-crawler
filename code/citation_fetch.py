@@ -67,7 +67,7 @@ def _build_direct_resume_state(next_index, scholar_total, citedby_url):
 def _resume_start_after_short_attempts(start_index, short_attempts):
     """年份续跑起点：连续 `RESCAN_AFTER_SHORT_ATTEMPTS` 次没收全 → **从第 1 页重扫** ✓。
 
-    为什么（用户 2026-10-19）：偏移续跑省时间 ✓，但它是"可变列表里的位置" ✗ —— Scholar 在两次
+    为什么：偏移续跑省时间 ✓，但它是"可变列表里的位置" ✗ —— Scholar 在两次
     运行之间往那一年列表上方插入/调整条目时，从旧偏移续跑会掠过被挤下去的行 ✗，而那一年又永远
     "差几条"，于是每次都从同一个偏移续 ✗、永远补不上。连续几次都没收全 = 偏移不再可信 → 清零重扫
     一遍（按身份键去重，代价是多翻几页）✓。
@@ -164,7 +164,7 @@ def _iter_direct_citedby(citedby_url, direct_resume_state=None, num_citations=0,
 def cache_year_floor(cached_year_counts, probed_year_counts):
     """缓存里最早、且**探针覆盖到**的年份（用来放宽计划起点）；没有可比依据时 ``None``。
 
-    2026-10-20 实测：paper 2 的缓存里混着 ``year=1907``（另有 2050 / 2090 这种脏数据），
+    缓存里可能混着脏年份（例如 ``year=1907`` / 2050 / 2090），
     ``min(cache)`` 把年份计划拉成 1907–2026 共 120 年，前面 109 年每年发一次
     ``as_ylo=1908&as_yhi=1908`` —— 结果全是 ``Page items: 0``。直方图里根本没有那些年份
     （probe=0），放宽它们不可能带来新数据，所以"放宽"只认探针覆盖到的年份。
@@ -238,7 +238,7 @@ def _direct_fetch_diagnostics_message(diagnostics, prefix="Direct fetch summary 
     )
 
 def _run_page_cite_hook(fetcher, batch):
-    """把"刚抓完的这一页"交给逐页 cite/BibTeX 钩子（用户 2026-10-15 定，逐页粒度）。
+    """把"刚抓完的这一页"交给逐页 Cite 钩子（逐页粒度）。
 
     **为什么逐页**：cite 对话框（`output=cite`）本来是在整篇抓完后集中发的，一次几十上百条
     连着的 detail 请求很容易被 Scholar 看成异常流量；并进每页之后，请求序列变成
@@ -439,7 +439,7 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
                 direct_next_index = batch.start_index
         diagnostics_to_save = direct_fetch_diagnostics
         if diagnostics_to_save is None and not is_year:
-            # K78 — a direct scan saves per page and on Ctrl+C, i.e. *before* the
+            # A direct scan saves per page and on Ctrl+C, i.e. *before* the
             # post-loop build, so the snapshot used to be written with
             # direct_fetch_diagnostics=None and fetch_strategy=None.  Reloading it
             # inferred 'year' from the year_fetch_diagnostics every paper carries
@@ -487,7 +487,7 @@ def fetch_citations_with_progress(fetcher, year_ctx, citedby_url, _cache_path, t
         )
         # year_fetch_diagnostics IS the summary (no 'summary' sub-key).
         # Per-year entries live in year_records (top-level).
-        # 已判死年份的陈旧声称不计入汇总（2026-10-19）：否则 is_data_complete() 永远 False ✗
+        # 已判死年份的陈旧声称不计入汇总：否则 is_data_complete() 永远 False ✗
         _effective_hist_total = None
         for _record in iter_year_records(year_records_to_save):
             _effective_hist_total = (_effective_hist_total or 0) + _year_effective_histogram(_record)
@@ -790,7 +790,7 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
         """`year_ctx` 里**当前**的探针计数（探针会把结果写回它）。
 
         函数开头抓到的局部 `probed_year_counts` 是**探针之前**的快照，用它做计划等于退回旧行为
-        （2026-10-20 实测：快照为空 → 计划又变成 1907–2026，每个空年份各发一次请求）。
+        （过期的快照可能为空，会让计划重新拉成 1907–2026，每个空年份各发一次请求）。
         """
         return (fetcher._normalize_year_count_map(
                     getattr(year_ctx, 'probed_year_counts', None) or {})
@@ -1005,7 +1005,7 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                 except (TypeError, ValueError):
                     prev_seen_for_stall = 0
             if prev_stalled and (live_count is None or live_count <= prev_stalled_probe):
-                # 走完两遍都只有这么多条 → "网页信息与 probe 不符"（用户 2026-10-19 定），
+                # 走完两遍都只有这么多条 → "网页信息与 probe 不符"，
                 # 不是没抓全：跳过这一年 ✗，等 probe 涨了再说 ✓。
                 year_ctx.year_fetch_diagnostics = dict(year_fetch_diagnostics)
                 run_log.info(f"Year {year}: settled (listing holds {prev_seen_for_stall}, "
@@ -1018,7 +1018,7 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
             rescanned_from_zero = (start_index == 0
                                    and year_ctx.partial_year_start.get(year, 0) > 0)
             if rescanned_from_zero:
-                # 偏移续跑快、但"位置"会随列表变动而漏行 ✗（用户 2026-10-19）。
+                # 偏移续跑快、但"位置"会随列表变动而漏行 ✗。
                 # 连续这么多次都没收全 → 干脆从第 1 页重扫一遍，用身份键去重 ✓。
                 run_log.warn(f"Year {year}: re-scanning from page 1 "
                              f"(stayed short {prev_short_attempts} times; "
@@ -1182,7 +1182,7 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
                         extra.append(citation)
                     else:
                         # 同一身份：缓存行留下 ✓，但**把这一行的 Cite 数据并进去** ✓
-                        # （用户 2026-10-19：逐页抓来的 `cite` 不许因为"只保留缓存"而丢 ✗）
+                        # （逐页抓来的 `cite` 不许因为"只保留缓存"而丢 ✗）
                         _merge_cite_into(target, citation)
                 merged_bucket = cached_bucket + extra
                 fresh_year_buckets[year] = merged_bucket
@@ -1201,7 +1201,7 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
             _short_this_attempt = (live_count is not None
                                    and year_bucket_count < live_count)
             # 重扫（从第 1 页走完）拿到的条数与上一轮**完全相同** → 这是"网页信息与 probe
-            # 不符"，不是没抓全（用户 2026-10-19 定）：记下 probe，之后 probe 不涨就不再抓 ✗。
+            # 不符"，不是没抓全：记下 probe，之后 probe 不涨就不再抓 ✗。
             _stall_now = bool(rescanned_from_zero
                               and _short_this_attempt
                               and year_termination_reason != 'empty_page'
@@ -1286,7 +1286,7 @@ def fetch_by_year(fetcher, year_ctx, citedby_url, old_citations, fresh_citations
 def _merge_cite_into(cached, fresh):
     """把新抓那一行的 **Cite 数据**并进缓存行（只补/升级 ✓；身份字段一律不碰 ✗）。
 
-    用户 2026-10-19 定：逐页抓到的 `cite` 是为那几条付过钱的 —— 若同一身份已在缓存里，
+    逐页抓到的 `cite` 是为那几条付过钱的 —— 若同一身份已在缓存里，
     **不能整条丢掉** ✗，至少要把 `cite`（与寻址用的 `cid`）补进缓存行 ✓。
 
     * 只认 `cite` 与 `cid` 两个键 ✓；`title` / `authors` / `venue` / `year` / `url` /

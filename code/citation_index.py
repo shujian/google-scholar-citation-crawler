@@ -1,6 +1,6 @@
-"""引用编号的**唯一分配者**（阶段 1 产生；编号不可变）—— 用户 2026-10-15 定案。
+"""引用编号的**唯一分配者**（阶段 1 产生；编号不可变）。
 
-**规则**（写入 `KNOWN_ISSUES.md` Y-6/Y-7 的落点）：
+**规则**：
 
 * **首次分配后永不改变**：身份命中既有记录 → **逐字沿用**；
 * 新引文 → `max(已用 ∪ 已退役) + 1`（**水位只增不减**）；
@@ -12,8 +12,8 @@
 remap）本身就是复杂度。把编号做成**身份**而不是**位置**，迁移这件事就**不存在**了 ✓。
 
 **身份判定委托共享件** `code/shared/identity.py` 的 `same_citation_identity()` —— 与下游四处
-（3.a.1 / 3.a.2 / 3.b / 阶段 4）**同一份判据**，所以上游 `cites_id` 换代（根 AGENTS T）或
-Google 反向合并（K128）时，两侧的"同一条"判断不会漂移 ✓。
+（3.a.1 / 3.a.2 / 3.b / 阶段 4）**同一份判据**，所以上游 `cites_id` 换代或 Google 反向合并时，
+两侧的"同一条"判断不会漂移 ✓。
 
 **状态形状**（持久化在阶段 1 自己的产物里；记录带全身份字段，便于按身份回溯匹配）：
 
@@ -29,7 +29,7 @@ Google 反向合并（K128）时，两侧的"同一条"判断不会漂移 ✓。
 
 from __future__ import annotations
 
-#: 身份记录里要保留的字段（与共享判据读取的字段一致；`authors` 优先 `authors_raw`，K47）
+#: 身份记录里要保留的字段（与共享判据读取的字段一致；`authors` 优先 `authors_raw`）
 IDENTITY_FIELDS = ("cites_id", "title", "year", "authors_raw", "authors", "url")
 
 #: 状态里 `assigned` 记录的字段（= 编号 + 上表）
@@ -119,7 +119,7 @@ def assign_indices(citations, state=None):
 
 
 def assign_entry_indices(entries, previous_by_title=None):
-    """给**整份产物**的 entries 分配编号（阶段 1 写出前的最后一步，用户 2026-10-15）。
+    """给**整份产物**的 entries 分配编号（阶段 1 写出前的最后一步）。
 
     * `entries` 是产物里的 `papers` 列表（每项 `{"pub": …, "citations": [...]}`）；
     * `previous_by_title` 是**上一版产物**按标题索引的同一结构（没有就传 `None`）；
@@ -163,12 +163,12 @@ def citation_basename(index, title):
 
 
 def write_cite_files(papers_root, pub, citations, log=print):
-    """把带 `cite` 的引文写成 `citations/<NNNN>-<slug>.json`（阶段 1 产生 ✓，用户 2026-10-15）。
+    """把带 `cite` 的引文写成 `citations/<NNNN>-<slug>.json`（阶段 1 产生 ✓）。
 
     **只写有 `cite` 的条目**（没有对话框数据的条目不产生空文件）；**内容不变就不重写**（幂等、
     避免每次抓取都重写成千上万个小文件）。返回 `(written, skipped, missing_dir)`。
 
-    **为什么不内联进 JSON**（用户定）：五格式 + BibTeX 体积大，而且它与下游按编号定位的产物
+    **为什么不内联进 JSON**（用户定）：五种格式体积大，而且它与下游按编号定位的产物
     是同一类"按编号的条目文件" —— 放文件里既省重复存储，也让阶段 2/3 能直接按编号取用 ✓。
     """
     import os
@@ -230,11 +230,9 @@ def meta_entry(citation):
     只做字段筛选，避免出现"第二个编号来源" ✗。
 
     `venue_key` / `venue_key_source` 是**派生字段**，这里用**与抓取时同一个入口**
-    `citation_venue_key()` **重算** ✓（2026-10-15 修）：条目里那份不照抄 —— 缓存恢复的行
-    常常带着旧一代的这两个字段（或干脆没有），照抄会**静默抹掉**别处补好的 key
-    （实测：阶段 2 `backfill_venue_key --apply` 2026-10-15 04:24 补的 **7,901** 条，
-    被同日 18:5x 的重抓从 201 篇 meta 里清掉 ✗）。重算是纯函数、幂等，所以"重抓"从此
-    既不会丢 key、也不会产生第二条真相。
+    `citation_venue_key()` **重算** ✓：条目里那份不照抄 —— 缓存恢复的行常常带着上一代的
+    这两个字段（或干脆没有），照抄会**静默抹掉**别处补好的 key。重算是纯函数、幂等，所以
+    "重抓"既不会丢 key、也不会产生第二条真相。
     """
     entry = {field: citation[field] for field in META_FIELDS
              if field not in DERIVED_META_FIELDS
@@ -249,7 +247,7 @@ def meta_entry(citation):
 
 
 def write_citations_meta(paper_dir, citations, log=None, dry_run=False):
-    """按 `index` 升序写出 `<paper_dir>/citations_meta.json` 的**主体**（Y-9，2026-10-15 用户定）。
+    """按 `index` 升序写出 `<paper_dir>/citations_meta.json` 的**主体**。
 
     * 只写阶段 1 字段 ✓（见 `META_FIELDS` ✓），**下载字段一律不写** ✗；
     * 全部条目都算不出 `index` 时**不创建/不改动文件** ✗（避免造出空 meta ✓）；
@@ -261,7 +259,7 @@ def write_citations_meta(paper_dir, citations, log=None, dry_run=False):
     import os as _os
     from code.shared.citation_key import synthetic_keys_for
 
-    # 没有真实 `cites_id` 的条目：**在这里补上合成键** ✓（K144，2026-10-16）。
+    # 没有真实 `cites_id` 的条目：**在这里补上合成键** ✓。
     # 规则（`no_id:<归一化标题>|<年份>|<首作者姓>` + `#doi:`/`#arxiv:`/`#url:<sha8>` 消歧、
     # 全缺才 `#pos<n>`）的唯一实体在 `code/shared/citation_key.py`（宿主＝本阶段）——
     # 主体既然由阶段 1 写，键就得由阶段 1 产出 ✓；下游（阶段 2 的 `build_index_map()` /
@@ -277,7 +275,7 @@ def write_citations_meta(paper_dir, citations, log=None, dry_run=False):
         return 0
     entries.sort(key=lambda e: int(e["index"]))
     path = _os.path.join(paper_dir, META_NAME)
-    # **保留阶段 2 的字段** ✓（Y-7：只动自己产生的数据 ✓）：已有 meta 里那些
+    # **保留阶段 2 的字段** ✓（只动自己产生的数据 ✓）：已有 meta 里那些
     # `download_status` / `local_filename` / `fail_reason` 等**原样带回** ✓，
     # 所以阶段 1 开始写主体不会让阶段 2 丢失状态 ✓（等阶段 2 停止写它们后，自然消失 ✓）。
     existing_by_index = {}
@@ -295,7 +293,7 @@ def write_citations_meta(paper_dir, citations, log=None, dry_run=False):
     # **派生键永不降级** ✓（与 3.a.1 的 `venue_carry.merge_venue_key()` 同口径）：重算给不出
     # `normalized`、而盘上**同一条引用**已有 `normalized` 时，保留盘上那个 —— Cite 对话框可能
     # 只在上一轮抓过，此行若从缓存恢复、没带 `cite`，重算只能退回列表页那个被截断的串。
-    # **必须按身份判"同一条"** ✗（编号会被复用，K123/K128：不同作品不许互相继承 key）。
+    # **必须按身份判"同一条"** ✗（编号会被复用：不同作品不许互相继承 key）。
     from code.shared.identity import same_citation_identity
 
     for entry in entries:
@@ -323,9 +321,9 @@ def write_citations_meta(paper_dir, citations, log=None, dry_run=False):
         target = fresh_by_cid.get(cid) if cid else None
         if target is not None:
             # 同一作品**换了编号**（编号漂移）：旧行不是"退役条目"，不能原样留下 ——
-            # 否则 meta 里同一个 cites_id 两行，阶段 2 的下载字段还挂在没有文件的那行 ✗
-            # （2026-10-19 实测 2 例：`1388/1434`、`1421/1435`）。把阶段 2 的字段交给
-            # 新行，旧行不再保留；文件名随后由阶段 2 的 `preflight_repairs` 对齐 ✓。
+            # 否则 meta 里同一个 cites_id 两行，阶段 2 的下载字段还挂在没有文件的那行 ✗。
+            # 把阶段 2 的字段交给新行，旧行不再保留；文件名随后由阶段 2 的
+            # `preflight_repairs` 对齐 ✓。
             for field, value in old_entry.items():
                 if field not in META_FIELDS and field not in target:
                     target[field] = value

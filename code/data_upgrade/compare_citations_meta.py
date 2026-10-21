@@ -1,9 +1,9 @@
 """对拍：阶段 1 的抓取产物 ↔ 现有 `papers/<NNN>-<slug>/citations_meta.json` 的**非下载字段**。
 
-**用途（Y-9 的验收手段）**：`citations_meta.json` 的**主体**（`index` / `cites_id` / 书目字段 /
+**用途**：`citations_meta.json` 的**主体**（`index` / `cites_id` / 书目字段 /
 `venue_key*` ✓）应改由阶段 1 生成 ✓；下载字段已拆出 ✓（不在本工具的比较范围 ✓）。
-本工具**只读** ✓，逐篇逐条对拍，回答"若阶段 1 现在写主体，与现状差多少" ✓ —— 这是迁移前
-必须看到的数字 ✓（判据：**0 差异** 或差异逐条可解释 ✓）。
+本工具**只读** ✓，逐篇逐条对拍，回答"若阶段 1 现在写主体，与现状差多少" ✓（判据：
+**0 差异** 或差异逐条可解释 ✓）。
 
 用法：`python -m code.data_upgrade.compare_citations_meta [--author <ID>] [--limit N] [--examples 5]`
 """

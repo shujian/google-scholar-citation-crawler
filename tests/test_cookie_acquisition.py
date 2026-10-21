@@ -1,6 +1,6 @@
 """Tests for cookie acquisition in code/interactive.py.
 
-Covers the 2026-10-11 hardening + convenience work:
+Covers the cookie-handling guarantees:
   * curl.txt is written 0600 (it carries live session cookies)
   * CR/LF/TAB in a pasted cookie name/value is stripped (cannot poison the
     saved session or the request headers)
@@ -49,10 +49,10 @@ class TestSaveCurlPermissions(unittest.TestCase):
 
 
 class TestNoRedundantSave(unittest.TestCase):
-    """启动时"加载后原样回写"必须消失（2026-10-15 用户定，方案 B）。
+    """启动时"加载后原样回写"必须消失。
 
     注入函数被两条路径共用：交互式（用户粘贴新 cURL，必须存盘）与启动自动加载
-    （`curl_str` 就是刚从同一个文件读出来的串）。后者以前会白写一次、并打印一行
+    （`curl_str` 就是刚从同一个文件读出来的串）。后者若回写，会白改 mtime 并打印一行
     与上一行自相矛盾的 `Saved cookies to …`。
     """
 

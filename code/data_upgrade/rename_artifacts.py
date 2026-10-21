@@ -1,10 +1,10 @@
-"""把存量 per-citation 产物**改名**到统一新名 `output_NNNN.json`（Y-8 ③ 的存量部分）。
+"""把存量 per-citation 产物**改名**到统一新名 `output_NNNN.json`。
 
-**背景**（`KNOWN_ISSUES.md` Y-8）：三阶段的 per-citation 产物统一叫 `output_NNNN.json`，
-命名权威是**本阶段**的 `code/shared/artifact_sync.py`（`output_name()`）。三个**写者**早已
-只写新名 ✓、读取方也早已"新名优先、旧名回落"✓；但**盘上存量**仍是旧名
-（`enrich_info_NNNN.json` / `analysis_info_NNNN.json` / `citation_analysis_NNNN.json`，
-2026-10-16 实测 **3,315** 个 ✗）。本工具是那一步：**只改名、不改内容** ✓。
+**背景**：三阶段的 per-citation 产物统一叫 `output_NNNN.json`，
+命名权威是**本阶段**的 `code/shared/artifact_sync.py`（`output_name()`）。三个**写者**只写
+新名 ✓、读取方"新名优先、旧名回落" ✓；但**盘上存量**可能仍是旧名
+（`enrich_info_NNNN.json` / `analysis_info_NNNN.json` / `citation_analysis_NNNN.json`）。
+本工具只做改名：**只改名、不改内容** ✓。
 
 **为什么宿主在本阶段**：改名用的是 `shared/artifact_sync.py` 的命名规则（本阶段是宿主 ✓），
 与 `archive_artifacts()` 同一族 —— 它也只按"名字"动别人的目录 ✓。**内容一个字节都不碰** ✗。

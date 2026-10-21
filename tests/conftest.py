@@ -190,8 +190,7 @@ sys.modules.setdefault("openpyxl.styles", styles_mod)
 # writes its `_DummyNav` into an object no code reads, and the patch-layer/xlsx
 # tests fail with whatever the real Navigator/Workbook happens to contain —
 # while each module still passes when run alone.  Fail loudly instead of leaving
-# 30 confusing failures to be diagnosed (measured 2026-10-19: one module was
-# missing the import and the suite went 34 failures / 500 s → 0 / 1 s).
+# a pile of confusing failures to be diagnosed.
 _live_session = sys.modules.get("code.scholarly_session")
 if (_live_session is not None
         and getattr(_live_session, "scholarly", None) is not scholarly_mod.scholarly):

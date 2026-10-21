@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""修「标题自带引号」被 Chicago 解析截断的存量行（2026-10-20）。
+"""修「标题自带引号」被 Chicago 解析截断的存量行。
 
-**背景**：`cite_format.parse_format_parts()` 的标题边界原先是
-`[“"]([^”"]+)[”"]`（**非贪婪**）。标题里本来就带引号时，它会在第一个内嵌引号处停下：
-`title` 只剩前半截、剩下半截被当成 `venue`，再由 `apply_chicago_correction()`
-当"权威修正"写回条目（`cite.corrected` 留审计）。实测 4 条：
+**背景**：`cite_format.parse_format_parts()` 的标题边界如果按**非贪婪**匹配，标题里本来
+就带引号时会在第一个内嵌引号处停下：`title` 只剩前半截、剩下半截被当成 `venue`，再由
+`apply_chicago_correction()` 当"权威修正"写回条目（`cite.corrected` 留审计）。典型例子：
 
 * `On “human parity” and “super human performance” in …`（`On “human parity`）
 * `“How to get consensus with neighbors?”: …`（`“How to get consensus with neighbors?`）
@@ -18,8 +17,8 @@
 
 **它做什么**（全程用 `output/cite_format_cache.json` 里的 **Chicago 原文**，不联网）：
 
-* 条目里 `title` / `venue` **恰好等于旧规则算出的那个（错）值** 时，换成新规则的值 ——
-  其它值一律不碰（可能来自后续世代的列表页/对话框，或者人工修正）；
+* 条目里 `title` / `venue` **恰好等于截断版本**时，换成新规则的值 —— 其它值一律不碰
+  （可能来自后续世代的列表页/对话框，或者人工修正）；
 * 同步刷新 `cite.venue_text` / `venue_source` 与派生的 `venue_key` / `venue_key_source`；
 * 缓存条目里过期的 `venue_text` / `authors_full` 一并刷新（运行时**优先用缓存里那份**，
   不刷新的话下次跑又会把旧值写回去）。

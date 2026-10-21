@@ -133,11 +133,11 @@ class PageVisitTests(RunLogDebugCase):
 class MissingRecordTests(unittest.TestCase):
     """A 404 on a one-shot detail page is "no such record", not "blocked".
 
-    Measured 2026-10-16: ``info:44BcOmzPt1MJ:scholar.google.com/&output=cite``
-    answered Google's own 404 page while two sibling handles answered 200 with
-    five formats each in the same minute.  Without this distinction a dead
-    handle cost the full cooldown budget (20-35 min) per run, or parked the run
-    on a captcha prompt nobody could solve.
+    ``info:44BcOmzPt1MJ:scholar.google.com/&output=cite`` can answer Google's own
+    404 page while two sibling handles answer 200 with five formats each in the
+    same minute.  Without this distinction a dead handle would cost the full
+    cooldown budget (20-35 min) per run, or park the run on a captcha prompt
+    nobody could solve.
     """
 
     CITE_URL = ('https://scholar.google.com/scholar?q=info:44BcOmzPt1MJ:'
@@ -208,8 +208,8 @@ class MissingRecordTests(unittest.TestCase):
     def test_a_record_that_refuses_fresh_cookies_is_given_up_on(self):
         """注入新 cookies 之后**同一个**详情页仍然被拒 → 这是那一条记录的问题。
 
-        2026-10-20 实测：某个 Cite 对话框先 429、注入浏览器 cURL 后连回两次 403，
-        而它的兄弟对话框几十秒前才正常返回 —— 于是操作者被反复要求粘贴 cURL。
+        某个 Cite 对话框可以先 429、注入浏览器 cURL 后连回两次 403，而它的兄弟对话框
+        几十秒前才正常返回 —— 不加区分就会让操作者被反复要求粘贴 cURL。
         现在只在**注入成功之后**才判为记录级不可用（在此之前 429 仍是 block）。
         """
         prompts = []
