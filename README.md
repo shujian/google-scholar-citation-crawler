@@ -226,6 +226,10 @@ Every line of a run has the same shape, so the log can be read top-down and grep
 - `<time> <LEVEL> <module> <indent><message>`; the module tag (`run / phase / profile / venue / http /
   fetch / year / paper / plan / output / cite / summary`) is padded so messages line up, and the indent
   (2 spaces per level) mirrors the structure: run → phase → paper → year/page → detail.
+- **Pacing**: a citation-list page waits 45–90 s; the per-entry Cite dialog and the publication
+  detail page wait **30%** of that (13.5–27 s), because they are 60–83% of a run's requests. Every
+  **100 requests** — dialogs included — the run rests for **2 hours**. Slower, but it is the
+  cheapest thing we know that keeps a several-thousand-request crawl out of bot territory.
 - **Interrupting a run**: `Ctrl+C` prints what is actually on disk (product and cite cache with their
   timestamps, and which save step was reached) and then exits; the next run resumes from
   `author_<ID>_paper_citations.json`, so the papers that were already fetched are not walked again.
