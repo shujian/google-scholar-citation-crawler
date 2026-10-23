@@ -982,6 +982,86 @@ class CiteDialogTransientRetryTests(FetcherTestCase):
         self.assertEqual(len(self.calls), 1, "列表页没有这个重试")
 
 
+class Cite404StreakTests(FetcherTestCase):
+    """连续多个 Cite 对话框都 404（重试用尽）→ 先暂停，暂停太多次 → 收尾。
+
+    端点会"阵发性"地一律 404（同一个 cid 隔一秒重发就是 200）。在坏窗口里连打只是烧时间，
+    所以：连续 N 个失败就暂停一次；暂停 `CITE_PAUSE_LIMIT` 次仍未恢复就抛
+    `CiteDialogsStalled`，由 `run()` 保存收尾。
+    """
+
+    CITE = '/scholar?q=info:abc123:scholar.google.com/&output=cite&scirp=0&hl=en'
+
+    def setUp(self):
+        super().setUp()
+        from code import scholarly_session as _ss
+        self.ss = _ss
+        self.nav = _ss.scholarly._Scholarly__nav
+        self.nav._get_page = lambda pagerequest, premium=False: '<html></html>'
+        with patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._patch_scholarly()
+        self.ctx = self.fetcher._session_ctx
+        self.ctx.first_page_prompt_fn = None
+        self.ctx.delay_scale = 1.0      # 测试里默认是 0（免得真睡），这里要看暂停时长
+        self.outcome = None
+
+    def _visit(self, fail):
+        exc = self.ss.RecordUnavailable
+
+        class _Visit:
+            def __init__(self, ctx):
+                pass
+
+            def fetch(self, fn, url, label='page', missing_record_on_404=False):
+                if fail:
+                    raise exc(url, 404)
+                return fn()
+
+        return _Visit
+
+    def _one_dialog(self, fail=True):
+        self.outcome = None
+        with patch.object(self.ss, "PageVisit", self._visit(fail)), \
+             patch.object(self.ss, "rand_delay", return_value=0), \
+             patch("sys.stdout", new_callable=StringIO):
+            try:
+                self.nav._get_page(self.CITE)
+            except (self.ss.RecordUnavailable, self.ss.CiteDialogsStalled) as e:
+                self.outcome = e
+
+    def _run_dialogs(self, count):
+        """返回 (暂停时长列表, 是否抛出 CiteDialogsStalled)。"""
+        pauses, stalled = [], False
+        with patch.object(self.ss, "CITE_404_STREAK_PAUSE", 2), \
+             patch.object(self.ss, "CITE_PAUSE_LIMIT", 2), \
+             patch.object(self.ss, "CITE_PAUSE_SECONDS", 900), \
+             patch.object(self.ss.time, "sleep",
+                          side_effect=lambda seconds: pauses.append(seconds)):
+            for _ in range(count):
+                self._one_dialog(fail=True)
+                if isinstance(self.outcome, self.ss.CiteDialogsStalled):
+                    stalled = True
+        return pauses, stalled
+
+    def test_consecutive_404s_pause_then_stall(self):
+        pauses, stalled = self._run_dialogs(8)
+        self.assertEqual(pauses[:2], [900.0, 900.0], "每两个连续失败暂停一次")
+        self.assertTrue(stalled, "暂停次数用尽后抛 CiteDialogsStalled")
+
+    def test_a_success_resets_the_streak(self):
+        self.ctx.cite_404_streak = 2
+        with patch.object(self.ss, "PageVisit", self._visit(False)), \
+             patch.object(self.ss, "rand_delay", return_value=0), \
+             patch("sys.stdout", new_callable=StringIO):
+            self.nav._get_page(self.CITE)
+        self.assertEqual(self.ctx.cite_404_streak, 0, "成功一次就清零")
+
+    def test_the_defaults_are_on(self):
+        self.assertEqual(self.ss.CITE_404_STREAK_PAUSE, 3)
+        self.assertGreater(self.ss.CITE_PAUSE_SECONDS, 0)
+        self.assertGreater(self.ss.CITE_PAUSE_LIMIT, 0)
+
+
 class LongRestTests(FetcherTestCase):
     """每 100 次请求强制休息 2 小时（用户定），口径是请求总数而不是页数。"""
 

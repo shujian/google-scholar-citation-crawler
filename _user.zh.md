@@ -3858,3 +3858,9 @@ dialog) | papers: A/241 fully cid'd, B/241 fully cid'd + dialogued`。当前数�
 已做：①`patched_get_page` 对 Cite 对话框的 404 **再问一次**（第二次仍 404 才放弃，重试仍走正常等待）；
 ②`cite_format` 不再写 `unavailable` 缓存，只跳过该行（日志：`skipped this run, asked again next time`）；
 ③参数 `remember_unavailable` 删除；④新增 3 个用例（重试一次/两次后放弃/列表页不重试）。
+
+**你的判断**："如果发现连续多次404，且重试也没有用，是不是也应该想个办法处理一下？"
+
+已加刹车：连续 3 个 Cite 对话框（每个都已重试过一次）仍 404 → 暂停 15 分钟再试；
+连续 3 个这样的"坏窗口"仍未恢复 → 抛 `CiteDialogsStalled`，`run()` 像 Ctrl+C 一样
+保存收尾、结束本轮并提示"稍后再跑"。

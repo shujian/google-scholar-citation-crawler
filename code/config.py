@@ -90,6 +90,13 @@ MANDATORY_BREAK_MAX = 360   # 6 minutes
 LONG_REST_EVERY_REQUESTS = 100
 LONG_REST_SECONDS = 2 * 60 * 60
 
+# Cite 对话框连续 404 的处理：这个端点会"阵发性"地一律 404（见 AGENTS.md）。偶数次重试仍不通，
+# 就说明撞上了一个坏窗口 —— 暂停 `CITE_PAUSE_SECONDS` 再试，别在坏窗口里继续打。
+# 连续这么多个坏窗口还没恢复，就保存收尾、结束本轮（下一次再来）。0 关掉暂停。
+CITE_404_STREAK_PAUSE = 3
+CITE_PAUSE_SECONDS = 15 * 60
+CITE_PAUSE_LIMIT = 3
+
 # ============================================================
 # Fetch thresholds
 # ============================================================

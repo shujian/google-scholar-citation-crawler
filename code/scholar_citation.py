@@ -139,8 +139,9 @@ from code.interactive import (
     try_interactive_captcha as _int_try_interactive_captcha,
     wait_proxy_switch as _int_wait_proxy_switch,
 )
-from code.scholarly_session import (
+from code.scholarly_session import (  # noqa: F401
     SessionContext,
+    CiteDialogsStalled as _CiteDialogsStalled,
     reset_break_counter as _ss_reset_break_counter,
     patch_scholarly as _ss_patch_scholarly,
     refresh_scholarly_session as _ss_refresh_scholarly_session,
@@ -1259,6 +1260,12 @@ class PaperCitationFetcher:
         except KeyboardInterrupt:
             interrupted = True
             run_log.warn("Interrupted by user. Saving results...", module="run")
+        except _CiteDialogsStalled as exc:
+            # Cite 端点连续几个坏窗口都是 404：不是这一行的问题，是现在不该继续抓。
+            # 与 Ctrl+C 同样收尾 —— 已抓到的都写进产物，下一次再来。
+            interrupted = True
+            run_log.warn(f"Cite dialogs stalled ({exc}); saving and stopping this "
+                         f"run — re-run later", module="run")
         finally:
             # Always save output (normal completion, interruption, error, or partial results)
             try:
@@ -2244,6 +2251,11 @@ class PaperCitationFetcher:
             except KeyboardInterrupt:
                 run_log.warn("Citation-format step interrupted; the product written "
                              "above stays (the cache keeps what was resolved)",
+                             module="cite", indent=1)
+            except _CiteDialogsStalled:
+                run_log.warn("citation-format step stopped: the Cite endpoint is "
+                             "answering 404 in batches; the product written above "
+                             "stays, the rest is retried next run",
                              module="cite", indent=1)
             except Exception as e:
                 run_log.warn(f"citation-format step failed "

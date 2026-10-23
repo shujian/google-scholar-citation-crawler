@@ -347,7 +347,10 @@ The program always runs in two sequential phases from `main()`:
   重走列表页；②`patched_get_page` 对 Cite 对话框的 404 **再问一次**（重试仍走正常等待）；
   ③**不写**"7 天不可用"缓存——只跳过该行，下次再问（旧版记下的已用
   `python -m code.data_upgrade.forget_unavailable_cites --apply` 清掉，默认 dry-run、带备份；
-  读取侧仍认这些旧条目，过期后自动重问）。
+  读取侧仍认这些旧条目，过期后自动重问）；④**连续 404 有刹车**：连续
+  `CITE_404_STREAK_PAUSE`(3) 个对话框重试后仍 404 → 暂停 `CITE_PAUSE_SECONDS`(15 min)
+  再试；暂停 `CITE_PAUSE_LIMIT`(3) 次仍未恢复 → 抛 `CiteDialogsStalled`，`run()` 保存收尾、
+  结束本轮（"现在不是抓它的时机"，而不是继续在坏窗口里打）。
 - Writes consolidated citation outputs to `author_<ID>_paper_citations.json` and `.xlsx`
 - **Writes the product per paper**（用户定"按论文条目写入"）：每篇抓完，`_checkpoint_paper`
   就把这一篇的 `pub` / `citations` / `_fetch_state`（以及 `citation_index`）写进

@@ -43,6 +43,7 @@ from code.common import (
 )
 from code.config import DETAIL_PAGE_DELAY_FACTOR
 from code.config import LONG_REST_EVERY_REQUESTS, LONG_REST_SECONDS
+from code.config import CITE_404_STREAK_PAUSE, CITE_PAUSE_SECONDS, CITE_PAUSE_LIMIT
 from code.page_visit import PageVisit, RecordUnavailable
 
 
@@ -143,6 +144,9 @@ class SessionContext:
     # **响应被截断**（body 明显偏小 / 没有收尾标签）还是 Scholar 真给了短列表。
     last_response_bytes: Optional[int] = None
     last_response_tail_ok: Optional[bool] = None
+    # Cite 对话框连续 404 的计数与"坏窗口"次数（见 config 里的 CITE_* 常量）。
+    cite_404_streak: int = 0
+    cite_pauses: int = 0
     # The /sorry/ interstitial behind the current request, or "".  Recorded by
     # the response hook and raised as a block by patched_get_page: a redirect to
     # Google's block page is a block even when the interstitial answers 200, and
@@ -518,6 +522,39 @@ def assert_scholarly_patches_active(checks):
         )
 
 
+def _note_cite_404_streak(ctx, request_url):
+    """连续 N 个 Cite 对话框都 404（且每次都已重试用尽）→ 暂停；暂停太多次 → 收尾。
+
+    为什么暂停而不是继续重试：坏窗口通常持续几分钟到十几分钟，在里面连打只会把时间花光，
+    还继续加深"这个客户端在猛抓"的印象。
+    """
+    ctx.cite_404_streak += 1
+    if not CITE_404_STREAK_PAUSE or ctx.cite_404_streak < CITE_404_STREAK_PAUSE:
+        return
+    ctx.cite_404_streak = 0
+    ctx.cite_pauses += 1
+    # 先暂停：允许暂停 CITE_PAUSE_LIMIT 次；再有坏窗口就收尾（默认 3 次 × 15 分钟）。
+    if CITE_PAUSE_LIMIT and ctx.cite_pauses > CITE_PAUSE_LIMIT:
+        raise CiteDialogsStalled(
+            f"Cite dialogs answered 404 for {ctx.cite_pauses} pause window(s) "
+            f"in a row (last: {request_url[:60]}…)")
+    pause = float(CITE_PAUSE_SECONDS) * getattr(ctx, 'delay_scale', 1.0)
+    wait_str = ctx.wait_status_fn() if ctx.wait_status_fn else ""
+    tail = f" {wait_str}" if wait_str else ""
+    run_log.warn(f"Cite dialogs keep answering 404 — pausing {pause/60:.0f} min "
+                 f"before the next one (window {ctx.cite_pauses}/{CITE_PAUSE_LIMIT})"
+                 f"{tail}", module="http", indent=1)
+    time.sleep(pause)
+
+
+class CiteDialogsStalled(Exception):
+    """Cite 对话框连续几个"坏窗口"都是 404 —— 本轮别再打了。
+
+    端点会阵发性地一律 404（同一个 cid 隔一秒重发就是 200），所以先重试、再暂停；
+    暂停 `CITE_PAUSE_LIMIT` 次仍未恢复，就说明现在不是抓它的时机，保存收尾、下一次再来。
+    """
+
+
 def long_rest_due(ctx):
     """每 `LONG_REST_EVERY_REQUESTS` 次请求要睡多久（秒）；0 = 不用睡。
 
@@ -856,9 +893,13 @@ def patch_scholarly(ctx: SessionContext) -> None:
                     # burning 20-35 minutes of cooldowns.
                     missing_record_on_404=is_detail_style_path(request_url),
                 )
+                if is_cite_dialog_url(request_url):
+                    ctx.cite_404_streak = 0
                 break
             except RecordUnavailable:
                 if attempt >= attempts:
+                    if is_cite_dialog_url(request_url):
+                        _note_cite_404_streak(ctx, request_url)
                     raise
                 run_log.info("Cite dialog answered 404 — asking once more "
                              "(404 here is transient, not 'no such record')",

@@ -3153,3 +3153,15 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   ③删掉 `remember_unavailable` 参数（上一天的补丁），读取侧仍认旧条目、过期后自动重问。
 - **测试**：`cite_format` 两个旧用例改成"跳过但不缓存 + 下次还会问"；新增
   `CiteDialogTransientRetryTests` 3 例（重试一次 / 两次后放弃 / 列表页不重试）。阶段 1 724 例全绿。
+
+### 2026-10-23：Cite 连续 404 的刹车（暂停 + 收尾）
+
+- **背景**：Cite 端点会阵发性地一律 404；重试一次能救单条，但整段坏窗口里继续打只是烧时间。
+- **实现**：`code/config.py` 新增 `CITE_404_STREAK_PAUSE=3` / `CITE_PAUSE_SECONDS=15min` /
+  `CITE_PAUSE_LIMIT=3`；`SessionContext` 增加 `cite_404_streak` / `cite_pauses`；
+  `_note_cite_404_streak()` 在"重试用尽仍 404"时计数，满 3 次 → WARN + 暂停 15 分钟（按
+  `delay_scale` 缩放）并清零；暂停超过 3 次 → 抛 `CiteDialogsStalled`。
+- **收尾**：`run()` 捕获该异常，与 Ctrl+C 同样保存并打印"稍后再跑"；保存阶段的 Cite 段也会
+  单独捕获，日志说明"产品已写、其余下次再补"。
+- **测试**：`Cite404StreakTests` 3 例（连续失败暂停后收尾 / 成功清零 streak / 默认值开着）。
+  阶段 1 727 例全绿。
