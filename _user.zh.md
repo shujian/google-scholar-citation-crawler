@@ -3838,3 +3838,10 @@ citations/*.json`、`cite_format_cache.json`、`curl.txt`、`logs/*.log`。
 已加：Run summary 最后一行 `cite coverage: X/Y rows carry a cid (and Z of those carry a Cite
 dialog) | papers: A/241 fully cid'd, B/241 fully cid'd + dialogued`。当前数据会是
 1903/9197 行有 cid、其中 1526 行有对话框；241 篇里只有 1 篇是"每条都有 cid"。
+
+**你的要求**："好的，那你把那两件事情做一下"（清掉误判的 unavailable 缓存 + 加"旧句柄不记黑名单"的护栏）。
+
+已做：①新工具 `python -m code.data_upgrade.forget_unavailable_cites`，已 `--apply`，
+缓存 1851 → 1492 条、删掉 359 条否证（备份在 `output/forget_unavailable_20261023-211235/`）；
+②`enrich_citations_with_cite_formats(remember_unavailable=…)`：逐页钩子（本轮新句柄）为 True，
+保存兜底遍（产物里的旧句柄）为 False。

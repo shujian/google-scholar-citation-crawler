@@ -3115,3 +3115,19 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   `cite coverage: 1903/9197 rows carry a cid (and 1526 of those carry a Cite dialog) |
    papers: 1/241 fully cid'd, 1/241 fully cid'd + dialogued`。
 - **测试**：`test_checkpoint_handoff` 增 1 例（行/篇两级计数，含"缺 cite"与"零引用"两种边界）。
+
+### 2026-10-23：cid 是临时句柄 —— 旧句柄的 404 不再进黑名单
+
+- **实测**：同一条引用列表 URL 隔一分钟再取，前几行的 `data-cid` 全变了；两天前成功抓过对话框的
+  cid（`zTZCcV0bbKEJ`）现在返回 Google 的 404 页，而同一时刻刚从列表页取到的新句柄
+  （`uoh-tTM3ZMoJ`）返回 200 + `gs_citr`。也就是说 `data-cid` 是**按渲染发放的临时句柄**，
+  过期后 404 并不代表"这条记录没有对话框"。
+- **后果**：`cite_format` 把过期句柄的 404 记成 `unavailable`（7 天不再问），累计 359 条被停用；
+  22:55 那轮"10 个对话框只成 2 个"就是这么来的（那些 cid 都是产物里的旧句柄）。
+- **① 清缓存**：新工具 `code/data_upgrade/forget_unavailable_cites`（默认 dry-run、`--apply` 写、
+  备份 + manifest、幂等；`--before DATE` 只清更早的）。已执行：1851 → 1492 条，删 359。
+- **② 护栏**：`enrich_citations_with_cite_formats(remember_unavailable=…)`——逐页钩子 True，
+  保存兜底遍 False；旧句柄 404 只记一行 `handle is stale (not remembered); a re-walk mints a fresh one`。
+  结论：**补 Chicago 只能靠重走列表页**（`--fetch-mode force`），单靠存下的 cid 注定失败。
+- **测试**：`test_cite_format` 增 1 例（不记黑名单）；新 `tests/test_forget_unavailable_cites.py` 5 例
+  （dry-run 不写 / apply 只删否证 + 备份 manifest / `--before` / 幂等 / 缓存缺失报错）。

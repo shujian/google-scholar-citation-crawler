@@ -292,6 +292,8 @@ class PaperCitationFetcher:
                     # being swallowed: the 404 verdict names the row, and the
                     # batch step at save time may never reach that row.
                     print_fn=line_logger(INFO, "cite", indent=2),
+                    # 这一页刚解析出来的 cid 是本轮刚发的句柄 → 404 可以记
+                    remember_unavailable=True,
                 )
                 self._accumulate_cite_stats(stats)
             except Exception as e:      # 坏一条不许影响抓取（与批量段同口径）
@@ -1823,7 +1825,7 @@ class PaperCitationFetcher:
                     full += 1
         return with_cite, full
 
-    def _enrich_cite_formats(self, final_results):
+    def _enrich_cite_formats(self, final_results, remember_unavailable=False):
         """Fill ``citation['cite']`` from Scholar's Cite dialog (on by default).
 
         One request per citation that carries a ``cid``.  Requests reuse the
@@ -1844,6 +1846,9 @@ class PaperCitationFetcher:
         citations = [c for result in final_results
                      for c in (result.get('citations') or [])
                      if isinstance(c, dict)]
+        # 这里的 cid 是从产物里读回来的**旧句柄**：Scholar 按每次渲染发放，放久了会过期
+        # （同一 URL 隔一分钟就换了 `data-cid`）。旧句柄 404 不代表"这条没有对话框"，
+        # 所以这一遍**不写** unavailable 缓存，等重走列表页拿到新句柄再说。
         cache_path = os.path.join(self.output_dir, _cite_format.CACHE_FILENAME)
         # 先数"这一段会真正改动多少行"（纯函数、零请求）：0 就不打段标题 —— 一段
         # 什么都没做的 section 只会让人以为又要抓一遍。
@@ -1858,6 +1863,7 @@ class PaperCitationFetcher:
             cache_path=cache_path,
             get_soup=get_soup,
             get_page=get_page,
+            remember_unavailable=remember_unavailable,
         )
         self._accumulate_cite_stats(stats)
         # 一遍的细节留在 DEBUG；INFO 只留"这一轮到底拿到多少 cite"这一条结论。

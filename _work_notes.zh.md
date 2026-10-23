@@ -2838,3 +2838,20 @@ venue 自带引号的出版地，这条规则会偏长，届时再按"venue 段�
 写的就是下游读的那份 `paper_citations.json`，带 `_fetch_state`，所以续跑不必重抓。
 它与删掉的 `*.partial.json` 的区别是**没有第二份真相**：同一个文件、同一套版本标记
 （`baseline: True` 表示仍在抓取中）。
+
+## 2026-10-23：`data-cid` 是临时句柄，不是稳定标识
+
+同一条 `/scholar?as_ylo=2021…&cites=…` 连取两次：
+
+```
+第一次 rows: uoh-tTM3ZMoJ, Oxz8gWOVEfkJ, _9U8GjxaIgYJ, COlfp-pdZpUJ
+第二次 rows: Z_pC5gIDlaIJ, DSBtMA8Ufz4J, K2ObZzvVLbEJ, _9U8GjxaIgYJ
+```
+
+页面里 `#gs_citd` 的模板是 `/scholar?q=info:{id}:…&output=cite&scirp={p}&hl=en`，`{id}` 就填这个
+句柄 —— 换句话说 Scholar 每次渲染都发新令牌，对话框只对被"最近发过"的令牌有效。
+
+推论一：**产物里存下的 cid 不能用来到处补对话框**；只有一边读页、一边立刻抓对话框才可靠
+（这正是 `_run_page_cite_hook` 的逐页粒度，也是它当初做得对的地方）。
+推论二：旧句柄 404 ≠ 记录不存在，不能进 7 天黑名单；要记只能记本轮刚发的句柄。
+推论三：之前把"全 404"当成"端点被封"也不对 —— 端点一直是好的，只是我们在用过期令牌。

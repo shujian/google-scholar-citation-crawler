@@ -514,6 +514,19 @@ class UnavailableCiteDialogTests(unittest.TestCase):
         self.assertEqual(entry['status'], 404)
         self.assertTrue(entry['fetched_at'])
 
+    def test_a_stale_handle_is_not_remembered_when_asked_not_to(self):
+        """产物里读回来的旧 cid 404 不等于"这条没有对话框"。
+
+        Scholar 每次渲染都换 `data-cid`（同一 URL 隔一分钟就变），旧句柄过期后同样回 404。
+        只有本轮刚从列表页拿到的句柄才配进缓存，否则会像 2026-10-23 那样把 359 行停用 7 天。
+        """
+        row = citation('old-handle')
+        stats = self._run([row], self._missing_dialog_get_soup,
+                          remember_unavailable=False)
+        self.assertEqual(stats['unavailable'], 1)
+        self.assertFalse(os.path.exists(self.cache_path), "不写缓存")
+        self.assertNotIn('cite', row)
+
     def test_a_fresh_verdict_is_not_asked_again(self):
         self._run([citation('dead-handle')], self._missing_dialog_get_soup)
         calls = []

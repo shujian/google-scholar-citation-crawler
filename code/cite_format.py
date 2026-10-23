@@ -351,7 +351,8 @@ def unavailable_verdict_is_fresh(entry, now=None, retry_days=None):
 
 def enrich_citations_with_cite_formats(citations, cache_path=None,
                                        get_soup=None, get_page=None,
-                                       print_fn=_log_cite_line, fetched_at=None):
+                                       print_fn=_log_cite_line, fetched_at=None,
+                                       remember_unavailable=True):
     """Fill ``citation['cite']`` for every citation that carries a ``cid``.
 
     *get_soup* takes the relative Cite-dialog path and returns the page (soup or
@@ -368,6 +369,15 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
     ``bibtex`` field for old data): that string is untruncated, unlike the
     citation-list page's ``venue``.  A dialog without a venue field leaves the
     existing key alone.
+
+    *remember_unavailable* says whether a 404 should be cached as "this record
+    has no dialog".  Only a cid obtained **in this run** may be remembered:
+    everything read back from the product carries a handle Scholar minted for
+    some earlier page render, and those expire — an expired handle 404s without
+    meaning the record has no dialog (measured 2026-10-23: the same list URL
+    returned different `data-cid` values a minute apart, and a cid that had
+    worked two days earlier answered 404).  Caching those verdicts parked ~360
+    rows for 7 days.
 
     Returns a stats dict: ``total``, ``with_cid``, ``missing_cid``,
     ``skipped_complete``, ``cache_hits``, ``fetched``, ``unavailable``,
@@ -446,23 +456,33 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
                 # Otherwise it is indistinguishable from a rate limit, so every
                 # run would pay the full cooldown budget (20-35 min) for it, or
                 # park the whole run on a captcha prompt.
-                cache[cid] = {
-                    'unavailable': True,
-                    'status': getattr(e, 'status', None),
-                    'fetched_at': stamp,
-                }
-                changed = True
-                save_cache_now()
+                #
+                # ...but only for a cid this run just got from a list page.
+                # A cid read back from the product is an old handle: those expire
+                # (same URL, different `data-cid` a minute later), and caching
+                # their 404s would park perfectly good rows for a week.
+                if remember_unavailable:
+                    cache[cid] = {
+                        'unavailable': True,
+                        'status': getattr(e, 'status', None),
+                        'fetched_at': stamp,
+                    }
+                    changed = True
+                    save_cache_now()
                 stats['unavailable'] += 1
                 # The row's title belongs in this line: the request-level
                 # warning in page_visit only knows the URL, and the cid alone
                 # cannot be looked up once the run has not saved yet, so the
                 # log could not answer "which papers 404'd".
                 title = ' '.join(str(citation.get('title') or '').split())[:60]
+                if remember_unavailable:
+                    tail = f"remembered, retry in {UNAVAILABLE_RETRY_DAYS} days"
+                else:
+                    tail = ("handle is stale (not remembered); a re-walk "
+                            "mints a fresh one")
                 print_fn(f"    [{index}/{len(citations)}] {cid} "
                          f"\"{title or '(no title)'}\" -> no Cite dialog "
-                         f"(HTTP {getattr(e, 'status', '?')}); remembered, "
-                         f"retry in {UNAVAILABLE_RETRY_DAYS} days")
+                         f"(HTTP {getattr(e, 'status', '?')}); {tail}")
                 continue
             except Exception as e:
                 # KeyboardInterrupt is not an Exception, so Ctrl+C still
