@@ -914,6 +914,74 @@ class DetailPathDelayTests(FetcherTestCase):
             re.search(r'^DETAIL_PAGE_DELAY_FACTOR\s*=', session_source, re.M))
 
 
+class CiteDialogTransientRetryTests(FetcherTestCase):
+    """Cite 对话框的 404 是瞬时的：同一请求再问一次，通常就成功。
+
+    2026-10-23 实测：同一个 cid、同一个 URL，隔一秒重发从 404 变 200；4 个新 cid × 3 次 = 12/12。
+    所以这一条路径多试一次（重试仍走正常等待，不会连打），列表页不享受这个待遇。
+    """
+
+    CITE = '/scholar?q=info:abc123:scholar.google.com/&output=cite&scirp=0&hl=en'
+    LIST = '/scholar?oi=bibs&hl=en&cites=123'
+
+    def setUp(self):
+        super().setUp()
+        from code import scholarly_session as _ss
+        from code.page_visit import RecordUnavailable
+        self.nav = _ss.scholarly._Scholarly__nav
+        self.RecordUnavailable = RecordUnavailable
+        self.nav._get_page = lambda pagerequest, premium=False: '<html></html>'
+        with patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._patch_scholarly()
+        self.ctx = self.fetcher._session_ctx
+        self.ctx.first_page_prompt_fn = None
+        self.calls = []
+
+    def _visit(self, fail_times):
+        calls = self.calls
+        exc = self.RecordUnavailable
+
+        class _Visit:
+            def __init__(self, ctx):
+                pass
+
+            def fetch(self, fn, url, label='page', missing_record_on_404=False):
+                calls.append(url)
+                if len([c for c in calls if c == url]) > fail_times:
+                    return fn()
+                raise exc(url, 404)
+
+        return _Visit
+
+
+    def test_a_cite_dialog_404_is_asked_once_more(self):
+        with patch("code.scholarly_session.rand_delay", return_value=0), \
+             patch("code.scholarly_session.time.sleep", return_value=None), \
+             patch("code.scholarly_session.PageVisit", self._visit(1)), \
+             patch("sys.stdout", new_callable=StringIO) as out:
+            self.nav._get_page(self.CITE)
+        self.assertEqual(len(self.calls), 2, "第一次 404 后要再问一次")
+        self.assertIn("asking once more", out.getvalue())
+
+    def test_it_gives_up_after_the_second_404(self):
+        with patch("code.scholarly_session.rand_delay", return_value=0), \
+             patch("code.scholarly_session.time.sleep", return_value=None), \
+             patch("code.scholarly_session.PageVisit", self._visit(99)), \
+             patch("sys.stdout", new_callable=StringIO):
+            with self.assertRaises(self.RecordUnavailable):
+                self.nav._get_page(self.CITE)
+        self.assertEqual(len(self.calls), 2)
+
+    def test_a_list_page_404_is_not_retried_here(self):
+        with patch("code.scholarly_session.rand_delay", return_value=0), \
+             patch("code.scholarly_session.time.sleep", return_value=None), \
+             patch("code.scholarly_session.PageVisit", self._visit(99)), \
+             patch("sys.stdout", new_callable=StringIO):
+            with self.assertRaises(self.RecordUnavailable):
+                self.nav._get_page(self.LIST)
+        self.assertEqual(len(self.calls), 1, "列表页没有这个重试")
+
+
 class LongRestTests(FetcherTestCase):
     """每 100 次请求强制休息 2 小时（用户定），口径是请求总数而不是页数。"""
 

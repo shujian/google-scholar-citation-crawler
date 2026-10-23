@@ -3142,3 +3142,14 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
 - **结果**：一条对话框两行，`Request URL: … · "完整标题"` + `[n/N] <cid> "完整标题" -> no Cite dialog
   (HTTP 404); remembered, retry in 7 days`；`venue_detail` 的逐篇结论同理。
 - **测试**：`test_page_visit` 的 detail-404 用例改为断言"这一层不出声"。
+
+### 2026-10-23：Cite 对话框的 404 按瞬时失败处理
+
+- **实测**：同一个 cid、同一个 URL，第一次 404、隔一秒重发 200；4 个新 cid × 3 次 = 12/12 成功。
+  用户从浏览器复制的对话框 URL（`#d=gs_cit&u=…&scirp=1/6`）与我们的拼法一致，`scirp` 不影响结果。
+- **改动**：①`patched_get_page` 对 `is_cite_dialog_url()` 的请求多试一次（`RecordUnavailable`
+  后重发，第二次仍失败才抛；日志 `Cite dialog answered 404 — asking once more`）；②`cite_format`
+  的 404 分支**不写** `unavailable` 缓存，只记一行 `skipped this run, asked again next time`；
+  ③删掉 `remember_unavailable` 参数（上一天的补丁），读取侧仍认旧条目、过期后自动重问。
+- **测试**：`cite_format` 两个旧用例改成"跳过但不缓存 + 下次还会问"；新增
+  `CiteDialogTransientRetryTests` 3 例（重试一次 / 两次后放弃 / 列表页不重试）。阶段 1 724 例全绿。

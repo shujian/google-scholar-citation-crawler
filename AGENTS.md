@@ -266,7 +266,7 @@ google-scholar-citation-crawler/
   `code/cite_format.py` 在 `get_soup()` 前后 `set_entry()` / `clear_entry()`（`finally` 里清，
   失败也一样）。判据是**一次请求里，同一条信息只出现一次**。
 - **一次请求只描述一次，且都写全**：Cite 对话框的 404 过去会打三条（`Request URL` +
-  一条把 URL 截断成 80 字符的 `WARN … no such record` + 逐行结论），标题也被截到 50/60 字符。
+  一条把 URL 截断成 80 字符的 WARN + 逐行结论），标题也被截到 50/60 字符。
   现在：`page_visit` **不再**为"这条记录不存在"打 WARN（它只抛 `RecordUnavailable`），
   由调用方那一行说（`cite` 的逐行结论、`venue_detail` 的逐篇结论，都带**完整标题**）；
   `Request URL` / WARN 里的 URL 不再截断，逐行结论的标题也不截断。一条对话框 = 两行：
@@ -341,11 +341,13 @@ The program always runs in two sequential phases from `main()`:
   **`cid` 是按每次渲染发放的临时句柄，不是稳定标识**：同一条列表 URL 隔一分钟再取，
   前几行的 `data-cid` 就换了一批；拿几天前的句柄去问 `output=cite` 得到的是 Google 的 404 页
   （一个两天前成功抓过对话框的 cid 也 404），而同一时刻刚从列表页取到的新句柄返回 200。
-  所以：①对话框只能"一边读页、一边立刻抓"（逐页钩子），补 Chicago 只能靠 `--fetch-mode force`
-  重走列表页，存下的 cid 补不出来；②`enrich_citations_with_cite_formats(remember_unavailable=…)`
-  只允许**本轮刚取到的**句柄把 404 记成"这条没有对话框"（逐页钩子 True、保存兜底遍 False，
-  后者只记一行 "handle is stale (not remembered)"）；③已经记错的用
-  `python -m code.data_upgrade.forget_unavailable_cites --apply` 清掉（默认 dry-run、带备份）。
+  **404 是瞬时的，既不是"记录不存在"也不是封锁**：同一个 cid、同一个 URL 隔一秒重发就从 404
+  变 200（2026-10-23 实测；4 个新 cid × 3 次 = 12/12 成功）。所以：
+  ①对话框只能"一边读页、一边立刻抓"（逐页钩子），补 Chicago 只能靠 `--fetch-mode force`
+  重走列表页；②`patched_get_page` 对 Cite 对话框的 404 **再问一次**（重试仍走正常等待）；
+  ③**不写**"7 天不可用"缓存——只跳过该行，下次再问（旧版记下的已用
+  `python -m code.data_upgrade.forget_unavailable_cites --apply` 清掉，默认 dry-run、带备份；
+  读取侧仍认这些旧条目，过期后自动重问）。
 - Writes consolidated citation outputs to `author_<ID>_paper_citations.json` and `.xlsx`
 - **Writes the product per paper**（用户定"按论文条目写入"）：每篇抓完，`_checkpoint_paper`
   就把这一篇的 `pub` / `citations` / `_fetch_state`（以及 `citation_index`）写进

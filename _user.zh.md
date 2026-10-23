@@ -3852,3 +3852,9 @@ dialog) | papers: A/241 fully cid'd, B/241 fully cid'd + dialogued`。当前数�
 ②`Request URL` 与 WARN 里的 URL 不再截断（原来 `label[:80]`）；③逐行/逐篇结论里的标题不再截断
 （原来 `[:50]` / `[:60]`）；④去掉消息里手写的 4 个缩进空格（缩进由 `line_logger` 负责）。
 现在一条 Cite 对话框只占两行：请求行（完整 URL + 完整标题）与结论行（完整标题 + 状态）。
+
+**你的判断**："行，你做吧"（把 Cite 对话框的 404 当瞬时失败：重试、不再写"7 天不可用"）。
+
+已做：①`patched_get_page` 对 Cite 对话框的 404 **再问一次**（第二次仍 404 才放弃，重试仍走正常等待）；
+②`cite_format` 不再写 `unavailable` 缓存，只跳过该行（日志：`skipped this run, asked again next time`）；
+③参数 `remember_unavailable` 删除；④新增 3 个用例（重试一次/两次后放弃/列表页不重试）。

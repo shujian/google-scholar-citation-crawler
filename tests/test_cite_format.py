@@ -501,43 +501,32 @@ class UnavailableCiteDialogTests(unittest.TestCase):
     def _missing_dialog_get_soup(path):
         raise cf.RecordUnavailable('https://scholar.google.com' + path, 404)
 
-    def test_a_404_is_remembered_instead_of_failing(self):
+    def test_a_404_is_skipped_but_never_cached(self):
+        """Cite 对话框的 404 是瞬时的 —— 跳过这一行，但**不写**"7 天不可用"。
+
+        2026-10-23 实测：同一个 cid 隔一秒重发就从 404 变 200；把 404 记成"这条记录没有对话框"
+        曾把 359 行停用了 7 天。
+        """
         row = citation('dead-handle')
         stats = self._run([row], self._missing_dialog_get_soup)
 
         self.assertEqual(stats['unavailable'], 1)
-        self.assertEqual(stats['failed'], 0)          # not a failure any more
+        self.assertEqual(stats['failed'], 0)          # not a failure, just skipped
         self.assertEqual(stats['resolved'], 0)
         self.assertNotIn('cite', row)
-        entry = read_json(self.cache_path)['dead-handle']
-        self.assertTrue(entry['unavailable'])
-        self.assertEqual(entry['status'], 404)
-        self.assertTrue(entry['fetched_at'])
-
-    def test_a_stale_handle_is_not_remembered_when_asked_not_to(self):
-        """产物里读回来的旧 cid 404 不等于"这条没有对话框"。
-
-        Scholar 每次渲染都换 `data-cid`（同一 URL 隔一分钟就变），旧句柄过期后同样回 404。
-        只有本轮刚从列表页拿到的句柄才配进缓存，否则会像 2026-10-23 那样把 359 行停用 7 天。
-        """
-        row = citation('old-handle')
-        stats = self._run([row], self._missing_dialog_get_soup,
-                          remember_unavailable=False)
-        self.assertEqual(stats['unavailable'], 1)
         self.assertFalse(os.path.exists(self.cache_path), "不写缓存")
-        self.assertNotIn('cite', row)
 
-    def test_a_fresh_verdict_is_not_asked_again(self):
+    def test_the_same_row_is_asked_again_next_time(self):
         self._run([citation('dead-handle')], self._missing_dialog_get_soup)
         calls = []
 
-        def get_soup(path):                            # must never be reached
+        def get_soup(path):
             calls.append(path)
-            raise AssertionError('the dead handle was asked again')
+            raise cf.RecordUnavailable('https://scholar.google.com' + path, 404)
 
         stats = self._run([citation('dead-handle')], get_soup)
 
-        self.assertEqual(calls, [])
+        self.assertEqual(len(calls), 1, "没有缓存就不会「不再问」")
         self.assertEqual(stats['unavailable'], 1)
         self.assertEqual(stats['cache_hits'], 0)
 
@@ -596,7 +585,8 @@ class UnavailableCiteDialogTests(unittest.TestCase):
         self.assertEqual(stats['unavailable'], 1)
         self.assertEqual(stats['failed'], 0)
         self.assertEqual(prompts, [])
-        self.assertTrue(read_json(self.cache_path)['dead-handle']['unavailable'])
+        self.assertFalse(os.path.exists(self.cache_path),
+                         "404 只跳过这一行，不写「7 天不可用」")
 
     def test_verdict_freshness_uses_the_configured_window(self):
         now = datetime(2026, 10, 16, 12, 0, 0)

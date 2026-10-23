@@ -43,7 +43,7 @@ from code.common import (
 )
 from code.config import DETAIL_PAGE_DELAY_FACTOR
 from code.config import LONG_REST_EVERY_REQUESTS, LONG_REST_SECONDS
-from code.page_visit import PageVisit
+from code.page_visit import PageVisit, RecordUnavailable
 
 
 # ---------------------------------------------------------------------------
@@ -836,16 +836,33 @@ def patch_scholarly(ctx: SessionContext) -> None:
 
         page_visit = PageVisit(ctx)
         label = request_url or "scholar page"
-        result = page_visit.fetch(
-            _fetch_with_sleep_limit,
-            url=request_url or f'https://scholar.google.com{ctx.last_scholar_url}',
-            label=label,
-            # On a one-shot detail page a 404 means "this record has no such
-            # page" (a Cite dialog for a cluster handle Scholar does not serve),
-            # not "we are blocked": PageVisit raises RecordUnavailable instead of
-            # prompting for a captcha and burning 20-35 minutes of cooldowns.
-            missing_record_on_404=is_detail_style_path(request_url),
-        )
+        # A Cite dialog answering 404 is **transient**: the identical request
+        # often succeeds a second later (measured 2026-10-23: the same cid/URL
+        # returned 404 and then 200 back to back; 4 fresh cids × 3 attempts were
+        # 12/12).  So give that one path a second attempt before believing it —
+        # the retry re-enters the normal pacing, so it is spaced by the usual
+        # 13.5–27 s detail delay instead of hammering.
+        attempts = 2 if is_cite_dialog_url(request_url) else 1
+        for attempt in range(1, attempts + 1):
+            try:
+                result = page_visit.fetch(
+                    _fetch_with_sleep_limit,
+                    url=(request_url
+                         or f'https://scholar.google.com{ctx.last_scholar_url}'),
+                    label=label,
+                    # On a one-shot detail page a 404 means "this record has no
+                    # such page", not "we are blocked": PageVisit raises
+                    # RecordUnavailable instead of prompting for a captcha and
+                    # burning 20-35 minutes of cooldowns.
+                    missing_record_on_404=is_detail_style_path(request_url),
+                )
+                break
+            except RecordUnavailable:
+                if attempt >= attempts:
+                    raise
+                run_log.info("Cite dialog answered 404 — asking once more "
+                             "(404 here is transient, not 'no such record')",
+                             module="http", indent=2)
         # After first successful Scholar page, switch to same-origin for
         # subsequent requests (real browsers only send 'none' on the
         # very first navigation from outside the origin).
