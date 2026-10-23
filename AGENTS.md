@@ -331,7 +331,15 @@ The program always runs in two sequential phases from `main()`:
   `output/cite_format_cache.json`). **On by default** — the Chicago string is the
   source of the citing paper's full author list and untruncated venue — and
   `--no-cite-formats` skips it; an entry without a `cid` cannot be addressed, so rows
-  written before that field existed stay untouched until their paper is re-fetched
+  written before that field existed stay untouched until their paper is re-fetched.
+  **`cid` 是按每次渲染发放的临时句柄，不是稳定标识**：同一条列表 URL 隔一分钟再取，
+  前几行的 `data-cid` 就换了一批；拿几天前的句柄去问 `output=cite` 得到的是 Google 的 404 页
+  （一个两天前成功抓过对话框的 cid 也 404），而同一时刻刚从列表页取到的新句柄返回 200。
+  所以：①对话框只能"一边读页、一边立刻抓"（逐页钩子），补 Chicago 只能靠 `--fetch-mode force`
+  重走列表页，存下的 cid 补不出来；②`enrich_citations_with_cite_formats(remember_unavailable=…)`
+  只允许**本轮刚取到的**句柄把 404 记成"这条没有对话框"（逐页钩子 True、保存兜底遍 False，
+  后者只记一行 "handle is stale (not remembered)"）；③已经记错的用
+  `python -m code.data_upgrade.forget_unavailable_cites --apply` 清掉（默认 dry-run、带备份）。
 - Writes consolidated citation outputs to `author_<ID>_paper_citations.json` and `.xlsx`
 - **Writes the product per paper**（用户定"按论文条目写入"）：每篇抓完，`_checkpoint_paper`
   就把这一篇的 `pub` / `citations` / `_fetch_state`（以及 `citation_index`）写进
