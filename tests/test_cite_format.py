@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tests.conftest import patch, StringIO  # noqa: E402  (installs the stubs)
+from tests.conftest import RunLogDebugCase, patch, StringIO  # noqa: E402  (installs the stubs)
 
 from code import cite_format as cf  # noqa: E402
 from code import scholar_citation as sc  # noqa: E402
@@ -147,10 +147,11 @@ def citation(cid=CID):
     return extract_citation_info(scholarly_row(cid=cid))
 
 
-class CiteSuccessLogTests(unittest.TestCase):
+class CiteSuccessLogTests(RunLogDebugCase):
     """成功也要留一行（DEBUG）：否则日志里只有失败，看不出"到底抓到了没有"。"""
 
     def setUp(self):
+        super().setUp()                 # DEBUG 阈值（成功行是 DEBUG）
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.cache_path = os.path.join(self._tmp.name, cf.CACHE_FILENAME)
