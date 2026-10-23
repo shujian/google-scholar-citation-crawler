@@ -3845,3 +3845,10 @@ dialog) | papers: A/241 fully cid'd, B/241 fully cid'd + dialogued`。当前数�
 缓存 1851 → 1492 条、删掉 359 条否证（备份在 `output/forget_unavailable_20261023-211235/`）；
 ②`enrich_citations_with_cite_formats(remember_unavailable=…)`：逐页钩子（本轮新句柄）为 True，
 保存兜底遍（产物里的旧句柄）为 False。
+
+**你的要求**："这个日志里重复内容有点多，并且部分url和论文标题不完整。请改成完整内容且不重复。"
+
+已改：①`page_visit` 不再为"这条记录不存在"打那条重复的 WARN（只抛异常，由调用方的逐行结论说）；
+②`Request URL` 与 WARN 里的 URL 不再截断（原来 `label[:80]`）；③逐行/逐篇结论里的标题不再截断
+（原来 `[:50]` / `[:60]`）；④去掉消息里手写的 4 个缩进空格（缩进由 `line_logger` 负责）。
+现在一条 Cite 对话框只占两行：请求行（完整 URL + 完整标题）与结论行（完整标题 + 状态）。

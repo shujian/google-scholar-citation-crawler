@@ -251,14 +251,14 @@ def enrich_publications_with_venue_full(publications, cache_path=None,
                 # KeyboardInterrupt is not an Exception, so Ctrl+C still
                 # propagates and the cache keeps what was already fetched.
                 stats['failed'] += 1
-                print_fn(f"    [{index}/{len(publications)}] "
-                         f"{str(pub.get('title', ''))[:50]}... -> detail page "
+                print_fn(f"[{index}/{len(publications)}] "
+                         f"{str(pub.get('title', ''))} -> detail page "
                          f"failed ({type(e).__name__}: {e})")
                 continue
             if not fields:
                 stats['failed'] += 1
-                print_fn(f"    [{index}/{len(publications)}] "
-                         f"{str(pub.get('title', ''))[:50]}... -> no field table "
+                print_fn(f"[{index}/{len(publications)}] "
+                         f"{str(pub.get('title', ''))} -> no field table "
                          f"(captcha/consent/redirect page); not cached")
                 continue
             label, value = pick_venue_field(fields)
@@ -272,8 +272,8 @@ def enrich_publications_with_venue_full(publications, cache_path=None,
             stats['fetched'] += 1
             if not value:
                 stats['no_venue_field'] += 1
-                print_fn(f"    [{index}/{len(publications)}] "
-                         f"{str(pub.get('title', ''))[:50]}... -> no venue field "
+                print_fn(f"[{index}/{len(publications)}] "
+                         f"{str(pub.get('title', ''))} -> no venue field "
                          f"(labels: {', '.join(sorted(fields)) or '-'})")
             if cache_path:
                 save_venue_cache(cache_path, cache)

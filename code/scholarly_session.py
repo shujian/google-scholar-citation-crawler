@@ -835,7 +835,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
             return result
 
         page_visit = PageVisit(ctx)
-        label = request_url[:80] if request_url else "scholar page"
+        label = request_url or "scholar page"
         result = page_visit.fetch(
             _fetch_with_sleep_limit,
             url=request_url or f'https://scholar.google.com{ctx.last_scholar_url}',

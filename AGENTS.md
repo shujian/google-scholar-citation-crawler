@@ -265,6 +265,12 @@ google-scholar-citation-crawler/
   只有 `scholarly_session.patched_get_page` 把它拼在那次请求的 `Request URL: …` 行尾。
   `code/cite_format.py` 在 `get_soup()` 前后 `set_entry()` / `clear_entry()`（`finally` 里清，
   失败也一样）。判据是**一次请求里，同一条信息只出现一次**。
+- **一次请求只描述一次，且都写全**：Cite 对话框的 404 过去会打三条（`Request URL` +
+  一条把 URL 截断成 80 字符的 `WARN … no such record` + 逐行结论），标题也被截到 50/60 字符。
+  现在：`page_visit` **不再**为"这条记录不存在"打 WARN（它只抛 `RecordUnavailable`），
+  由调用方那一行说（`cite` 的逐行结论、`venue_detail` 的逐篇结论，都带**完整标题**）；
+  `Request URL` / WARN 里的 URL 不再截断，逐行结论的标题也不截断。一条对话框 = 两行：
+  `Request URL: …· "完整标题"` 与 `[n/N] <cid> "完整标题" -> no Cite dialog (HTTP 404); …`。
 - **Cite 统计只留一条结论行**：保存时先算"这一遍会真正改动多少行"（`_cite_work()`：纯函数、
   零请求），候选为 0 就整段静默；有活才打 `── Cite dialogs · N row(s) to resolve ──`，段尾只有
   一条 INFO `cite dialogs: X/Y rows now carry formats (Z with all five) | …`；这一遍的明细

@@ -170,7 +170,9 @@ class MissingRecordTests(unittest.TestCase):
         self.assertEqual(error.status, 404)
         self.assertEqual(len(calls), 1)        # no retries, no cooldowns
         self.assertEqual(prompts, [])          # never asks for a captcha
-        self.assertIn("no such record", output)
+        # This layer stays silent: the caller's per-row line names the record, so a
+        # WARN here would print the same URL and the same 404 twice.
+        self.assertEqual(output.strip(), "")
 
     def test_the_same_status_on_a_list_page_keeps_the_recovery_path(self):
         prompts = []

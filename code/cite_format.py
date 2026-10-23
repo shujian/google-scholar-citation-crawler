@@ -442,7 +442,7 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
                 continue
             # 这一条施引论文的对话框是这次请求的主语：`waiting …` / 请求行都带上它，
             # 而不是整篇被引论文。取标题的规则与下面 404 那行一致。
-            _label_title = ' '.join(str(citation.get('title') or '').split())[:50]
+            _label_title = ' '.join(str(citation.get('title') or '').split())
             run_log.set_entry(f'"{_label_title or "(no title)"}"')
             try:
                 try:
@@ -474,13 +474,13 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
                 # warning in page_visit only knows the URL, and the cid alone
                 # cannot be looked up once the run has not saved yet, so the
                 # log could not answer "which papers 404'd".
-                title = ' '.join(str(citation.get('title') or '').split())[:60]
+                title = ' '.join(str(citation.get('title') or '').split())
                 if remember_unavailable:
                     tail = f"remembered, retry in {UNAVAILABLE_RETRY_DAYS} days"
                 else:
                     tail = ("handle is stale (not remembered); a re-walk "
                             "mints a fresh one")
-                print_fn(f"    [{index}/{len(citations)}] {cid} "
+                print_fn(f"[{index}/{len(citations)}] {cid} "
                          f"\"{title or '(no title)'}\" -> no Cite dialog "
                          f"(HTTP {getattr(e, 'status', '?')}); {tail}")
                 continue
@@ -488,12 +488,12 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
                 # KeyboardInterrupt is not an Exception, so Ctrl+C still
                 # propagates and the cache keeps what was already fetched.
                 stats['failed'] += 1
-                print_fn(f"    [{index}/{len(citations)}] {cid} -> cite page "
+                print_fn(f"[{index}/{len(citations)}] {cid} -> cite page "
                          f"failed ({type(e).__name__}: {e})")
                 continue
             if not parsed['formats']:
                 stats['failed'] += 1
-                print_fn(f"    [{index}/{len(citations)}] {cid} -> no citation "
+                print_fn(f"[{index}/{len(citations)}] {cid} -> no citation "
                          f"table (captcha/consent/redirect page); not cached")
                 continue
             entry = {

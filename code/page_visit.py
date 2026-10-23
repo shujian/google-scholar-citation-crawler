@@ -131,9 +131,9 @@ class PageVisit:
             except Exception as e:
                 status = _status_of(e, self.ctx)
                 if missing_record_on_404 and status in MISSING_RECORD_STATUSES:
-                    run_log.warn(f"{label}: HTTP {status} — no such record "
-                                 f"(not a block); giving up on it",
-                                 module="http", indent=1)
+                    # 不在这里打 WARN：调用方（`cite_format` 的逐行结论、`venue_detail`
+                    # 的逐篇结论）知道是哪一行/哪一篇，它的那一行才是这条记录的唯一出处。
+                    # 这里再打一遍只会把同一个 URL 和同一个 404 说两次。
                     raise RecordUnavailable(url, status) from e
 
                 # A one-shot detail page that still refuses *after* fresh cookies

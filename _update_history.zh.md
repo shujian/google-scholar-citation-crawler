@@ -3131,3 +3131,14 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   结论：**补 Chicago 只能靠重走列表页**（`--fetch-mode force`），单靠存下的 cid 注定失败。
 - **测试**：`test_cite_format` 增 1 例（不记黑名单）；新 `tests/test_forget_unavailable_cites.py` 5 例
   （dry-run 不写 / apply 只删否证 + 备份 manifest / `--before` / 幂等 / 缓存缺失报错）。
+
+### 2026-10-23：Cite 对话框日志去重 + 不再截断
+
+- **问题**：一个 404 对话框打三条 —— `Request URL: …`（完整）、`WARN … no such record`（URL 被截到
+  80 字符）、`INFO cite [n/N]`（标题被截到 60），标题/URL 都出现两次且各截一半。
+- **改法**：`page_visit` 对 `RecordUnavailable` 只抛不打印（调用方知道是哪一行/哪一篇）；
+  `patched_get_page` 的 `label` 不再 `[:80]`；`cite_format` / `venue_detail` 的逐行结论用完整标题；
+  同时去掉这些消息里手写的缩进空格。
+- **结果**：一条对话框两行，`Request URL: … · "完整标题"` + `[n/N] <cid> "完整标题" -> no Cite dialog
+  (HTTP 404); remembered, retry in 7 days`；`venue_detail` 的逐篇结论同理。
+- **测试**：`test_page_visit` 的 detail-404 用例改为断言"这一层不出声"。
