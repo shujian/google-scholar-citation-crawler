@@ -3165,3 +3165,13 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   单独捕获，日志说明"产品已写、其余下次再补"。
 - **测试**：`Cite404StreakTests` 3 例（连续失败暂停后收尾 / 成功清零 streak / 默认值开着）。
   阶段 1 727 例全绿。
+
+### 2026-10-24：日志里补上"抓取成功"的证据
+
+- **问题**：逐行 Cite 结论只打失败（成功静默），所以日志里全是 404，看不出到底抓到没有。
+- **改动**：①`cite_format` 在解析成功（含缓存命中）后打一行 DEBUG：
+  `[i/N] <cid> "完整标题" -> 5 formats (mla, apa, chicago, harvard, vancouver)`，缓存命中带 `· cached`；
+  ②`_on_citations_page` 每页一条 INFO：`cite on this page: 8/10 resolved (fetched 6, cached 2),
+  2 skipped (404), 0 failed`。
+- **测试**：`CiteSuccessLogTests` 2 例（成功行列格式 / 缓存命中标 cached）；`PageCiteHookTests`
+  增 1 例（每页结论行）。阶段 1 730 例全绿。

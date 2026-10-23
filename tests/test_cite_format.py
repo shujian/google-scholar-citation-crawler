@@ -147,6 +147,44 @@ def citation(cid=CID):
     return extract_citation_info(scholarly_row(cid=cid))
 
 
+class CiteSuccessLogTests(unittest.TestCase):
+    """成功也要留一行（DEBUG）：否则日志里只有失败，看不出"到底抓到了没有"。"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.cache_path = os.path.join(self._tmp.name, cf.CACHE_FILENAME)
+
+    def _run(self, rows, nav):
+        return cf.enrich_citations_with_cite_formats(
+            rows, cache_path=self.cache_path, get_soup=nav._get_soup,
+            print_fn=quiet)
+
+    def test_a_resolved_row_names_its_formats(self):
+        row = citation()
+        nav = _FakeNav(pages={cf.cite_path(CID): default_page()})
+        with patch("sys.stdout", new_callable=StringIO) as out:
+            cf.enrich_citations_with_cite_formats(
+                [row], cache_path=self.cache_path, get_soup=nav._get_soup,
+                print_fn=quiet)
+        text = out.getvalue()
+        self.assertIn(CID, text)
+        self.assertIn("formats (", text)
+        self.assertIn("chicago", text)
+
+    def test_a_cached_row_says_so(self):
+        row = citation()
+        nav = _FakeNav(pages={cf.cite_path(CID): default_page()})
+        self._run([row], nav)
+        # 再跑一次：venue 仍不完整 → 走缓存而不是重新请求
+        row2 = citation()
+        row2.pop('cite', None)
+        with patch("sys.stdout", new_callable=StringIO) as out:
+            self._run([row2], nav)
+        self.assertIn("cached", out.getvalue())
+        self.assertEqual(len(nav.calls), 1, "第二次是缓存命中，不该再请求")
+
+
 class _FakeNav:
     """Stand-in for the patched scholarly navigator."""
 

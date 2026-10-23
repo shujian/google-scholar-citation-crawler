@@ -295,6 +295,13 @@ class PaperCitationFetcher:
                     print_fn=line_logger(INFO, "cite", indent=2),
                 )
                 self._accumulate_cite_stats(stats)
+                # 成功是静默的（逐行只有失败才打），所以这里给每页一条结论行：
+                # 屏幕上能看出"这一页的对话框到底成没成"，日志文件里还有逐行细节。
+                run_log.info(
+                    f"cite on this page: {stats['resolved']}/{len(rows)} resolved "
+                    f"(fetched {stats['fetched']}, cached {stats['cache_hits']}), "
+                    f"{stats['unavailable']} skipped (404), {stats['failed']} failed",
+                    module="cite", indent=1)
             except Exception as e:      # 坏一条不许影响抓取（与批量段同口径）
                 run_log.warn(f"per-page citation-format step failed: "
                              f"{type(e).__name__}: {e}", module="cite", indent=1)

@@ -271,6 +271,12 @@ google-scholar-citation-crawler/
   由调用方那一行说（`cite` 的逐行结论、`venue_detail` 的逐篇结论，都带**完整标题**）；
   `Request URL` / WARN 里的 URL 不再截断，逐行结论的标题也不截断。一条对话框 = 两行：
   `Request URL: …· "完整标题"` 与 `[n/N] <cid> "完整标题" -> no Cite dialog (HTTP 404); …`。
+- **成功也留证据**：逐行的 Cite 结论只打**失败**（成功静默），所以另有两处说明"抓到了没有"：
+  ①每取回一条（含缓存命中的）打一行 DEBUG
+  `[3/10] <cid> "完整标题" -> 5 formats (mla, apa, chicago, harvard, vancouver)`（缓存命中时
+  尾巴带 `· cached`，只进日志文件）；②逐页钩子每页一条 INFO
+  `cite on this page: 8/10 resolved (fetched 6, cached 2), 2 skipped (404), 0 failed`
+  —— 屏幕上能直接看出这一页成了几条。保存时的 `cite dialogs:` 行仍是整轮口径。
 - **Cite 统计只留一条结论行**：保存时先算"这一遍会真正改动多少行"（`_cite_work()`：纯函数、
   零请求），候选为 0 就整段静默；有活才打 `── Cite dialogs · N row(s) to resolve ──`，段尾只有
   一条 INFO `cite dialogs: X/Y rows now carry formats (Z with all five) | …`；这一遍的明细

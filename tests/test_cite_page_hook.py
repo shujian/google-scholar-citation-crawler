@@ -15,7 +15,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tests.conftest import FetcherTestCase, patch  # noqa: E402
+from tests.conftest import FetcherTestCase, StringIO, patch  # noqa: E402
 from code import citation_fetch, scholar_citation  # noqa: E402
 
 FULL_VENUE = 'Proceedings of the 2025 Conference on Empirical Methods in NLP'
@@ -60,6 +60,26 @@ class PageCiteHookTests(FetcherTestCase):
 
         self.assertEqual(len(sent), 1, "只有一批要发")
         self.assertEqual([r['cid'] for r in sent[0]], ['A3'], "只发确实需要的那一行")
+
+    def test_each_page_reports_how_many_dialogs_it_resolved(self):
+        """成功是静默的，所以每页要有**一条**结论行：屏幕上看得出这一页成了几条。
+
+        2026-10-24 用户："现在的日志里不显示抓取是否成功，这个该写。"
+        """
+        fetcher = self._fetcher()
+        stats = {'resolved': 8, 'fetched': 6, 'cache_hits': 2,
+                 'failed': 0, 'unavailable': 2, 'with_cid': 10, 'missing_cid': 0}
+        with patch.object(scholar_citation._cite_format,
+                          'enrich_citations_with_cite_formats',
+                          lambda rows, **kw: stats):
+            rows = [{'title': 'x', 'venue': 'Proceedings of the 2025 Conference on Empirical …',
+                     'authors': 'H Wang', 'cid': 'A%d' % i} for i in range(10)]
+            with patch("sys.stdout", new_callable=StringIO) as out:
+                fetcher._on_citations_page(rows)
+        text = out.getvalue()
+        self.assertIn("cite on this page: 8/10 resolved", text)
+        self.assertIn("fetched 6, cached 2", text)
+        self.assertIn("2 skipped (404)", text)
 
     def test_second_page_does_not_reask_the_same_row(self):
         fetcher = self._fetcher()

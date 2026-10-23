@@ -408,6 +408,8 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
         stats['with_cid'] += 1
 
         entry = cache.get(cid)
+        was_cached = entry is not None and not entry.get('unavailable')
+        row_title = ' '.join(str(citation.get('title') or '').split())
         changed = False
         if entry is not None and entry.get('unavailable'):
             if unavailable_verdict_is_fresh(entry):
@@ -517,5 +519,13 @@ def enrich_citations_with_cite_formats(citations, cache_path=None,
         citation['venue_key'] = key
         citation['venue_key_source'] = key_source
         stats['resolved'] += 1
+        # 成功也留一行（DEBUG，只进日志文件）：否则日志里只有失败，看不出"抓到了没有"。
+        present = [f for f in ('mla', 'apa', 'chicago', 'harvard', 'vancouver')
+                   if f in payload]
+        source_note = ' · cached' if was_cached else ''
+        run_log.debug(f"[{index}/{len(citations)}] {cid} "
+                      f"\"{row_title or '(no title)'}\" -> "
+                      f"{len(present)} formats ({', '.join(present)}){source_note}",
+                      module="cite", indent=2)
 
     return stats
