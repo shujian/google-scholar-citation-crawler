@@ -734,6 +734,16 @@ def patch_scholarly(ctx: SessionContext) -> None:
     # PageVisit handles captcha, proxy-switch, and retry internally.
 
     def patched_get_page(pagerequest, premium=False):
+        if premium:
+            # scholarly 的 `_get_page` 在副会话（`citations?` 类 URL 用 `_session2`）
+            # 所有尝试都失败后，会 `return self._get_page(pagerequest, True)` 想"换回主
+            # 会话再试一次"。我们这两套会话共用同一个出口代理、同一份 cookies 和同一套
+            # header（scholarly 自带的代理池没有被使用），所以那一跳只是把同一个 URL
+            # 再请求一遍，多一次请求 + 一次完整等待，结果照旧失败。
+            #
+            # 直接抛回去：失败的原因（限流/验证码/网络）由 `PageVisit` 的重试、冷却和
+            # "粘 cURL"提示接管 —— 它知道该怎么等、什么时候该问人。
+            raise MaxTriesExceededException("Cannot Fetch from Google Scholar.")
         request_url = _scholar_request_url(pagerequest)
         if request_url:
             ctx.current_attempt_url = request_url

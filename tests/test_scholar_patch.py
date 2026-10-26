@@ -1062,6 +1062,42 @@ class Cite404StreakTests(FetcherTestCase):
         self.assertGreater(self.ss.CITE_PAUSE_LIMIT, 0)
 
 
+class ProxyFallbackShortCircuitTests(FetcherTestCase):
+    """scholarly 的"换回主会话再试一次"不再重发请求。
+
+    `Navigator._get_page` 末尾有 `return self._get_page(pagerequest, True)`，想换主代理再试。
+    我们的两套会话共用同一个出口与 cookies，那一跳只是把同一 URL 再请求一遍（日志里还会出现
+    两条同样的 `Request URL`）。现在直接抛回，让 `PageVisit` 的重试/提示接管。
+    """
+
+    PROFILE = '/citations?hl=en&user=HF3-E9kAAAAJ&cstart=100&pagesize=100'
+
+    def setUp(self):
+        super().setUp()
+        from code import scholarly_session as _ss
+        self.ss = _ss
+        self.nav = _ss.scholarly._Scholarly__nav
+        self.calls = []
+        self.nav._get_page = lambda pagerequest, premium=False: (
+            self.calls.append(pagerequest) or '<html></html>')
+        with patch("sys.stdout", new_callable=StringIO):
+            self.fetcher._patch_scholarly()
+        self.ctx = self.fetcher._session_ctx
+        self.ctx.first_page_prompt_fn = None
+
+    def test_the_primary_session_retry_is_not_requested(self):
+        with self.assertRaises(self.ss.MaxTriesExceededException):
+            self.nav._get_page('https://scholar.google.com' + self.PROFILE, True)
+        self.assertEqual(self.calls, [], "不该再打一次同样的请求")
+
+    def test_a_normal_page_still_goes_through(self):
+        with patch("code.scholarly_session.rand_delay", return_value=0), \
+             patch("code.scholarly_session.time.sleep", return_value=None), \
+             patch("sys.stdout", new_callable=StringIO):
+            self.nav._get_page('https://scholar.google.com' + self.PROFILE)
+        self.assertEqual(len(self.calls), 1)
+
+
 class LongRestTests(FetcherTestCase):
     """每 100 次请求强制休息 2 小时（用户定），口径是请求总数而不是页数。"""
 

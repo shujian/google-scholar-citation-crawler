@@ -3870,3 +3870,9 @@ dialog) | papers: A/241 fully cid'd, B/241 fully cid'd + dialogued`。当前数�
 已加：①每取回一条 Cite 对话框（含缓存命中）打一行 DEBUG
 `[3/10] <cid> "完整标题" -> 5 formats (mla, apa, chicago, harvard, vancouver)`，缓存命中时带 `· cached`；
 ②逐页钩子每页一条 INFO `cite on this page: 8/10 resolved (fetched 6, cached 2), 2 skipped (404), 0 failed`。
+
+**你的决定**："直接不重入吧"（不要 scholarly 的"换回主会话再试一次"）。
+
+已改：`patched_get_page(premium=True)` 立即抛 `MaxTriesExceededException`，不再把同一个 URL 请求
+第二遍 —— 两套会话共用同一个出口/cookies，那一跳注定失败，只多花一次请求 + 一次等待。
+失败交给 `PageVisit` 的重试/冷却/粘 cURL 提示处理。

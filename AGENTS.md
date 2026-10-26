@@ -529,6 +529,13 @@ Patches `scholarly` internals rather than treating it as a black box:
   the block even when the interstitial answers **200** — otherwise a CAPTCHA page reaches the parser
   as "a citation list with no rows" (or as "no such record" on a detail page) and the run keeps
   pacing a flagged session.
+- **The "retry via the primary session" hop is short-circuited**: scholarly's `_get_page` ends with
+  `return self._get_page(pagerequest, True)` when the `citations?` session fails — a proxy-pool
+  fallback. Both of our sessions share one proxy, one cookie jar and one header set (scholarly's own
+  proxy API is not used, because it does not work with httpx 0.27), so that hop only re-sent the same
+  URL: an extra request, an extra full wait, and the log showed the same `Request URL` twice.
+  `patched_get_page(premium=True)` now raises `MaxTriesExceededException` immediately, handing the
+  failure to `PageVisit`'s retries / cooldowns / cURL prompt.
 - Verifies every patch hook point at the end of `patch_scholarly()` and raises when a scholarly
   upgrade made one of them ineffective (see `assert_scholarly_patches_active`).
 

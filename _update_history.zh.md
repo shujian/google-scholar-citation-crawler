@@ -3175,3 +3175,14 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   2 skipped (404), 0 failed`。
 - **测试**：`CiteSuccessLogTests` 2 例（成功行列格式 / 缓存命中标 cached）；`PageCiteHookTests`
   增 1 例（每页结论行）。阶段 1 730 例全绿。
+
+### 2026-10-27：不再走 scholarly 的"换会话再试一次"
+
+- **现象**：同一个作者主页 URL（`cstart=100&pagesize=100`）在日志里出现两次，间隔约 70 秒。
+- **根因**：`Navigator._get_page` 在副会话（`citations?` 类 URL 用 `_session2`）全部失败后，
+  会 `return self._get_page(pagerequest, True)` 想换主会话再试；我们替换了 `nav._get_page`，
+  这个递归就走进我们的补丁 → 同一 URL 再请求一次。但两套会话共用同一个出口代理、同一份 cookies
+  与 header（scholarly 自带代理池未使用），这一跳注定失败，只多一次请求和一次完整等待。
+- **改动**：`patched_get_page(premium=True)` 立即抛 `MaxTriesExceededException`，把失败交给
+  `PageVisit`（重试/冷却/提示）。
+- **测试**：`ProxyFallbackShortCircuitTests` 2 例（premium 重入不发请求且抛异常 / 普通页面照常）。
