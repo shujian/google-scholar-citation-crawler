@@ -150,13 +150,13 @@ def ensure_papers_root(output_dir, author_id):
     os.makedirs(path, exist_ok=True)
     return path
 
-#: Resolve every citing entry's Cite dialog (five formats) by default whenever
-#: citations are crawled: that dialog is the only place the crawler can read a
-#: citing paper's *full* author list and its complete venue (Chicago), which the
-#: citation-list page truncates.  Knobs, in the usual priority order:
-#: ``--cite-formats`` / ``--no-cite-formats`` > the ``cite_formats`` key in
-#: ``crawler_config.json`` > this default.
-CITE_FORMATS = True
+#: 是否逐个施引条目抓 Cite 对话框（五种引用格式 + 全名 + 未截断 venue）。
+#: **默认关闭**：对话框是一条施引条目一个请求，实测会极大加剧代理被判定的风险
+#: （见 AGENTS.md「Cite 对话框」段），而且下游并不依赖它（3.a.1 只把它当首选来源，
+#: 没有就退回 PDF / DBLP / HTML / LLM）。要抓就显式加 ``--cite-dialog``。
+#: 优先级：``--cite-dialog`` / ``--cite-formats`` / ``--no-cite-formats`` >
+#: ``crawler_config.json`` 的 ``cite_dialog``（旧键 ``cite_formats`` 仍认）> 本默认值。
+CITE_FORMATS = False
 
 # ============================================================
 # Output
@@ -249,8 +249,9 @@ def resolve_cite_formats(cli_value=None, config_path=None):
     file_cfg = load_config_file(config_path)
     if cli_value is not None:
         return bool(cli_value), "cli"
-    if file_cfg.get("cite_formats") is not None:
-        return bool(file_cfg["cite_formats"]), "config"
+    for key in ("cite_dialog", "cite_formats"):
+        if file_cfg.get(key) is not None:
+            return bool(file_cfg[key]), "config"
     return CITE_FORMATS, "default"
 
 

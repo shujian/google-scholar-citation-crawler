@@ -56,13 +56,15 @@ caching, resume after interruption, and outputs both JSON and Excel files.
   and **Findings is a venue of its own**, not its host conference). Venues outside the table keep their
   own text as the key with `venue_key_source: "raw"`, which marks them as reviewable rather than
   normalized; a row without a venue gets no key at all
-- **Citation formats (on by default; `--no-cite-formats` skips it)**: every citing entry keeps its
+- **Citation formats (off by default; `--cite-dialog` enables it)**: every citing entry keeps its
   Scholar cluster id as `cid`, and the entry's Cite dialog
   (`scholar?q=info:<cid>:scholar.google.com/&output=cite`) gives all five formats — MLA / APA /
   **Chicago** (the **full author list with given names**) / Harvard / **Vancouver** (the **untruncated
-  venue** + volume/issue/pages) — stored in the additive `citation['cite']` field. It runs by default
-  because for a *citing* paper this dialog is the only source of both: the citation-list page truncates
-  the venue and abbreviates every author. It costs one request per citing entry, cached in
+  venue** + volume/issue/pages) — stored in the additive `citation['cite']` field. For a *citing*
+  paper this dialog is the only source of both: the citation-list page truncates the venue and
+  abbreviates every author. It is **off by default** because it costs one request per citing entry and
+  sharply raises the chance of the proxy being blocked, and nothing downstream requires it (3.a.1 uses
+  it as its preferred source and falls back to PDF / DBLP / HTML / LLM). Cached in
   `output/cite_format_cache.json`; an entry that already carries a parsed Chicago venue matching the
   venue seen online is skipped **without a request**, and an entry whose venue is already complete
   **and** whose authors are already spelled out in full is skipped too (those two things are all the
@@ -123,7 +125,7 @@ usage: python -m code.scholar_citation [-h] --author AUTHOR [--output-dir DIR]
                                        [--config PATH] [--proxy-url URL]
                                        [--no-proxy LIST] [--skip M] [--limit N]
                                        [--fetch-mode {rough,normal,exact,force}]
-                                       [--interactive-captcha] [--cite-formats]
+                                       [--interactive-captcha] [--cite-dialog]
                                        [--renumber-papers {off,dry-run,apply,force}]
                                        [--no-cite-formats] [--accelerate SCALE] [-v]
 
@@ -142,11 +144,12 @@ optional:
   --fetch-mode {rough,normal,exact,force}
                                 Controls re-fetch aggressiveness (default: normal)
   --interactive-captcha         Enable interactive captcha bypass (see below)
-  --cite-formats                Resolve each citing entry's five citation formats
-                                (MLA/APA/Chicago/Harvard/Vancouver) in citation["cite"];
-                                ON by default; one request per entry, cached
-  --no-cite-formats             Skip the Cite-dialog step (the list page's abbreviated
-                                authors and truncated venue are kept)
+  --cite-dialog                 Also fetch each citing entry's Cite dialog
+                                (MLA/APA/Chicago/Harvard/Vancouver + full author names
+                                + untruncated venue) into citation["cite"]; OFF by
+                                default; one request per entry, cached
+  --no-cite-formats             Explicitly skip the Cite-dialog step (the default; use it
+                                to override a config file that enables it)
   --renumber-papers {off,dry-run,apply,force}
                                 Papers-directory maintenance: off, dry-run (report
                                 only), apply (default: create missing directories with
@@ -202,7 +205,7 @@ only prints a warning, and the JSON is left untouched.
 | `author_<ID>_paper_citations.json` | Per-paper citation lists; also the resume state |
 | `author_<ID>_paper_citations.xlsx` | Excel: Summary, All Citations, Run Metadata |
 | `venue_detail_cache.json` | Publication detail pages already parsed (`citation_for_view` token → full venue). Makes the `venue_full` step resumable; safe to delete to re-read every page |
-| `cite_format_cache.json` | Cite dialogs already parsed (row `cid` → the five formats + `venue_text` / `authors_full`). Makes `--cite-formats` resumable; safe to delete to re-read every dialog |
+| `cite_format_cache.json` | Cite dialogs already parsed (row `cid` → the five formats + `venue_text` / `authors_full`). Makes `--cite-dialog` resumable; safe to delete to re-read every dialog |
 | `author_<ID>_papers/` | **The pipeline's shared papers tree**: `<NNN>-<slug>/` per publication with `citations/` (PDFs + per-citation Cite JSON), `citations_meta.json`, `paper_meta.json`, `download_progress.json`, `enrich_info/`, `analysis_info/`, `analysis_content/`, `.shared/work/`, `old/`. Stage 1 creates the root, the directories, `paper_meta.json`, the `citations_meta.json` main body and the Cite JSON files; every later stage reaches the tree through its own `papers` symlink, never by this path |
 | `output/logs/author_<ID>_run_<ts>.log` | **Full** log of each run — everything, including the per-page/per-request detail the screen hides (stdout is mirrored, filtered lines are written directly). The newest **30** are kept; older ones are **moved** (never deleted) to `output/logs/old/` |
 
@@ -352,7 +355,7 @@ Both the profile's publications and every citing entry therefore carry a normali
   `output/venue_key_backup_<stamp>/`, is idempotent, and its report lists every distinct
   *unrecognised* venue with its count so the table can be extended deliberately.
 
-## Citation Formats (on by default; `--no-cite-formats` skips it)
+## Citation Formats (off by default; `--cite-dialog` enables it)
 
 Every citing entry keeps the Scholar cluster id of its result row as `citation['cid']` (the row's
 `data-cid`; scholarly exposes it as `url_scholarbib`). It is **not** `cites_id`: that one identifies the
@@ -364,8 +367,9 @@ scholar?q=info:<cid>:scholar.google.com/&output=cite&scirp=0&hl=en
 
 One request returns all five formats. (BibTeX is not fetched: its signed link is minted per dialog
 render, so a cached one is always stale.) They are stored in the additive `citation['cite']` field
-(this runs by default — pass `--no-cite-formats` to skip the requests, at the cost of keeping the list
-page's abbreviated authors and truncated venue). Storing them also refreshes `venue_key` from the
+(opt in with `--cite-dialog`: it is one request per citing entry and sharply raises the chance of the
+proxy being blocked, so it is off by default — without it a row keeps the list page's abbreviated
+authors and truncated venue). Storing them also refreshes `venue_key` from the
 dialog's Chicago venue, which is the untruncated one:
 
 ```json
@@ -385,9 +389,11 @@ dialog's Chicago venue, which is the untruncated one:
 
 Notes:
 
-- **On by default.** It costs one request per citing entry — thousands for a real profile — so a run
-  only pays it for entries that can still improve. `output/cite_format_cache.json` records every parsed
-  dialog, so a repeat run issues no request for a page it already has.
+- **Off by default** (`--cite-dialog` enables it). It costs one request per citing entry — thousands
+  for a real profile — and that request pattern is what gets the proxy blocked, while nothing
+  downstream requires it. When it is on, a run still pays only for entries that can improve.
+  `output/cite_format_cache.json` records every parsed dialog, so a repeat run issues no request for a
+  page it already has.
 - **Skipped when there is nothing to gain**: a row whose `venue` is already complete **and** whose
   `authors` are already spelled out in full is not requested at all (no cache entry either). Rows that
   already have a cached dialog are still served from the cache, so re-running cannot drop `cite`.

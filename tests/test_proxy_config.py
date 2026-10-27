@@ -160,7 +160,7 @@ class ResolveProxyConfigTests(unittest.TestCase):
 
 
 class ResolveCiteFormatsTests(unittest.TestCase):
-    """The Cite-dialog step: CLI > config file > default (on)."""
+    """Cite 对话框：CLI > 配置文件 > 默认（**关**）。"""
 
     def _resolve(self, tmpdir, payload=None, cli=None):
         path = os.path.join(tmpdir, CONFIG_FILENAME)
@@ -169,10 +169,15 @@ class ResolveCiteFormatsTests(unittest.TestCase):
         with patch.object(config_module, "DEFAULT_CONFIG_PATH", path):
             return resolve_cite_formats(cli)
 
-    def test_on_by_default(self):
-        """New data must carry citation["cite"], so the step is opt-out."""
+    def test_off_by_default(self):
+        """默认不抓：每抓一条施引条目一个请求，会极大加剧代理被封的风险。"""
         with tempfile.TemporaryDirectory() as tmpdir:
-            self.assertEqual(self._resolve(tmpdir), (True, "default"))
+            self.assertEqual(self._resolve(tmpdir), (False, "default"))
+
+    def test_the_new_config_key_enables_it(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.assertEqual(self._resolve(tmpdir, {"cite_dialog": True}),
+                             (True, "config"))
 
     def test_config_file_can_turn_it_off(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -189,7 +194,7 @@ class ResolveCiteFormatsTests(unittest.TestCase):
     def test_other_config_keys_do_not_affect_it(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             self.assertEqual(self._resolve(tmpdir, {"proxy_url": "http://x:1"}),
-                             (True, "default"))
+                             (False, "default"))
 
 
 class SystemProxyEnvTests(unittest.TestCase):

@@ -771,6 +771,11 @@ class CliWiringTests(unittest.TestCase):
 
     def test_the_flag_enables_the_step(self):
         from code.cli import parse_args
+        args = parse_args(['--author', 'abc', '--cite-dialog'])
+        self.assertTrue(args.cite_formats)
+
+    def test_the_old_flag_is_still_accepted(self):
+        from code.cli import parse_args
         args = parse_args(['--author', 'abc', '--cite-formats'])
         self.assertTrue(args.cite_formats)
 
@@ -779,10 +784,10 @@ class CliWiringTests(unittest.TestCase):
         args = parse_args(['--author', 'abc', '--no-cite-formats'])
         self.assertFalse(args.cite_formats)
 
-    def test_the_fetcher_has_it_on_by_default(self):
-        """The Cite dialog is the only source of full authors + full venue."""
+    def test_the_fetcher_has_it_off_by_default(self):
+        """默认不抓 cite：一条一个请求，太伤代理；要抓就显式传 cite_formats=True。"""
         fetcher = sc.PaperCitationFetcher('test-author', output_dir='.')
-        self.assertTrue(fetcher.cite_formats)
+        self.assertFalse(fetcher.cite_formats)
 
     def test_the_fetcher_takes_an_explicit_override(self):
         self.assertTrue(sc.PaperCitationFetcher('test-author', output_dir='.',

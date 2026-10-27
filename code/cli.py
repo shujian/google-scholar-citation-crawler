@@ -66,15 +66,16 @@ examples:
                              'cURL (Chrome DevTools → Copy as cURL) to inject fresh cookies and '
                              'selected headers; retries indefinitely instead of giving up after '
                              'MAX_RETRIES')
-    parser.add_argument('--cite-formats', dest='cite_formats', action='store_true',
+    parser.add_argument('--cite-dialog', dest='cite_formats', action='store_true',
                         default=None,
-                        help='Resolve each citing entry\'s five citation formats '
-                             '(MLA/APA/Chicago/Harvard/Vancouver) from Scholar\'s Cite '
-                             'dialog and store them in citation["cite"]. This is ON by '
-                             'default (it is the only source of full author names and the '
-                             'untruncated venue for a citing paper); pass --no-cite-formats '
-                             'to skip it. Costs one request per citing entry, cached in '
+                        help='Also fetch each citing entry\'s Cite dialog (MLA/APA/Chicago/'
+                             'Harvard/Vancouver + full author names + untruncated venue) '
+                             'and store it in citation["cite"]. OFF by default: it costs one '
+                             'request per citing entry and sharply increases the chance of '
+                             'the proxy being blocked. Results are cached in '
                              'output/cite_format_cache.json across runs')
+    parser.add_argument('--cite-formats', dest='cite_formats', action='store_true',
+                        default=None, help=argparse.SUPPRESS)
     parser.add_argument('--renumber-papers', dest='renumber_papers', default=None,
                         choices=['off', 'dry-run', 'apply', 'force'],
                         help='Papers-directory maintenance (the stage-1 side of the papers '
@@ -84,9 +85,10 @@ examples:
                              'holds the papers/ lock)')
     parser.add_argument('--no-cite-formats', dest='cite_formats', action='store_false',
                         default=None,
-                        help='Skip the Cite-dialog step above (faster, but citation["cite"] '
-                             'stays empty, so citing entries keep the citation-list page\'s '
-                             'abbreviated authors and truncated venue')
+                        help='Explicitly skip the Cite-dialog step (the default; use it to '
+                             'override a config file that enables it)')
+    parser.add_argument('--no-cite-dialog', dest='cite_formats', action='store_false',
+                        default=None, help=argparse.SUPPRESS)
     parser.add_argument('--accelerate', type=float, default=1.0, metavar='SCALE',
                         help='Scale all deliberate waits by SCALE. Example: --accelerate 0.1 '
                              'runs waits at 1/10 of the normal duration. Default: 1.0. '

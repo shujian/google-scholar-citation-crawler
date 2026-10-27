@@ -3186,3 +3186,16 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
 - **改动**：`patched_get_page(premium=True)` 立即抛 `MaxTriesExceededException`，把失败交给
   `PageVisit`（重试/冷却/提示）。
 - **测试**：`ProxyFallbackShortCircuitTests` 2 例（premium 重入不发请求且抛异常 / 普通页面照常）。
+
+### 2026-10-28：Cite 对话框改为默认关闭（`--cite-dialog`）
+
+- **背景**：点 Cite 对话框是一条施引条目一个请求，实测会极大加剧代理被判定/被封的风险。
+- **改动**：`CITE_FORMATS = False`（默认关闭）；新增 `--cite-dialog` 开关，`--cite-formats` 保留为
+  旧别名，`--no-cite-formats` / `--no-cite-dialog` 显式关闭；配置文件键改为 `cite_dialog`（旧键
+  `cite_formats` 仍认）；`PaperCitationFetcher` 的 `cite_formats` 默认值改为 `None`，走配置解析。
+  启动日志明确写"跳过（默认，加 --cite-dialog 才抓）"或"启用（每条引用一次请求）"。
+- **下游核对**：`enrich_info`（3.a.1）把 `cite` 当 Strategy 0（全名 + 未截断 venue），缺失时自动退回
+  PDF / DBLP / HTML / LLM；3.a.2 / 3.b / 阶段 4 不读 `cite`。没有 cite 时 `venue_key` 退回列表页
+  venue（多为截断串，落 `raw`）。
+- **测试**：`ResolveCiteFormatsTests` 改为钉"默认关 + 新键 `cite_dialog` 可开"；`CliWiringTests`
+  改为 `--cite-dialog` 开启、旧别名仍可用、fetcher 默认 False。

@@ -3876,3 +3876,10 @@ dialog) | papers: A/241 fully cid'd, B/241 fully cid'd + dialogued`。当前数�
 已改：`patched_get_page(premium=True)` 立即抛 `MaxTriesExceededException`，不再把同一个 URL 请求
 第二遍 —— 两套会话共用同一个出口/cookies，那一跳注定失败，只多花一次请求 + 一次等待。
 失败交给 `PageVisit` 的重试/冷却/粘 cURL 提示处理。
+
+**你的要求**："看来点cite会极大加剧代理被封风险。请给cite加一个参数吧。`--cite-dialog`，如果不加这个参数就不获取。
+然后后续流程看来不能依赖这个cite的结果。"
+
+已改：Cite 对话框改为**默认关闭**，`--cite-dialog` 才抓；`--cite-formats` 保留为旧别名，
+`--no-cite-formats` / `--no-cite-dialog` 显式关闭；配置键 `cite_dialog`（旧键 `cite_formats` 仍认）。
+下游经核对不依赖它：3.a.1 只是把它当首选来源，缺了会退回 PDF / DBLP / HTML / LLM。

@@ -49,10 +49,11 @@ This file provides guidance to AI coding agents working with code in this reposi
 - Force re-fetch specific papers: `python -m code.scholar_citation --author YOUR_AUTHOR_ID --fetch-mode force --skip 2 --limit 3`
 - Enable debug logging: `python -m code.scholar_citation --author YOUR_AUTHOR_ID -v`
 - Use interactive captcha recovery: `python -m code.scholar_citation --author YOUR_AUTHOR_ID --interactive-captcha`
-- Every citing entry's five citation formats are resolved by default (one request per entry).
+- **Cite 对话框默认关闭**（`--cite-dialog` 才抓）：一条施引条目一个请求，实测会极大加剧代理被判定的风险；
+  下游不依赖它（3.a.1 只把它当首选来源，没有就退回 PDF / DBLP / HTML / LLM）。
   **BibTeX is not fetched**: its signed link is minted per dialog render and is unusable from a
-  cache. `--no-cite-formats` skips the whole step:
-  `python -m code.scholar_citation --author YOUR_AUTHOR_ID --skip 0 --limit 1`
+  cache. The step is opt-in (`--cite-dialog`), e.g.
+  `python -m code.scholar_citation --author YOUR_AUTHOR_ID --cite-dialog --skip 0 --limit 1`
 - Papers-directory maintenance:
   `python -m code.scholar_citation --author YOUR_AUTHOR_ID --renumber-papers {off,dry-run,apply,force}`
   （默认 `apply`；`dry-run` 只报告，`force` 忽略阶段 2 的使用锁；也可在 `crawler_config.json`
@@ -142,7 +143,8 @@ google-scholar-citation-crawler/
   `output/logs/old/`；当前 run 的日志永远保留。
 - **不依赖任何环境变量**：旋钮走命令行参数，成组配置走项目根 `crawler_config.json`，
   优先级 **命令行参数 > 配置文件 > 代码内默认值**。布尔开关同理，例如 Cite 对话框那一步：
-  `--cite-formats` / `--no-cite-formats` > 配置键 `cite_formats` > 默认 **开启**。`--config PATH`
+  `--cite-dialog`（旧别名 `--cite-formats`）/ `--no-cite-formats` > 配置键 `cite_dialog`
+  （旧键 `cite_formats` 仍认）> 默认 **关闭**。`--config PATH`
   可指向别的配置文件；默认文件缺失不算错误，显式指定的文件缺失/损坏会直接报错退出。
 - `code/lib_env.py` 是 `code/` 下**唯一**接触 `os.environ` 的模块：它只为第三方库摆设环境
   （selenium 遥测开关、httpx 需要的 `NO_PROXY` 规范化），并把解析后的代理写进环境供 httpx 使用
@@ -340,10 +342,14 @@ The program always runs in two sequential phases from `main()`:
   until the table is extended — `venue_key_source` tells the two apart)
 - Resolves each citing entry's five citation formats from Scholar's Cite dialog
   before writing the output (`code/cite_format.py`, cached in
-  `output/cite_format_cache.json`). **On by default** — the Chicago string is the
-  source of the citing paper's full author list and untruncated venue — and
-  `--no-cite-formats` skips it; an entry without a `cid` cannot be addressed, so rows
-  written before that field existed stay untouched until their paper is re-fetched.
+  `output/cite_format_cache.json`）。Chicago 串是施引论文**全作者全名**与
+  **未截断 venue** 的来源，但这一步**默认关闭**：`--cite-dialog` 才抓（`--cite-formats` 是它的
+  旧别名，`--no-cite-formats` / `--no-cite-dialog` 显式关闭；配置文件键 `cite_dialog`，
+  旧键 `cite_formats` 仍认）。
+  一个施引条目一个请求，实测会极大加剧代理被封的风险 —— 用户 2026-10-28 定。下游不依赖它：
+  3.a.1 只把 `cite` 当**首选**来源（全名 + 未截断 venue），缺了会自动退回 PDF / DBLP / HTML / LLM；
+  3.a.2 / 3.b / 阶段 4 不读它。没有 cite 时 `venue_key` 退回列表页 venue（多为截断串、落到 `raw`）。
+  一个没有 `cid` 的条目本来就寻址不到对话框。
   **`cid` 是按每次渲染发放的临时句柄，不是稳定标识**：同一条列表 URL 隔一分钟再取，
   前几行的 `data-cid` 就换了一批；拿几天前的句柄去问 `output=cite` 得到的是 Google 的 404 页
   （一个两天前成功抓过对话框的 cid 也 404），而同一时刻刚从列表页取到的新句柄返回 200。

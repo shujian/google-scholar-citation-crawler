@@ -160,7 +160,7 @@ class PaperCitationFetcher:
                  fetch_mode='normal',
                  interactive_captcha=False,
                  delay_scale=1.0,
-                 cite_formats=True):
+                 cite_formats=None):
         self.author_id = author_id
         self.output_dir = output_dir
         self.limit = limit
@@ -174,7 +174,8 @@ class PaperCitationFetcher:
         # On by default (see code.config.CITE_FORMATS): the Cite dialog is the only
         # source of a citing paper's full author list and untruncated venue, so new
         # data must carry it unless the caller opts out.
-        self.cite_formats = bool(cite_formats)
+        # None = 没有显式指定：交给配置解析（默认**关闭**，见 code/config.py:CITE_FORMATS）。
+        self.cite_formats = resolve_cite_formats(cite_formats)[0]
         self._captcha_solved_count = 0
         self._delay_scale = delay_scale
         self._injected_cookies = {}
@@ -2497,9 +2498,13 @@ def main():
         )
         logger.debug("Cite-dialog step: %s (%s)", cite_formats, cite_formats_source)
         if not cite_formats:
-            run_log.info("--no-cite-formats: citing entries keep the list page's "
-                         "abbreviated authors and truncated venue "
-                         "(citation['cite'] stays empty)", module="cite", indent=1)
+            run_log.info("Cite dialogs: skipped (default; add --cite-dialog to fetch "
+                         "them) — citation['cite'] stays empty, so citing entries "
+                         "keep the list page's abbreviated authors and truncated venue",
+                         module="cite", indent=1)
+        else:
+            run_log.info("Cite dialogs: enabled (one request per citing entry)",
+                         module="cite", indent=1)
         setup_proxy(proxy.proxy_url, proxy.no_proxy)
         export_proxy_env(proxy.proxy_url, proxy.no_proxy)
         # Console-only logging: sys.stdout is the TeeStream that mirrors into the
