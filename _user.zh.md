@@ -3888,3 +3888,8 @@ dialog) | papers: A/241 fully cid'd, B/241 fully cid'd + dialogued`。当前数�
 
 已改：短走重试（walk 明显少于应有条数）不再整段重来，而是**保留已抓到的行**，从 `walked - 20`（最后两页）
 继续，重取的那两页按位置跳过、不重复计入。只有一条都没抓到时才从头开始。
+
+**你的要求**："在日志里说明一下，虽然本轮没有 position changes，但是应用了之前的 position change，重命名了 x 个目录。"
+
+已加：目录维护跑完后补一条 `Papers maintenance: 3 directory rename(s), 1 merge(s) — from order changes
+that had not been applied to the tree yet`（`report_applied()`；`dry-run` 或确实无动作时不打）。

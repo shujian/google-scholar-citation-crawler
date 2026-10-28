@@ -128,6 +128,11 @@ google-scholar-citation-crawler/
   `paper_meta.json`**、把已有目录**改名对齐**、同作品目录合并、已消失论文归档到 `papers/old/`；
   `code/citation_index.py` 写每篇的 `citations_meta.json` 主体与 `citations/<NNNN>-<slug>.json`。
   阶段 2 只补下载字段，不创建、不改名、不归档。
+- **"没有位置变化"≠"目录不用动"**：`log_paper_order_changes()` 比较的是上一版 profile 与本轮，
+  而更早的编号变化可能还没落到目录名上（上一轮被阶段 2 的锁挡住、或用 dry-run 跑过）。所以维护跑完
+  后还会补一条 `Papers maintenance: 3 directory rename(s), 1 merge(s) — from order changes that
+  had not been applied to the tree yet`（`papers_maintenance.report_applied()`；`dry-run` / 无动作时
+  一个字都不打）。
 - **`papers/` 的使用锁**：本阶段每轮都会按最新排名改论文目录名，而阶段 2 拼路径只认输入快照的
   `pub.no` + 标题、写完还会 `makedirs` —— 两者同时跑会把旧名字的目录**重新建出来**，PDF / 进度 /
   meta 被拆成两套。所以阶段 2 在通过启动校验后往 `<papers 根>/.stage2.lock` 写一把提示锁

@@ -69,6 +69,35 @@ def _plan_has_work(plan_summary):
                ("moves", "merges", "orphans", "conflicts"))
 
 
+def report_applied(result, log=print):
+    """把"这一轮对目录做了什么"总结成一条日志（没有动作就什么都不说）。
+
+    为什么要单独一条：`log_paper_order_changes()` 比较的是**上一版 profile 与本轮**，
+    所以它说"没有位置变化"时，磁盘上仍可能有**更早**的编号变化等着落地（上一轮被阶段 2
+    的锁挡住、或用 dry-run 跑过）。这时只报"没有位置变化"会让人以为目录不用改。
+    """
+    if not result or result.get("mode") not in ("apply", "force"):
+        return None
+    plan = result.get("plan") or {}
+    moves, merges = plan.get("moves", 0), plan.get("merges", 0)
+    orphans, created = plan.get("orphans", 0), result.get("created", 0) or 0
+    if not (moves or merges or orphans):
+        return None
+    parts = []
+    if moves:
+        parts.append(f"{moves} directory rename(s)")
+    if merges:
+        parts.append(f"{merges} merge(s)")
+    if orphans:
+        parts.append(f"{orphans} archived to papers/old/")
+    if created:
+        parts.append(f"{created} directory(ies) created")
+    line = ("Papers maintenance: " + ", ".join(parts)
+            + " — from order changes that had not been applied to the tree yet")
+    log(line)
+    return line
+
+
 def ensure_paper_dirs(papers_root, papers, log=print):
     """给每篇论文建目标目录**并写 `paper_meta.json`**（只建不删；已存在就跳过）。
 

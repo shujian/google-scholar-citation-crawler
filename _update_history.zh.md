@@ -3210,3 +3210,13 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   `… retrying once, re-fetching the last 2 page(s) from row 80`。
 - **测试**：`ShortWalkRetryTests.test_the_retry_restarts_near_the_tail_not_at_the_beginning`
   （第二次的起点是 (100, 80) 而不是 (100, 0)）。
+
+### 2026-10-28：目录维护的实际动作要单独报一行
+
+- **问题**：`Paper order check: No paper position changes` 只说"本轮与上一版 profile 比没变"，
+  但更早的编号变化可能还没落地（上一轮被阶段 2 锁挡住、或用 dry-run 跑过），实际改名了 x 个目录却
+  没有任何提示。
+- **改动**：`papers_maintenance.report_applied(result)` 把 `moves` / `merges` / `orphans` / `created`
+  汇总成一条 `Papers maintenance: … — from order changes that had not been applied to the tree yet`；
+  `main()` 在维护后调用它并走 `run_log`（`dry-run`、`off`、无动作时返回 None，不打）。
+- **测试**：`ReportAppliedTests` 3 例（改名/合并/新建 / 归档 / 无动作与 dry-run 静默）。

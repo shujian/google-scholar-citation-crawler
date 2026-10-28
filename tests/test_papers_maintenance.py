@@ -172,3 +172,41 @@ class PaperMetaBuilderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReportAppliedTests(unittest.TestCase):
+    """目录维护实际做了什么，要有一条日志。
+
+    `log_paper_order_changes()` 比较的是上一版 profile 与本轮，所以它说"没有位置变化"时，
+    磁盘上仍可能有**更早**的编号变化等着落地（上一轮被阶段 2 的锁挡住，或用了 dry-run）。
+    """
+
+    def _report(self, result):
+        from code.papers_maintenance import report_applied
+        lines = []
+        line = report_applied(result, log=lines.append)
+        return line, lines
+
+    def test_renames_from_earlier_changes_are_reported(self):
+        line, lines = self._report(
+            {"mode": "apply", "created": 2,
+             "plan": {"moves": 3, "merges": 1, "orphans": 0}})
+        self.assertEqual(len(lines), 1)
+        self.assertIn("3 directory rename(s)", line)
+        self.assertIn("1 merge(s)", line)
+        self.assertIn("2 directory(ies) created", line)
+
+    def test_archived_papers_are_reported(self):
+        line, _ = self._report(
+            {"mode": "apply", "created": 0,
+             "plan": {"moves": 0, "merges": 0, "orphans": 4}})
+        self.assertIn("4 archived", line)
+
+    def test_nothing_to_say_when_nothing_happened(self):
+        for result in ({"mode": "apply", "plan": {"moves": 0, "merges": 0, "orphans": 0}},
+                       {"mode": "dry-run", "plan": {"moves": 5}},
+                       {"mode": "off"},
+                       None):
+            line, lines = self._report(result)
+            self.assertIsNone(line)
+            self.assertEqual(lines, [])

@@ -124,6 +124,7 @@ from code.venue_quality import (
 )
 
 from code.papers_maintenance import run_for_output as run_papers_maintenance
+from code.papers_maintenance import report_applied as report_papers_maintenance
 
 from code.citation_index import (assign_entry_indices, write_cite_files,
                                  write_citations_meta_for_pub)
@@ -2549,7 +2550,13 @@ def main():
 
         # 目录调整必须在**抓取开始前**全部完成；不需要更新的数据先确定落盘。
         # 因此把维护与 baseline 放到“是否要抓”的判断之前：即使本轮无需抓取，目录/产物也已对齐。
-        run_papers_maintenance(args.output_dir, author_id, renumber_mode, log=print)
+        maint = run_papers_maintenance(args.output_dir, author_id, renumber_mode,
+                                       log=print)
+        # 上面那句只比较"上一版 profile 与本轮"，所以"没有位置变化"并不等于
+        # "目录不用动"：更早的编号变化可能还没落地。这里补一条实际动作。
+        applied = report_papers_maintenance(maint, log=lambda *_: None)
+        if applied:
+            run_log.info(applied, module="plan", indent=1)
         citation_fetcher.write_baseline()
 
         if prev_profile and curr_profile:
