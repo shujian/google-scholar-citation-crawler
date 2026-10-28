@@ -1318,7 +1318,7 @@ class ShortWalkRetryTests(FetcherTestCase):
         iters = [Iter(rows) for rows in rows_per_attempt]
 
         def make_iterator(fetcher=None):
-            calls.append(1)
+            calls.append((batch._start_index, batch._resume_offset))
             return iters[min(len(calls) - 1, len(iters) - 1)]
 
         batch._make_iterator = make_iterator
@@ -1339,6 +1339,18 @@ class ShortWalkRetryTests(FetcherTestCase):
         batch, calls = self._walk([self._rows(3), self._rows(10)], min_rows=220)
         self.assertEqual(len(calls), 2)
         self.assertEqual(len(batch.citations), 10, "第二次有内容就用第二次")
+
+    def test_the_retry_restarts_near_the_tail_not_at_the_beginning(self):
+        """短走重试从**尾部**倒回两页继续，而不是回到第 2 页重下几百页。
+
+        2026-10-28：一个空页就能让翻页提前结束（100/213），旧行为是整段重来。
+        """
+        batch, calls = self._walk([self._rows(100), self._rows(100)], min_rows=213)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0], (0, None), "第一次从头开始")
+        self.assertEqual(calls[1], (100, 80), "第二次从第 80 行（倒回两页）继续")
+        self.assertEqual(batch._resume_skip, 0, "那两页确实被跳过、没有重复计入")
+        self.assertTrue(batch.short_walk_retried)
 
     def test_a_complete_walk_is_not_retried(self):
         batch, calls = self._walk([self._rows(10)], min_rows=10)

@@ -3199,3 +3199,14 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   venue（多为截断串，落 `raw`）。
 - **测试**：`ResolveCiteFormatsTests` 改为钉"默认关 + 新键 `cite_dialog` 可开"；`CliWiringTests`
   改为 `--cite-dialog` 开启、旧别名仍可用、fetcher 默认 False。
+
+### 2026-10-28：短走重试从尾部继续，而不是回到第 2 页
+
+- **现象**：2026 年抓到 100 行（应有 213）时，`start=110` 连续两次空页 → 重走整段，从 `start=10`
+  重新下载已抓过的页。
+- **根因**：`BatchFetchSession.run` 的短走重试把状态回滚到本轮开头再走一遍。
+- **改动**：保留已抓到的行，`_resume_offset = walked - SHORT_WALK_REWIND_ROWS(20)`（最后两页）继续；
+  `_resume_skip` 跳过重取到的重复行；只有 `walked == 0` 才从头开始。日志改为
+  `… retrying once, re-fetching the last 2 page(s) from row 80`。
+- **测试**：`ShortWalkRetryTests.test_the_retry_restarts_near_the_tail_not_at_the_beginning`
+  （第二次的起点是 (100, 80) 而不是 (100, 0)）。

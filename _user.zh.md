@@ -3883,3 +3883,8 @@ dialog) | papers: A/241 fully cid'd, B/241 fully cid'd + dialogued`。当前数�
 已改：Cite 对话框改为**默认关闭**，`--cite-dialog` 才抓；`--cite-formats` 保留为旧别名，
 `--no-cite-formats` / `--no-cite-dialog` 显式关闭；配置键 `cite_dialog`（旧键 `cite_formats` 仍认）。
 下游经核对不依赖它：3.a.1 只是把它当首选来源，缺了会退回 PDF / DBLP / HTML / LLM。
+
+**你的判断**："这个执行不太对，如果没有能抓完就停止了，建议从最后一两页开始重试，而不是回到第二页。"
+
+已改：短走重试（walk 明显少于应有条数）不再整段重来，而是**保留已抓到的行**，从 `walked - 20`（最后两页）
+继续，重取的那两页按位置跳过、不重复计入。只有一条都没抓到时才从头开始。

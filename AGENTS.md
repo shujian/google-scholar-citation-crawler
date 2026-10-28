@@ -466,11 +466,15 @@ Papers with `>= YEAR_BASED_THRESHOLD (50)` citations switch to year-by-year fetc
   `bytes` clearly small / `tail_ok=no` → the response was truncated (network/proxy, worth
   re-fetching); `markers` containing `captcha` / `unusual_traffic` → Scholar is rate-limiting (cool
   down, do not re-fetch); everything normal but too few rows → Scholar really returned a short list.
-- **A walk that comes back clearly short is re-walked once, and only once**: in year mode
-  `BatchFetchSession.run(min_rows=probe - start)`; if `walked < min_rows`, reset the state and walk
-  **again** (`short_walk_retried=True`). Two identical results mean the end; the existing
-  `short_attempts → rescan from page 1 → stalled` machinery decides when to park. Direct mode passes
-  no `min_rows` (a short page there is the normal end of the list).
+- **A walk that comes back clearly short is retried once, and only once — from the tail**: in year
+  mode `BatchFetchSession.run(min_rows=probe - start)`; if `walked < min_rows`, the session keeps every
+  row it already has and resumes from `walked - SHORT_WALK_REWIND_ROWS` (20 = the last two pages,
+  `_resume_offset`), skipping those re-fetched rows (`_resume_skip`) instead of appending them twice.
+  A premature end usually means one page in the tail came back empty without a "no results" banner
+  (a 100/213 walk ends that way), so restarting from page 2 would re-download hundreds of pages to fix
+  one empty response. Only a walk that collected nothing starts over. Two identical results mean the
+  end; the existing `short_attempts → rescan from page 1 → stalled` machinery decides when to park.
+  Direct mode passes no `min_rows` (a short page there is the normal end of the list).
 - **A zero-row page without a "no results" marker is fetched once more**: `patched_load_url` retries
   the same URL when `empty_page_worth_retrying()` is true (results shell present, zero rows, no
   `no_results` marker); a second page with content is used, and a second zero-row page is taken as

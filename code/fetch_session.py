@@ -14,6 +14,7 @@ from typing import Optional
 from code.citation_models import ResumeState, FetchPolicy, YearRecord
 from code.output_state import PaperFetchState
 from code.common import SCHOLAR_PAGE_SIZE
+from code.config import SHORT_WALK_REWIND_ROWS
 from code.log_utils import run_log
 
 
@@ -40,6 +41,12 @@ class BatchFetchSession:
     # 走完却明显少于应有条数时，本轮**再走一次**；这里记下是否已经重走过，
     # 让调用方在"两次结果一样"时按 stall 处理，而不是继续重走。
     _short_walk_retried: bool = False
+    # 重走时从哪里开始：默认接着 `_start_index`，短走重试则从尾部倒回几页
+    # （见 config.SHORT_WALK_REWIND_ROWS）。已抓到的行不回滚。
+    _resume_offset: Optional[int] = None
+    # 尾部重走时，开头这么多行是**已经抓过**的（同一段页面再取一遍拿的是同样的行），
+    # 直接跳过，避免把重复行当成新行加进来。
+    _resume_skip: int = 0
 
     # -- properties ----------------------------------------------------------
 
@@ -96,10 +103,12 @@ class BatchFetchSession:
             if fetcher is not None else None
         ) or _pub_parser._SearchScholarIterator
         nav = scholarly._Scholarly__nav
-        url = self._page_url(self._url, self._start_index)
+        offset = self._resume_offset if self._resume_offset is not None else self._start_index
+        self._resume_offset = None          # 只对这一次重走生效
+        url = self._page_url(self._url, offset)
         return _wrap_direct_citedby_iterator(
             _SSI(nav, url),
-            self._in_page_skip(self._start_index),
+            self._in_page_skip(offset),
         )
 
     def _blocked_url(self):
@@ -139,16 +148,25 @@ class BatchFetchSession:
                               on_citation)
                 walked = self._start_index - initial[1]
                 if (min_rows and walked < min_rows and not self._short_walk_retried):
-                    # 页面被截断（短页且没有翻页链接）：整段再走一次，只一次。
+                    # 页面被截断（短页且没有翻页链接）：再走一次，只一次。
+                    # 但**从尾部重试**：已抓到的行全部保留，只倒回最后
+                    # SHORT_WALK_REWIND_ROWS 行（两页）重新取 —— 提前结束通常
+                    # 只是最后一两页里有一个空页，整段重来等于把几百页重下一遍。
                     self._short_walk_retried = True
-                    self._citations = list(initial[0])
-                    self._start_index = initial[1]
-                    self._dedup_count = initial[2]
-                    self._new_count = initial[3]
                     self._termination_reason = ""
                     self._items_on_page = 0
+                    resume = max(initial[1],
+                                 self._start_index - SHORT_WALK_REWIND_ROWS)
+                    if resume >= self._start_index:
+                        resume = initial[1]         # 什么都没抓到：只能从头来
+                    self._resume_offset = resume
+                    self._resume_skip = self._start_index - resume
+                    where = (f"re-fetching the last {(self._start_index - resume) // 10} "
+                             f"page(s) from row {resume}" if resume > initial[1]
+                             else "starting over")
                     run_log.warn(f"walk ended after {walked} row(s) but {min_rows} "
-                                 f"expected — re-walking it once", module="year", indent=2)
+                                 f"expected — retrying once, {where}",
+                                 module="year", indent=2)
                     continue
                 break
             except KeyboardInterrupt:
@@ -178,6 +196,10 @@ class BatchFetchSession:
         seen = dict(seen_keys or {})
 
         for citing in iterator:
+            if self._resume_skip > 0:
+                # 尾部重走：这一段页面已经抓过，跳过重复行（只是把响应再取一次）。
+                self._resume_skip -= 1
+                continue
             self._start_index += 1
             try:
                 info = fetcher._extract_citation_info(citing, fallback_year=fallback_year)
