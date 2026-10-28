@@ -57,7 +57,7 @@ class LockFileTests(unittest.TestCase):
             with open(SL.lock_path(tmp), "w", encoding="utf-8") as f:
                 json.dump(info, f)
             self.assertTrue(SL.is_live(info, tmp, now=datetime.now()))
-            old = datetime.now() + timedelta(hours=SL.STALE_AFTER_HOURS + 1)
+            old = datetime.now() + timedelta(minutes=SL.STALE_AFTER_MINUTES + 1)
             self.assertFalse(SL.is_live(info, tmp, now=old))
 
     def test_a_broken_lock_does_not_block_anything(self):

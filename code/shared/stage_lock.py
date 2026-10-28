@@ -33,8 +33,10 @@ import sys
 #: 锁文件名（固定放在 papers 根下，两阶段都经 `papers` 符号链接看到同一个文件）
 LOCK_FILENAME = ".stage2.lock"
 
-#: 跨主机（SSHFS）看不到 pid 时的陈旧判据：文件比这还旧就当作死锁
-STALE_AFTER_HOURS = 24.0
+#: 跨主机（SSHFS）看不到 pid 时的陈旧判据：锁文件比这还旧就当作死锁。
+#: 锁的 mtime 是**写入/刷新时刻**，而本模块自己不做心跳 —— 阶段 2 在收到 Ctrl-C 时会**立刻**
+#: 释放锁，所以正常结束不会留下新锁；只有被强杀（SIGKILL / 断电 / 关终端时没走信号处理）才会留。
+STALE_AFTER_MINUTES = 15.0
 
 
 def lock_path(papers_root):
@@ -67,7 +69,7 @@ def is_live(info, papers_root=None, now=None):
     """这条锁是否还算"有人正在用"。纯判断，不改文件。
 
     * 同主机（`info['host']` == 本机名）：看 pid 还在不在；
-    * 跨主机：看不到 pid，退回**文件年龄**（`STALE_AFTER_HOURS`）；
+    * 跨主机：看不到 pid，退回**文件年龄**（`STALE_AFTER_MINUTES`）；
     * 没有文件可用于看年龄时，按"活着"处理（宁可少改名，也不拆数据）。
     """
     if not isinstance(info, dict) or not info:
@@ -80,7 +82,7 @@ def is_live(info, papers_root=None, now=None):
         try:
             age = (now or _dt.datetime.now()).timestamp() - os.path.getmtime(
                 lock_path(papers_root))
-            return age < STALE_AFTER_HOURS * 3600.0
+            return age < STALE_AFTER_MINUTES * 60.0
         except OSError:
             return False
     return True
