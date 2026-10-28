@@ -98,6 +98,31 @@ def report_applied(result, log=print):
     return line
 
 
+def report_leftovers(result, log=print):
+    """把"想动却没动"的目录报出来（歧义 / 冲突），并指向 manifest。
+
+    这两类**不会被自动处理**：`ambiguous` 是两个候选判据都定夺不了（同标题多条），
+    `conflicts` 是目标目录已存在且标题不同（绝不覆盖）。它们只写进 manifest，如果日志里
+    也不提，磁盘上就会留下一个没人知道的旧目录。
+    """
+    plan = (result or {}).get("plan") or {}
+    ambiguous, conflicts = plan.get("ambiguous", 0), plan.get("conflicts", 0)
+    if not (ambiguous or conflicts):
+        return None
+    parts = []
+    if ambiguous:
+        parts.append(f"{ambiguous} directory(ies) left untouched (title shared by several "
+                     f"papers, none of the tie-breakers decided)")
+    if conflicts:
+        parts.append(f"{conflicts} target name(s) already taken by a different paper")
+    manifest = result.get("manifest")
+    where = f" — see {manifest}" if manifest else ""
+    line = ("Papers maintenance: " + "; ".join(parts)
+            + f"; nothing was moved for them{where}")
+    log(line)
+    return line
+
+
 def ensure_paper_dirs(papers_root, papers, log=print):
     """给每篇论文建目标目录**并写 `paper_meta.json`**（只建不删；已存在就跳过）。
 
@@ -174,6 +199,7 @@ def run(papers_root, papers, mode=DEFAULT_MODE, output_dir=None, log=print):
                          manifest_dir=(os.path.join(output_dir, "renumber_%s" % stamp)
                                        if output_dir else None))
         result["plan"] = summarize(plan)
+        result["manifest"] = plan.get("manifest")   # 供日志指出"详见哪个 manifest"
         work = _plan_has_work(result["plan"])
         if work and held:
             if was_apply:

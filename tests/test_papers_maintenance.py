@@ -210,3 +210,31 @@ class ReportAppliedTests(unittest.TestCase):
             line, lines = self._report(result)
             self.assertIsNone(line)
             self.assertEqual(lines, [])
+
+
+class ReportLeftoversTests(unittest.TestCase):
+    """歧义 / 冲突的目录本轮不会动 —— 日志里必须说，否则磁盘上会留个没人知道的旧目录。"""
+
+    def test_ambiguous_directories_are_reported_with_the_manifest(self):
+        from code.papers_maintenance import report_leftovers
+        lines = []
+        line = report_leftovers(
+            {"plan": {"ambiguous": 2, "conflicts": 0},
+             "manifest": "output/renumber_20261028-092500/manifest.json"},
+            log=lines.append)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("2 directory(ies) left untouched", line)
+        self.assertIn("manifest.json", line)
+
+    def test_conflicts_are_reported(self):
+        from code.papers_maintenance import report_leftovers
+        line = report_leftovers({"plan": {"ambiguous": 0, "conflicts": 1}},
+                                log=lambda *_: None)
+        self.assertIn("1 target name(s) already taken", line)
+
+    def test_nothing_to_say(self):
+        from code.papers_maintenance import report_leftovers
+        for result in ({"plan": {"ambiguous": 0, "conflicts": 0}}, {"plan": {}}, None):
+            lines = []
+            self.assertIsNone(report_leftovers(result, log=lines.append))
+            self.assertEqual(lines, [])

@@ -125,6 +125,7 @@ from code.venue_quality import (
 
 from code.papers_maintenance import run_for_output as run_papers_maintenance
 from code.papers_maintenance import report_applied as report_papers_maintenance
+from code.papers_maintenance import report_leftovers as report_papers_leftovers
 
 from code.citation_index import (assign_entry_indices, write_cite_files,
                                  write_citations_meta_for_pub)
@@ -2557,6 +2558,11 @@ def main():
         applied = report_papers_maintenance(maint, log=lambda *_: None)
         if applied:
             run_log.info(applied, module="plan", indent=1)
+        # 歧义 / 冲突的目录**这一轮不会被处理**，只写进了 manifest —— 日志里必须说一声，
+        # 否则磁盘上留下一个旧目录，没人知道为什么。
+        leftover = report_papers_leftovers(maint, log=lambda *_: None)
+        if leftover:
+            run_log.warn(leftover, module="plan", indent=1)
         citation_fetcher.write_baseline()
 
         if prev_profile and curr_profile:

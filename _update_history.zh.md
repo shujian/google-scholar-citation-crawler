@@ -3220,3 +3220,13 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   汇总成一条 `Papers maintenance: … — from order changes that had not been applied to the tree yet`；
   `main()` 在维护后调用它并走 `run_log`（`dry-run`、`off`、无动作时返回 None，不打）。
 - **测试**：`ReportAppliedTests` 3 例（改名/合并/新建 / 归档 / 无动作与 dry-run 静默）。
+
+### 2026-10-28：歧义 / 冲突的目录要在日志里报出来
+
+- **问题**：`ambiguous`（同标题多条、判据定夺不了）与 `conflicts`（目标名被另一篇占用）只写进
+  `renumber_*/manifest.json`，日志里没有任何提示 —— 磁盘上会留下一个没人知道的旧目录（而且
+  `ensure_paper_dirs` 照样建新目录）。
+- **改动**：`papers_maintenance.report_leftovers(result)` 输出一条 WARN（含数量与 manifest 路径），
+  `main()` 在维护后调用；`run()` 的返回值补上 `manifest` 供日志指路。
+- **测试**：`ReportLeftoversTests` 3 例（歧义带 manifest / 冲突 / 无动作静默）。
+- **未做**（用户未要求）：歧义时仍然会新建空目录，旧目录留在原地 —— 行为改动待定。

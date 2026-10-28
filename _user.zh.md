@@ -3893,3 +3893,9 @@ dialog) | papers: A/241 fully cid'd, B/241 fully cid'd + dialogued`。当前数�
 
 已加：目录维护跑完后补一条 `Papers maintenance: 3 directory rename(s), 1 merge(s) — from order changes
 that had not been applied to the tree yet`（`report_applied()`；`dry-run` 或确实无动作时不打）。
+
+**你的要求**："日志里一定要有提示。"（针对歧义 / 冲突目录"本轮没动但没人知道"）
+
+已加：`papers_maintenance.report_leftovers()` → 维护后一条 WARN
+`Papers maintenance: 2 directory(ies) left untouched (…); nothing was moved for them — see
+output/renumber_<stamp>/manifest.json`。没有这两类时不打。
