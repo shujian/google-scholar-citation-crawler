@@ -142,7 +142,7 @@ class AuthorProfileFetcher:
                 author = scholarly.search_author_id(self.author_id)
 
             d = rand_delay(self.delay_scale)
-            run_log.debug(f"Waiting {d:.0f}s...", module="http", indent=1)
+            run_log.debug(f"Waiting {d:.0f}s...", module="http", indent=2)
             time.sleep(d)
 
             run_log.debug("fetching the full publication list (may take several "

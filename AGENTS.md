@@ -277,6 +277,11 @@ google-scholar-citation-crawler/
   只有 `scholarly_session.patched_get_page` 把它拼在那次请求的 `Request URL: …` 行尾。
   `code/cite_format.py` 在 `get_soup()` 前后 `set_entry()` / `clear_entry()`（`finally` 里清，
   失败也一样）。判据是**一次请求里，同一条信息只出现一次**。
+- **同一个"层"的行必须同一缩进**：`run` / `phase` / `paper` = 0 层；`year · page N · M items`
+  与各段标题 = 1 层；**一次请求**的全部事实（`Request URL`、`waiting`、`page shape`、
+  `Page items`、`Blocked fetching`、`Error fetching (retry …)`、cooldown）= 2 层；逐条明细
+  （`[n] <title>`、`[i/N] <cid> … formats`）= 3 层。`page_visit` 曾把自己的 6 行放在 1 层，
+  于是同一次请求的其它行在 2 层 —— 看起来像"缩进错了"；现在统一到 2 层。
 - **一次请求只描述一次，且都写全**：Cite 对话框的 404 过去会打三条（`Request URL` +
   一条把 URL 截断成 80 字符的 WARN + 逐行结论），标题也被截到 50/60 字符。
   现在：`page_visit` **不再**为"这条记录不存在"打 WARN（它只抛 `RecordUnavailable`），

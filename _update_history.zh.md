@@ -3230,3 +3230,12 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   `main()` 在维护后调用；`run()` 的返回值补上 `manifest` 供日志指路。
 - **测试**：`ReportLeftoversTests` 3 例（歧义带 manifest / 冲突 / 无动作静默）。
 - **未做**（用户未要求）：歧义时仍然会新建空目录，旧目录留在原地 —— 行为改动待定。
+
+### 2026-10-29：统一"请求级"日志的缩进
+
+- **现象**：`Page items: 0 …` 与 `Blocked fetching …` 同属一次请求，却差两个空格。
+- **根因**：`page_visit` 的 6 条日志用 `indent=1`，而 session 层的 `Request URL` / `waiting` /
+  `page shape` / `Page items` 用 `indent=2`。
+- **改动**：`page_visit` 6 处 1 → 2；`author_fetcher` 的 `Waiting …s...` 同样改 2。
+- **口径**（写进 AGENTS.md）：0 层 = run/phase/paper；1 层 = 年份/页码行与段标题；2 层 = 一次请求的
+  全部事实；3 层 = 逐条明细。

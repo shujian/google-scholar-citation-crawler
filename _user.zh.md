@@ -3899,3 +3899,10 @@ that had not been applied to the tree yet`（`report_applied()`；`dry-run` 或�
 已加：`papers_maintenance.report_leftovers()` → 维护后一条 WARN
 `Papers maintenance: 2 directory(ies) left untouched (…); nothing was moved for them — see
 output/renumber_<stamp>/manifest.json`。没有这两类时不打。
+
+**你的观察**："Page items: 0 … 这里的日志缩进好像有点问题。"
+
+已修：`page_visit` 的 6 行（`Blocked fetching` / `waiting … (retry)` / `Error fetching` /
+`Rate-limit cooldown` / `still refusing after fresh cookies` / `still failing after …`）原先在 1 层，
+而同一次请求的 `Request URL` / `page shape` / `Page items` 在 2 层。现在统一到 2 层；
+`author_fetcher` 的 `Waiting 69s...` 也一并对齐。

@@ -148,7 +148,7 @@ class PageVisit:
                                  f"(HTTP {status}) — treating this record as "
                                  f"unavailable, not the session; the next request "
                                  f"will ask again if the session really is blocked",
-                                 module="http", indent=1)
+                                 module="http", indent=2)
                     raise RecordUnavailable(url, status) from e
 
                 # -- captcha recovery (interactive mode) -----------------
@@ -158,7 +158,7 @@ class PageVisit:
                     captcha_attempted = True
                     run_log.warn(f"Blocked fetching {label}: {e}"
                                  f"{_status_note(status)}",
-                                 module="http", indent=1)
+                                 module="http", indent=2)
                     solved = self.ctx.try_interactive_captcha_fn(url)
                     if solved:
                         retries = 0
@@ -175,13 +175,13 @@ class PageVisit:
                     run_log.debug(f"Error fetching {label} "
                                   f"(retry {retries}/{max_retries}): {e}"
                                   f"{_status_note(status)}",
-                                  module="http", indent=1)
+                                  module="http", indent=2)
                     # INFO for the same reason as the pre-request wait in
                     # scholarly_session: it is the run's heartbeat while the
                     # crawler sits between attempts.  The *cause* stays DEBUG.
                     detail = f" · {wait_str}" if wait_str else ""
                     run_log.info(f"waiting {d:.0f}s (retry {retries}/{max_retries})"
-                                 f"{detail}", module="http", indent=1)
+                                 f"{detail}", module="http", indent=2)
                     time.sleep(d)
                     continue
 
@@ -194,7 +194,7 @@ class PageVisit:
                     run_log.warn(f"{label} still failing after "
                                  f"{max_cooldowns} cooldowns: {e}"
                                  f"{_status_note(status)}",
-                                 module="http", indent=1)
+                                 module="http", indent=2)
                     if self.ctx.wait_proxy_switch_fn and self.ctx.wait_proxy_switch_fn():
                         retries = 0
                         captcha_attempted = False
@@ -205,7 +205,7 @@ class PageVisit:
                 wait_str = self.ctx.wait_status_fn() if self.ctx.wait_status_fn else ""
                 run_log.warn(f"Rate-limit cooldown after {label} failures: "
                              f"waiting {d/60:.0f} min... [{wait_str}]",
-                             module="http", indent=1)
+                             module="http", indent=2)
                 time.sleep(d)
                 retries = 0
                 captcha_attempted = False
