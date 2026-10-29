@@ -3906,3 +3906,8 @@ output/renumber_<stamp>/manifest.json`。没有这两类时不打。
 `Rate-limit cooldown` / `still refusing after fresh cookies` / `still failing after …`）原先在 1 层，
 而同一次请求的 `Request URL` / `page shape` / `Page items` 在 2 层。现在统一到 2 层；
 `author_fetcher` 的 `Waiting 69s...` 也一并对齐。
+
+**你的要求**："这个 page item 应该也要输出第几页，按照 1 层管理吧。"
+
+已改：0 行的页改成 `2025 · page 9 · 0 items (no citation rows) [banner='…']`（WARN，indent=1，
+module 随年份走，与逐页进度行同一形状）；紧邻的两条决定（"再取一次" / "当作列表结束"）也移到 1 层。

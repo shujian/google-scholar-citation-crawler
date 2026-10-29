@@ -2962,3 +2962,16 @@ Cite 对话框的代价不是"多几条请求"，而是它改变了请求构成�
 
 分层的判据不是"哪个文件写的"，而是**这条事实属于谁**：一次请求产生的（URL、等待、响应形状、
 空页证据、重试/冷却）都在 2 层；逐条记录在 3 层；页码与段标题在 1 层。
+
+## 2026-10-29：空页也要能定位
+
+`Page items: 0` 只说了"这一页是空的"，没说**是哪一页** —— 而空页恰恰是最需要知道位置的时候
+（是第 9 页提前结束，还是第 1 页就没数据）。现在它复用逐页进度行的格式：
+
+```
+WARN  year        2025 · page 9 · 0 items (no citation rows) [banner='Articles Scholar']
+WARN  year        Page returned no rows and is not a 'no results' page — fetching it once more
+```
+
+同形状、同层、同 module —— 一条页面的故事从"第几页"到"打算怎么办"都在同一个深度，
+用 `grep 'page 9'` 就能把这一页的所有事实串起来。

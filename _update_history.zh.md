@@ -3239,3 +3239,13 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
 - **改动**：`page_visit` 6 处 1 → 2；`author_fetcher` 的 `Waiting …s...` 同样改 2。
 - **口径**（写进 AGENTS.md）：0 层 = run/phase/paper；1 层 = 年份/页码行与段标题；2 层 = 一次请求的
   全部事实；3 层 = 逐条明细。
+
+### 2026-10-29：0 行的页也写出"第几页"，并与进度行同层
+
+- **改动**：`record_zero_row_citation_page(ctx, soup, url=None)` 现在用
+  `citation_page_progress(url, 0)` 生成位置前缀 —— `2025 · page 9 · 0 items (no citation rows)
+  [banner='Articles Scholar']`；`module` 用 `citation_page_module(url)`，indent=1。
+  随后的 `Page returned no rows … fetching it once more` / `Empty page again after one retry …`
+  也移到 indent=1 与同一 module。
+- **测试**：`test_record_zero_row_citation_page_logs_and_stores_evidence`（断言页码与年份）、
+  新增 `test_the_zero_row_line_sits_at_the_page_level`（模块列 + 缩进），并更新两条旧断言。

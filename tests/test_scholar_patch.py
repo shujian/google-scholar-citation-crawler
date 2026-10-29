@@ -398,12 +398,25 @@ class CitationPageEvidenceTests(unittest.TestCase):
     def test_record_zero_row_citation_page_logs_and_stores_evidence(self):
         ctx = _types.SimpleNamespace(last_page_evidence=None)
         soup = self._soup('<html><body>Our systems have detected unusual traffic</body></html>')
+        url = ('https://scholar.google.com/scholar?start=80&hl=en&as_sdt=2005'
+               '&sciodt=0,5&as_ylo=2025&as_yhi=2025&cites=1')
         with patch("sys.stdout", new_callable=StringIO) as fake_stdout:
-            evidence = record_zero_row_citation_page(ctx, soup)
+            evidence = record_zero_row_citation_page(ctx, soup, url)
         output = fake_stdout.getvalue()
-        self.assertIn('Page items: 0 (no citation rows)', output)
+        # 页码与年份都写出来（与逐页进度行同一形状、同一层）。
+        self.assertIn('2025 · page 9 · 0 items (no citation rows)', output)
         self.assertIn('markers=unusual_traffic', output)
         self.assertIs(ctx.last_page_evidence, evidence)
+
+    def test_the_zero_row_line_sits_at_the_page_level(self):
+        """与 `2025 · page 3 · 10 items` 同一缩进（1 层），模块也随年份走。"""
+        from code.log_utils import run_log
+        ctx = _types.SimpleNamespace(last_page_evidence=None)
+        url = 'https://scholar.google.com/scholar?start=20&as_ylo=2025&as_yhi=2025&cites=1'
+        with patch("sys.stdout", new_callable=StringIO) as fake_stdout:
+            record_zero_row_citation_page(ctx, None, url)
+        line = [ln for ln in fake_stdout.getvalue().splitlines() if '0 items' in ln][0]
+        self.assertIn('WARN  year        2025 · page 3 · 0 items', line)
 
     def test_record_zero_row_citation_page_without_soup_still_logs(self):
         ctx = _types.SimpleNamespace(last_page_evidence='stale')
@@ -411,7 +424,7 @@ class CitationPageEvidenceTests(unittest.TestCase):
             evidence = record_zero_row_citation_page(ctx, None)
         self.assertIsNone(evidence)
         self.assertIsNone(ctx.last_page_evidence)
-        self.assertIn('Page items: 0 (no citation rows)', fake_stdout.getvalue())
+        self.assertIn('0 items (no citation rows)', fake_stdout.getvalue())
 
 
 class StartupRobustnessTests(FetcherTestCase):
@@ -1553,7 +1566,7 @@ class EmptyPageRetryTests(FetcherTestCase):
     def test_a_no_results_page_is_not_retried(self):
         rows, calls, log = self._load([self.NO_RESULTS, self.WITH_ROW])
         self.assertEqual(len(calls), 1, "Google 说没有结果时重试没有意义")
-        self.assertIn("Page items: 0", log)
+        self.assertIn("0 items (no citation rows)", log)
         self.assertNotIn("fetching it once more", log)
 
     def test_a_page_with_rows_is_never_retried(self):

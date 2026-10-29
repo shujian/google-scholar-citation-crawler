@@ -317,17 +317,22 @@ def empty_page_worth_retrying(evidence):
     return 'no_results' not in (evidence.get('markers') or [])
 
 
-def record_zero_row_citation_page(ctx, soup):
+def record_zero_row_citation_page(ctx, soup, url=None):
     """Store and log the evidence for a citation page that returned no rows.
 
     Called from the page loader — the only place that sees the raw page — so a
     zero-row response always leaves a trace instead of looking like a genuinely
     empty citation list.  Returns the evidence dict (or None).
+
+    The line carries the page position (`2025 · page 9 · 0 items`) and sits at the
+    same level as the per-page progress line: both answer "where in the traversal
+    are we", and an empty page is exactly the case where that matters.
     """
     evidence = citation_page_evidence(soup)
     ctx.last_page_evidence = evidence
-    run_log.warn(f"Page items: 0 (no citation rows){format_page_evidence(evidence)}",
-                 module="http", indent=2)
+    where = citation_page_progress(url, 0) if url else "0 items"
+    run_log.warn(f"{where} (no citation rows){format_page_evidence(evidence)}",
+                 module=citation_page_module(url) if url else "http", indent=1)
     return evidence
 
 
@@ -1053,10 +1058,11 @@ def patch_scholarly(ctx: SessionContext) -> None:
             # A citation page with zero result rows used to be logged silently,
             # which made a blocked/empty response look like a genuinely empty
             # citation list.
-            evidence = record_zero_row_citation_page(ctx, soup)
+            evidence = record_zero_row_citation_page(ctx, soup, url)
+            page_module = citation_page_module(url)
             if attempt == 2:
                 run_log.warn("Empty page again after one retry — taking it as the "
-                             "end of this citation list", module="http", indent=2)
+                             "end of this citation list", module=page_module, indent=1)
                 break
             if not empty_page_worth_retrying(evidence):
                 break
@@ -1064,7 +1070,7 @@ def patch_scholarly(ctx: SessionContext) -> None:
             # truncated response rather than the end of the list.  Fetch the
             # same page once more before giving up.
             run_log.warn("Page returned no rows and is not a 'no results' page — "
-                         "fetching it once more", module="http", indent=2)
+                         "fetching it once more", module=page_module, indent=1)
             ctx.last_page_evidence = evidence
 
         ctx.last_scholar_url = ctx.current_attempt_url

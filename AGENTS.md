@@ -278,7 +278,7 @@ google-scholar-citation-crawler/
   `code/cite_format.py` 在 `get_soup()` 前后 `set_entry()` / `clear_entry()`（`finally` 里清，
   失败也一样）。判据是**一次请求里，同一条信息只出现一次**。
 - **同一个"层"的行必须同一缩进**：`run` / `phase` / `paper` = 0 层；`year · page N · M items`
-  与各段标题 = 1 层；**一次请求**的全部事实（`Request URL`、`waiting`、`page shape`、
+  （含 0 行的页与它的两条重试决定）与各段标题 = 1 层；**一次请求**的全部事实（`Request URL`、`waiting`、`page shape`、
   `Page items`、`Blocked fetching`、`Error fetching (retry …)`、cooldown）= 2 层；逐条明细
   （`[n] <title>`、`[i/N] <cid> … formats`）= 3 层。`page_visit` 曾把自己的 6 行放在 1 层，
   于是同一次请求的其它行在 2 层 —— 看起来像"缩进错了"；现在统一到 2 层。
@@ -308,6 +308,10 @@ google-scholar-citation-crawler/
   `page 2 · 7 items`）。这是"现在抓到哪一年、第几页"的唯一来源。判据在
   `citation_page_progress()` / `citation_page_module()`（`code/scholarly_session.py`），页码取
   URL 的 `start=`、年份取 `as_ylo=`。
+- **0 行的页用同一个形状、同一层**：`2025 · page 9 · 0 items (no citation rows)
+  [banner='…'; markers=…]`（WARN，`module` 随 `citation_page_module()`，indent=1）；它下面两条
+  决定（`Page returned no rows … fetching it once more` / `Empty page again after one retry …`）
+  也在 1 层 —— 一条页面的故事说在同一个深度，"这是第几页"永远能一眼对上。
 - **第三方 logger 一律压到 WARNING**：`httpx` / `httpcore` / `scholarly` 的逐请求日志绕过
   `run_log`，且从不进日志文件（root handler 写 stderr，run log 是 stdout 的 TeeStream）。
   `setup_logging()` 把它们设为 WARNING（`-v` 给回 DEBUG）。
