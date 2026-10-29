@@ -414,7 +414,11 @@ The program always runs in two sequential phases from `main()`:
 - 身份判定委托 `shared.identity.same_citation_identity()`，与下游四处同一份判据；上游
   `cites_id` 换代或 Google 合并 cluster 时，两侧的"同一条"判断不会漂移。
 - `citations_meta.json` 的主体只含阶段 1 的字段（`index` / `cites_id` / 书目字段 / `venue_key*`），
-  按 `index` 升序；阶段 2 的下载字段、`fail_reason`、运行期 `_` 前缀事实与退役编号原样保留。
+  按 `index` 升序；退役编号原样保留。**这个文件归本阶段独占**（阶段 2 只读、不写；它自己的下载状态在
+  `download_progress.json`），老库里可能还留着阶段 2 曾写的 `local_filename` / `_` 前缀事实 /
+  `fail_reason` —— 原样保留、不再产生。
+- **零引用的论文也写一个 `[]`**：`skip_zero` 的论文没有条目，但"缺文件"与"这篇没有引用"必须能区分，
+  所以照样落盘（幂等；已有条目不会被清空）。只有"有条目却一条都算不出 `index`"（数据问题）才不建文件。
 - 无真实 `cites_id` 的行在写主体时补合成键（见「跨仓库共享件」）。
 
 ### Citation fetch strategy

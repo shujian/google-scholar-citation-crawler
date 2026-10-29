@@ -68,10 +68,33 @@ class WriteCitationsMetaTests(unittest.TestCase):
             write_citations_meta(tmp, citations)
             self.assertEqual(os.path.getmtime(os.path.join(tmp, META_NAME)), before, "不得重写 ✓")
 
-    def test_no_index_means_no_file(self):
+    def test_a_row_without_index_is_not_turned_into_a_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(write_citations_meta(tmp, [{"title": "T"}]), 0)
-            self.assertFalse(os.path.isfile(os.path.join(tmp, META_NAME)), "不该造空 meta ✗")
+            self.assertFalse(os.path.isfile(os.path.join(tmp, META_NAME)),
+                             "有行却算不出 index 是数据问题，不是零引用 ✗")
+
+    def test_a_zero_citation_paper_gets_an_empty_list(self):
+        """`skip_zero` 的论文也要有 `citations_meta.json`（内容是 `[]`）。
+
+        这个文件归阶段 1 独占（阶段 2 不再写），"缺文件"与"这篇没有引用"必须能区分。
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(write_citations_meta(tmp, []), 0)
+            self.assertTrue(os.path.isfile(os.path.join(tmp, META_NAME)))
+            self.assertEqual(self._read(tmp), [])
+            # 幂等：内容没变 → 不重写
+            before = os.path.getmtime(os.path.join(tmp, META_NAME))
+            write_citations_meta(tmp, [])
+            self.assertEqual(os.path.getmtime(os.path.join(tmp, META_NAME)), before)
+
+    def test_retired_rows_survive_an_empty_run(self):
+        """已有条目（上游引文消失 = 退役）不会因为"这一遍 0 条"被清空。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            write_citations_meta(tmp, [{"index": 3, "title": "Gone"}])
+            before = self._read(tmp)
+            write_citations_meta(tmp, [])
+            self.assertEqual(self._read(tmp), before)
 
     def test_dry_run_writes_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:

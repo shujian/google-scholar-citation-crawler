@@ -3249,3 +3249,16 @@ Cite 对话框更全的作者/venue —— 写者会把它降级，**不跑**。
   也移到 indent=1 与同一 module。
 - **测试**：`test_record_zero_row_citation_page_logs_and_stores_evidence`（断言页码与年份）、
   新增 `test_the_zero_row_line_sits_at_the_page_level`（模块列 + 缩进），并更新两条旧断言。
+
+### 2026-10-29：`citations_meta.json` 收归阶段 1 独占（零引用也写）
+
+- **背景**：阶段 1 不写零引用的论文、阶段 2 又会补写（老路径），于是 207–209 三篇新论文没有文件，
+  下游 3.a.1 打出 `❌ citations_meta.json not found, skipping`。
+- **阶段 1**：`write_citations_meta()` 在 `citations == []` 时写 `[]`（幂等；已有条目原样保留）；
+  只有"有行但算不出 `index`"才不建文件。
+- **阶段 2**：删除 `save_citations_meta` / `_sync_own_meta_fields` / `_write_citations_meta_full` 与
+  5 个只服务它们的辅助函数、8 个调用点；该文件只读。原先靠 meta 里 `local_filename` 的两处读点
+  改为读 `download_progress.json`（旧库回落 meta），并保留"两处候选都列出来、按文件是否存在挑"的
+  语义（`_declared_filenames()`）。
+- **测试**：阶段 1 加 3 例（零引用写 `[]`、幂等、退役条目不被清空）；阶段 2 删掉 2 个只测旧写入行为
+  的用例文件/类，端到端断言改为"阶段 2 不产生 meta"。

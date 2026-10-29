@@ -3911,3 +3911,12 @@ output/renumber_<stamp>/manifest.json`。没有这两类时不打。
 
 已改：0 行的页改成 `2025 · page 9 · 0 items (no citation rows) [banner='…']`（WARN，indent=1，
 module 随年份走，与逐页进度行同一形状）；紧邻的两条决定（"再取一次" / "当作列表结束"）也移到 1 层。
+
+**你的判断**："我觉得应该改成一致的行为，既然都是阶段1负责，那就都由阶段1写吧，空的也写。阶段2就不要在处理 citations_meta 了。"
+
+已改：
+- 阶段 1：`write_citations_meta()` 对**零引用**的论文也写一个 `[]`（幂等；已有条目不会被清空）；
+  只有"有条目却算不出 index"才不建文件。
+- 阶段 2：`save_citations_meta()` / `_sync_own_meta_fields()` / `_write_citations_meta_full()` 及
+  其 5 个辅助函数、8 个调用点全部删除；`citations_meta.json` 只读。它的读点改读自己的
+  `download_progress.json`（旧库回落 meta 里残留的 `local_filename`）。

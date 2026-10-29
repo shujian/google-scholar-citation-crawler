@@ -250,7 +250,9 @@ def write_citations_meta(paper_dir, citations, log=None, dry_run=False):
     """按 `index` 升序写出 `<paper_dir>/citations_meta.json` 的**主体**。
 
     * 只写阶段 1 字段 ✓（见 `META_FIELDS` ✓），**下载字段一律不写** ✗；
-    * 全部条目都算不出 `index` 时**不创建/不改动文件** ✗（避免造出空 meta ✓）；
+    * **零引用的论文也写一个 `[]`** ✓（这个文件归本阶段所有，阶段 2 不再写它；
+      "缺文件"与"这篇没有引用"必须能区分）；
+    * 有条目却一条都算不出 `index` 时**不创建/不改动文件** ✗（那是数据问题，不是零引用）；
     * **幂等**：磁盘内容与将要写的一致 → 不重写 ✓（与 `write_cite_files()` 同一策略 ✓）。
 
     返回写入的条数（0 表示内容没变 ✓）；`dry_run=True` 时只计算不落盘 ✓。
@@ -269,10 +271,16 @@ def write_citations_meta(paper_dir, citations, log=None, dry_run=False):
     for row, key in zip(rows, synthetic_keys_for(rows, None)):
         if key and not row.get("cites_id"):
             row["cites_id"] = key
-    entries = [meta_entry(c) for c in rows]
-    entries = [e for e in entries if e.get("index")]
-    if not entries:
-        return 0
+    if rows:
+        entries = [meta_entry(c) for c in rows]
+        entries = [e for e in entries if e.get("index")]
+        if not entries:
+            return 0
+    else:
+        # 确知"这篇没有引用"（`skip_zero`）→ 写一个**空列表**。
+        # 这个文件归本阶段所有（阶段 2 不再写它），所以"没有引用"也得有文件：
+        # 下游要按目录读它，"缺文件"与"零引用"必须能区分（缺就是丢了）。
+        entries = []
     entries.sort(key=lambda e: int(e["index"]))
     path = _os.path.join(paper_dir, META_NAME)
     # **保留阶段 2 的字段** ✓（只动自己产生的数据 ✓）：已有 meta 里那些
